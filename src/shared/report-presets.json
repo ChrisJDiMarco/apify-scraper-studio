@@ -1,0 +1,32 @@
+[
+  {
+    "id": "market-scan",
+    "name": "Market scan",
+    "description": "Trends, demand signals, objections, and opportunity whitespace.",
+    "instruction": "Focus on market-level trends, repeated needs, urgency, buyer language, objections, whitespace, and recommended next moves."
+  },
+  {
+    "id": "account-intelligence",
+    "name": "Account intelligence",
+    "description": "Named accounts, authors, pain points, timing, and outreach angles.",
+    "instruction": "Focus on account and author-level intelligence, buying triggers, pain points, timing clues, likely stakeholders, and useful outreach angles."
+  },
+  {
+    "id": "subreddit-pulse",
+    "name": "Subreddit pulse",
+    "description": "Community sentiment, recurring threads, vocabulary, and complaints.",
+    "instruction": "Focus on community sentiment, recurring questions, recurring complaints, native vocabulary, controversial arguments, and useful post ideas."
+  },
+  {
+    "id": "lead-list",
+    "name": "Lead list",
+    "description": "Potential leads, qualification notes, evidence, and suggested follow-up.",
+    "instruction": "Focus on extractable leads, qualifying context, evidence IDs, suggested follow-up, and reasons each lead appears relevant."
+  },
+  {
+    "id": "competitive-report",
+    "name": "Competitive report",
+    "description": "Competitor claims, positioning gaps, sentiment, and content angles.",
+    "instruction": "Focus on competitor mentions, positioning claims, sentiment, gaps, risks, counter-positioning, and content or sales angles."
+  }
+]

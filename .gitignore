@@ -1,0 +1,12 @@
+node_modules/
+out/
+dist/
+.DS_Store
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.p12
+*.p8

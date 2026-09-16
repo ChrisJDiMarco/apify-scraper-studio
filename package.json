@@ -1,0 +1,70 @@
+{
+  "name": "apify-scraper-studio",
+  "version": "0.1.0",
+  "description": "Packaged Mac workflow for running Apify scrapers and analyzing results with Codex CLI.",
+  "main": "./out/main/index.js",
+  "author": "Chris DiMarco",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build && node scripts/copy-main-modules.mjs",
+    "preview": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "release:diagnostics": "node scripts/release-diagnostics.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "apify-client": "^2.23.4",
+    "electron-updater": "^6.8.9",
+    "lucide-react": "^1.22.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "^4.1.9",
+    "electron": "^42.5.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "jsdom": "^29.1.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.9"
+  },
+  "build": {
+    "appId": "com.chrisdimarco.apifyscraperstudio",
+    "productName": "Apify Scraper Studio",
+    "files": [
+      "out/**/*",
+      "node_modules/**/*",
+      "package.json",
+      "README.md",
+      "scripts/google-sheets-webhook.gs"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.inherit.plist"
+    },
+    "afterSign": "scripts/notarize-if-configured.cjs",
+    "directories": {
+      "buildResources": "resources",
+      "output": "dist"
+    }
+  }
+}

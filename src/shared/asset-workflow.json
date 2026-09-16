@@ -1,0 +1,89 @@
+{
+  "columns": [
+    { "id": "detected", "name": "Detected" },
+    { "id": "in-review", "name": "In Review" },
+    { "id": "generating", "name": "Generating" },
+    { "id": "ready", "name": "Ready for Review" },
+    { "id": "in-edit", "name": "In Edit" },
+    { "id": "approved", "name": "Approved" },
+    { "id": "posted", "name": "Posted" },
+    { "id": "rejected", "name": "Rejected" }
+  ],
+  "initialCards": [
+    {
+      "id": "listen-1",
+      "column": "detected",
+      "title": "Brands invisible to AI answers are losing purchase consideration",
+      "tags": ["reddit", "linkedin", "report"],
+      "signalCount": "1,204",
+      "signalChange": "+312%",
+      "priority": "breaking",
+      "date": "Last 6h"
+    },
+    {
+      "id": "trend-1",
+      "column": "in-review",
+      "title": "The AI search visibility crisis: ranking first but getting zero clicks",
+      "tags": ["blog", "pr", "paid", "video"],
+      "signalCount": "4,200",
+      "signalChange": "+187%",
+      "priority": "validated",
+      "date": "Validated"
+    },
+    {
+      "id": "gen-main",
+      "column": "generating",
+      "title": "WebMCP: the protocol that makes AI-native browsing possible",
+      "tags": ["blog", "newsletter", "x"],
+      "signalCount": "634",
+      "signalChange": "Emerging",
+      "priority": "generating",
+      "date": "In production"
+    },
+    {
+      "id": "approved-1",
+      "column": "approved",
+      "title": "LLM citation wars: how to win AI mentions before competitors do",
+      "tags": ["report", "sales", "linkedin"],
+      "signalCount": "2,100",
+      "signalChange": "+94%",
+      "priority": "approved",
+      "date": "Approved"
+    }
+  ],
+  "assetTypes": [
+    { "id": "paid-social-ads", "name": "Paid Social Ad Variants", "channel": "Paid Media" },
+    { "id": "paid-creative-brief", "name": "Paid Creative Brief", "channel": "Paid Media" },
+    { "id": "linkedin-company", "name": "LinkedIn Company Page Post", "channel": "LinkedIn" },
+    { "id": "linkedin-exec", "name": "LinkedIn Executive Post", "channel": "LinkedIn" },
+    { "id": "blog-wordpress", "name": "WordPress Blog Post", "channel": "Blog" },
+    { "id": "blog-news-short", "name": "Blog News Update", "channel": "Blog" },
+    { "id": "newsletter-full", "name": "Newsletter Edition", "channel": "Newsletter" },
+    { "id": "x-post-thread", "name": "X Post and Thread", "channel": "X" },
+    { "id": "social-multiplatform", "name": "Multi-Platform Social Post", "channel": "Social" },
+    { "id": "digest-internal", "name": "Slack/Teams Trend Digest", "channel": "Internal" },
+    { "id": "ab-variants", "name": "Asset Variants", "channel": "Testing" },
+    { "id": "content-refresh", "name": "Content Refresh", "channel": "Blog" },
+    { "id": "podcast-brief", "name": "Podcast Episode Brief", "channel": "Podcast" },
+    { "id": "youtube-longform", "name": "YouTube Long-Form Script", "channel": "Video" },
+    { "id": "pr-pitch-v2", "name": "PR Press Pitch and Media Brief", "channel": "PR" },
+    { "id": "sales-enablement", "name": "Sales Enablement Brief", "channel": "Sales" },
+    { "id": "video-short", "name": "Short-Form Video Script", "channel": "Video" },
+    { "id": "slack-approval", "name": "Slack Approval Card", "channel": "Internal" },
+    { "id": "industry-template", "name": "Industry Template Package", "channel": "Marketplace" },
+    { "id": "html-landing-page", "name": "HTML Landing Page", "channel": "Landing Page" }
+  ],
+  "presets": [
+    { "id": "full-blitz", "name": "Full Blitz", "description": "All 20 asset types", "assetTypeIds": ["paid-social-ads", "paid-creative-brief", "linkedin-company", "linkedin-exec", "blog-wordpress", "blog-news-short", "newsletter-full", "x-post-thread", "social-multiplatform", "digest-internal", "ab-variants", "content-refresh", "podcast-brief", "youtube-longform", "pr-pitch-v2", "sales-enablement", "video-short", "slack-approval", "industry-template", "html-landing-page"] },
+    { "id": "lightweight", "name": "Lightweight", "description": "Blog, social, and email", "assetTypeIds": ["blog-wordpress", "blog-news-short", "linkedin-company", "x-post-thread", "newsletter-full"] },
+    { "id": "pr-push", "name": "PR Push", "description": "Press, pitch, and social", "assetTypeIds": ["pr-pitch-v2", "linkedin-exec", "linkedin-company", "x-post-thread", "social-multiplatform"] },
+    { "id": "video-first", "name": "Video First", "description": "Video scripts and social teasers", "assetTypeIds": ["youtube-longform", "video-short", "podcast-brief", "x-post-thread", "social-multiplatform"] },
+    { "id": "paid-media", "name": "Paid Media", "description": "Ads, landing, and creative", "assetTypeIds": ["paid-social-ads", "paid-creative-brief", "html-landing-page", "ab-variants"] }
+  ],
+  "automationRules": [
+    { "id": "rule-1", "name": "Signal Surge to Review", "category": "Detection", "trigger": "Signal velocity above threshold", "action": "Move detected card to In Review", "enabled": true },
+    { "id": "rule-2", "name": "Validated Trend to Asset Factory", "category": "Generation", "trigger": "Score above 90 with source diversity", "action": "Generate selected asset preset with Codex", "enabled": true },
+    { "id": "rule-3", "name": "Assets Complete to Ready", "category": "Workflow", "trigger": "All selected assets complete", "action": "Move card to Ready for Review", "enabled": true },
+    { "id": "rule-4", "name": "Ready Over 48h to Escalate", "category": "SLA", "trigger": "Ready card has no action for 48 hours", "action": "Flag card for owner review", "enabled": true }
+  ]
+}

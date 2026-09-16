@@ -1,0 +1,420 @@
+.kanban-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 14px;
+  min-height: 100%;
+}
+.kanban-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(250px, 1fr);
+  gap: 12px;
+  min-width: 0;
+  overflow: auto;
+}
+.kanban-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 68vh;
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f7f9fa;
+}
+.kanban-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+}
+.kanban-card {
+  display: grid;
+  gap: 9px;
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  padding: 11px;
+  background: #ffffff;
+  cursor: pointer;
+}
+.kanban-card.active {
+  border-color: #00a995;
+  background: #e9fbf8;
+}
+.kanban-card:focus-visible,
+.asset-card:focus-visible {
+  border-color: #00a995;
+  box-shadow: 0 0 0 3px rgba(0, 200, 180, 0.16);
+  outline: none;
+}
+.kanban-card > div:first-child,
+.factory-summary,
+.preset-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.kanban-card strong {
+  line-height: 1.3;
+}
+.asset-factory {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  overflow: auto;
+}
+.factory-summary {
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+.notice-line {
+  max-width: min(560px, 48vw);
+  border: 1px solid #c8e5dc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #205b4d;
+  background: #f0fbf7;
+  font-size: 12px;
+}
+.confirm-inline {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #f2c1c4;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: #fff8f8;
+}
+.confirm-inline span {
+  color: #657174;
+  font-size: 12px;
+}
+.preset-list,
+.asset-status-list,
+.quick-card,
+.asset-edit-form {
+  display: grid;
+  gap: 9px;
+}
+.template-strip {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e0e7e9;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+.template-strip span {
+  color: #657174;
+  font-size: 12px;
+  font-weight: 700;
+}
+.preset-row,
+.asset-status {
+  border: 1px solid #e0e7e9;
+  border-radius: 8px;
+  padding: 9px;
+  background: #ffffff;
+}
+.asset-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+.preset-row span,
+.asset-status span {
+  color: #657174;
+  font-size: 12px;
+}
+.quick-card {
+  border-top: 1px solid #e0e7e9;
+  padding-top: 14px;
+}
+.asset-editor {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+.asset-library-tools,
+.dataset-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.asset-card {
+  cursor: pointer;
+}
+.asset-card.active {
+  border-color: #00a995;
+  background: #e9fbf8;
+}
+.asset-card small,
+.asset-edit-form code {
+  overflow-wrap: anywhere;
+  color: #657174;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.asset-edit-form select,
+.asset-factory select,
+.asset-library-tools select,
+.dataset-tools select,
+.context-select {
+  min-height: 34px;
+  border: 1px solid #cfd8dc;
+  border-radius: 7px;
+  padding: 0 10px;
+  color: #172022;
+  background: #ffffff;
+}
+.context-select {
+  max-width: 260px;
+}
+.table-wrap tbody tr[tabindex="0"] {
+  cursor: pointer;
+}
+.table-wrap tbody tr.active-row td {
+  background: #e9fbf8;
+}
+.table-wrap tbody tr[tabindex="0"]:focus-visible td {
+  outline: 2px solid rgba(0, 169, 149, 0.42);
+  outline-offset: -2px;
+}
+.dataset-preview {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.dataset-preview > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.dataset-preview span {
+  color: #657174;
+  font-size: 12px;
+}
+.dataset-preview .json-block {
+  margin-top: 0;
+}
+.run-detail {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #e0e7e9;
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  background: #fbfcfd;
+}
+.run-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.run-facts span {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e0e7e9;
+  border-radius: 8px;
+  padding: 9px;
+  background: #ffffff;
+  color: #657174;
+  font-size: 12px;
+}
+.run-facts strong {
+  color: #172022;
+}
+.run-detail .json-block {
+  margin-top: 0;
+}
+.thread-intel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.thread-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.thread-summary-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dce4e7;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+.thread-summary-card > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.thread-summary-card strong {
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.thread-summary-card p {
+  margin: 0;
+  color: #253033;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.thread-bullets {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid #e0e7e9;
+  padding-top: 8px;
+}
+.thread-bullets span {
+  color: #657174;
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+.thread-bullets small {
+  color: #536165;
+  line-height: 1.35;
+}
+.codex-log {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #e0e7e9;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+.codex-log strong {
+  color: #172022;
+  font-size: 12px;
+}
+.codex-log small {
+  color: #536165;
+  line-height: 1.35;
+}
+.codex-log pre {
+  max-height: 140px;
+  margin: 2px 0 0;
+  overflow: auto;
+  color: #536165;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.report-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.report-preset {
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  border: 1px solid #e0e7e9;
+  border-radius: 8px;
+  padding: 10px;
+  color: #172022;
+  background: #ffffff;
+  text-align: left;
+}
+.report-preset:hover:not(:disabled) {
+  border-color: #00a995;
+  background: #f0fbf7;
+}
+.report-preset span {
+  color: #657174;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.readiness-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  border: 1px solid #e0e7e9;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+.readiness-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.workflow-catalog {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid #e0e7e9;
+  padding-top: 14px;
+}
+.workflow-catalog > div,
+.catalog-grid,
+.rule-list {
+  display: grid;
+  gap: 8px;
+}
+.catalog-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.catalog-item,
+.rule-item {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e0e7e9;
+  border-radius: 8px;
+  padding: 9px;
+  background: #fbfcfd;
+}
+.catalog-item strong,
+.rule-item strong {
+  font-size: 12px;
+}
+.catalog-item span,
+.rule-item span {
+  color: #657174;
+  font-size: 11px;
+  line-height: 1.35;
+}
+@media (max-width: 1180px) {
+  .kanban-shell {
+    grid-template-columns: 1fr;
+  }
+  .kanban-board {
+    grid-auto-columns: minmax(230px, 78vw);
+  }
+  .asset-library-tools,
+  .dataset-tools,
+  .context-select {
+    grid-template-columns: 1fr;
+    width: 100%;
+    max-width: none;
+  }
+  .run-facts {
+    grid-template-columns: 1fr;
+  }
+  .report-preset-grid {
+    grid-template-columns: 1fr;
+  }
+  .thread-summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .readiness-grid {
+    grid-template-columns: 1fr;
+  }
+  .notice-line {
+    width: 100%;
+    max-width: none;
+  }
+}
