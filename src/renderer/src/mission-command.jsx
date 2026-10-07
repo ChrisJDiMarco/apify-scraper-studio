@@ -178,7 +178,7 @@ function ActionGraphPreview({ mission, state, selectedDataset, busy, onRunAction
     <div className="v5-action-graph">
       <div className="v5-section-head">
         <div>
-          <strong>Typed action graph</strong>
+          <strong>Step-by-step plan</strong>
           <small>{graph.canRun ? `${graph.steps.length} runnable steps` : graph.missing.join(' ') || 'Needs setup'}</small>
         </div>
         <Badge tone={graph.canRun ? 'ready' : 'warning'}>{graph.canRun ? 'Runnable' : 'Blocked'}</Badge>
@@ -255,7 +255,7 @@ function JobLedger({ v5, busy, onRetryJob, onReadJobLog }) {
     <div className="v5-job-ledger">
       <div className="v5-section-head">
         <div>
-          <strong>Durable jobs</strong>
+          <strong>Job history</strong>
           <small>{jobs.length ? `${jobs.length} attempts recorded` : 'No V5 mission jobs yet'}</small>
         </div>
         <IconTile icon={TerminalSquare} tone="green" />
@@ -336,7 +336,7 @@ export function MissionCommandCenter({
     <section className="v5-command-shell" aria-label="Mission Command">
       <div className="v5-hero">
         <div>
-          <div className="v5-kicker"><IconTile icon={Rocket} tone="lime" /><Badge tone="ready">V5 Mission Command</Badge></div>
+          <div className="v5-kicker"><IconTile icon={Rocket} tone="lime" /><Badge tone="ready">Workflow control</Badge></div>
           <h2>{mission.name}</h2>
           <p>{mission.goal || mission.description}</p>
         </div>
@@ -366,7 +366,7 @@ export function MissionCommandCenter({
         </article>
         <article>
           <IconTile icon={PackageCheck} tone="blue" />
-          <div><strong>Release lane</strong><small>{release.notarization?.status || 'unknown'} / update {release.update?.status || 'unknown'}</small></div>
+          <div><strong>App updates</strong><small>{release.notarization?.status || 'unknown'} / update {release.update?.status || 'unknown'}</small></div>
         </article>
         <article>
           <IconTile icon={Boxes} tone="lime" />

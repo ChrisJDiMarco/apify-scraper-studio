@@ -43,7 +43,8 @@
 .data-row-detail > summary span:last-child, .data-row-detail small { color: var(--muted); font-size: 11px; }
 .data-row-detail .dataset-compare { margin-top: 16px; }
 .data-workspace td { max-width: 420px; font-size: 12px; line-height: 1.6; }
-.data-workspace .dataset-button strong { font-size: 13px; font-weight: 600; }
+.data-workspace .dataset-button { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 4px; }
+.data-workspace .dataset-button strong { font-size: 13px; font-weight: 600; line-height: 1.35; }
 .data-workspace .dataset-button small { color: var(--muted); font-size: 11px; font-weight: 400; }
 .report-workspace { grid-template-columns: minmax(300px, 370px) minmax(0, 1fr); align-items: start; }
 .report-builder > h3 { margin-top: 0; }

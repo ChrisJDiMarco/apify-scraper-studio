@@ -75,6 +75,7 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
     setImageAction('remove'); setImageError('');
     try {
       const cleared = await onClearKey('OPENAI_API_KEY');
+      if (cleared === null) return; // the person kept the key
       if (!cleared) throw new Error('not-cleared');
       setImageCheck(null);
     } catch { setImageError('Could not remove the saved image credential. Please try again.'); }
@@ -214,7 +215,7 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
           <label>Archive folder ID
             <input value={sheetForm.archiveFolderId} onChange={(event) => updateSheetField('archiveFolderId', event.target.value)} placeholder="Google Drive folder ID" />
           </label>
-          <label>Twitter tab
+          <label>X (Twitter) tab
             <input value={sheetForm.twitterTab} onChange={(event) => updateSheetField('twitterTab', event.target.value)} />
           </label>
           <label>LinkedIn tab

@@ -5,6 +5,7 @@
   "main": "./out/main/index.js",
   "author": "Chris DiMarco",
   "license": "UNLICENSED",
+  "studioDefaultWorkspace": "semrush",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build && node scripts/copy-main-modules.mjs",

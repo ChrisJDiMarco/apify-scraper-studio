@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, ArrowUp, Database, ExternalLink, MessageCircle, Plus, RefreshCw, Sparkles } from 'lucide-react';
-import { Badge, Button, number } from './ui.jsx';
+import { Badge, Button, datasetTitle, number } from './ui.jsx';
 import './findings-chat.css';
 import { MarkdownContent } from './markdown-content.jsx';
 
@@ -162,7 +162,7 @@ export function FindingsChatView({ state, selectedDatasetId, onDatasetSelect, bu
       <p className="findings-sidebar-note">Choose up to eight datasets to ask about. Changing this selection starts a new conversation.</p>
       <fieldset className="findings-dataset-list" disabled={locked}><legend className="findings-sr-only">Datasets for this conversation</legend>{datasets.map((dataset) => <label key={dataset.id} className={`findings-dataset ${availableIds.includes(dataset.id) ? 'selected' : ''}`}>
         <input type="checkbox" checked={availableIds.includes(dataset.id)} disabled={!availableIds.includes(dataset.id) && availableIds.length >= MAX_DATASETS} onChange={() => changeSelection(dataset.id)} />
-        <span><strong>{dataset.name}</strong>{' '}<small>{dataset.platform || 'Web'} · {number(dataset.itemCount)} records</small></span>
+        <span><strong>{datasetTitle(dataset)}</strong>{' '}<small>{dataset.platform || 'Web'} · {number(dataset.itemCount)} records</small></span>
       </label>)}</fieldset>
       {availableIds.length >= MAX_DATASETS && <p className="findings-selection-note" role="status">Eight datasets maximum. Deselect one to add another.</p>}
       {availableIds.length === 1 && onDatasetSelect && <Button className="ghost findings-inspect" disabled={locked} onClick={() => { onDatasetSelect(availableIds[0]); onNavigate?.('datasets'); }}><Database size={14} aria-hidden="true" />Inspect dataset</Button>}

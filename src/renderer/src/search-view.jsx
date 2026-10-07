@@ -101,7 +101,7 @@ function SourceFilters({ source, options, setOption, query }) {
         <SelectField id="search-linkedin-profile-contextCountry" label="Collection country" value={options.contextCountry} onChange={update('contextCountry')} options={[["any", "Automatic"], ["US", "United States"], ["GB", "United Kingdom"], ["DE", "Germany"], ["FR", "France"]]} hint="Sets collection context. It does not filter people by country." />
       </div></details>
     </>}
-    <div className="search-actor-footnote"><span>Powered by {source.actorId}</span><a href={source.schemaUrl} target="_blank" rel="noreferrer">Actor options ↗</a></div>
+    <div className="search-actor-footnote"><span>Powered by {source.actorId}</span><a href={source.schemaUrl} target="_blank" rel="noreferrer">Input options on Apify ↗</a></div>
   </div>;
 }
 

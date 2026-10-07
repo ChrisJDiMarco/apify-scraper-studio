@@ -31,7 +31,7 @@ describe('workspace navigation', () => {
   it('exposes search and findings alongside primary destinations and keeps advanced tools collapsed', async () => {
     await openApp();
     const primary = within(screen.getByRole('navigation', { name: 'Primary' }));
-    expect(primary.getAllByRole('button').map((button) => button.textContent)).toEqual(['Content studio', 'Overview', 'Playbooks', 'Search platforms', 'Chat with findings', 'Scrapers', 'Datasets', 'AI reports', 'Activity', 'More tools']);
+    expect(primary.getAllByRole('button').map((button) => button.textContent)).toEqual(['Content studio', 'Overview', 'Sheets', 'Playbooks', 'Search platforms', 'Chat with findings', 'Scrapers', 'Datasets', 'AI reports', 'Activity', 'More tools']);
     expect(primary.getByRole('button', { name: 'More tools' })).toHaveAttribute('aria-expanded', 'false');
     expect(primary.queryByRole('button', { name: 'Workflows' })).not.toBeInTheDocument();
   });
@@ -78,14 +78,14 @@ describe('Semrush studio shell', () => {
     await screen.findByRole('heading', { name: 'From a trend to a complete campaign.' });
     return result;
   }
-  it('uses the six focused destinations, controls the Studio view, and keeps legacy tools reachable', async () => {
+  it('uses the focused destinations, controls the Studio view, and keeps legacy tools reachable', async () => {
     const { container } = await openSemrush();
     const primary = within(screen.getByRole('navigation', { name: 'Primary' }));
     expect(container.querySelector('.app-shell')).toHaveAttribute('data-edition', 'semrush');
     expect(screen.getByRole('img', { name: 'Semrush' })).toHaveAttribute('src', expect.stringContaining('semrush-2026-logo.svg'));
     expect(container.querySelector('.cs-hero-pattern')).toHaveAttribute('aria-hidden', 'true');
     expect(container.querySelector('.cs-hero-art')).not.toBeInTheDocument();
-    expect(primary.getAllByRole('button').map(button => button.textContent)).toEqual(['Overview', 'Research programs', 'Trend board', 'Create content', 'Library', 'Brand knowledge', 'More tools']);
+    expect(primary.getAllByRole('button').map(button => button.textContent)).toEqual(['Overview', 'Research programs', 'Sheets', 'Trend board', 'Create content', 'Library', 'Brand knowledge', 'More tools']);
     expect(screen.queryByRole('navigation', { name: 'Content studio' })).not.toBeInTheDocument();
     expect(screen.getAllByLabelText('Content workspace')).toHaveLength(1);
     fireEvent.click(nav('Create content'));

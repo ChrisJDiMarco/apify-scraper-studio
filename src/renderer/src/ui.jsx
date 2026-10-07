@@ -19,6 +19,30 @@ export function short(value, length = 96) {
   return text.length > length ? `${text.slice(0, length - 1).trimEnd()}…` : text;
 }
 
+// Provider failures read as what happened and what to do next, never as exit codes or IPC plumbing.
+export function friendlyMessage(value) {
+  const text = String(value?.message || value || '').trim();
+  const exit = /^(Claude|Codex|AI) exited with (?:code )?(\d+)\.?$/i.exec(text);
+  if (exit) return `${/codex/i.test(exit[1]) ? 'Codex' : 'Claude'} stopped before finishing (exit code ${exit[2]}). Check the Claude connection in Settings, then retry.`;
+  return text.replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^(?:[A-Za-z]*Error):\s*/, '');
+}
+
+// Collection names carry a run timestamp ("Reddit · topic 9/27/2026, 3:27:22 PM"). Lists already show the
+// date, so titles drop it; pickers show a short date instead so repeated runs stay distinguishable.
+const RUN_STAMP = /\s+\d{1,2}\/\d{1,2}\/\d{2,4},?\s+\d{1,2}:\d{2}(?::\d{2})?\s?(?:[AP]M)?$/i;
+export function datasetTitle(dataset) { return String(dataset?.name || '').replace(RUN_STAMP, '').trim() || 'Untitled dataset'; }
+export function datasetLabel(dataset, { rows = false } = {}) {
+  const stamped = RUN_STAMP.test(String(dataset?.name || ''));
+  const when = stamped && dataset?.createdAt ? new Date(dataset.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+  return [datasetTitle(dataset), when, rows ? `${number(dataset?.itemCount)} rows` : ''].filter(Boolean).join(' · ');
+}
+
+// Model IDs read as product names: claude-opus-5-5 → Claude Opus 5.5.
+export function modelLabel(id) {
+  const match = /^claude-([a-z]+)-(\d+)-(\d+)/i.exec(String(id || ''));
+  return match ? `Claude ${match[1][0].toUpperCase()}${match[1].slice(1)} ${match[2]}.${match[3]}` : String(id || '');
+}
+
 export function number(value) {
   return new Intl.NumberFormat().format(Number(value) || 0);
 }
@@ -67,8 +91,8 @@ export function Field({ label: text, error, children }) {
 }
 
 export function StatusBanner({ error, notice }) {
-  if (error) return <div className="error-line" role="alert">{short(error, 180)}</div>;
-  if (notice) return <div className="notice-line" role="status">{short(notice, 180)}</div>;
+  if (error) return <div className="error-line" role="alert">{short(friendlyMessage(error), 600)}</div>;
+  if (notice) return <div className="notice-line" role="status">{short(notice, 300)}</div>;
   return null;
 }
 

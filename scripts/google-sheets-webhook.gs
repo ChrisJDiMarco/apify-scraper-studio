@@ -70,7 +70,9 @@ function archiveAndClear(payload) {
 function readTabs(payload) {
   const spreadsheet = openSpreadsheet(payload.spreadsheetId);
   const out = {};
-  (payload.tabs || []).forEach(function(tabName) {
+  // allTabs reads every tab in workbook order, so the app's Sheets view matches the spreadsheet exactly.
+  const names = payload.allTabs ? spreadsheet.getSheets().map(function(sheet) { return sheet.getName(); }) : (payload.tabs || []);
+  names.forEach(function(tabName) {
     const sheet = spreadsheet.getSheetByName(tabName);
     if (!sheet) {
       out[tabName] = [];
@@ -78,7 +80,7 @@ function readTabs(payload) {
     }
     out[tabName] = sheetToObjects(sheet);
   });
-  return { ok: true, action: 'readTabs', tabs: out };
+  return { ok: true, action: 'readTabs', title: spreadsheet.getName(), order: names, tabs: out };
 }
 
 function sheetToObjects(sheet) {

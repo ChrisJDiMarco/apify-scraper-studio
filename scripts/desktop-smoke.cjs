@@ -25,6 +25,8 @@ app.on('web-contents-created', (_, contents) => {
   contents.on('console-message', (_, details) => { if (details.level === 'error') failures.push(details.message); });
   contents.on('did-fail-load', (_, code, description) => failures.push(`${code}: ${description}`));
 });
+// These flows cover the general edition; packaged builds may open first in another edition.
+if (!process.argv.some((argument) => argument.startsWith('--studio-workspace='))) process.argv.push('--studio-workspace=general');
 require('../out/main/index.js');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let win;
@@ -57,6 +59,9 @@ async function run() {
   await app.whenReady();
   for (let i = 0; i < 80 && !BrowserWindow.getAllWindows().length; i++) await delay(100);
   win = BrowserWindow.getAllWindows()[0];
+  // The app opens on Content studio; these checks start from the collection Overview.
+  await waitFor("Boolean(document.querySelector('nav[aria-label=Primary]')) && !document.querySelector('.loading-state')", 'shell');
+  await navigate('Overview');
   await waitFor("Boolean(document.querySelector('.home-view'))", 'overview');
   assert.equal(await evaluate('Boolean(window.apifyStudio)'), true, 'real preload bridge');
   await shot(fixture ? 'overview-with-data' : 'overview');

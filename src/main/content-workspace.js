@@ -16,12 +16,12 @@ const LEGACY_SEMRUSH_BRAND_FIELDS = Object.freeze({
   positioning: 'Explain the practitioner problem and the relevant approved product fit. Treat this as editorial direction, not proof of product features, measured outcomes or corporate positioning claims.',
   editorialRules: 'Enterprise and self-serve products stay separate. Affiliate material uses only explicitly approved self-serve products. Comprehensive evidence reports quote X and LinkedIn sources directly; Reddit is summarized with links. Editorial toolkits contain both enterprise and self-serve angles, five product-agnostic headlines/subheads/hooks each, two Enterprise CTAs and three PLG CTAs. Search Engine Land copy is attributed journalism, not product advertising. PR research excludes Search Engine Land, MarTech, Backlinko, Exploding Topics and Search Engine Roundtable under the supplied workspace policy; no guessed contacts or prior articles.',
 });
-function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date() } = {}) {
+function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general' } = {}) {
   if (!root || typeof runAI !== 'function') throw new Error('Studio storage and AI host are required.');
   const stamp = () => new Date(clock()).toISOString();
   fs.mkdirSync(root, { recursive: true });
   const stateFile = path.join(root, 'state.json');
-  const fresh = () => ({ version: 1, activeWorkspaceId: 'general', workspaces: ['general', 'semrush'].map(editionId => ({ id: editionId, name: editionId === 'semrush' ? 'Semrush workspace' : 'Your workspace', editionId, knowledge: content.validateBrandKnowledge(editionId === 'semrush' ? content.SEMRUSH_KNOWLEDGE_PRESET : {}, { editionId }), products: [], ...(editionId === 'semrush' ? { brandDefaults: copy(content.SEMRUSH_BRAND_2026) } : {}), createdAt: stamp(), updatedAt: stamp() })), programs: [], researchRuns: [], contentRuns: [], themes: [], history: [], assets: [], exports: [], datasetOwners: {} });
+  const fresh = () => ({ version: 1, activeWorkspaceId: ['general', 'semrush'].includes(defaultWorkspaceId) ? defaultWorkspaceId : 'general', workspaces: ['general', 'semrush'].map(editionId => ({ id: editionId, name: editionId === 'semrush' ? 'Semrush workspace' : 'Your workspace', editionId, knowledge: content.validateBrandKnowledge(editionId === 'semrush' ? content.SEMRUSH_KNOWLEDGE_PRESET : {}, { editionId }), products: [], ...(editionId === 'semrush' ? { brandDefaults: copy(content.SEMRUSH_BRAND_2026) } : {}), createdAt: stamp(), updatedAt: stamp() })), programs: [], researchRuns: [], contentRuns: [], themes: [], history: [], assets: [], exports: [], datasetOwners: {} });
   let state;
   try { state = JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw new Error('Studio data could not be read. Restore the saved state before continuing.'); state = fresh(); }
   const active = new Map(); const stopped = new Set(); const publishing = new Set();
@@ -500,8 +500,46 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       for (const childId of ids) fs.copyFileSync(file(childId, 'input.json'), path.join(dir, `${childId}-source.json`));
       const result = { id: exportId, workspaceId: run.workspaceId, runId, path: dir, assetCount: assets.length, createdAt: stamp() }; state.exports.push(result); save(); return result;
     },
+    activeWorkspaceId: () => state.activeWorkspaceId,
+    // Sheets: every research run with saved evidence opens as a workbook. Reading never starts or changes a run.
+    listResearchWorkbookSources() {
+      return state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId && fs.existsSync(path.join(root, 'runs', run.id, 'evidence.json')))
+        .map(run => ({ runId: run.id, title: run.title, status: run.status, stage: run.stage, createdAt: run.createdAt, updatedAt: run.updatedAt || run.createdAt, evidenceCount: run.counts?.retained ?? run.coverage?.retainedCount ?? 0, themeCount: (run.discoveredThemes || run.themes || []).length, version: researchWorkbookVersion(run) }));
+    },
+    async readResearchWorkbookSource({ runId }) {
+      const run = runRecord(runId); if (run.type !== 'research') throw new Error('Only research runs open as workbooks.');
+      if (!fs.existsSync(file(run.id, 'evidence.json'))) throw new Error('This run has no saved evidence yet. It opens in Sheets once collection finishes.');
+      const input = read(file(run.id, 'input.json')); const program = input.program || {}; const evidence = read(file(run.id, 'evidence.json')).items || [];
+      // Richer source fields (Reddit titles, LinkedIn headlines) live on the raw rows of the collected datasets.
+      const datasetIds = new Set([...(input.datasetIds || []), ...getDatasets().filter(d => d.researchRunId === run.id).map(d => d.id)]);
+      const wanted = new Set(evidence.map(row => row.sourceItemId).filter(Boolean)); const raw = {};
+      for (const datasetId of datasetIds) {
+        let payload; try { payload = await readDataset(datasetId); } catch (_) { continue; }
+        for (const item of payload?.items || []) if (wanted.has(item.id) && item.raw) raw[item.id] = item.raw;
+      }
+      const discovery = research.buildDiscoveryBatches({ runId: run.id, items: evidence, batchSize: program.discoveryBatchSize });
+      const batches = discovery.batches.map(batch => {
+        const cache = file(run.id, `${batch.id}.validated.json`); const done = fs.existsSync(cache);
+        return { id: batch.id, index: batch.index, total: batch.totalBatches, evidenceIds: batch.evidenceIds, candidates: done ? read(cache).candidates || [] : null, completedAt: done ? fs.statSync(cache).mtime.toISOString() : '' };
+      });
+      let assignments = [];
+      if (fs.existsSync(file(run.id, 'assignments.json'))) assignments = read(file(run.id, 'assignments.json'));
+      else if (run.approvedAt) {
+        // Classification in progress: show the batches already tagged.
+        const tagging = research.buildAssignmentBatches({ runId: run.id, items: evidence, batchSize: program.taggingBatchSize });
+        for (const batch of tagging.batches) { const cache = file(run.id, `${batch.id}.validated.json`); if (fs.existsSync(cache)) assignments = research.applyAssignments(assignments, read(cache).assignments || []); }
+      }
+      const reports = (run.reportRunIds || []).map(entry => ({ themeId: entry.themeId, runId: entry.runId, assets: (state.assets || []).filter(asset => asset.runId === entry.runId).map(asset => ({ id: asset.id, deliverableId: asset.deliverableId, title: asset.title, url: run.googleDelivery?.assets?.find(row => row.assetId === asset.id)?.files?.find(f => /docs\.google\.com/.test(f.url || ''))?.url || '' })) }));
+      const workspaceRuns = state.researchRuns.filter(row => row.workspaceId === run.workspaceId).map(row => ({ id: row.id, title: row.title, createdAt: row.createdAt }));
+      return { run: publicRun(run), program, evidence, raw, assignments, batches, themes: copy((state.themes || []).filter(t => t.workspaceId === run.workspaceId)), history: copy((state.history || []).filter(h => h.workspaceId === run.workspaceId)), reports, runs: workspaceRuns, version: researchWorkbookVersion(run) };
+    },
     waitForIdle: async () => { while (active.size) await Promise.allSettled([...active.values()]); },
   };
+  function researchWorkbookVersion(run) {
+    const stamp = name => { try { return fs.statSync(path.join(root, 'runs', run.id, name)).mtimeMs; } catch (_) { return 0; } };
+    let cached = 0; try { cached = fs.readdirSync(path.join(root, 'runs', run.id)).filter(name => name.endsWith('.validated.json')).length; } catch (_) { /* No run folder yet. */ }
+    return [run.updatedAt || run.createdAt, run.status, run.stage, stamp('evidence.json'), stamp('assignments.json'), cached, (run.themes || []).length, JSON.stringify(run.decisions || {}).length].join('|');
+  }
   // Persist before exposing the service; startup does not emit events or run providers.
   if (migrateSemrushBrandDefaults()) write(stateFile, state);
   return api;

@@ -48,7 +48,7 @@ describe('renderer safety states', () => {
     );
 
     expect(screen.getByText('Dataset is empty')).toBeInTheDocument();
-    screen.getByRole('button', { name: 'Open recipes' }).click();
+    screen.getByRole('button', { name: 'Open scrapers' }).click();
     expect(onNavigate).toHaveBeenCalledWith('automation');
   });
 
@@ -120,10 +120,10 @@ describe('renderer safety states', () => {
       />,
     );
 
-    expect(screen.getByText('V5 Mission Command')).toBeInTheDocument();
+    expect(screen.getByText('Workflow control')).toBeInTheDocument();
     expect(screen.getByText('Lead Mission')).toBeInTheDocument();
     expect(screen.getByText('Evidence graph')).toBeInTheDocument();
-    expect(screen.getByText('Durable jobs')).toBeInTheDocument();
+    expect(screen.getByText('Job history')).toBeInTheDocument();
     expect(screen.getByText('Artifact studio')).toBeInTheDocument();
   });
 

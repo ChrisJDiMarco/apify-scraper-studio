@@ -3,7 +3,7 @@ import { MessageSquare, ArrowDownToLine, ArrowRight, ChevronDown, ChevronLeft, C
 import { analysesForDataset, codexEventLabels } from '../../shared/analysis.js';
 import { datasetItemKey, datasetItemSearchText } from '../../shared/dataset-view.js';
 import REPORT_PRESETS from '../../shared/report-presets.json';
-import { Badge, Button, Empty, formatDate, JsonBlock, label, number, short, statusTone } from './ui.jsx';
+import { Badge, Button, Empty, datasetLabel, datasetTitle, formatDate, JsonBlock, label, modelLabel, number, short, statusTone } from './ui.jsx';
 import './data-workspace.css';
 import { MarkdownContent } from './markdown-content.jsx';
 import { CoverageReviewPanel } from './report-review-view.jsx';
@@ -14,7 +14,7 @@ function selectRowFromKeyboard(event, select) {
   select();
 }
 
-export function DatasetsView({ state, selectedDatasetId, onDatasetSelect, payload, busy, onAnalyze, onExportDataset, onExportDatasetToSheets, onSearchEvidence, onNavigate }) {
+export function DatasetsView({ state, selectedDatasetId, onDatasetSelect, payload, payloadError = '', onRetryPayload, busy, onAnalyze, onExportDataset, onExportDatasetToSheets, onSearchEvidence, onNavigate }) {
   const selected = state.datasets.find((dataset) => dataset.id === selectedDatasetId) || state.datasets[0];
   const [rawMode, setRawMode] = useState(false);
   const [query, setQuery] = useState('');
@@ -125,16 +125,15 @@ export function DatasetsView({ state, selectedDatasetId, onDatasetSelect, payloa
         <div className="stack">
           {state.datasets.map((dataset) => (
             <button type="button" aria-pressed={selected.id === dataset.id} className={`dataset-button ${selected.id === dataset.id ? 'active' : ''}`} key={dataset.id} onClick={() => onDatasetSelect(dataset.id)}>
-              <strong>{dataset.name}</strong>
-              <small>{label(dataset.platform)} · {number(dataset.itemCount)} rows</small>
-              <small>{formatDate(dataset.createdAt)}</small>
+              <strong>{datasetTitle(dataset)}</strong>
+              <small>{label(dataset.platform)} · {number(dataset.itemCount)} rows · {formatDate(dataset.createdAt)}</small>
             </button>
           ))}
         </div>
       </div>
       <div className="panel data-main-panel">
         <div className="panel-head">
-          <div><span className="data-eyebrow">DATA EXPLORER</span><h3>{selected.name}</h3><p>{number(sourceItems.length)} rows · {label(selected.platform)}</p></div>
+          <div><span className="data-eyebrow">DATA EXPLORER</span><h3>{datasetTitle(selected)}</h3><p>{number(sourceItems.length)} rows · {label(selected.platform)}</p></div>
           <div className="button-row">
             <Button className="ghost" disabled={busy} onClick={() => onNavigate('imports')}>Import data</Button>
             <details className="data-export-menu">
@@ -199,7 +198,9 @@ export function DatasetsView({ state, selectedDatasetId, onDatasetSelect, payloa
             <summary><span>Selected row <small>{number(safeWindowStart + selectedPreviewIndex + 1)} of {number(visibleRows.length)}</small></span><span>View details <ChevronDown size={14} aria-hidden="true" /></span></summary>
             {compareMode && rawMatch != null ? <div className="dataset-compare"><div><strong>Normalized</strong><JsonBlock value={selectedItem} /></div><div><strong>Raw</strong><JsonBlock value={rawMatch} /></div></div> : <JsonBlock value={selectedItem} />}
           </details>}
-        </> : <Empty title="Dataset is empty" detail="This run did not return any rows. Adjust your scraper inputs and try again." action="Open recipes" onAction={() => onNavigate('automation')} />}
+        </> : payloadError ? <Empty title="This dataset didn’t open" detail={payloadError} action={onRetryPayload ? 'Try again' : undefined} onAction={onRetryPayload} />
+          : selected && !payload ? <div className="ws-skeleton-list" aria-busy="true" aria-label="Loading rows">{[0, 1, 2, 3].map((i) => <div key={i} className="ws-skeleton" />)}</div>
+            : <Empty title="Dataset is empty" detail="This run didn’t return any rows. Adjust the scraper’s inputs and run it again." action="Open scrapers" onAction={() => onNavigate('automation')} />}
       </div>
     </section>
   );
@@ -260,9 +261,9 @@ export function ReportsView({ state, selectedDatasetId, initialReportPresetId, i
         <span className="data-eyebrow">MAKE SENSE OF YOUR DATA</span>
         <h3>Create a report</h3>
         <p>Choose your data and what you want to learn. AI will turn the results into a useful starting point.</p>
-        <label className="report-field">Dataset<select value={datasetId} disabled={busy} onChange={(event) => onDatasetSelect(event.target.value)}>{state.datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name} · {number(dataset.itemCount)} rows</option>)}</select></label>
+        <label className="report-field">Dataset<select value={datasetId} disabled={busy} onChange={(event) => onDatasetSelect(event.target.value)}>{state.datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{datasetLabel(dataset, { rows: true })}</option>)}</select></label>
         <label className="report-field">What do you want to learn?<select value={presetId} disabled={busy} onChange={(event) => setPresetId(event.target.value)}>{REPORT_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select></label>
-        <p className="report-helper">{state.settings?.aiProvider === 'codex' ? 'Codex CLI' : `Claude CLI · ${state.settings?.aiModel || 'claude-opus-5-5'}`}</p><p className="report-preset-description">{selectedPreset.description}</p>
+        <p className="report-helper">{state.settings?.aiProvider === 'codex' ? 'Written with Codex' : `Written with ${modelLabel(state.settings?.aiModel || 'claude-opus-5-5')}`}</p><p className="report-preset-description">{selectedPreset.description}</p>
         {selectedDataset.marketingBrief && <div className="report-brief-context"><strong>{selectedDataset.marketingBrief.brand}</strong><p>{selectedDataset.marketingBrief.decision}</p>{selectedDataset.marketingBrief.audience && <small>Audience: {selectedDataset.marketingBrief.audience}</small>}<p className="report-helper">Your saved research context will guide this report. Review its citations and coverage before sharing.</p></div>}
         <Button disabled={busy || selectedDataset.itemCount === 0} onClick={() => runReport(presetId)}><Sparkles size={16} aria-hidden="true" /> Generate report</Button>
         <Button className="ghost" disabled={busy || selectedDataset.itemCount === 0} onClick={() => onNavigate?.('chat', { datasetId })}><MessageSquare size={16} aria-hidden="true" />Ask questions instead</Button>
@@ -284,7 +285,7 @@ export function ReportsView({ state, selectedDatasetId, initialReportPresetId, i
             <div><span className="data-eyebrow">REPORT VIEWER</span><h3>{selectedAnalysis.reportPresetName || label(selectedAnalysis.kind)}</h3><p>{formatDate(selectedAnalysis.startedAt)} · {label(selectedAnalysis.status)}</p></div>
             <div className="button-row"><Button className="ghost" disabled={!selectedHasFile || busy} onClick={() => onOpenAnalysisOutput(selectedAnalysis.id)}>Open file</Button><Button className="ghost" disabled={!selectedHasFile || busy} onClick={() => onRevealAnalysisOutput(selectedAnalysis.id)}>Show in Finder</Button>{selectedAnalysis.status === 'failed' && <Button disabled={busy || !selectedAnalysis.datasetId} onClick={() => onAnalyze(selectedAnalysis.datasetId, selectedAnalysis.kind, { reportPresetId: selectedAnalysis.reportPresetId })}>Retry</Button>}</div>
           </div>
-          {selectedAnalysis.aiReceipt && <div className="report-helper">AI: {selectedAnalysis.aiReceipt.actualModel || selectedAnalysis.aiReceipt.provider} · {selectedAnalysis.coverage?.includedItems ?? '—'} source records included{selectedAnalysis.coverage?.omittedItems ? ` · ${selectedAnalysis.coverage.omittedItems} outside this sample` : ''}</div>}
+          {selectedAnalysis.aiReceipt && <div className="report-helper">AI: {modelLabel(selectedAnalysis.aiReceipt.actualModel) || selectedAnalysis.aiReceipt.provider} · {selectedAnalysis.coverage?.includedItems ?? '—'} source records included{selectedAnalysis.coverage?.omittedItems ? ` · ${selectedAnalysis.coverage.omittedItems} outside this sample` : ''}</div>}
           <AnalysisOutput output={analysisOutput} />
           {selectedAnalysis.kind === 'report' && onReadResearchReview && <ReportReviewLoader key={selectedAnalysis.id} analysis={selectedAnalysis} dataset={selectedDataset} reviewVersion={state.researchReviews?.find((review) => review.analysisId === selectedAnalysis.id)?.version} onRead={onReadResearchReview} onSave={onSaveResearchReview} onExport={onExportResearchReview} busy={busy} />}
         </> : <div className="report-reader-empty"><span className="data-welcome-icon"><Sparkles size={26} aria-hidden="true" /></span><h3>Turn a collection into a clear next step.</h3><p>Choose a report on the left to uncover patterns, find leads, or understand what people are saying.</p><div className="report-example"><span>YOUR REPORT CAN INCLUDE</span><p>Key findings and recurring themes</p><p>Evidence from the source data</p><p>Practical recommendations</p></div></div>}

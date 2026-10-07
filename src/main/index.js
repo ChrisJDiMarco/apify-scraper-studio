@@ -1510,7 +1510,7 @@ function spawnCodex(command, args, cwd, options = {}) {
       finish(() => {
         if (code === 0) resolve({ stdout, stderr });
         else if (signal === 'SIGTERM' && options.jobId && cancelledJobs.has(options.jobId)) reject(new Error('Job cancelled.'));
-        else reject(new Error(safeServiceError(stderr || `${options.providerLabel || 'AI'} exited with ${code}`)));
+        else reject(new Error(safeServiceError(stderr || `${options.providerLabel || 'AI'} stopped before finishing (exit code ${code}). Check the connection in Settings, then retry.`)));
       });
     });
   });
@@ -1920,6 +1920,8 @@ catch (error) { dialog.showErrorBox('Workspace already in use', error.message); 
 app.once('quit', () => releaseStudioOwner?.());
 const studioHost = createStudioHost({ root: dataPath('content-studio'), getApifyToken: () => getKey('APIFY_API_TOKEN'), model: () => loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL });
 const contentWorkspace = createContentWorkspace({
+  // A first launch opens in the edition this build is packaged for; saved state always wins after that.
+  defaultWorkspaceId: packageConfig.studioDefaultWorkspace || 'general',
   root: dataPath('content-studio'), emit: emitState,
   runAI: args => generateStructuredOutput({ ...args, jobId: args.runId }),
   collect: studioHost.collect,
@@ -1940,6 +1942,23 @@ const contentWorkspace = createContentWorkspace({
 });
 const studioMethods = ['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun'];
 for (const method of studioMethods) ipcMain.handle(`studio:${method}`, (_, payload) => contentWorkspace[method](payload));
+
+// Sheets: research runs and imported spreadsheets, laid out like the Google Sheets the team reviews.
+const workbookStore = require('./workbooks').createWorkbookStore({
+  root: dataPath('workbooks'), contentWorkspace, activeWorkspaceId: () => contentWorkspace.activeWorkspaceId(),
+  readGoogleTabs: ({ spreadsheetUrl, tabs }) => callSheetsWebhook({ ...buildSheetReadRequest({ ...sheetSettings(), workingSpreadsheetUrl: spreadsheetUrl, workingSpreadsheetId: '' }, { tabs }), allTabs: true }),
+});
+ipcMain.handle('workbooks:list', () => workbookStore.list());
+ipcMain.handle('workbooks:read', (_, payload) => workbookStore.read(payload));
+ipcMain.handle('workbooks:import', async (_, payload = {}) => {
+  const result = await dialog.showOpenDialog(mainWindow, { title: 'Import a spreadsheet', buttonLabel: 'Import', properties: ['openFile'], filters: [{ name: 'Spreadsheets', extensions: ['xlsx', 'csv', 'tsv'] }] });
+  if (result.canceled || !result.filePaths.length) return null;
+  return workbookStore.importFile({ filePath: result.filePaths[0], workbookId: payload.workbookId });
+});
+ipcMain.handle('workbooks:pull-google', (_, payload) => workbookStore.pullGoogleSheet(payload));
+ipcMain.handle('workbooks:save-edits', (_, payload) => workbookStore.saveEdits(payload));
+ipcMain.handle('workbooks:remove', (_, payload) => workbookStore.remove(payload));
+ipcMain.handle('workbooks:rename', (_, payload) => workbookStore.rename(payload));
 
 const researchWorkspace = createResearchWorkspace({ loadData, saveData, emitState, dataPath, readJson, writeJson, readDatasetPayload, toId, dialog, getWindow: () => mainWindow, shell });
 for (const [channel, method] of Object.entries({

@@ -28,7 +28,7 @@ function TrendCard({ card, disabled, dragging, onDecide, onDragStart, onDragEnd,
     <h4>{card.name}</h4>
     {card.description && <p className="tb-card-description">{card.description}</p>}
     <div className="tb-card-facts"><span>{plural(card.evidenceCount, 'source')}</span>{card.platforms.map((platform) => <span key={platform}>{PLATFORMS[platform] || platform}</span>)}{card.discoveredAt && <span>{formatDate(card.discoveredAt)}</span>}</div>
-    {card.stage === 'potential' && <div className="tb-card-actions"><Button type="button" className="tb-ok" disabled={disabled} onClick={() => onDecide(card, 'approved')}><Check size={14} aria-hidden="true" />OK trend</Button><Button type="button" className="cs-quiet" disabled={disabled} onClick={() => onDecide(card, 'passed')}><X size={14} aria-hidden="true" />Pass</Button></div>}
+    {card.stage === 'potential' && <div className="tb-card-actions"><Button type="button" className="tb-ok" disabled={disabled} onClick={() => onDecide(card, 'approved')}><Check size={14} aria-hidden="true" />Approve</Button><Button type="button" className="cs-quiet" disabled={disabled} onClick={() => onDecide(card, 'passed')}><X size={14} aria-hidden="true" />Pass</Button></div>}
     {card.stage === 'approved' && card.canDecide && <div className="tb-card-actions"><span className="tb-state"><Check size={13} aria-hidden="true" />Approved</span><Button type="button" className="cs-quiet" disabled={disabled} onClick={() => onDecide(card, 'pending')}><Undo2 size={13} aria-hidden="true" />Undo</Button></div>}
     {card.stage === 'production' && <div className="tb-card-actions"><span className={`tb-state ${card.needsAttention ? 'attention' : ''}`}>{card.needsAttention ? <CircleAlert size={13} aria-hidden="true" /> : <LoaderCircle size={13} className="spin" aria-hidden="true" />}{card.activity}</span>{card.needsAttention && <Button type="button" className="cs-quiet" onClick={() => onOpenRun(card.runId)}>Open run<ArrowRight size={13} aria-hidden="true" /></Button>}</div>}
     {card.stage === 'ready' && <div className="tb-card-actions">{report && <Button type="button" className="cs-quiet" onClick={() => onReadReport(report)}><FileText size={13} aria-hidden="true" />Read report</Button>}{report && <Button type="button" className="tb-ok" disabled={disabled} onClick={() => onCreateAssets(report)}><Sparkles size={13} aria-hidden="true" />{card.contentRunCount ? 'Create more' : 'Create assets'}</Button>}{card.assetCount > 0 && <small className="tb-asset-count">{plural(card.assetCount, 'asset')} made</small>}</div>}
@@ -36,7 +36,7 @@ function TrendCard({ card, disabled, dragging, onDecide, onDragStart, onDragEnd,
   </article>;
 }
 
-export function TrendBoardView({ studio = {}, monday, api, action, disabled, pageHeading = false, onFindTrends, onOpenRun, onReadReport, onCreateAssets, onSettings }) {
+export function TrendBoardView({ studio = {}, monday, api, action, disabled, pageHeading = false, onFindTrends, onOpenRun, onOpenSheets, onReadReport, onCreateAssets, onSettings }) {
   const [pending, setPending] = useState({}); // optimistic decisions so a card moves the instant it is decided
   const [boardError, setBoardError] = useState('');
   const [confirmRunId, setConfirmRunId] = useState('');
@@ -80,6 +80,7 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
   async function syncMonday() {
     setSyncNote('');
     const cards = board.cards.map(({ key, stage, name, description, evidenceCount, platforms, programName }) => ({ key, stage, name, description, evidenceCount, platforms, programName }));
+    if (!window.confirm(`Send ${plural(cards.length, 'trend')} to your Monday.com board? Existing items are updated, new ones are added.`)) return;
     const result = await action('Syncing to Monday.com', () => api.syncTrendBoardToMonday({ cards }));
     if (result) setSyncNote(result.failed ? `${number(result.created + result.updated)} synced, ${number(result.failed)} failed. ${result.error}` : `${plural(result.created, 'new item')} and ${plural(result.updated, 'update')} sent to Monday.com.`);
   }
@@ -117,7 +118,7 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
             onDrop={(event) => { event.preventDefault(); if (droppable) drop(stage.id); }}>
             <header><h3 id={`tb-col-${stage.id}`}>{stage.label}</h3><span className="tb-count">{number(cards.length)}</span><p>{stage.hint}</p></header>
             <div className="tb-stack">
-              {stage.id === 'potential' && board.scouting.map((scout) => <div key={scout.runId} className={`tb-scout ${scout.status === 'failed' ? 'attention' : ''}`} role="status"><span className="local-dot" data-live={scout.status === 'failed' ? undefined : ''} aria-hidden="true" /><div><strong>{scout.title}</strong><small>{scoutingText(scout)}</small></div>{scout.status === 'failed' && <Button type="button" className="cs-quiet" onClick={() => onOpenRun(scout.runId)}>Open run</Button>}</div>)}
+              {stage.id === 'potential' && board.scouting.map((scout) => <div key={scout.runId} className={`tb-scout ${scout.status === 'failed' ? 'attention' : ''}`} role="status"><span className="local-dot" data-live={scout.status === 'failed' ? undefined : ''} aria-hidden="true" /><div><strong>{scout.title}</strong><small>{scoutingText(scout)}</small></div>{onOpenSheets && (studio.researchRuns || []).find((run) => run.id === scout.runId)?.counts?.retained > 0 && <Button type="button" className="cs-quiet" onClick={() => onOpenSheets(scout.runId)}>View posts</Button>}{scout.status === 'failed' && <Button type="button" className="cs-quiet" onClick={() => onOpenRun(scout.runId)}>Open run</Button>}</div>)}
               {stage.id === 'approved' && approvedRuns.map((runId) => {
                 const plan = generationPlan(board.cards, runId); const run = runById.get(runId); const confirming = confirmRunId === runId;
                 return <div key={runId} className={`tb-batch ${confirming ? 'confirming' : ''}`}>

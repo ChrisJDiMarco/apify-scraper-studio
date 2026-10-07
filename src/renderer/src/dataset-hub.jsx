@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowRight, Check, CheckCircle2, Copy, Database, ExternalLink, Eye, Heart, MessageCircle, Repeat2, Search, Upload } from 'lucide-react';
 import { buildCoverage, buildSignals, buildTopics, coverageChecks, authorName } from '../../shared/dataset-insights.js';
-import { Button, formatDate, label, number, withViewTransition } from './ui.jsx';
+import { Button, datasetLabel, formatDate, label, number, withViewTransition } from './ui.jsx';
 import './workspace-pages.css';
 
 export const DATASET_TABS = [
@@ -20,18 +20,18 @@ function Stat({ label: name, value, detail }) {
   return <div className="ws-stat"><span>{name}</span><strong>{value}</strong>{detail && <small>{detail}</small>}</div>;
 }
 
-export function DatasetHub({ state, tab, onTabChange, selectedDataset, payload, onDatasetSelect, onNavigate, onOpenSourceUrl, renderExplorer, renderConversations }) {
+export function DatasetHub({ state, tab, onTabChange, selectedDataset, payload, payloadError = '', onDatasetSelect, onNavigate, onOpenSourceUrl, renderExplorer, renderConversations }) {
   const [signalQuery, setSignalQuery] = useState('');
   const items = payload?.items || [];
   const datasets = state.datasets || [];
-  const loading = Boolean(selectedDataset) && !payload;
+  const loading = Boolean(selectedDataset) && !payload && !payloadError;
   const setTab = (next) => withViewTransition(() => onTabChange(next), ['trend-move']);
   if (!datasets.length) return renderExplorer();
   return <section className="ws ws-datasets">
     <header className="ws-page-head">
       <div><span className="ws-eyebrow">Your data</span><h2>Datasets</h2><p>Explore every row, then read it as signals, conversations, topics, and coverage before you trust a finding.</p></div>
       <div className="ws-head-actions">
-        {tab !== 'explorer' && <label className="ws-select"><span className="sr-only">Dataset</span><select aria-label="Dataset" value={selectedDataset?.id || ''} onChange={(event) => onDatasetSelect(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name} · {number(dataset.itemCount)} rows</option>)}</select></label>}
+        {tab !== 'explorer' && <label className="ws-select"><span className="sr-only">Dataset</span><select aria-label="Dataset" value={selectedDataset?.id || ''} onChange={(event) => onDatasetSelect(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{datasetLabel(dataset, { rows: true })}</option>)}</select></label>}
         <Button className="ghost" onClick={() => onNavigate('imports')}><Upload size={15} aria-hidden="true" />Import</Button>
       </div>
     </header>
@@ -41,10 +41,11 @@ export function DatasetHub({ state, tab, onTabChange, selectedDataset, payload, 
     <div role="tabpanel" id={`ds-panel-${tab}`} aria-labelledby={`ds-tab-${tab}`} className="ws-tab-panel">
       {tab === 'explorer' && renderExplorer()}
       {tab !== 'explorer' && loading && <div className="ws-skeleton-list" aria-busy="true" aria-label="Loading dataset">{[0, 1, 2].map((i) => <div key={i} className="ws-skeleton" />)}</div>}
-      {tab === 'signals' && !loading && <SignalsTab key={selectedDataset?.id} items={items} initialQuery={signalQuery} onOpenSourceUrl={onOpenSourceUrl} />}
-      {tab === 'conversations' && !loading && renderConversations()}
-      {tab === 'topics' && !loading && <TopicsTab key={selectedDataset?.id} items={items} onSearchSignals={(term) => { setSignalQuery(term); setTab('signals'); }} />}
-      {tab === 'coverage' && !loading && <CoverageTab items={items} dataset={selectedDataset} datasets={datasets} onDatasetSelect={onDatasetSelect} onNavigate={onNavigate} />}
+      {tab !== 'explorer' && payloadError && <div className="ws-callout attention" role="alert">This dataset didn’t open: {payloadError}</div>}
+      {tab === 'signals' && !loading && !payloadError && <SignalsTab key={selectedDataset?.id} items={items} initialQuery={signalQuery} onOpenSourceUrl={onOpenSourceUrl} />}
+      {tab === 'conversations' && !loading && !payloadError && renderConversations()}
+      {tab === 'topics' && !loading && !payloadError && <TopicsTab key={selectedDataset?.id} items={items} onSearchSignals={(term) => { setSignalQuery(term); setTab('signals'); }} />}
+      {tab === 'coverage' && !loading && !payloadError && <CoverageTab items={items} dataset={selectedDataset} datasets={datasets} onDatasetSelect={onDatasetSelect} onNavigate={onNavigate} />}
     </div>
   </section>;
 }

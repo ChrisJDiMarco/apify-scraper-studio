@@ -76,7 +76,7 @@ export function ActivityView({ state, busy, onRunRecipe, onDatasetSelect, onNavi
         <div className="ws-timeline" ref={listRef} onKeyDown={moveSelection} aria-label="Activity timeline">
           {groups.map((group) => <div key={group.day} className="ws-day"><h3>{group.day}</h3><ul>{group.entries.map((entry) => { const Icon = KIND_ICONS[entry.kind] || CircleDashed; return <li key={entry.id}>
             <button type="button" data-entry={entry.id} className={`ws-entry ${entry.state} ${selected?.id === entry.id ? 'selected' : ''}`} aria-current={selected?.id === entry.id ? 'true' : undefined} onClick={() => setSelectedId(entry.id)}>
-              <span className={`ws-state ${entry.state}`} title={STATE_LABEL[entry.state]}><StateIcon state={entry.state} /></span>
+              <span className={`ws-state ${entry.state}`} title={STATE_LABEL[entry.state]}><StateIcon state={entry.state} /><span className="sr-only">{STATE_LABEL[entry.state]}</span></span>
               <span className="ws-entry-main"><strong>{entry.title}</strong><small><Icon size={12} aria-hidden="true" />{ACTIVITY_KINDS.find((item) => item.id === entry.kind)?.label}{entry.subtitle ? ` · ${entry.subtitle}` : ''}</small>{entry.error && <small className="ws-entry-error">{entry.error}</small>}</span>
               <span className="ws-entry-meta">{entry.itemCount > 0 && <span>{number(entry.itemCount)} rows</span>}{liveDuration(entry) && <span>{liveDuration(entry)}</span>}<time dateTime={entry.startedAt}>{entry.startedAt ? new Date(entry.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}</time></span>
             </button></li>; })}</ul></div>)}

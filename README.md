@@ -40,6 +40,7 @@ Windows packaging is configured with `npm run dist:win`; native Windows release 
 | --- | --- |
 | Search platforms | Choose a topic or specific targets, set subreddit/account/date/comment filters, and review the exact collection plan before running. |
 | Collect | Save custom Apify Actor or Task recipes, run scrapers, and inspect run history. |
+| Sheets | Review every research run as a Golden Thread workbook (Theme Repository, Twitter, Reddit, LinkedIn, Theme Summary Data, Trend Velocity and more) with spreadsheet selection, sorting, filters, find, totals, edits and copy-to-Google-Sheets. Import .xlsx/.csv or pull a Google Sheet to review alongside. See the [Sheets guide](docs/sheets-guide.md). |
 | Explore | Normalize results, choose columns, save filters, compare raw and normalized rows, and search evidence across runs. |
 | Chat with findings | Ask questions across up to eight datasets, inspect validated source references, and revisit saved conversations. |
 | Analyze | Use Claude Opus 5.5 through your installed Claude CLI for tags, threads, reports, and asset drafts. Codex CLI remains an explicit optional provider. |
@@ -137,7 +138,7 @@ Once secured and deployed as a web app, configure its URL, working spreadsheet U
 | Action | Behavior |
 | --- | --- |
 | `ping` | Check the webhook and spreadsheet connection. |
-| `readTabs` | Read rows from the configured platform tabs. |
+| `readTabs` | Read rows from named tabs, or every tab in workbook order with `allTabs` (used by Sheets → Pull from a Google Sheets link). |
 | `writeDatasetRows` | Write normalized rows in chunks with request IDs for deduplication. |
 | `archiveAndClear` | Copy the working spreadsheet to the archive folder, then clear configured tabs. |
 

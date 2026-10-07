@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ArrowUpRight, BookOpen, Boxes, ChevronDown, ChevronRight, Database, FileText, FolderOpen, Globe2, Home, Layers3, LayoutGrid, LoaderCircle, MessageSquare, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, SquareKanban, PlugZap, X } from 'lucide-react';
+import { Activity, ArrowUpRight, BookOpen, Boxes, ChevronDown, ChevronRight, Database, FileText, FolderOpen, Globe2, Home, Layers3, LayoutGrid, LoaderCircle, MessageSquare, RefreshCw, Search, Settings2, Sheet, SlidersHorizontal, Sparkles, SquareKanban, PlugZap, X } from 'lucide-react';
 import { AutomationView } from './automation-view.jsx';
 import { DatasetsView, ReportsView } from './dataset-report-views.jsx';
 import { CommandPalette, MissionCommandCenter } from './mission-command.jsx';
@@ -19,11 +19,23 @@ import { ContentStudioView } from './content-studio-view.jsx';
 import semrushWordmark from './assets/semrush-2026-logo.svg';
 import { HomeView } from './home-view.jsx';
 import { SettingsView } from './settings-view.jsx';
-import { Badge, Button, Empty, StatusBanner, label, number, short, statusTone, withViewTransition } from './ui.jsx';
+import { SheetsView } from './sheets-view.jsx';
+import { Badge, Button, StatusBanner, datasetLabel, number, short, statusTone, withViewTransition } from './ui.jsx';
+
+// What disconnecting each credential stops, so the confirmation says what is at stake.
+const KEY_CONSEQUENCE = {
+  APIFY_API_TOKEN: ['your Apify token', 'Scrapers and research collection stop until you reconnect it.'],
+  OPENAI_API_KEY: ['the image generation key', 'New visuals can’t be generated until you add it again.'],
+  GOOGLE_SHEETS_WEBHOOK_URL: ['the Google Sheets bridge', 'Sending rows to Sheets and pulling tabs stop until you add it again.'],
+  GOOGLE_DOCS_ACCESS_TOKEN: ['Google Docs access', 'Importing Google Docs and publishing to Drive stop until you reconnect.'],
+  MONDAY_API_TOKEN: ['Monday.com', 'Trend board syncing stops until you reconnect.'],
+};
+const confirmCancel = () => window.confirm('Cancel this job? Anything it already finished is kept.');
 
 const NAV = [
   { id: 'content-studio', label: 'Content studio', icon: Sparkles, group: 'Workspace' },
   { id: 'dashboard', label: 'Overview', icon: Home, group: 'Workspace' },
+  { id: 'sheets', label: 'Sheets', icon: Sheet, group: 'Workspace' },
   { id: 'templates', label: 'Playbooks', icon: LayoutGrid, group: 'Workspace' },
   { id: 'search', label: 'Search platforms', icon: Search, group: 'Workspace' },
   { id: 'chat', label: 'Chat with findings', icon: MessageSquare, group: 'Workspace' },
@@ -42,6 +54,7 @@ const STUDIO_HOME_FOR = { kanban: 'board', calendar: 'board', assets: 'library',
 const STUDIO_NAV = [
   { id: 'overview', label: 'Overview', icon: Home },
   { id: 'research', label: 'Research programs', icon: Search },
+  { id: 'sheets', label: 'Sheets', icon: Sheet, appView: 'sheets' },
   { id: 'board', label: 'Trend board', icon: SquareKanban },
   { id: 'create', label: 'Create content', icon: FileText },
   { id: 'library', label: 'Library', icon: FolderOpen },
@@ -96,10 +109,12 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.error) {
+      // A page-level failure keeps the sidebar alive; only a shell failure replaces the window.
       return (
         <div className="app-fallback" role="alert">
-          <strong>This screen stopped working.</strong>
-          <span>Your saved work is safe. Try again, or switch views from the sidebar. Details: {this.state.error.message || String(this.state.error)}</span>
+          <strong>{this.props.page ? 'This page hit a problem.' : 'Scraper Studio hit a problem.'}</strong>
+          <span>Your saved work is safe. {this.props.page ? 'Try again, or open another page from the sidebar.' : 'Try again. If it keeps happening, restart the app.'}</span>
+          <details><summary>Technical details</summary><code>{this.state.error.message || String(this.state.error)}</code></details>
           <Button onClick={() => this.setState({ error: null })}>Try again</Button>
         </div>
       );
@@ -133,7 +148,7 @@ function AdvancedView(props) {
     <header className="ws-page-head"><div><span className="ws-eyebrow">Plan before you run</span><h2>Workflows</h2><p>Describe an outcome in plain words. You’ll see every step and anything missing before a single collection or AI request runs.</p></div></header>
     <div className="ws-two-col">
       <section className="ws-card workflow-planner"><h3>What would you like to make?</h3>
-        <form onSubmit={previewPlan} className="ws-stack"><label htmlFor="workflow-dataset" className="ws-field">Use dataset<select id="workflow-dataset" value={datasetId} onChange={(event) => props.onNavigate('missions', { datasetId: event.target.value })}>{!datasetId && <option value="">No dataset collected yet</option>}{props.state.datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</select></label>
+        <form onSubmit={previewPlan} className="ws-stack"><label htmlFor="workflow-dataset" className="ws-field">Use dataset<select id="workflow-dataset" value={datasetId} onChange={(event) => props.onNavigate('missions', { datasetId: event.target.value })}>{!datasetId && <option value="">No dataset collected yet</option>}{props.state.datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{datasetLabel(dataset)}</option>)}</select></label>
           <label htmlFor="workflow-goal" className="ws-field">Your goal<textarea id="workflow-goal" rows={3} value={command} onChange={(event) => setCommand(event.target.value)} placeholder="For example: make a lead sheet from this dataset" /></label>
           <div className="ws-suggestions" aria-label="Example goals">{examples.map((example) => <button key={example} type="button" className="ws-suggestion" onClick={() => setCommand(example)}>{example}</button>)}</div>
           <div className="ws-head-actions"><Button type="submit" disabled={props.busy || !command.trim()}><Sparkles size={14} aria-hidden="true" />Preview steps</Button><Button type="button" className="ghost" disabled={props.busy || !preview?.canRun || plannedCommand !== command} onClick={() => props.onRunIntent(command)}>Run reviewed plan</Button></div>
@@ -190,9 +205,10 @@ function JobTray({ jobs, busy, onCancelJob }) {
   );
 }
 
-function Header({ active, title, busy, state, onRefresh, onOpenPalette }) {
+function Header({ active, title, busy, background = [], state, onRefresh, onOpenPalette }) {
   const item = NAV.find((nav) => nav.id === active);
-  return <header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={14} aria-hidden="true" /><h1>{title || item?.label || 'Overview'}</h1></div><div className="topbar-right"><Button className="search-command ghost" onClick={onOpenPalette}><Search size={16} /><span>Search or jump to…</span><kbd>⌘ K</kbd></Button>{busy && <span className="working-status" role="status"><LoaderCircle className="spin" size={14} />Working</span>}<Button className={`ghost icon-button ${busy ? 'is-working' : ''}`} aria-label="Refresh workspace" title="Refresh workspace" disabled={busy} onClick={onRefresh}><RefreshCw size={16} /></Button></div></header>;
+  const working = busy || background.length > 0;
+  return <header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={14} aria-hidden="true" /><h1>{title || item?.label || 'Overview'}</h1></div><div className="topbar-right"><Button className="search-command ghost" onClick={onOpenPalette}><Search size={16} /><span>Search or jump to…</span><kbd>⌘ K</kbd></Button>{working && <span className="working-status" role="status" title={background.join('\n') || undefined}><LoaderCircle className="spin" size={14} aria-hidden="true" />{background.length === 1 && !busy ? `${background[0]}…` : background.length > 1 ? `${background.length} tasks running` : 'Working'}</span>}<Button className={`ghost icon-button ${busy ? 'is-working' : ''}`} aria-label="Refresh workspace" title="Refresh workspace" disabled={busy} onClick={onRefresh}><RefreshCw size={16} /></Button></div></header>;
 }
 function MobileNav({ active, onNavigate, items = NAV, workspaces = [], workspaceId, busy, onWorkspaceChange }) {
   return <div className="mobile-nav">{workspaces.length > 0 && <label className="mobile-workspace-picker"><span>Workspace</span><select aria-label="Switch workspace" value={workspaceId} disabled={busy} onChange={(event) => onWorkspaceChange(event.target.value)}>{workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label>}<label htmlFor="mobile-view">Navigate</label><select id="mobile-view" value={active} onChange={(event) => onNavigate(event.target.value)}>{items.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div>;
@@ -226,6 +242,11 @@ function StudioApp({ api }) {
   const [selectedDatasetId, setSelectedDatasetId] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [payload, setPayload] = useState(null);
+  const [sheetRequest, setSheetRequest] = useState({ id: '', key: 0 });
+  const [payloadError, setPayloadError] = useState('');
+  const [payloadAttempt, setPayloadAttempt] = useState(0);
+  const [background, setBackground] = useState({});
+  const backgroundRef = useRef({});
   const datasetKey = state.datasets.map((dataset) => `${dataset.id}:${dataset.itemCount}:${dataset.createdAt}`).join('|');
 
   async function refresh() {
@@ -272,6 +293,7 @@ function StudioApp({ api }) {
     const datasetId = state.datasets.find((item) => item.id === selectedDatasetId)?.id || state.datasets[0]?.id || '';
     setPayload(null);
     setPayloadDatasetId('');
+    setPayloadError('');
     if (!datasetId) {
       setPayload(null);
       return;
@@ -280,14 +302,13 @@ function StudioApp({ api }) {
     api.readDataset(datasetId).then((nextPayload) => {
       if (!cancelled) { setPayload(nextPayload); setPayloadDatasetId(datasetId); }
     }).catch((err) => {
-      if (cancelled) return;
-      setNotice('');
-      setError(err.message || String(err));
+      // The dataset page shows this in place, with a retry; no banner far from where people are looking.
+      if (!cancelled) setPayloadError(err.message || String(err));
     });
     return () => {
       cancelled = true;
     };
-  }, [selectedDatasetId, datasetKey]);
+  }, [selectedDatasetId, datasetKey, payloadAttempt]);
 
   async function runAction(action, successMessage = '', throwOnError = false) {
     setPendingActions((count) => count + 1);
@@ -299,13 +320,34 @@ function StudioApp({ api }) {
       if (successMessage) setNotice(typeof successMessage === 'function' ? successMessage(result) : successMessage);
       return result;
     } catch (err) {
-      setError(err.message || String(err));
+      // Views that ask for the error back show it inline; the banner would only repeat it.
       if (throwOnError) throw err;
+      setError(err.message || String(err));
       return null;
     } finally {
       setPendingActions((count) => Math.max(0, count - 1));
     }
   }
+
+  // Long work (Apify runs, AI analysis, searches) runs in the background so every other page stays usable.
+  // The same job can't be started twice while it is still going.
+  async function runBackground(key, label, action, successMessage = '', throwOnError = false) {
+    if (backgroundRef.current[key]) { setNotice(`${backgroundRef.current[key]} is still running. Its result will appear here when it finishes.`); return null; }
+    backgroundRef.current = { ...backgroundRef.current, [key]: label }; setBackground(backgroundRef.current);
+    try {
+      const result = await action();
+      await refresh();
+      if (successMessage) setNotice(typeof successMessage === 'function' ? successMessage(result) : successMessage);
+      return result;
+    } catch (err) {
+      if (throwOnError) throw err;
+      setNotice(''); setError(err.message || String(err));
+      return null;
+    } finally {
+      const { [key]: _done, ...rest } = backgroundRef.current; backgroundRef.current = rest; setBackground(rest);
+    }
+  }
+  const backgroundCount = Object.keys(background).length;
 
   const selectedDataset = useMemo(
     () => state.datasets.find((dataset) => dataset.id === selectedDatasetId) || state.datasets[0] || null,
@@ -322,6 +364,7 @@ function StudioApp({ api }) {
     setNotice('');
     setError('');
     if (args.datasetId) setSelectedDatasetId(args.datasetId);
+    if (view === 'sheets' && args.workbookId) setSheetRequest((current) => ({ id: args.workbookId, key: current.key + 1 }));
     if (STUDIO_HOME_FOR[view]) {
       if (view === 'brands') setKnowledgeTab('profiles');
       setStudioView(STUDIO_HOME_FOR[view]);
@@ -334,7 +377,7 @@ function StudioApp({ api }) {
     if (args.create || args.templateId || args.reportPresetId || args.analysisId) setCreation((current) => ({ key: (current.key || 0) + 1, templateId: args.templateId || '', reportPresetId: args.reportPresetId || '', analysisId: args.analysisId || '' }));
     else if (['reports', 'imports'].includes(nextView)) setCreation({ key: null, templateId: '', reportPresetId: '', analysisId: '' });
     else if (nextView === 'automation') setCreation({ key: null, templateId: '' });
-    if (NAV.find((item) => item.id === nextView)?.group === 'More tools' || (semrushShell && nextView !== 'content-studio' && nextView !== 'settings')) setMoreOpen(true);
+    if (NAV.find((item) => item.id === nextView)?.group === 'More tools' || (semrushShell && !['content-studio', 'settings', 'sheets'].includes(nextView))) setMoreOpen(true);
     setActive(nextView);
   }
 
@@ -354,8 +397,9 @@ function StudioApp({ api }) {
   }
 
   async function runPaletteItem(item) {
+    if (item.action === 'studio') { navigateStudio(item.args.view); return; }
     if (item.action === 'runMission' && item.args?.missionId) {
-      await runAction(() => api.runMission(item.args.missionId), 'Mission run complete.');
+      await runBackground(`mission:${item.args.missionId}`, 'Workflow run', () => api.runMission(item.args.missionId), 'Workflow run complete.');
       return;
     }
     if (item.action === 'navigate') {
@@ -365,12 +409,13 @@ function StudioApp({ api }) {
 
   const content = useMemo(() => {
     const common = { state, busy };
-    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} onViewChange={(view) => withViewTransition(() => setStudioView(view))} shellNavigation={semrushShell} workspaceControlsInShell={hasWorkspaceSwitcher} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), 'Brand context saved.', true)} onDeleteProfile={(id) => runAction(() => api.deleteBrandProfile(id), 'Profile removed. Existing research keeps its saved context.', true)} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), 'Workspace brand selected.', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), 'Asset opened.')} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), 'Asset revealed in Finder.')} />} />;
+    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} onViewChange={(view) => withViewTransition(() => setStudioView(view))} shellNavigation={semrushShell} workspaceControlsInShell={hasWorkspaceSwitcher} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={(id) => runAction(() => api.deleteBrandProfile(id), '', true)} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), 'Asset opened.')} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), 'Asset revealed in Finder.')} />} />;
+    if (active === 'sheets') return <SheetsView api={api} state={state} initialWorkbookId={sheetRequest.id} workbookRequestKey={sheetRequest.key} onNavigate={(target) => (target === 'research-programs' ? navigateStudio('research') : target === 'trend-board' ? navigateStudio('board') : navigate(target))} />;
     if (active === 'templates') return <TemplateLibraryView {...common} onChooseTemplate={choosePlaybook} onNavigate={navigate} />;
-    if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), 'Research imported with source provenance.', true)} onNavigate={navigate} />;
-    if (active === 'compare') return <CompareView {...common} onCompare={(request) => runAction(() => api.compareDatasets(request), 'Snapshots compared.', true)} onSaveMonitor={(request) => runAction(() => api.saveMonitor(request), 'Manual source check saved.', true)} onNavigate={navigate} />;
-    if (active === 'search') return <SearchView {...common} onPreviewSearch={(request) => api.previewSearchSources(request)} onSearch={(request) => runAction(() => api.searchSources(request), '', true)} onRefreshActors={() => runAction(() => api.refreshApifyActors(), 'Apify Actors synced.', true)} onNavigate={navigate} />;
-    if (active === 'chat') return <FindingsChatView {...common} selectedDatasetId={selectedDatasetId} onDatasetSelect={setSelectedDatasetId} onAskQuestion={(request) => runAction(() => api.askFindings(request), '', true)} onOpenSourceUrl={(url) => api.openSourceUrl(url)} onNavigate={navigate} />;
+    if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), '', true)} onNavigate={navigate} />;
+    if (active === 'compare') return <CompareView {...common} onCompare={(request) => runAction(() => api.compareDatasets(request), '', true)} onSaveMonitor={(request) => runAction(() => api.saveMonitor(request), '', true)} onNavigate={navigate} />;
+    if (active === 'search') return <SearchView {...common} onPreviewSearch={(request) => api.previewSearchSources(request)} onSearch={(request) => runBackground('search', 'Platform search', () => api.searchSources(request), '', true)} onRefreshActors={() => runAction(() => api.refreshApifyActors(), 'Apify Actors synced.', true)} onNavigate={navigate} />;
+    if (active === 'chat') return <FindingsChatView {...common} selectedDatasetId={selectedDatasetId} onDatasetSelect={setSelectedDatasetId} onAskQuestion={(request) => runBackground('ask', 'Answering your question', () => api.askFindings(request), '', true)} onOpenSourceUrl={(url) => api.openSourceUrl(url)} onNavigate={navigate} />;
     if (active === 'marketing-template') return <MarketingTemplateView key={creation.key} templateId={creation.templateId} busy={busy} brandProfiles={state.brandProfiles} selectedBrandProfileId={state.settings.selectedBrandProfileId} onSelectBrandProfile={(id) => api.selectBrandProfile(id)} onManageProfiles={() => navigate('brands')} onOpenScrapers={() => navigate('automation')} onCancel={() => navigate('templates')} onSave={(recipe) => runAction(() => api.saveRecipe(recipe), 'Collection saved. Open Scrapers to collect pages, then AI reports to create the brief.', true)} />;
     if (active === 'automation') {
       return (
@@ -378,33 +423,35 @@ function StudioApp({ api }) {
           {...common}
           initialTemplateId={creation.templateId}
           creationKey={creation.key}
-          onSaveRecipe={(recipe) => runAction(() => api.saveRecipe(recipe), 'Recipe saved.')}
-          onRunRecipe={(recipeId) => runAction(() => api.runRecipe(recipeId), 'Apify run complete.')}
-          onDeleteRecipe={(recipeId) => runAction(() => api.deleteRecipe(recipeId), 'Recipe deleted.')}
+          onSaveRecipe={(recipe) => runAction(() => api.saveRecipe(recipe), 'Scraper saved.')}
+          onRunRecipe={(recipeId) => runBackground(`recipe:${recipeId}`, 'Scraper run', () => api.runRecipe(recipeId), 'Scraper run complete. New rows are in Datasets.')}
+          onDeleteRecipe={(recipeId) => runAction(() => api.deleteRecipe(recipeId), 'Scraper deleted.')}
           onDiscoverApifyResource={(payload) => api.discoverApifyResource(payload)}
           onTestRecipe={(recipe) => api.testRecipe(recipe)}
-          onSaveRecipeVersion={(payload) => runAction(() => api.saveRecipeVersion(payload), 'Recipe version saved.')}
+          onSaveRecipeVersion={(payload) => runAction(() => api.saveRecipeVersion(payload), 'Scraper version saved.')}
           onOpenDataset={(datasetId) => navigate('datasets', { datasetId, tab: 'explorer' })}
         />
       );
     }
-    if (active === 'runs') return <ActivityView {...common} onRunRecipe={(recipeId) => runAction(() => api.runRecipe(recipeId), 'Apify run complete.')} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenStudio={navigateStudio} onCancelJob={(jobId) => runAction(() => api.cancelJob(jobId), 'Job cancelled.')} />;
+    if (active === 'runs') return <ActivityView {...common} onRunRecipe={(recipeId) => runBackground(`recipe:${recipeId}`, 'Scraper run', () => api.runRecipe(recipeId), 'Scraper run complete. New rows are in Datasets.')} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenStudio={navigateStudio} onCancelJob={(jobId) => confirmCancel() && runAction(() => api.cancelJob(jobId), 'Job cancelled.')} />;
     if (active === 'datasets') {
       const datasetPayload = payloadDatasetId === selectedDataset?.id ? payload : null;
-      return <DatasetHub state={state} tab={datasetTab} onTabChange={setDatasetTab} selectedDataset={selectedDataset} payload={datasetPayload} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenSourceUrl={(url) => api.openSourceUrl(url)}
+      return <DatasetHub state={state} tab={datasetTab} onTabChange={setDatasetTab} selectedDataset={selectedDataset} payload={datasetPayload} payloadError={payloadError} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenSourceUrl={(url) => api.openSourceUrl(url)}
         renderExplorer={() => (
         <DatasetsView
           {...common}
           selectedDatasetId={selectedDatasetId}
           onDatasetSelect={setSelectedDatasetId}
           payload={payloadDatasetId === selectedDataset?.id ? payload : null}
+          payloadError={payloadError}
+          onRetryPayload={() => setPayloadAttempt((value) => value + 1)}
           onNavigate={navigate}
           onSearchEvidence={(query) => api.searchEvidence(query)}
-          onAnalyze={(datasetId, kind, options = {}) => runAction(() => api.analyzeDataset({ datasetId, kind, ...options }), 'AI analysis complete.')}
+          onAnalyze={(datasetId, kind, options = {}) => runBackground(`analyze:${datasetId}:${kind}`, 'AI analysis', () => api.analyzeDataset({ datasetId, kind, ...options }), 'AI analysis complete.')}
           onExportDataset={(datasetId, format) => runAction(() => api.exportDataset({ datasetId, format }), (result) => `Exported ${result.itemCount} rows to ${result.format.toUpperCase()}.`)}
-          onExportDatasetToSheets={(datasetId) => runAction(() => api.exportDatasetToSheets({ datasetId }), (result) => `Wrote ${number(result.rowCount || 0)} rows to ${result.tabName || 'Sheets'}.`)}
+          onExportDatasetToSheets={(datasetId) => runBackground(`sheets-export:${datasetId}`, 'Sending rows to Google Sheets', () => api.exportDatasetToSheets({ datasetId }), (result) => `Wrote ${number(result.rowCount || 0)} rows to ${result.tabName || 'Sheets'}.`)}
         />)}
-        renderConversations={() => <ThreadsView {...common} payload={datasetPayload} selectedDataset={selectedDataset} onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)} onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), 'Analysis output opened.')} onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), 'Analysis output revealed in Finder.')} onAnalyze={(datasetId, kind) => runAction(() => api.analyzeDataset({ datasetId, kind }), 'Conversation summary complete.')} />} />;
+        renderConversations={() => <ThreadsView {...common} payload={datasetPayload} selectedDataset={selectedDataset} onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)} onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), 'Analysis output opened.')} onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), 'Analysis output revealed in Finder.')} onAnalyze={(datasetId, kind) => runBackground(`analyze:${datasetId}:${kind}`, 'Conversation summary', () => api.analyzeDataset({ datasetId, kind }), 'Conversation summary complete.')} />} />;
     }
     if (active === 'reports') {
       return (
@@ -419,7 +466,7 @@ function StudioApp({ api }) {
           selectedDatasetId={selectedDatasetId}
           onDatasetSelect={setSelectedDatasetId}
           onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)}
-          onAnalyze={(datasetId, kind, options = {}) => runAction(() => api.analyzeDataset({ datasetId, kind, ...options }), 'AI analysis complete.')}
+          onAnalyze={(datasetId, kind, options = {}) => runBackground(`analyze:${datasetId}:${kind}`, 'AI report', () => api.analyzeDataset({ datasetId, kind, ...options }), 'AI report ready.')}
           onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), 'Analysis output opened.')}
           onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), 'Analysis output revealed in Finder.')}
         />
@@ -431,12 +478,12 @@ function StudioApp({ api }) {
           {...common}
           meta={meta}
           onSaveKey={(keyName, value) => runAction(() => api.saveKey(keyName, value), 'Credential saved.', keyName === 'OPENAI_API_KEY')}
-          onClearKey={(keyName) => runAction(() => api.clearKey(keyName), 'Credential disconnected.', keyName === 'OPENAI_API_KEY')}
+          onClearKey={(keyName) => { const [name, consequence] = KEY_CONSEQUENCE[keyName] || ['this credential', '']; return window.confirm(`Disconnect ${name}? ${consequence}`) ? runAction(() => api.clearKey(keyName), 'Credential disconnected.', keyName === 'OPENAI_API_KEY') : Promise.resolve(null); }}
           onSaveSettings={(settings) => runAction(() => api.saveSettings(settings), 'Settings saved.')}
           onTestSheetsBridge={() => runAction(() => api.testSheetsBridge(), 'Sheets bridge reachable.')}
           onArchiveAndClearSheets={(payload) => runAction(() => api.archiveAndClearSheets(payload), 'Working sheet archived and cleared.')}
-          onImportWorkingSheets={() => runAction(() => api.importWorkingSheets(), 'Working sheet imported.')}
-          onReplaySheetRun={(sheetRunId) => runAction(() => api.replaySheetRun(sheetRunId), 'Sheet run replayed.')}
+          onImportWorkingSheets={() => runBackground('sheets-import', 'Importing the working sheet', () => api.importWorkingSheets(), 'Working sheet imported.')}
+          onReplaySheetRun={(sheetRunId) => runBackground(`sheet-replay:${sheetRunId}`, 'Replaying the sheet run', () => api.replaySheetRun(sheetRunId), 'Sheet run replayed.')}
           onTestImages={() => api.testImageProvider()}
           onCheckAi={(request) => api.checkAi(request)}
           onCheckCodex={() => api.checkCodex()}
@@ -456,20 +503,20 @@ function StudioApp({ api }) {
         selectedDataset={selectedDataset}
         busy={busy}
         onPlanIntent={(command) => runAction(() => api.planIntent({ command, datasetId: selectedDataset?.id || '' }))}
-        onRunIntent={(command) => runAction(() => api.runIntent({ command, datasetId: selectedDataset?.id || '' }), (result) => `Smart run complete: ${result.completedSteps} step${result.completedSteps === 1 ? '' : 's'}.`)}
-        onRunAction={(action) => runAction(() => api.runIntentAction(action), (result) => `Smart action complete: ${result.completedSteps} step${result.completedSteps === 1 ? '' : 's'}.`)}
-        onRunMission={(missionId) => runAction(() => api.runMission(missionId), 'Mission run complete.')}
-        onRunActionGraph={(graph) => runAction(() => api.runActionGraph({ graph }), 'Edited graph complete.')}
+        onRunIntent={(command) => runBackground('intent', 'Workflow run', () => api.runIntent({ command, datasetId: selectedDataset?.id || '' }), (result) => `Workflow complete: ${result.completedSteps} step${result.completedSteps === 1 ? '' : 's'}.`)}
+        onRunAction={(action) => runBackground(`intent-action:${action.id || action.label || 'step'}`, 'Workflow step', () => api.runIntentAction(action), (result) => `Workflow step complete: ${result.completedSteps} step${result.completedSteps === 1 ? '' : 's'}.`)}
+        onRunMission={(missionId) => runBackground(`mission:${missionId}`, 'Workflow run', () => api.runMission(missionId), 'Workflow run complete.')}
+        onRunActionGraph={(graph) => runBackground('graph', 'Workflow run', () => api.runActionGraph({ graph }), 'Workflow run complete.')}
         onPauseMission={(missionId) => runAction(() => api.pauseMission(missionId), 'Mission paused.')}
         onScheduleMission={(schedule) => runAction(() => api.scheduleMission(schedule), 'Mission watch loop saved.')}
         onExportMissionBundle={(missionId) => runAction(() => api.exportMissionBundle(missionId), 'Mission bundle exported.')}
         onSearchEvidence={(query) => api.searchEvidence(query)}
-        onRetryJob={(jobId) => runAction(() => api.retryJob(jobId), 'Retry started.')}
+        onRetryJob={(jobId) => runBackground(`retry:${jobId}`, 'Retrying a job', () => api.retryJob(jobId), 'Retry finished.')}
         onReadJobLog={(jobId) => api.readJobLog(jobId)}
         onNavigate={navigate}
       />
     );
-  }, [active, state, meta, busy, selectedDatasetId, payload, selectedDataset, payloadDatasetId, creation, studioView, createWorkspaceKey, semrushShell, hasWorkspaceSwitcher, datasetTab, knowledgeTab]);
+  }, [active, state, meta, busy, selectedDatasetId, payload, payloadError, selectedDataset, payloadDatasetId, creation, studioView, createWorkspaceKey, semrushShell, hasWorkspaceSwitcher, datasetTab, knowledgeTab, sheetRequest]);
 
   // One real pill slides under the active item (a snapshot would cover its label mid-transition).
   const primaryNavRef = useRef(null);
@@ -501,7 +548,8 @@ function StudioApp({ api }) {
   };
   const paletteItems = [
     { id: 'create-scraper', label: 'Create a new scraper', icon: Globe2, action: 'navigate', args: { view: 'automation', create: true } },
-    ...NAV.map((item) => ({ id: `go-${item.id}`, label: `Open ${item.label}`, icon: item.icon, action: 'navigate', args: { view: item.id } })),
+    ...(api.contentCatalog ? STUDIO_NAV.filter((item) => !item.appView).map((item) => ({ id: `studio-${item.id}`, label: `Open ${item.label}`, icon: item.icon, action: 'studio', args: { view: item.id } })) : []),
+    ...NAV.filter((item) => !(semrushShell && item.id === 'dashboard')).map((item) => ({ id: `go-${item.id}`, label: `Open ${item.id === 'dashboard' && api.contentCatalog ? 'Collection overview' : item.label}`, icon: item.icon, action: 'navigate', args: { view: item.id } })),
     ...(state.v5?.commandPalette || []).filter((item) => item.action === 'runMission' && item.args?.missionId),
   ];
   const studioState = state.contentStudio || {};
@@ -512,20 +560,20 @@ function StudioApp({ api }) {
         <div className="brand">{semrushShell ? <div className="semrush-brand"><img src={semrushWordmark} alt="Semrush" className="semrush-wordmark" /><span>Research & content studio</span></div> : <><span className="brand-mark"><Layers3 size={23} strokeWidth={1.8} /></span><div><strong>scraper<span>studio</span></strong><small>POWERED BY APIFY</small></div></>}</div>
         <div className="sidebar-body">
           {hasWorkspaceSwitcher ? <div className="shell-workspace-control"><label className="shell-workspace-picker"><span className="workspace-avatar"><Layers3 size={15} aria-hidden="true" /></span><select aria-label="Content workspace" value={contentWorkspace.id} disabled={busy} onChange={(event) => runAction(() => api.selectContentWorkspace(event.target.value))}>{contentWorkspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label><button className="shell-new-workspace" type="button" disabled={busy} onClick={() => { setCreateWorkspaceKey(value => value + 1); navigateStudio('knowledge'); }}>+ New workspace</button></div> : <div className="workspace-label"><span className="workspace-avatar">S</span><div><strong>My workspace</strong><small>Local to this Mac</small></div></div>}
-          <nav aria-label="Primary" ref={primaryNavRef}>{navIndicator && <span className={`nav-indicator ${navIndicator.settled ? 'settled' : ''}`} aria-hidden="true" style={{ transform: `translate(${navIndicator.left}px, ${navIndicator.top}px)`, width: navIndicator.width, height: navIndicator.height }} />}<div className="nav-group">{semrushShell ? STUDIO_NAV.map(item => { const Icon = item.icon; const selected = active === 'content-studio' && studioView === item.id; return <Button key={item.id} aria-label={item.label} className={selected ? 'active' : ''} aria-current={selected ? 'page' : undefined} onClick={() => navigateStudio(item.id)}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></Button>; }) : <><small>WORKSPACE</small>{NAV.filter((item) => item.group === 'Workspace').map((item) => renderNavItem(item))}</>}</div>
-            <div className="nav-group more-nav"><Button className="more-toggle" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><SlidersHorizontal size={18} /><span>More tools</span><ChevronDown className={moreOpen ? 'rotated' : ''} size={14} /></Button>{moreOpen && NAV.filter((item) => semrushShell ? !['content-studio', 'settings'].includes(item.id) : item.group === 'More tools').map((item, index) => renderNavItem(semrushShell && item.id === 'dashboard' ? { ...item, label: 'Collection overview' } : item, index))}</div>
+          <nav aria-label="Primary" ref={primaryNavRef}>{navIndicator && <span className={`nav-indicator ${navIndicator.settled ? 'settled' : ''}`} aria-hidden="true" style={{ transform: `translate(${navIndicator.left}px, ${navIndicator.top}px)`, width: navIndicator.width, height: navIndicator.height }} />}<div className="nav-group">{semrushShell ? STUDIO_NAV.map(item => { const Icon = item.icon; const selected = item.appView ? active === item.appView : active === 'content-studio' && studioView === item.id; return <Button key={item.id} aria-label={item.label} className={selected ? 'active' : ''} aria-current={selected ? 'page' : undefined} onClick={() => (item.appView ? navigate(item.appView) : navigateStudio(item.id))}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></Button>; }) : <><small>WORKSPACE</small>{NAV.filter((item) => item.group === 'Workspace').map((item) => renderNavItem(item))}</>}</div>
+            <div className="nav-group more-nav"><Button className="more-toggle" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><SlidersHorizontal size={18} /><span>More tools</span><ChevronDown className={moreOpen ? 'rotated' : ''} size={14} /></Button>{moreOpen && NAV.filter((item) => semrushShell ? !['content-studio', 'settings', 'sheets'].includes(item.id) : item.group === 'More tools').map((item, index) => renderNavItem(semrushShell && item.id === 'dashboard' ? { ...item, label: 'Collection overview' } : item, index))}</div>
           </nav>
           {!semrushShell && !state.keys.APIFY_API_TOKEN && <div className="sidebar-setup"><span className="small-icon"><PlugZap size={17} /></span><strong>A little setup.<br />A lot to discover.</strong><p>Connect Apify to start collecting from the web.</p><Button className="ghost" onClick={() => navigate('settings')}>Connect Apify <ArrowUpRight size={14} /></Button></div>}
         </div>
         <div className="sidebar-bottom"><nav aria-label="Preferences">{renderNavItem(NAV.find((item) => item.id === 'settings'))}</nav><div className="sidebar-foot" role="status"><span className="local-dot" data-live={liveRuns ? '' : undefined} aria-hidden="true" /><span>{liveRuns ? `${number(liveRuns)} ${liveRuns === 1 ? 'run' : 'runs'} in progress` : 'Local workspace'}</span><span className="version">v{meta?.version || '0.1.0'}</span></div></div>
       </aside>
       <main className="workspace">
-        <Header active={active === 'marketing-template' ? 'dashboard' : active} title={semrushShell && active === 'content-studio' ? STUDIO_NAV.find(item => item.id === studioView)?.label : undefined} busy={busy} state={state} onRefresh={() => runAction(refresh)} onOpenPalette={() => setPaletteOpen(true)} />
-        <MobileNav workspaces={hasWorkspaceSwitcher ? contentWorkspaces : []} workspaceId={contentWorkspace?.id} busy={busy} onWorkspaceChange={id => runAction(() => api.selectContentWorkspace(id))} active={semrushShell && active === 'content-studio' ? `studio:${studioView}` : active === 'marketing-template' ? 'dashboard' : active} items={semrushShell ? [...STUDIO_NAV.map(item => ({ ...item, id: `studio:${item.id}` })), ...NAV.filter(item => item.id !== 'content-studio').map(item => item.id === 'dashboard' ? { ...item, label: 'Collection overview' } : item)] : NAV} onNavigate={value => value.startsWith('studio:') ? navigateStudio(value.slice(7)) : navigate(value)} />
-        <div className="content" ref={contentRef}>
+        <Header active={active === 'marketing-template' ? 'dashboard' : active} title={semrushShell && active === 'content-studio' ? STUDIO_NAV.find(item => item.id === studioView)?.label : semrushShell && active === 'dashboard' ? 'Collection overview' : undefined} busy={busy} background={Object.values(background)} state={state} onRefresh={() => runAction(refresh)} onOpenPalette={() => setPaletteOpen(true)} />
+        <MobileNav workspaces={hasWorkspaceSwitcher ? contentWorkspaces : []} workspaceId={contentWorkspace?.id} busy={busy} onWorkspaceChange={id => runAction(() => api.selectContentWorkspace(id))} active={semrushShell && active === 'content-studio' ? `studio:${studioView}` : active === 'marketing-template' ? 'dashboard' : active} items={semrushShell ? [...STUDIO_NAV.map(item => ({ ...item, id: item.appView || `studio:${item.id}` })), ...NAV.filter(item => !['content-studio', 'sheets'].includes(item.id)).map(item => item.id === 'dashboard' ? { ...item, label: 'Collection overview' } : item)] : NAV} onNavigate={value => value.startsWith('studio:') ? navigateStudio(value.slice(7)) : navigate(value)} />
+        <div className={`content${active === 'sheets' ? ' content-fill' : ''}`} ref={contentRef}>
           {(error || notice) && <div className="feedback" onMouseEnter={() => setNoticeHeld(true)} onMouseLeave={() => setNoticeHeld(false)}><StatusBanner error={error} notice={notice} /><Button className="ghost icon-button" aria-label="Dismiss notification" onClick={() => { setError(''); setNotice(''); }}><X size={16} /></Button></div>}
-          <JobTray jobs={state.jobs || []} busy={false} onCancelJob={(jobId) => runAction(() => api.cancelJob(jobId), 'Job cancelled.')} />
-          {loading ? <div className="loading-state" role="status"><LoaderCircle className="spin" size={26} /><h2>Opening your workspace</h2><p>Loading your scrapers, datasets, and reports.</p></div> : content}
+          <JobTray jobs={state.jobs || []} busy={false} onCancelJob={(jobId) => confirmCancel() && runAction(() => api.cancelJob(jobId), 'Job cancelled.')} />
+          {loading ? <div className="loading-state" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><h2>Opening your workspace</h2><p>Loading your research, sheets and reports.</p></div> : <ErrorBoundary page key={`${active}:${studioView}`}>{content}</ErrorBoundary>}
         </div>
         <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} onRun={runPaletteItem} />
       </main>

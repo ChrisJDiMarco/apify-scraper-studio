@@ -32,7 +32,13 @@ export function formatDuration(ms) {
   return `${Math.floor(seconds / 3600)}h ${String(Math.round((seconds % 3600) / 60)).padStart(2, '0')}m`;
 }
 
-const errorText = (error) => (typeof error === 'string' ? error : error?.message || '');
+// Exit codes mean nothing to a reviewer; say what happened and where to fix it.
+export const humanizeRunMessage = (value) => {
+  const text = String(value || '').trim();
+  const exit = /^(Claude|Codex|AI) exited with (?:code )?(\d+)\.?$/i.exec(text);
+  return exit ? `${/codex/i.test(exit[1]) ? 'Codex' : 'Claude'} stopped before finishing (exit code ${exit[2]}). Check the Claude connection in Settings, then retry.` : text;
+};
+const errorText = (error) => humanizeRunMessage(typeof error === 'string' ? error : error?.message || '');
 
 export function buildActivity(state = {}) {
   const recipes = new Map(list(state.recipes).map((recipe) => [recipe.id, recipe]));
@@ -49,7 +55,7 @@ export function buildActivity(state = {}) {
   }
   for (const run of list(studio.researchRuns)) {
     const finished = !ACTIVE.has(run.status);
-    add({ id: run.id, kind: 'research', title: programs.get(run.programId) || run.title || 'Research run', subtitle: run.status === 'awaiting-review' ? `${list(run.discoveredThemes || run.themes).length} trends waiting for your OK` : run.message || '', status: run.status || 'idle', startedAt: run.createdAt, finishedAt: finished ? run.updatedAt : '', costUsd: run.costUsd, error: errorText(run.error), studioRunId: run.id, raw: run });
+    add({ id: run.id, kind: 'research', title: programs.get(run.programId) || run.title || 'Research run', subtitle: run.status === 'awaiting-review' ? `${list(run.discoveredThemes || run.themes).length} trends waiting for your OK` : humanizeRunMessage(run.message), status: run.status || 'idle', startedAt: run.createdAt, finishedAt: finished ? run.updatedAt : '', costUsd: run.costUsd, error: errorText(run.error), studioRunId: run.id, raw: run });
   }
   for (const run of list(studio.contentRuns)) {
     const finished = !ACTIVE.has(run.status);
