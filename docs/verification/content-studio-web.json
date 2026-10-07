@@ -1,0 +1,57 @@
+{
+  "fixtureOnly": true,
+  "startedAt": "2026-09-28T00:49:16.003Z",
+  "root": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/studio-web-qa-ftBzm2",
+  "screenshots": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/studio-web-qa-ftBzm2/screenshots",
+  "checks": [
+    {
+      "name": "web-login",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "web-general-overview",
+      "width": 1440,
+      "scroll": 1440
+    },
+    {
+      "name": "web-semrush-overview",
+      "width": 1440,
+      "scroll": 1433
+    },
+    {
+      "name": "web-deliverables",
+      "width": 1440,
+      "scroll": 1433
+    },
+    {
+      "name": "web-review",
+      "width": 1440,
+      "scroll": 1433
+    },
+    {
+      "name": "web-compact",
+      "width": 860,
+      "scroll": 853
+    },
+    {
+      "name": "web-brand-knowledge",
+      "width": 1440,
+      "scroll": 1433
+    },
+    {
+      "name": "web-weekly-schedule",
+      "width": 1440,
+      "scroll": 1433
+    },
+    {
+      "name": "web-schedule-save-pause-no-run"
+    },
+    {
+      "name": "sign-out-removes-session"
+    }
+  ],
+  "providerCalls": 0,
+  "externalCalls": 0,
+  "consoleErrors": []
+}

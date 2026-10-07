@@ -1,0 +1,60 @@
+{
+  "fixtureOnly": true,
+  "startedAt": "2026-09-27T19:53:17.545Z",
+  "dataDir": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/scraper-research-upgrades-DiN14Y",
+  "screenshots": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/scraper-research-upgrades-DiN14Y/screenshots",
+  "checks": [
+    {
+      "name": "eight-playbooks",
+      "count": 8
+    },
+    {
+      "name": "brand-save-and-reuse",
+      "profileId": "brand-1790538799450-cj974k"
+    },
+    {
+      "name": "csv-preview-acknowledgment-import",
+      "datasetId": "dataset-1790538801224-ocu6o0",
+      "duplicatesExcluded": 1,
+      "brandReused": true
+    },
+    {
+      "name": "comparison-and-derived-brief",
+      "comparisonId": "comparison-1790538801659-qkho0d",
+      "changed": 1,
+      "unavailable": 1,
+      "derivedDatasetId": "dataset-1790538801659-lh4qsc"
+    },
+    {
+      "name": "coverage-source-review-approved-export",
+      "analysisId": "qa-report",
+      "included": 1,
+      "loaded": 2,
+      "exportPath": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/scraper-research-upgrades-DiN14Y/exports/review-export-1790538805081-s1qwpi/research-brief.md"
+    },
+    {
+      "name": "approved-html-render",
+      "exportPath": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/scraper-research-upgrades-DiN14Y/exports/review-export-1790538805198-88owm9/research-brief.html"
+    },
+    {
+      "name": "compact-report-source"
+    },
+    {
+      "name": "compact-playbooks"
+    },
+    {
+      "name": "compact-brand"
+    },
+    {
+      "name": "compact-import"
+    },
+    {
+      "name": "compact-comparison"
+    }
+  ],
+  "status": "passed",
+  "finishedAt": "2026-09-27T19:53:30.062Z",
+  "externalServiceCalls": 0,
+  "networkCalls": 0,
+  "nativeBridge": true
+}

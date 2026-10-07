@@ -1,0 +1,365 @@
+{
+  "startedAt": "2026-09-27T19:18:27.627Z",
+  "limits": {
+    "resultsPerSource": 2,
+    "apifyBudgetPerSourceUsd": 0.25,
+    "apifyTotalBudgetUsd": 1
+  },
+  "steps": [
+    {
+      "step": "actor-catalog",
+      "count": 9,
+      "actorNames": [
+        "trudax/reddit-scraper-lite",
+        "harvestapi/linkedin-profile-posts",
+        "apidojo/twitter-scraper-lite",
+        "supreme_coder/linkedin-post",
+        "kaitoeasyapi/twitter-x-data-tweet-scraper-pay-per-result-cheapest",
+        "streamers/youtube-scraper",
+        "clockworks/tiktok-scraper",
+        "apify/google-trends-scraper",
+        "clockworks/tiktok-comments-scraper"
+      ]
+    },
+    {
+      "step": "claude-connection",
+      "ok": true,
+      "loggedIn": true,
+      "provider": "claude",
+      "version": "2.1.281 (Claude Code)",
+      "error": ""
+    },
+    {
+      "step": "collection",
+      "datasets": [
+        {
+          "id": "dataset-1790536742442-ue1c5e",
+          "platform": "x",
+          "itemCount": 2
+        },
+        {
+          "id": "dataset-1790536716870-4p8il1",
+          "platform": "linkedin",
+          "itemCount": 2
+        },
+        {
+          "id": "dataset-1790536716242-p5blvl",
+          "platform": "linkedin",
+          "itemCount": 2
+        }
+      ],
+      "errors": [
+        {
+          "sourceId": "reddit",
+          "message": "Apify run finished with status FAILED."
+        }
+      ],
+      "runs": [
+        {
+          "id": "run-1790536711003-qb0gmi",
+          "actorId": "harvestapi/linkedin-profile-posts",
+          "status": "succeeded",
+          "apifyRunId": "QIjmcqGVJuzWaubG7",
+          "itemCount": 2,
+          "usageTotalUsdAtCompletion": 5e-05,
+          "runLimits": {
+            "maxTotalChargeUsd": 0.25,
+            "timeoutSecs": 300
+          }
+        },
+        {
+          "id": "run-1790536711001-i0la82",
+          "actorId": "supreme_coder/linkedin-post",
+          "status": "succeeded",
+          "apifyRunId": "PqLSEiQpbe8TaUbdf",
+          "itemCount": 2,
+          "usageTotalUsdAtCompletion": 5e-05,
+          "runLimits": {
+            "maxTotalChargeUsd": 0.25,
+            "timeoutSecs": 300
+          }
+        },
+        {
+          "id": "run-1790536710999-8rf9a3",
+          "actorId": "apidojo/twitter-scraper-lite",
+          "status": "succeeded",
+          "apifyRunId": "VxDk5OMpraD0YzE1E",
+          "itemCount": 2,
+          "usageTotalUsdAtCompletion": 0,
+          "runLimits": {
+            "maxTotalChargeUsd": 0.25,
+            "timeoutSecs": 300
+          }
+        },
+        {
+          "id": "run-1790536710996-l23f0t",
+          "actorId": "trudax/reddit-scraper-lite",
+          "status": "failed",
+          "apifyRunId": "8bYhg75O1b86ojfnp",
+          "runLimits": {
+            "maxTotalChargeUsd": 0.25,
+            "timeoutSecs": 300
+          },
+          "error": "Apify run finished with status FAILED."
+        }
+      ]
+    },
+    {
+      "step": "source-shape",
+      "datasetId": "dataset-1790536742442-ue1c5e",
+      "platform": "x",
+      "rawKeys": [
+        "type",
+        "id",
+        "url",
+        "twitterUrl",
+        "text",
+        "fullText",
+        "source",
+        "retweetCount",
+        "replyCount",
+        "likeCount",
+        "quoteCount",
+        "viewCount",
+        "createdAt",
+        "lang",
+        "bookmarkCount",
+        "isReply",
+        "inReplyToId",
+        "conversationId",
+        "inReplyToUserId",
+        "inReplyToUsername",
+        "isPinned",
+        "author",
+        "extendedEntities",
+        "card",
+        "place",
+        "entities",
+        "isRetweet",
+        "isQuote",
+        "media",
+        "isConversationControlled",
+        "searchTerm"
+      ],
+      "usableTextRows": 2,
+      "sourceUrlRows": 2
+    },
+    {
+      "step": "source-shape",
+      "datasetId": "dataset-1790536716870-4p8il1",
+      "platform": "linkedin",
+      "rawKeys": [
+        "urn",
+        "text",
+        "url",
+        "postedAtTimestamp",
+        "postedAtISO",
+        "timeSincePosted",
+        "isRepost",
+        "authorType",
+        "authorProfileUrl",
+        "authorProfileId",
+        "authorHeadline",
+        "authorName",
+        "type",
+        "shareUrn",
+        "attributes",
+        "comments",
+        "reactions",
+        "numShares",
+        "numLikes",
+        "numComments",
+        "canReact",
+        "canPostComments",
+        "canShare",
+        "commentingDisabled",
+        "allowedCommentersScope",
+        "rootShare",
+        "shareAudience",
+        "author",
+        "authorProfilePicture",
+        "authorUrn",
+        "inputUrl"
+      ],
+      "usableTextRows": 2,
+      "sourceUrlRows": 2
+    },
+    {
+      "step": "source-shape",
+      "datasetId": "dataset-1790536716242-p5blvl",
+      "platform": "linkedin",
+      "rawKeys": [
+        "type",
+        "id",
+        "linkedinUrl",
+        "content",
+        "contentAttributes",
+        "author",
+        "postedAt",
+        "postImages",
+        "socialContent",
+        "header",
+        "entityId",
+        "shareUrn",
+        "shareLinkedinUrl",
+        "engagement",
+        "reactionIds",
+        "commentIds",
+        "query"
+      ],
+      "usableTextRows": 2,
+      "sourceUrlRows": 2
+    },
+    {
+      "step": "findings-chat",
+      "conversationId": "chat-1790536742480-ggpvuo",
+      "citations": 6,
+      "coverage": {
+        "datasetCount": 3,
+        "availableItems": 6,
+        "includedItems": 6,
+        "omittedItems": 0,
+        "truncatedItems": 0,
+        "excludedItems": 0,
+        "maxChars": 80000,
+        "sampling": "Round-robin across selected datasets in stored row order; at most 200 sources and 6,000 text characters per source.",
+        "datasets": [
+          {
+            "datasetId": "dataset-1790536742442-ue1c5e",
+            "name": "X / Twitter \u00b7 enterprise marketing 9/27/2026, 3:19:02 PM",
+            "availableItems": 2,
+            "includedItems": 2
+          },
+          {
+            "datasetId": "dataset-1790536716870-4p8il1",
+            "name": "LinkedIn search \u00b7 enterprise marketing 9/27/2026, 3:18:36 PM",
+            "availableItems": 2,
+            "includedItems": 2
+          },
+          {
+            "datasetId": "dataset-1790536716242-p5blvl",
+            "name": "LinkedIn profiles \u00b7 enterprise marketing 9/27/2026, 3:18:36 PM",
+            "availableItems": 2,
+            "includedItems": 2
+          }
+        ],
+        "contextChars": 7916
+      },
+      "aiReceipt": {
+        "provider": "claude",
+        "requestedModel": "claude-opus-5-5",
+        "actualModel": "claude-opus-5-5",
+        "actualModels": [
+          "claude-opus-5-5"
+        ],
+        "costUsd": 0.078452,
+        "usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 5233,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 1829,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 5233,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "not_available",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 1829,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 5233,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 5233
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard"
+        },
+        "durationMs": 17555,
+        "costBasis": "CLI-reported list cost; subscription billing may differ"
+      }
+    },
+    {
+      "step": "report",
+      "id": "report-1790536761496-1961p1",
+      "status": "succeeded",
+      "title": "Market Scan: X / Twitter \"enterprise marketing\" sample (2 posts, 27 Sep 2026). There isn't enough evidence to draw market conclusions.",
+      "aiReceipt": {
+        "provider": "claude",
+        "requestedModel": "claude-opus-5-5",
+        "actualModel": "claude-opus-5-5",
+        "actualModels": [
+          "claude-opus-5-5"
+        ],
+        "costUsd": 0.08846399999999999,
+        "usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 2972,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3234,
+          "output_tokens_details": {
+            "thinking_tokens": 0
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 2972,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "not_available",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 3234,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 2972,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 2972
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard"
+        },
+        "durationMs": 29434,
+        "costBasis": "CLI-reported list cost; subscription billing may differ"
+      },
+      "coverage": {
+        "datasetCount": 1,
+        "availableItems": 2,
+        "includedItems": 2,
+        "omittedItems": 0,
+        "truncatedItems": 0,
+        "excludedItems": 0,
+        "maxChars": 80000,
+        "sampling": "Round-robin across selected datasets in stored row order; at most 200 sources and 6,000 text characters per source.",
+        "datasets": [
+          {
+            "datasetId": "dataset-1790536742442-ue1c5e",
+            "name": "X / Twitter \u00b7 enterprise marketing 9/27/2026, 3:19:02 PM",
+            "availableItems": 2,
+            "includedItems": 2
+          }
+        ],
+        "contextChars": 2743
+      }
+    }
+  ],
+  "status": "partial-sources-ai-passed-ui-interrupted",
+  "uiNote": "Background screenshot request was interrupted after live services finished. Dedicated --review run follows without service calls."
+}

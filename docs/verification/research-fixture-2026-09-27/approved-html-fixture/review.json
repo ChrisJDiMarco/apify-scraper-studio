@@ -1,0 +1,18 @@
+{
+  "analysisId": "qa-report",
+  "status": "approved",
+  "reviewer": "QA reviewer — fixture only",
+  "reviewerBasis": "self-reported local reviewer; not authenticated team approval",
+  "notes": "QA fixture approval exercises the workflow only. No real research claim was reviewed.",
+  "evidenceChecked": true,
+  "limitationsAccepted": true,
+  "acknowledgedWarnings": [
+    "missing-requested-pages",
+    "outside-analysis-sample"
+  ],
+  "actions": [],
+  "contentFingerprint": "10d8774946cb1e62948236cac15d88d332bc9febb43ec94134cc98cd55d20c6f",
+  "version": 1,
+  "createdAt": "2026-09-27T19:53:24.439Z",
+  "updatedAt": "2026-09-27T19:53:24.439Z"
+}

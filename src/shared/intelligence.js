@@ -124,7 +124,7 @@ function recommendation(dataset, kind, reportPresetId, itemCount) {
       action: 'analyze-dataset',
       label: kind === 'lead-list' || kind === 'job-listings' ? 'Build lead report' : 'Build analyst report',
       args: { datasetId: dataset.id, kind: 'report', reportPresetId },
-      why: 'Turn the dataset into a schema-valid Codex report.',
+      why: 'Turn the dataset into a structured AI report.',
     },
     {
       id: 'export-csv',
@@ -436,7 +436,7 @@ function suggestCommands(state = {}, datasetProfiles = list(state.intelligence?.
 
   return [
     first,
-    command('tag-thread', 'Tags and threads', 'tag and thread this dataset', 'Adds structured Codex intelligence.'),
+    command('tag-thread', 'Tags and threads', 'tag and thread this dataset', 'Adds structured AI analysis.'),
     command('export-card', 'Export and card', 'export csv and create a kanban card', 'Moves the finding into production.'),
   ];
 }
@@ -501,7 +501,7 @@ function planIntent(command, state = {}) {
     if (!dataset) {
       missing.push('Run or select a dataset before asking for dataset work.');
     } else if (datasetItemCount(dataset, profile) === 0) {
-      missing.push('Run the recipe again before asking Codex to analyze an empty dataset.');
+      missing.push('Run the recipe again before asking AI to analyze an empty dataset.');
     } else {
       if (wantsTag) {
         addStep(steps, {

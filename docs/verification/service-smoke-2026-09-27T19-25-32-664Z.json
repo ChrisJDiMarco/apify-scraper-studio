@@ -1,0 +1,86 @@
+{
+  "startedAt": "2026-09-27T19:25:32.666Z",
+  "limits": {
+    "resultsPerSource": 10,
+    "apifyBudgetPerSourceUsd": 0.25,
+    "apifyTotalBudgetUsd": 0.25
+  },
+  "steps": [
+    {
+      "step": "actor-catalog",
+      "count": 9,
+      "actorNames": [
+        "harvestapi/linkedin-profile-posts",
+        "supreme_coder/linkedin-post",
+        "trudax/reddit-scraper-lite",
+        "apidojo/twitter-scraper-lite",
+        "kaitoeasyapi/twitter-x-data-tweet-scraper-pay-per-result-cheapest",
+        "streamers/youtube-scraper",
+        "clockworks/tiktok-scraper",
+        "apify/google-trends-scraper",
+        "clockworks/tiktok-comments-scraper"
+      ]
+    },
+    {
+      "step": "claude-connection",
+      "ok": true,
+      "loggedIn": true,
+      "provider": "claude",
+      "version": "2.1.281 (Claude Code)",
+      "error": ""
+    },
+    {
+      "step": "collection",
+      "datasets": [
+        {
+          "id": "dataset-1790537242241-rbmilz",
+          "platform": "reddit",
+          "itemCount": 7
+        }
+      ],
+      "errors": [],
+      "runs": [
+        {
+          "id": "run-1790537136475-i9tegc",
+          "actorId": "trudax/reddit-scraper-lite",
+          "status": "succeeded",
+          "apifyRunId": "aIIX9ODLTPNwZ4d7s",
+          "itemCount": 7,
+          "usageTotalUsdAtCompletion": 0.0616,
+          "runLimits": {
+            "maxTotalChargeUsd": 0.25,
+            "timeoutSecs": 300
+          }
+        }
+      ]
+    },
+    {
+      "step": "source-shape",
+      "datasetId": "dataset-1790537242241-rbmilz",
+      "platform": "reddit",
+      "rawKeys": [
+        "id",
+        "title",
+        "url",
+        "link",
+        "username",
+        "upVotes",
+        "upVoteRatio",
+        "numberOfComments",
+        "createdAt",
+        "body",
+        "communityName",
+        "parsedCommunityName",
+        "contentType",
+        "imageUrls",
+        "dataType",
+        "parsedId",
+        "scrapedAt"
+      ],
+      "usableTextRows": 7,
+      "sourceUrlRows": 7
+    }
+  ],
+  "status": "reddit-collection-passed",
+  "finishedAt": "2026-09-27T19:27:22.289Z"
+}

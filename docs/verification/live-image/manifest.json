@@ -1,0 +1,200 @@
+{
+  "exportedAt": "2026-09-27T22:27:09.885Z",
+  "workspaceId": "general",
+  "run": {
+    "id": "content-127e8660-1822-44c4-9e4c-88d7f6b05e50",
+    "workspaceId": "general",
+    "type": "content",
+    "title": "Image connection test — research to campaign",
+    "status": "succeeded",
+    "stage": "content",
+    "createdAt": "2026-09-27T22:26:58.644Z",
+    "maxBudgetUsd": 0.5,
+    "reservedUsd": 0.007179999999999964,
+    "costUsd": 0.00718,
+    "receipts": [
+      {
+        "stage": "image-brand-image",
+        "callId": "image-call-fbce35af-6247-4a6d-aee8-b8f9dc522cad",
+        "allowanceUsd": 0.5,
+        "status": "succeeded",
+        "attempts": [
+          {
+            "provider": "openai",
+            "attemptId": "585c6c24-1d3e-48b8-990a-e5dbd1ae41b9",
+            "runId": "content-127e8660-1822-44c4-9e4c-88d7f6b05e50",
+            "variantIndex": 0,
+            "requestedModel": "gpt-image-2.5-flare",
+            "model": "gpt-image-2.5-flare",
+            "returnedModel": null,
+            "promptHash": "5a098ae3dcdcc793c271a99c449187441c633b4919c86b0ccd184b752d7c0a43",
+            "size": "1536x1024",
+            "quality": "low",
+            "status": "succeeded",
+            "allowanceUsd": 0.5,
+            "budgetKind": "dispatch-allowance",
+            "budgetNotice": "The allowance controls new requests, not the final provider charge for an already-dispatched image.",
+            "requestId": "req_de9ff1b9914c46e49976d2e79d8cb573",
+            "startedAt": "2026-09-27T22:26:58.739Z",
+            "billable": true,
+            "usage": {
+              "input_tokens": 488,
+              "output_tokens": 158,
+              "total_tokens": 646,
+              "input_tokens_details": {
+                "text_tokens": 488,
+                "image_tokens": 0
+              },
+              "output_tokens_details": {
+                "text_tokens": 0,
+                "image_tokens": 158
+              }
+            },
+            "costUsd": 0.00718,
+            "estimatedCostUsd": 0.00718,
+            "costBasis": "usage-estimate",
+            "pricingAsOf": "2026-09-27",
+            "pricingUsdPerMillion": {
+              "textInput": 5,
+              "imageInput": 8,
+              "imageOutput": 30
+            },
+            "completedAt": "2026-09-27T22:27:09.509Z"
+          }
+        ],
+        "costUsd": 0.00718
+      }
+    ],
+    "warnings": [
+      "No approved products supplied. Product fits and product CTAs must remain explicit gaps."
+    ],
+    "jobs": [
+      {
+        "id": "brand-image",
+        "label": "Brand campaign graphic",
+        "kind": "image",
+        "status": "succeeded",
+        "imageCalls": [
+          {
+            "id": "image-call-fbce35af-6247-4a6d-aee8-b8f9dc522cad",
+            "status": "succeeded",
+            "allowanceUsd": 0.5,
+            "callbackMode": true,
+            "attempts": [
+              {
+                "provider": "openai",
+                "attemptId": "585c6c24-1d3e-48b8-990a-e5dbd1ae41b9",
+                "runId": "content-127e8660-1822-44c4-9e4c-88d7f6b05e50",
+                "variantIndex": 0,
+                "requestedModel": "gpt-image-2.5-flare",
+                "model": "gpt-image-2.5-flare",
+                "returnedModel": null,
+                "promptHash": "5a098ae3dcdcc793c271a99c449187441c633b4919c86b0ccd184b752d7c0a43",
+                "size": "1536x1024",
+                "quality": "low",
+                "status": "succeeded",
+                "allowanceUsd": 0.5,
+                "budgetKind": "dispatch-allowance",
+                "budgetNotice": "The allowance controls new requests, not the final provider charge for an already-dispatched image.",
+                "requestId": "req_de9ff1b9914c46e49976d2e79d8cb573",
+                "startedAt": "2026-09-27T22:26:58.739Z",
+                "billable": true,
+                "usage": {
+                  "input_tokens": 488,
+                  "output_tokens": 158,
+                  "total_tokens": 646,
+                  "input_tokens_details": {
+                    "text_tokens": 488,
+                    "image_tokens": 0
+                  },
+                  "output_tokens_details": {
+                    "text_tokens": 0,
+                    "image_tokens": 158
+                  }
+                },
+                "costUsd": 0.00718,
+                "estimatedCostUsd": 0.00718,
+                "costBasis": "usage-estimate",
+                "pricingAsOf": "2026-09-27",
+                "pricingUsdPerMillion": {
+                  "textInput": 5,
+                  "imageInput": 8,
+                  "imageOutput": 30
+                },
+                "completedAt": "2026-09-27T22:27:09.509Z"
+              }
+            ],
+            "startedAt": "2026-09-27T22:26:58.720Z"
+          }
+        ],
+        "assetIds": [
+          "image-7f20ef9042797a02a192e0d2474f37b4"
+        ],
+        "imageReservedUsd": 0.00718,
+        "imageCostUsd": 0.00718,
+        "assetId": "image-7f20ef9042797a02a192e0d2474f37b4"
+      }
+    ],
+    "updatedAt": "2026-09-27T22:27:09.597Z",
+    "message": "Drafts ready to review and export."
+  },
+  "assets": [
+    {
+      "id": "image-7f20ef9042797a02a192e0d2474f37b4",
+      "workspaceId": "general",
+      "runId": "content-127e8660-1822-44c4-9e4c-88d7f6b05e50",
+      "deliverableId": "brand-image",
+      "variantIndex": 0,
+      "imageCallId": "image-call-fbce35af-6247-4a6d-aee8-b8f9dc522cad",
+      "title": "Brand campaign graphic · 1",
+      "kind": "image",
+      "channel": "Design",
+      "format": "png",
+      "createdAt": "2026-09-27T22:27:09.510Z",
+      "receipt": {
+        "provider": "openai",
+        "attemptId": "585c6c24-1d3e-48b8-990a-e5dbd1ae41b9",
+        "runId": "content-127e8660-1822-44c4-9e4c-88d7f6b05e50",
+        "variantIndex": 0,
+        "requestedModel": "gpt-image-2.5-flare",
+        "model": "gpt-image-2.5-flare",
+        "returnedModel": null,
+        "promptHash": "5a098ae3dcdcc793c271a99c449187441c633b4919c86b0ccd184b752d7c0a43",
+        "size": "1536x1024",
+        "quality": "low",
+        "status": "succeeded",
+        "allowanceUsd": 0.5,
+        "budgetKind": "dispatch-allowance",
+        "budgetNotice": "The allowance controls new requests, not the final provider charge for an already-dispatched image.",
+        "requestId": "req_de9ff1b9914c46e49976d2e79d8cb573",
+        "startedAt": "2026-09-27T22:26:58.739Z",
+        "billable": true,
+        "usage": {
+          "input_tokens": 488,
+          "output_tokens": 158,
+          "total_tokens": 646,
+          "input_tokens_details": {
+            "text_tokens": 488,
+            "image_tokens": 0
+          },
+          "output_tokens_details": {
+            "text_tokens": 0,
+            "image_tokens": 158
+          }
+        },
+        "costUsd": 0.00718,
+        "estimatedCostUsd": 0.00718,
+        "costBasis": "usage-estimate",
+        "pricingAsOf": "2026-09-27",
+        "pricingUsdPerMillion": {
+          "textInput": 5,
+          "imageInput": 8,
+          "imageOutput": 30
+        },
+        "completedAt": "2026-09-27T22:27:09.509Z"
+      },
+      "reviewStatus": "draft"
+    }
+  ],
+  "notice": "Drafts require editorial review. SVG files embed raster images; they are not editable vectors."
+}

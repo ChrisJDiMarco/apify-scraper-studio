@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
+import { EventEmitter } from 'node:events';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
@@ -31,6 +33,14 @@ const { boolValue, enumValue, intValue, optionalRecord, stringArray, stringValue
 const workflowConfig = JSON.parse(fs.readFileSync(new URL('../src/shared/asset-workflow.json', import.meta.url), 'utf8'));
 const projectRoot = path.resolve(new URL('..', import.meta.url).pathname);
 const requireFromTest = createRequire(import.meta.url);
+
+describe('live Actor engagement fields', () => {
+  it('preserves Reddit and LinkedIn metrics observed in real service output', () => {
+    expect(normalizeMetrics({ upVotes: 14, numberOfComments: 7 })).toMatchObject({ likes: 14, comments: 7 });
+    expect(normalizeMetrics({ numLikes: 24, numComments: 4, numShares: 3 })).toMatchObject({ likes: 24, comments: 4, shares: 3 });
+    expect(normalizeMetrics({ engagement: { likes: 11, comments: 2, shares: 1 } })).toMatchObject({ likes: 11, comments: 2, shares: 1 });
+  });
+});
 
 describe('entrypoint syntax', () => {
   it('keeps packaged Electron scripts parseable by Node', () => {
@@ -145,6 +155,83 @@ describe('recipes and redaction', () => {
 
     expect(saved.actorId).toBe('apify/reddit-scraper');
     expect(publicRecipe(saved).input.cookie).toBe('[redacted]');
+  });
+
+  it('preserves hidden credentials when editing or testing the same saved recipe', () => {
+    const saved = validateRecipe({
+      name: 'Private source', platform: 'web', actorId: 'owner/actor',
+      input: { auth: { token: 'saved-token' }, accounts: [{ cookie: 'saved-cookie' }], query: 'old' },
+    });
+    const edited = publicRecipe(saved);
+    edited.name = 'Renamed source';
+    edited.input.query = 'new';
+    expect(validateRecipe(edited, saved).input).toEqual({
+      auth: { token: 'saved-token' }, accounts: [{ cookie: 'saved-cookie' }], query: 'new',
+    });
+    expect(validateRecipe({ ...edited, input: { token: 'replacement' } }, saved).input.token).toBe('replacement');
+    expect(validateRecipe({ ...edited, input: { cookie: '' } }, saved).input.cookie).toBe('');
+    expect(validateRecipe({ ...edited, input: {} }, saved).input).toEqual({});
+    expect(saved.input.query).toBe('old');
+  });
+
+  it('round-trips hidden credentials through the real save and sample-test IPC handlers', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'apify-recipe-ipc-'));
+    const handlers = new Map();
+    const receivedInputs = [];
+    const app = Object.assign(new EventEmitter(), { getPath: () => root, whenReady: () => ({ then() {} }), getVersion: () => 'test' });
+    const mainPath = path.join(projectRoot, 'src/main/index.js');
+    const mainRequire = createRequire(mainPath);
+    class FakeApifyClient {
+      actor() {
+        return { get: async () => ({ id: 'owner/actor', title: 'Authenticated scraper' }), start: async (input) => {
+          receivedInputs.push(input);
+          return { id: 'test-run', status: 'SUCCEEDED', defaultDatasetId: 'test-dataset' };
+        } };
+      }
+      dataset() { return { listItems: async () => ({ items: [], count: 0, total: 0 }) }; }
+    }
+    try {
+      vm.runInNewContext(fs.readFileSync(mainPath, 'utf8'), {
+        require: (name) => {
+          if (name === 'electron') return {
+            app,
+            ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+          };
+          if (name === 'electron-updater') return {};
+          if (name === 'apify-client') return { ApifyClient: FakeApifyClient };
+          return mainRequire(name);
+        },
+        process: { pid: process.pid, platform: process.platform, env: { APIFY_API_TOKEN: 'test-token' } },
+        __dirname: path.dirname(mainPath),
+      }, { filename: mainPath });
+      const saved = handlers.get('save-recipe')(null, {
+        name: 'Authenticated scraper', platform: 'web', actorId: 'owner/actor', input: { token: 'private-value', query: 'old' },
+      });
+      expect(saved.input.token).toBe('[redacted]');
+      const draft = { ...saved, inputJson: JSON.stringify({ ...saved.input, query: 'new' }) };
+      const edited = handlers.get('save-recipe')(null, draft);
+      expect(edited.input).toEqual({ token: '[redacted]', query: 'new' });
+      await handlers.get('test-recipe')(null, draft);
+      expect(receivedInputs).toEqual([{ token: 'private-value', query: 'new' }]);
+      const disk = JSON.parse(fs.readFileSync(path.join(root, 'data.json'), 'utf8'));
+      expect(disk.recipes[0].input.token).toBe('private-value');
+      expect(JSON.stringify(handlers.get('state')())).not.toContain('private-value');
+      const discovery = await handlers.get('discover-apify-resource')(null, { actorId: 'owner/actor' });
+      expect(discovery.inputTemplate).toEqual({});
+      expect(discovery.schema).toEqual({});
+    } finally {
+      app.emit('before-quit'); app.emit('quit');
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('requires credentials again when a redacted recipe is copied or retargeted', () => {
+    const saved = validateRecipe({ name: 'Private', platform: 'web', actorId: 'owner/actor', input: { token: 'secret' } });
+    const edited = publicRecipe(saved);
+    expect(() => validateRecipe(edited)).toThrow(/Re-enter.*token/);
+    expect(() => validateRecipe({ ...edited, id: 'new-recipe' }, saved)).toThrow(/Re-enter/);
+    expect(() => validateRecipe({ ...edited, actorId: 'other/actor' }, saved)).toThrow(/Re-enter/);
+    expect(validateRecipe({ ...saved, input: { text: '[redacted]' } }).input.text).toBe('[redacted]');
   });
 
   it('rejects missing and ambiguous Apify resources', () => {
@@ -392,6 +479,20 @@ describe('normalization', () => {
     });
   });
 
+  it('reads nested mapper paths and preserves numeric source identifiers', () => {
+    const item = normalizeItem({
+      id: 0, parentId: 123, threadId: 456,
+      author: { profile: { name: 'Avery' } }, posts: [{ caption: 'Nested content' }],
+      'source.url': 'https://example.com/source',
+      metrics: { likes: null, likeCount: 8, comments: '', commentCount: 4 },
+    }, { runId: 'run-1', mapper: { author: 'author.profile.name', text: 'posts[0].caption', url: 'source.url' } });
+    expect(item).toMatchObject({
+      id: 'run-1:0', externalId: '0', parentId: '123', threadId: '456', author: 'Avery',
+      text: 'Nested content', url: 'https://example.com/source', metrics: { likes: 8, comments: 4 },
+    });
+    expect(normalizeItem({}, { mapper: { text: '__proto__.constructor.name' } }).text).toBe('');
+  });
+
   it('normalizes metrics and datasets defensively', () => {
     expect(normalizeMetrics({ metrics: { favoriteCount: 4, retweetCount: 2, impressions: 10 } })).toEqual({
       likes: 4,
@@ -404,6 +505,18 @@ describe('normalization', () => {
 
   it('serializes items as jsonl for Codex', () => {
     expect(toJsonl([{ id: 'a' }, { id: 'b' }])).toBe('{"id":"a"}\n{"id":"b"}');
+  });
+
+  it('exports scraped formulas as text while preserving numeric metrics', () => {
+    const csv = toCsv([{ text: '=HYPERLINK("https://example.com")', author: '@SUM(1+1)', metrics: { likes: -2 } }]);
+    expect(csv).toContain(`"'=HYPERLINK(""https://example.com"")"`);
+    expect(csv).toContain(`"'@SUM(1+1)"`);
+    expect(csv).toContain('"-2"');
+    expect(toCsv([{ text: '\t=1+1' }])).toContain(`"'\t=1+1"`);
+    const rows = buildDatasetSheetRows([{ text: '=IMPORTXML("https://example.com", "//a")', author: '+1+1', metrics: { likes: -2 } }]);
+    expect(rows[0].text).toMatch(/^'=/);
+    expect(rows[0].author).toBe("'+1+1");
+    expect(rows[0].likes).toBe(-2);
   });
 
   it('exports normalized items as escaped csv', () => {
@@ -427,6 +540,37 @@ describe('Apify runner', () => {
     const items = await listAllDatasetItems(client, 'dataset', 5, 2);
     expect(items).toHaveLength(5);
     expect(calls).toEqual([{ offset: 0, limit: 2 }, { offset: 2, limit: 2 }, { offset: 4, limit: 1 }]);
+  });
+
+  it('keeps paginating when totals are omitted and never repeats a zero-count page', async () => {
+    const offsets = [];
+    const client = { dataset: () => ({ listItems: async ({ offset }) => {
+      offsets.push(offset);
+      return { items: offset < 4 ? [{ id: offset }, { id: offset + 1 }] : [{ id: 4 }], count: 0 };
+    } }) };
+    await expect(listAllDatasetItems(client, 'dataset', 10, 2)).resolves.toHaveLength(5);
+    expect(offsets).toEqual([0, 2, 4]);
+  });
+
+  it('advances through cleaned pages with no visible items and caps the returned rows', async () => {
+    const client = { dataset: () => ({ listItems: async ({ offset }) => (
+      offset === 0 ? { items: [], count: 2, total: 4 } : { items: [{ id: 3 }, { id: 4 }], count: 2, total: 4 }
+    ) }) };
+    await expect(listAllDatasetItems(client, 'dataset', 5, 2)).resolves.toEqual([{ id: 3 }, { id: 4 }]);
+    const oversized = { dataset: () => ({ listItems: async () => ({ items: [{ id: 1 }, { id: 2 }, { id: 3 }] }) }) };
+    await expect(listAllDatasetItems(oversized, 'dataset', 2)).resolves.toHaveLength(2);
+  });
+
+  it('stops dataset collection when cancellation arrives during a page request', async () => {
+    let cancelled = false;
+    let requests = 0;
+    const client = { dataset: () => ({ listItems: async () => {
+      requests += 1;
+      cancelled = true;
+      return { items: [{ id: 1 }], count: 1, total: 100 };
+    } }) };
+    await expect(listAllDatasetItems(client, 'dataset', 5, 2, { isCancelled: () => cancelled })).rejects.toThrow(/cancelled/);
+    expect(requests).toBe(1);
   });
 
   it('stops pagination when Apify returns an empty page without count metadata', async () => {
@@ -554,6 +698,9 @@ describe('Apify runner', () => {
   it('falls back and fails clearly for Apify discovery edge cases', async () => {
     const offline = await discoverApifyResource({ actorId: 'public/actor' }, { token: '', Client: class {} });
     expect(offline.warnings.join(' ')).toMatch(/APIFY_API_TOKEN/);
+    expect(offline.schema).toEqual({});
+    expect(offline.inputTemplate).toEqual({});
+    expect(offline.mapperTemplate).toEqual({});
 
     await expect(discoverApifyResource({ actorId: 'actor' }, { token: 'token' })).rejects.toThrow(/Apify client/);
 
@@ -579,6 +726,27 @@ describe('Apify runner', () => {
     expect(sparse.warnings.join(' ')).toMatch(/deprecated/);
     await expect(discoverApifyResource({ actorId: 'missing' }, { token: 'token', Client: SparseClient })).rejects.toThrow(/Actor not found/);
     await expect(discoverApifyResource({ taskId: 'missing-task' }, { token: 'token', Client: SparseClient })).rejects.toThrow(/task not found/i);
+  });
+
+  it('never invents input fields when live Actor schema discovery is unavailable', async () => {
+    class NoSchemaClient {
+      actor(id) {
+        return {
+          get: async () => ({
+            id, title: 'Unknown input',
+            exampleRunInput: id === 'invalid-example' ? { body: 'not json', contentType: 'application/json' } : null,
+          }),
+          defaultBuild: async () => { throw new Error('Build metadata unavailable'); },
+        };
+      }
+    }
+    for (const actorId of ['no-schema', 'invalid-example']) {
+      const discovered = await discoverApifyResource({ actorId }, { token: 'token', Client: NoSchemaClient });
+      expect(discovered.schema).toEqual({});
+      expect(discovered.inputTemplate).toEqual({});
+      expect(discovered.warnings.join(' ')).toMatch(/schema unavailable.*review/i);
+      expect(JSON.stringify(discovered)).not.toMatch(/startUrls|maxItems|safe starter/);
+    }
   });
 
   it('aborts a running Apify run when cancellation is requested', async () => {
@@ -698,6 +866,10 @@ describe('Codex runner', () => {
       'subreddit-pulse',
       'lead-list',
       'competitive-report',
+      'competitor-positioning',
+      'campaign-message-audit',
+      'launch-research',
+      'account-research', 'voice-of-customer', 'content-opportunity', 'ad-creative-research', 'weekly-competitor-changes',
     ]);
     for (const preset of REPORT_PRESETS) {
       expect(preset.name).toBeTruthy();
@@ -1271,7 +1443,7 @@ describe('studio intelligence', () => {
     ]);
     expect(planIntent('make a report', { ...emptyState, intelligence: intelligenceState })).toMatchObject({
       canRun: false,
-      missing: ['Run the recipe again before asking Codex to analyze an empty dataset.'],
+      missing: ['Run the recipe again before asking AI to analyze an empty dataset.'],
     });
   });
 

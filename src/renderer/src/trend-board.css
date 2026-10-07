@@ -1,0 +1,65 @@
+/* Trend board: research → your OK → reports → assets. Uses Content Studio tokens so both editions match. */
+.tb-board { display: grid; gap: 18px; }
+.tb-board .cs-section-heading { margin-bottom: 4px; }
+.tb-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.tb-head-actions > button { display: inline-flex; align-items: center; gap: 7px; }
+.tb-note { margin: 0; padding: 10px 14px; border-radius: 10px; font-size: 12px; color: var(--cs-ink); background: var(--cs-soft); }
+.tb-note.attention { color: #7a2e1b; background: #fff1ea; }
+
+.tb-columns { display: grid; grid-template-columns: repeat(var(--tb-columns, 4), minmax(250px, 1fr)); gap: 14px; overflow-x: auto; padding-bottom: 6px; align-items: start; scroll-snap-type: x proximity; }
+.tb-column { display: grid; gap: 10px; align-content: start; min-height: 320px; padding: 12px; border: 1px solid var(--cs-border); border-radius: 14px; background: color-mix(in srgb, var(--cs-paper), var(--cs-soft) 45%); scroll-snap-align: start; transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease; }
+.tb-column > header { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 2px 4px 4px; }
+.tb-column > header h3 { margin: 0; font-size: 13px; font-weight: 650; letter-spacing: -.1px; }
+.tb-column > header p { grid-column: 1 / -1; margin: 0; font-size: 11px; color: var(--cs-muted); }
+.tb-count { align-self: center; min-width: 22px; padding: 1px 7px; border-radius: 999px; font-size: 11px; text-align: center; color: var(--cs-muted); background: var(--cs-paper); border: 1px solid var(--cs-border); font-variant-numeric: tabular-nums; }
+.tb-potential .tb-count { color: var(--cs-ink); background: var(--cs-soft); border-color: var(--cs-border-accent); }
+.tb-column.droppable { border-style: dashed; border-color: var(--cs-border-accent); }
+.tb-column.over { background: var(--cs-soft); box-shadow: inset 0 0 0 1px var(--cs-border-accent); }
+.tb-stack { display: grid; gap: 10px; }
+.tb-column-empty { margin: 0; padding: 22px 10px; text-align: center; font-size: 11px; color: var(--cs-muted); border: 1px dashed var(--cs-border); border-radius: 10px; }
+
+.tb-card { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--cs-border); border-radius: 12px; background: var(--cs-paper); box-shadow: 0 1px 2px rgba(24, 30, 21, .04); transition: border-color 140ms ease, box-shadow 160ms ease, opacity 140ms ease; }
+.tb-card[draggable="true"] { cursor: grab; }
+.tb-card[draggable="true"]:hover { border-color: var(--cs-border-accent); box-shadow: 0 6px 18px rgba(24, 30, 21, .07); }
+.tb-card.dragging { opacity: .45; }
+.tb-card.attention { border-color: #f0b9a2; }
+.tb-card h4 { margin: 0; font-size: 14px; line-height: 1.3; font-weight: 650; letter-spacing: -.15px; text-wrap: balance; }
+.tb-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--cs-muted); letter-spacing: .2px; }
+.tb-card-meta > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-tag { flex: 0 0 auto; padding: 2px 7px; border-radius: 999px; font-size: 10px; font-weight: 600; color: var(--cs-ink); background: var(--cs-soft); }
+/* Three lines, then a soft fade rather than a hard cut mid-word. */
+.tb-card-description { margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; mask-image: linear-gradient(to bottom, #000 62%, transparent); }
+.tb-card-facts { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--cs-muted); font-variant-numeric: tabular-nums; }
+.tb-card-facts > span:first-child { color: var(--cs-ink); font-weight: 600; }
+.tb-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 4px; }
+.tb-card-actions > button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 12px; font-size: 12px; }
+.content-studio button.tb-ok { color: var(--cs-button-ink); background: var(--cs-button-bg); border-color: var(--cs-button-bg); border-radius: 999px; }
+.content-studio[data-edition="semrush"] button.tb-ok:hover:not(:disabled) { background: #b07cf5; border-color: #b07cf5; }
+.tb-state { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--cs-ink); }
+.tb-state.attention { color: #a1401f; }
+.tb-asset-count { font-size: 11px; color: var(--cs-muted); }
+
+.tb-scout, .tb-batch { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--cs-border-accent); background: var(--cs-paper); }
+.tb-scout strong, .tb-batch strong { display: block; font-size: 12px; }
+.tb-scout small, .tb-batch small { display: block; margin-top: 2px; font-size: 11px; color: var(--cs-muted); }
+.tb-scout > button { grid-column: 1 / -1; justify-self: start; }
+.tb-scout.attention { border-color: #f0b9a2; }
+.tb-scout .local-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cs-border-accent); }
+.tb-scout .local-dot[data-live] { background: var(--cs-accent-bright); }
+.tb-batch { grid-template-columns: 1fr; border-style: solid; background: var(--cs-soft); border-color: var(--cs-border-accent); }
+.tb-batch > button { justify-self: start; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font-size: 12px; }
+.tb-batch p { margin: 0; font-size: 11px; line-height: 1.5; color: var(--cs-ink); }
+.tb-batch.confirming { animation: craft-rise-in 220ms var(--spring-settle, ease-out) both; }
+.tb-passed-toggle { justify-self: start; }
+.tb-passed .tb-card { opacity: .78; }
+
+/* A card changing column glides on its own; the rest of the page swaps without the navigation rise. */
+html:active-view-transition-type(trend-move)::view-transition-old(workspace-content) { animation: none; opacity: 0; }
+html:active-view-transition-type(trend-move)::view-transition-new(workspace-content) { animation: none; }
+html:active-view-transition-type(trend-move)::view-transition-group(*) { animation-duration: 320ms; animation-timing-function: var(--spring-settle, ease); }
+@media (max-width: 900px) { .tb-columns { grid-template-columns: repeat(var(--tb-columns, 4), minmax(240px, 82vw)); } }
+@media (prefers-reduced-motion: reduce) { .tb-batch.confirming { animation: none; } }
+
+/* Monday.com setup in Settings (the board's mirror). */
+.settings-monday label { display: grid; gap: 8px; margin-top: 16px; }
+.settings-monday .settings-note { margin: 14px 0 0; font-size: 12px; color: var(--muted); }

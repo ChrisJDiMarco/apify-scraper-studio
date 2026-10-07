@@ -1,0 +1,39 @@
+{
+  "verifiedAt": "2026-09-28T00:42:18.283804+00:00",
+  "workspaceId": "semrush",
+  "programId": "program-074b6969dd3e327c46912e20",
+  "programName": "Semrush social trends \u2014 n8n sources",
+  "sourceNodes": [
+    "[RD] Sources1",
+    "[TW] Sources1",
+    "[LI] Sources1"
+  ],
+  "checks": {
+    "reddit": {
+      "count": 18,
+      "exactNormalizedListMatch": true,
+      "sha256": "fc620c6d23b1bd53f192d82c9ba883ca2c1f29e0ecc7cca3b2b76c6b84629341"
+    },
+    "x": {
+      "count": 382,
+      "exactNormalizedListMatch": true,
+      "sha256": "9a74bdc848552ad927db6bc72fc15e2f78123762cdab7a64c145ca0157d24322"
+    },
+    "linkedin-profile": {
+      "count": 515,
+      "exactNormalizedListMatch": true,
+      "sha256": "ab3afe24902cf867e4fd89512d8076c221e6b765562a3fd4f3d92604abbaf25b"
+    }
+  },
+  "keywordSearchEnabled": false,
+  "window": {
+    "startDate": "",
+    "endDate": ""
+  },
+  "budgets": {
+    "collectionUsd": 5,
+    "aiUsd": 5
+  },
+  "researchRunsStarted": 0,
+  "fullLinkedInTextReadVerified": true
+}

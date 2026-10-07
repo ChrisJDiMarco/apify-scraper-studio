@@ -1,0 +1,221 @@
+/* Semrush 2026 for the secondary tools. Loaded after the shared theme.
+   Current brand tokens: https://brand.semrush.com/ . General, Content Studio,
+   platform identities, and semantic warning/error colors keep their own rules. */
+.app-shell[data-edition="semrush"] {
+  --st-ink: #181e15;
+  --st-muted: #62685e;
+  --st-paper: #fff;
+  --st-surface: #f3f6f6;
+  --st-mint: #dceeeb;
+  --st-lavender: #c190ff;
+  --st-lavender-soft: #eee9ff;
+  --st-lavender-hover: #e0c7ff;
+  --st-line: #d8ded8;
+}
+
+/* Search: a single visual vocabulary across query, accounts, and review. */
+.app-shell[data-edition="semrush"] .search-workspace { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.search-page-heading h2, .search-section-intro h3, .search-source-heading h3, .search-editor-heading h3, .search-query-label, .search-field label, .search-platform strong, .search-check-field strong, .search-collection-heading h4, .search-review-source h4, .search-review-targets, .search-limits label, .search-total > strong, .search-source-details h4) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.search-eyebrow, .search-page-heading p, .search-step-kicker, .search-section-intro p, .search-source-heading p, .search-platform small, .search-actor-state, .search-actor-state.known, .search-query-label > span, .search-brief-bottom > span, .search-source-switcher small, .search-editor-heading p, .search-field small, .search-collection-heading > span, .search-check-field small, .search-actor-footnote, .search-review-source h4 > span, .search-review-source p:not(.search-review-warning), .search-review-source small, .search-limits small, .search-total > span, .search-source-details p, .search-draft-status, .search-paid-note) { color: var(--st-muted); }
+.app-shell[data-edition="semrush"] :is(.search-field small, .search-check-field small, .search-source-switcher small, .search-actor-state, .search-review-source p:not(.search-review-warning), .search-review-source small, .search-limits small, .search-paid-note, .search-actor-footnote) { font-size: 11px; }
+.app-shell[data-edition="semrush"] :is(.search-form, .search-platform, .search-review-source, .search-option-block) { border-color: var(--st-line); background: var(--st-paper); box-shadow: none; }
+.app-shell[data-edition="semrush"] :is(.search-tab-bar, .search-form-footer, .search-paid-note, .search-option-block, .search-connection) { background: var(--st-surface); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .search-connection { color: var(--st-muted); }
+.app-shell[data-edition="semrush"] :is(.search-connect-prompt, .search-context-note) { background: var(--st-mint); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.search-connect-prompt strong, .search-context-note strong) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .search-context-note p { color: var(--st-muted); font-size: 11px; }
+.app-shell[data-edition="semrush"] .search-tab-bar > button { color: var(--st-muted); }
+.app-shell[data-edition="semrush"] .search-tab-bar > button:hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .search-tab-bar > button[aria-selected="true"] { color: var(--st-ink); background: var(--st-paper); }
+.app-shell[data-edition="semrush"] .search-tab-bar > button[aria-selected="true"]::after { background: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .search-step-number { color: var(--st-muted); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .search-tab-bar > button[aria-selected="true"] .search-step-number { color: var(--st-ink); background: var(--st-lavender); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] :is(.search-query-box, .search-field input, .search-field select, .search-field textarea, .search-limits input) { color: var(--st-ink); background: var(--st-paper); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .search-query-box input { color: var(--st-ink); background: transparent; }
+.app-shell[data-edition="semrush"] .search-platform:hover { background: var(--st-surface); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .search-platform.selected { background: var(--st-lavender-soft); border-color: var(--st-lavender); box-shadow: none; }
+.app-shell[data-edition="semrush"] :is(.search-platform > input, .search-check-field input) { accent-color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .search-source-switcher > button { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .search-source-switcher > button:hover:not(:disabled) { color: var(--st-ink); background: var(--st-surface); }
+.app-shell[data-edition="semrush"] .search-source-switcher > button[aria-selected="true"] { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] :is(.search-filter-panel, .search-count-field, .search-advanced, .search-actor-footnote, .search-limits, .search-total, .search-source-details) { border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.search-advanced > summary, .search-advanced > summary::after, .search-source-details summary) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.search-actor-footnote a, .search-source-details a) { color: var(--st-ink); text-decoration: underline; text-decoration-color: var(--st-lavender); text-underline-offset: 3px; }
+.app-shell[data-edition="semrush"] :is(.search-workspace .search-text-button, .search-source-heading .search-refresh) { color: var(--st-ink); background: transparent; }
+.app-shell[data-edition="semrush"] :is(.search-workspace .search-text-button, .search-source-heading .search-refresh):hover:not(:disabled) { color: var(--st-ink); background: transparent; text-decoration: underline; }
+.app-shell[data-edition="semrush"] .search-draft-status > button { color: var(--st-muted) !important; font-size: 11px !important; }
+.app-shell[data-edition="semrush"] :is(.search-footer-actions > .ghost, .search-result-actions > .ghost) { color: var(--st-ink); background: var(--st-paper); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.search-footer-actions > .ghost, .search-result-actions > .ghost):hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-lavender); }
+
+/* Results are part of the same search flow; cost and invalid-plan warnings retain their colors. */
+.app-shell[data-edition="semrush"] :is(.search-results-heading h3, .search-empty strong, .search-result h4) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.search-results-heading p, .search-results-heading > span, .search-empty p, .search-result p, .search-evidence-reminder) { color: var(--st-muted); font-size: 11px; }
+.app-shell[data-edition="semrush"] :is(.search-empty, .search-result) { color: var(--st-muted); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .search-result-icon { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .search-extra-note { color: var(--st-ink); background: var(--st-mint); border-color: var(--st-line); }
+
+/* Explicit paid/action controls with legacy hardcoded fills. */
+.app-shell[data-edition="semrush"] :is(.search-footer-actions > button:not(.ghost), .search-connect-prompt > button:not(.ghost), .search-result-actions > button:not(.ghost), .report-builder > button, .findings-composer-box > button, .scraper-view button.scraper-primary, .playbook-actions > button:not(.playbook-secondary):not(.ghost), .marketing-form-footer button:not(.ghost), .marketing-template-saved > button:not(.ghost), .brand-context-footer button[type="submit"], .research-actions > button:not(.ghost), .snapshot-picker-footer > button:not(.ghost), .home-view .page-heading > button:not(.ghost), .welcome-actions > button) {
+  color: var(--st-ink); background: var(--st-lavender); border-color: var(--st-lavender); border-radius: 999px; box-shadow: none;
+}
+.app-shell[data-edition="semrush"] :is(.search-footer-actions > button:not(.ghost), .search-connect-prompt > button:not(.ghost), .search-result-actions > button:not(.ghost), .report-builder > button, .findings-composer-box > button, .scraper-view button.scraper-primary, .playbook-actions > button:not(.playbook-secondary):not(.ghost), .marketing-form-footer button:not(.ghost), .marketing-template-saved > button:not(.ghost), .brand-context-footer button[type="submit"], .research-actions > button:not(.ghost), .snapshot-picker-footer > button:not(.ghost), .home-view .page-heading > button:not(.ghost), .welcome-actions > button):hover:not(:disabled) {
+  color: var(--st-ink); background: var(--st-lavender-hover); border-color: var(--st-lavender-hover); box-shadow: none;
+}
+
+/* Source records, report builders, and human review. */
+.app-shell[data-edition="semrush"] :is(.data-welcome-icon, .findings-assistant-mark, .findings-welcome-icon, .findings-empty-icon) { color: var(--st-ink); background: linear-gradient(135deg, var(--st-mint), var(--st-lavender-soft)); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.data-mode-switch, .data-advanced-body, .report-example, .report-brief-context, .review-metrics > div, .review-source-workspace) { background: var(--st-surface); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .data-mode-switch button { color: var(--st-muted); background: transparent; }
+.app-shell[data-edition="semrush"] .data-mode-switch button.active { color: var(--st-ink); background: var(--st-lavender-soft); box-shadow: none; }
+.app-shell[data-edition="semrush"] .data-mode-switch button:hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .report-example p::before { background: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.data-inline-link, .review-notice) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .data-inline-link:hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] :is(.dataset-button, .analysis-card) { border-color: var(--st-line); background: var(--st-paper); color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.dataset-button.active, .analysis-card.active) { border-color: var(--st-lavender); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .dataset-button:hover:not(:disabled) { color: var(--st-ink); background: var(--st-surface); }
+.app-shell[data-edition="semrush"] .dataset-button.active:hover:not(:disabled) { background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .review-check input { accent-color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .review-source-list > button:not(.button) { color: var(--st-ink); background: transparent; }
+.app-shell[data-edition="semrush"] .review-source-list > button.selected { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .review-source-list > button:hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] :is(.review-source-list strong, .review-source-list span) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .review-source-list small { color: var(--st-muted); font-size: 11px; }
+.app-shell[data-edition="semrush"] .review-source-chip { color: var(--st-ink); background: var(--st-mint); }
+.app-shell[data-edition="semrush"] .review-source-chip:hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); }
+
+/* Markdown stays neutral and readable; only legacy readers are scoped here. */
+.app-shell[data-edition="semrush"] :is(.report-workspace, .findings-workspace, .coverage-review, .asset-editor, .thread-intel) .markdown-content a { color: var(--st-ink); text-decoration-color: var(--st-lavender); text-decoration-thickness: 2px; }
+.app-shell[data-edition="semrush"] :is(.report-workspace, .findings-workspace, .coverage-review, .asset-editor, .thread-intel) .markdown-content blockquote { color: var(--st-muted); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] :is(.report-workspace, .findings-workspace, .coverage-review, .asset-editor, .thread-intel) .markdown-content code { color: var(--st-ink); background: var(--st-surface); }
+.app-shell[data-edition="semrush"] :is(.report-workspace, .findings-workspace, .coverage-review, .asset-editor, .thread-intel) .markdown-content pre { color: var(--st-ink); background: var(--st-surface); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.report-workspace, .findings-workspace, .coverage-review, .asset-editor, .thread-intel) .markdown-content th { color: var(--st-ink); background: var(--st-mint); }
+.app-shell[data-edition="semrush"] :is(.report-workspace, .findings-workspace, .coverage-review, .asset-editor, .thread-intel) :is(.markdown-table-wrap, .markdown-content th, .markdown-content td) { border-color: var(--st-line); }
+
+/* Findings chat retains source and status meaning while sharing the brand. */
+.app-shell[data-edition="semrush"] :is(.findings-dataset.selected, .findings-history > button.active) { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .findings-dataset input { accent-color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .findings-history > button:hover:not(:disabled) { color: var(--st-ink); background: var(--st-surface); }
+.app-shell[data-edition="semrush"] .findings-message.from-user { background: var(--st-mint); }
+.app-shell[data-edition="semrush"] :is(.findings-message-label, .findings-source blockquote) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.findings-sources, .findings-source) { border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.findings-sources, .findings-composer, .findings-receipt .badge) { color: var(--st-muted); background: var(--st-surface); }
+.app-shell[data-edition="semrush"] .findings-source-number { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .findings-source-top a { color: var(--st-ink); text-decoration: underline; text-decoration-color: var(--st-lavender); text-underline-offset: 3px; }
+
+/* Playbooks and saved brand context. */
+.app-shell[data-edition="semrush"] .playbook-brand-context { background: var(--st-mint); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .playbook-brand-context > span { color: var(--st-ink); background: var(--st-paper); }
+.app-shell[data-edition="semrush"] :is(.playbook-brand-context strong, .playbook-card dd, .brand-context-field > label, .brand-profiles-empty strong, .marketing-field label, .marketing-details dd, .marketing-outline h3, .marketing-outline h4, .marketing-profile-summary strong) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.playbook-eyebrow, .playbook-brand-context p, .playbook-count, .playbook-card-top small, .playbook-audience, .playbook-card > p, .playbook-card dt, .playbook-card li, .playbook-scope p, .brand-context-eyebrow, .brand-profile-list-heading, .brand-profile-list small, .brand-profiles-empty p, .brand-profile-snapshot-note p, .brand-form-heading > span, .brand-context-field > label > span, .brand-context-field small, .brand-competitors > div > span) { color: var(--st-muted); }
+.app-shell[data-edition="semrush"] :is(.playbook-card dt, .playbook-scope p, .playbook-count, .brand-context-field small, .brand-profile-list small) { font-size: 11px; }
+.app-shell[data-edition="semrush"] :is(.playbook-search, .playbook-card, .playbook-empty, .brand-context-form, .brand-profiles-empty, .brand-competitors, .marketing-template-form, .marketing-template-saved, .marketing-details) { border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.playbook-search, .playbook-empty, .brand-profiles-empty) { color: var(--st-muted); }
+.app-shell[data-edition="semrush"] .playbook-card-top > span { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .playbook-card.dataset .playbook-card-top > span { color: var(--st-ink); background: var(--st-mint); }
+.app-shell[data-edition="semrush"] .playbook-card.comparison .playbook-card-top > span { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .playbook-filters > button { color: var(--st-muted); background: transparent; }
+.app-shell[data-edition="semrush"] .playbook-filters > button:hover:not(:disabled) { color: var(--st-ink); background: var(--st-surface); }
+.app-shell[data-edition="semrush"] .playbook-filters > button.active { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] :is(.playbook-brand-context > button, .playbook-actions > button.playbook-secondary) { color: var(--st-ink); background: var(--st-paper); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.playbook-brand-context > button, .playbook-actions > button.playbook-secondary):hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .brand-profile-list > button { color: var(--st-ink); background: transparent; }
+.app-shell[data-edition="semrush"] .brand-profile-list > button:hover:not(:disabled) { color: var(--st-ink); background: var(--st-surface); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .brand-profile-list > button.active { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .brand-profile-monogram { color: var(--st-ink); background: var(--st-paper); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.brand-context-field input, .brand-context-field textarea, .brand-competitor-row input) { color: var(--st-ink); background: var(--st-paper); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .brand-competitors { background: var(--st-surface); }
+.app-shell[data-edition="semrush"] :is(.playbook-scope, .brand-form-heading, .brand-context-footer) { border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.marketing-eyebrow, .marketing-field label span, .marketing-field small, .marketing-source-label > span, .marketing-currency > span, .marketing-details summary, .marketing-details dt, .marketing-save-note, .marketing-outline > p, .marketing-preview-label, .marketing-outline li > span, .marketing-outline li p, .marketing-evidence-note p, .marketing-outline > p.marketing-outline-footnote, .marketing-profile-picker small, .marketing-profile-summary p, .marketing-profile-required) { color: var(--st-muted); }
+.app-shell[data-edition="semrush"] :is(.marketing-outline, .marketing-profile-picker) { background: var(--st-mint); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.marketing-outline-icon, .marketing-saved-icon) { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.marketing-saved-next, .marketing-form-footer) { color: var(--st-muted); background: var(--st-surface); }
+.app-shell[data-edition="semrush"] :is(.marketing-budget, .marketing-preview-label, .marketing-evidence-note, .marketing-profile-summary, .marketing-form-footer) { border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.marketing-template-view .marketing-back, .marketing-profile-picker button.marketing-profile-manage) { color: var(--st-ink); background: transparent; }
+.app-shell[data-edition="semrush"] :is(.marketing-template-view .marketing-back, .marketing-profile-picker button.marketing-profile-manage):hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .marketing-details a { color: var(--st-ink); text-decoration: underline; text-decoration-color: var(--st-lavender); }
+
+/* Scraper configuration has local variables and explicit legacy green states. */
+.app-shell[data-edition="semrush"] .scraper-view { --scraper-accent: #c190ff; --scraper-ink: #181e15; --scraper-muted: #62685e; }
+.app-shell[data-edition="semrush"] :is(.scraper-view label, .scraper-view .scraper-source-option, .scraper-selected-check, .scraper-review-card h4, .scraper-review-details dd) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.scraper-view p, .scraper-source-option small, .scraper-card-top .badge, .scraper-run-state, .scraper-library-tip, .scraper-eyebrow, .scraper-empty > small, .scraper-no-results, .scraper-step-count, .scraper-steps li, .scraper-optional, .scraper-advanced > summary, .scraper-review-json > summary, .scraper-advanced-body h4, .scraper-tool-result details > summary, .scraper-form-footer > span, .scraper-review-card div > span, .scraper-review-details dt) { color: var(--st-muted); }
+.app-shell[data-edition="semrush"] :is(.scraper-resource-id, .scraper-field-hint) { color: var(--st-muted) !important; }
+.app-shell[data-edition="semrush"] :is(.scraper-library-heading h2 > span, .scraper-kind-switch, .scraper-tool-result, .scraper-view pre, .scraper-review-card, .scraper-info) { color: var(--st-ink); background: var(--st-surface); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.scraper-library-card, .scraper-form, .scraper-advanced, .scraper-review-json, .scraper-view input, .scraper-view textarea, .scraper-view .scraper-search) { border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.scraper-source-symbol, .scraper-empty-art span, .scraper-review-icon) { color: var(--st-ink); background: var(--st-mint); border-color: var(--st-line); box-shadow: none; }
+.app-shell[data-edition="semrush"] .scraper-library-card:hover { border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .scraper-view button.ghost { color: var(--st-ink); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .scraper-view button.ghost:hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .scraper-view .scraper-back { color: var(--st-ink); background: transparent; }
+.app-shell[data-edition="semrush"] .scraper-view .scraper-back:hover:not(:disabled) { color: var(--st-ink); background: var(--st-surface); }
+.app-shell[data-edition="semrush"] .scraper-steps li > span { color: var(--st-muted); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .scraper-steps li.current { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .scraper-steps li.current > span { color: var(--st-ink); background: var(--st-lavender); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .scraper-steps li.complete > span { color: var(--st-ink); background: var(--st-mint); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .scraper-view button.scraper-source-option { color: var(--st-ink); border-color: var(--st-line); background: var(--st-paper); }
+.app-shell[data-edition="semrush"] .scraper-view button.scraper-source-option:hover:not(:disabled) { color: var(--st-ink); border-color: var(--st-lavender); background: var(--st-surface); }
+.app-shell[data-edition="semrush"] .scraper-view button.scraper-source-option.selected { color: var(--st-ink); border-color: var(--st-lavender); background: var(--st-lavender-soft); box-shadow: none; }
+.app-shell[data-edition="semrush"] .scraper-view .scraper-kind-switch button { color: var(--st-muted); background: transparent; }
+.app-shell[data-edition="semrush"] .scraper-view .scraper-kind-switch button.selected { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-lavender); box-shadow: none; }
+.app-shell[data-edition="semrush"] .scraper-view .scraper-kind-switch button:hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .scraper-form-footer { background: var(--st-surface); border-color: var(--st-line); }
+
+/* Import and compare already have restrained layouts; align their selection colors. */
+.app-shell[data-edition="semrush"] :is(.research-eyebrow, .snapshot-heading > span, .snapshot-results-heading > div > span, .research-field, .import-source-options legend, .import-paste-heading, .snapshot-selectors label, .snapshot-monitor-fields label, .snapshot-empty h3, .snapshot-saved-monitors strong, .snapshot-brief-action strong) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.research-page-heading p, .research-card p:not(.research-error), .research-help, .import-source-options small, .import-file-row span, .import-required, .import-context summary, .import-context summary span, .import-review ul, .import-review > small, .research-actions small, .import-preview-heading > span, .import-preview > small, .snapshot-heading p, .snapshot-picker-title p, .snapshot-selectors small, .snapshot-picker-footer > span, .snapshot-results-heading > p, .snapshot-count span, .snapshot-change-reason, .snapshot-excerpts strong, .snapshot-excerpts small, .snapshot-excerpts p, .snapshot-no-results, .snapshot-monitor summary, .snapshot-monitor summary small, .snapshot-monitor-body > p, .snapshot-monitor-footer > span, .snapshot-empty, .snapshot-brief-action p) { color: var(--st-muted); }
+.app-shell[data-edition="semrush"] :is(.research-card, .import-source-options label, .snapshot-picker, .snapshot-monitor, .snapshot-empty, .snapshot-change, .snapshot-workspace .snapshot-count) { border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.research-field input, .research-field textarea, .research-field select, .import-paste-heading select, .import-content, .snapshot-selectors select, .snapshot-monitor-fields select, .snapshot-monitor-fields input) { color: var(--st-ink); border-color: var(--st-line); background: var(--st-paper); }
+.app-shell[data-edition="semrush"] :is(.import-source-options label.selected, .snapshot-workspace .snapshot-count.selected) { color: var(--st-ink); border-color: var(--st-lavender); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .snapshot-workspace .snapshot-count { color: var(--st-ink); background: var(--st-paper); }
+.app-shell[data-edition="semrush"] .snapshot-workspace .snapshot-count.selected { background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .snapshot-workspace .snapshot-count:hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] :is(.import-source-options input, .import-authorization input) { accent-color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.import-review, .snapshot-baseline-note, .snapshot-brief-action) { color: var(--st-ink); background: var(--st-mint); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.import-review-icon, .snapshot-picker-title > svg) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .import-table-scroll th { color: var(--st-ink); background: var(--st-surface); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .import-table-scroll td { color: var(--st-ink); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .snapshot-url { color: var(--st-ink); }
+
+/* Pipeline, activity, and legacy assets: surfaces and selection, not status badges. */
+.app-shell[data-edition="semrush"] :is(.kanban-column, .run-detail, .pipeline-stage, .signal-row, .thread-card, .cluster-card) { background: var(--st-surface); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.kanban-card, .asset-card, .preset-row, .asset-status, .run-facts span, .thread-summary-card, .catalog-item, .rule-list article) { color: var(--st-ink); background: var(--st-paper); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.kanban-card.active, .asset-card.active) { background: var(--st-lavender-soft); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .asset-card:hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .table-wrap tbody tr.active-row td { background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] :is(.signal-meta strong, .signal-row p, .thread-summary-card p, .thread-replies p, .run-facts strong) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .thread-replies p { border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .cluster-score { color: var(--st-ink); background: var(--st-mint); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.asset-edit-form select, .asset-factory select, .asset-library-tools select, .dataset-tools select, .context-select) { color: var(--st-ink); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.v5-hero-copy, .v5-mission-card, .v5-action-graph, .v5-evidence-browser, .v5-job-monitor, .v5-artifact-studio, .v5-release, .v5-diagnostics, .v5-watch-panel) { background: var(--st-surface); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .v5-icon { color: var(--st-ink); }
+
+/* The collection overview remains a useful secondary home, with the same palette. */
+.app-shell[data-edition="semrush"] .home-view .welcome-card { background: linear-gradient(120deg, var(--st-mint), var(--st-lavender-soft)); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .home-view :is(.welcome-copy h2, .home-metric > strong, .source-card strong, .quiet-empty strong, .home-tip h3, .setup-step.current strong) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .home-view :is(.page-heading p, .page-heading h2 > span, .eyebrow, .welcome-kicker, .welcome-copy > p, .welcome-actions > span, .getting-started-label span, .setup-step small, .home-metric > div, .home-metric small, .section-heading p, .section-caption, .source-card small, .quiet-empty p, .home-tip p, .home-tip .eyebrow, .home-footer) { color: var(--st-muted); }
+.app-shell[data-edition="semrush"] .home-view :is(button.setup-step, button.recent-row) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .home-view :is(button.setup-step, button.recent-row):hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .home-view :is(button.home-metric, button.source-card):hover:not(:disabled) { background: var(--st-paper); border-color: var(--st-lavender); box-shadow: none; }
+.app-shell[data-edition="semrush"] .home-view :is(.setup-step.current .step-number, .setup-step.complete .step-number, .quiet-empty > span) { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .home-view .text-button { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .home-view .text-button:hover:not(:disabled) { color: var(--st-ink); background: transparent; text-decoration: underline; }
+.app-shell[data-edition="semrush"] .home-view .data-illustration { background: radial-gradient(ellipse at 55% 55%, #c190ff24, transparent 70%); }
+.app-shell[data-edition="semrush"] .home-view :is(.orbit, .illustration-line) { border-color: #181e1524; }
+.app-shell[data-edition="semrush"] .home-view :is(.illustration-source, .illustration-data, .illustration-insight) { color: var(--st-ink); background: var(--st-paper); border-color: var(--st-line); box-shadow: none; }
+.app-shell[data-edition="semrush"] .home-view :is(.illustration-title, .illustration-title > svg, .illustration-insight strong, .illustration-insight > svg, .illustration-row svg) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] .home-view :is(.illustration-insight small, .illustration-columns) { color: var(--st-muted); }
+.app-shell[data-edition="semrush"] .home-view :is(.illustration-row > span, .illustration-insight > span) { color: var(--st-ink); background: var(--st-lavender-soft); }
+.app-shell[data-edition="semrush"] .home-view .illustration-dot { background: #18f0bf; }
+
+.app-shell[data-edition="semrush"] :is(.home-search-entry, .home-brand-entry) { background: var(--st-mint); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] :is(.home-brand-entry > svg, .home-brand-entry strong) { color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.home-brand-entry p, .home-next-grid small) { color: var(--st-muted); font-size: 11px; }
+.app-shell[data-edition="semrush"] .home-next-grid > button { color: var(--st-ink); border-color: var(--st-line); }
+.app-shell[data-edition="semrush"] .home-next-grid > button:hover:not(:disabled) { color: var(--st-ink); background: var(--st-lavender-soft); border-color: var(--st-lavender); }
+.app-shell[data-edition="semrush"] .home-next-icon { color: var(--st-ink); background: var(--st-lavender-soft); }
+
+/* Component-specific focus rules previously hid the shared keyboard focus. */
+.app-shell[data-edition="semrush"] :is(.search-query-box, .playbook-search, .scraper-search):focus-within { outline: 2px solid var(--st-ink); outline-offset: 3px; border-color: var(--st-lavender); box-shadow: none; }
+.app-shell[data-edition="semrush"] .search-platform:has(input:focus-visible) { outline-color: var(--st-ink); }
+.app-shell[data-edition="semrush"] :is(.review-source-list > button, .asset-card, .kanban-card):focus-visible { outline: 2px solid var(--st-ink); outline-offset: 3px; border-color: var(--st-lavender); box-shadow: none; }
+.app-shell[data-edition="semrush"] .table-wrap tbody tr[tabindex="0"]:focus-visible td { outline-color: var(--st-ink); }

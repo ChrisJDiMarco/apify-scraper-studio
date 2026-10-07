@@ -1,7 +1,7 @@
 {
   "name": "apify-scraper-studio",
   "version": "0.1.0",
-  "description": "Packaged Mac workflow for running Apify scrapers and analyzing results with Codex CLI.",
+  "description": "Local macOS workspace for Apify research, source-linked findings, and Claude Opus 5.5 analysis.",
   "main": "./out/main/index.js",
   "author": "Chris DiMarco",
   "license": "UNLICENSED",
@@ -13,18 +13,30 @@
     "dist": "npm run build && electron-builder",
     "release:diagnostics": "node scripts/release-diagnostics.mjs",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:desktop": "electron scripts/desktop-smoke.cjs",
+    "build:web": "vite build --config vite.web.config.mjs",
+    "start:web": "node scripts/studio-web.cjs",
+    "dist:win": "npm run build && electron-builder --win nsis",
+    "start:semrush": "npm run build && electron . --studio-workspace=semrush",
+    "icons:mac": "node scripts/build-mac-icon.mjs",
+    "dist:mac": "npm run icons:mac && npm run build && electron-builder --mac --arm64"
   },
   "dependencies": {
     "apify-client": "^2.23.4",
     "electron-updater": "^6.8.9",
-    "lucide-react": "^1.22.0"
+    "lucide-react": "^1.22.0",
+    "papaparse": "^5.7.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "unzipper": "^0.12.5",
+    "saxes": "^6.0.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@vitejs/plugin-react": "^5.2.0",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.11",
     "electron": "^42.5.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
@@ -32,28 +44,26 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "vite": "^7.3.6",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   },
   "build": {
     "appId": "com.chrisdimarco.apifyscraperstudio",
-    "productName": "Apify Scraper Studio",
+    "productName": "Scraper Studio",
     "files": [
       "out/**/*",
       "node_modules/**/*",
       "package.json",
       "README.md",
-      "scripts/google-sheets-webhook.gs"
+      "scripts/google-sheets-webhook.gs",
+      "!**/.env",
+      "!**/.env.*",
+      "!**/*.pem",
+      "!**/*.key"
     ],
     "mac": {
-      "category": "public.app-category.developer-tools",
+      "category": "public.app-category.business",
       "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
+        "dmg"
       ],
       "icon": "resources/icon.icns",
       "hardenedRuntime": true,
@@ -65,6 +75,21 @@
     "directories": {
       "buildResources": "resources",
       "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-Windows-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }

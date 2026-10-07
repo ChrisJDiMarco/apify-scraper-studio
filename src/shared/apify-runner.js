@@ -3,17 +3,25 @@ const { validateRecipe } = require('./recipe');
 
 const TERMINAL_RUN_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']);
 
-async function listAllDatasetItems(client, datasetId, maxItems = 5000, pageSize = 1000) {
+function throwIfCancelled(options) {
+  if (options.isCancelled?.()) throw new Error('Job cancelled.');
+}
+
+async function listAllDatasetItems(client, datasetId, maxItems = 5000, pageSize = 1000, options = {}) {
   const items = [];
   let offset = 0;
 
   while (items.length < maxItems) {
+    throwIfCancelled(options);
     const limit = Math.min(pageSize, maxItems - items.length);
     const page = await client.dataset(datasetId).listItems({ offset, limit, clean: true });
+    throwIfCancelled(options);
     const pageItems = page.items || [];
-    items.push(...pageItems);
-    offset += page.count ?? pageItems.length;
-    if (!pageItems.length || items.length >= (page.total ?? items.length)) break;
+    items.push(...pageItems.slice(0, maxItems - items.length));
+    const count = Number(page.count) > 0 ? Number(page.count) : pageItems.length;
+    offset += count;
+    if (!count || (page.total != null && offset >= Number(page.total))) break;
+    if (page.total == null && count < limit) break;
   }
 
   return items;
@@ -58,16 +66,9 @@ function fallbackDiscovery(resourceId, kind, warning) {
     kind,
     title: resourceId,
     description: '',
-    schema: {
-      type: 'object',
-      properties: {
-        startUrls: { type: 'array', title: 'Start URLs' },
-        search: { type: 'string', title: 'Search query' },
-        maxItems: { type: 'integer', title: 'Max items' },
-      },
-    },
-    inputTemplate: { startUrls: [], maxItems: 1000 },
-    mapperTemplate: { text: 'text', author: 'author', url: 'url', externalId: 'id', publishedAt: 'publishedAt' },
+    schema: {},
+    inputTemplate: {},
+    mapperTemplate: {},
     warnings: [warning].filter(Boolean),
   };
 }
@@ -90,7 +91,7 @@ async function discoverApifyResource(payload = {}, options = {}) {
       title: task.title || task.name || taskId,
       description: task.description || '',
       inputTemplate: redact(input),
-      warnings: task.actId ? [`Task uses Actor ${task.actId}.`] : [],
+      warnings: [task.actId ? `Task uses Actor ${task.actId}.` : '', 'Input schema unavailable; review the saved task input in Apify before running.'].filter(Boolean),
     };
   }
 
@@ -99,17 +100,20 @@ async function discoverApifyResource(payload = {}, options = {}) {
   if (!actor) throw new Error('Apify Actor not found.');
   const buildClient = actorClient.defaultBuild ? await actorClient.defaultBuild().catch(() => null) : null;
   const build = buildClient?.get ? await buildClient.get().catch(() => null) : null;
-  const schema = build?.actorDefinition?.input || parseJson(build?.inputSchema, null) || {};
-  const example = parseJson(actor.exampleRunInput?.body, null) || actor.exampleRunInput || {};
+  const parsedSchema = parseJson(build?.actorDefinition?.input, null) || parseJson(build?.inputSchema, null);
+  const schema = parsedSchema && typeof parsedSchema === 'object' && !Array.isArray(parsedSchema) ? parsedSchema : {};
+  const example = actor.exampleRunInput && Object.hasOwn(actor.exampleRunInput, 'body')
+    ? parseJson(actor.exampleRunInput.body, {})
+    : actor.exampleRunInput || {};
   return {
     ...fallbackDiscovery(actorId, 'actor'),
     title: actor.title || actor.name || actorId,
     description: actor.description || actor.readmeSummary || '',
-    schema: schema && Object.keys(schema).length ? schema : fallbackDiscovery(actorId, 'actor').schema,
+    schema,
     inputTemplate: templateFromSchema(schema, example),
     warnings: [
       actor.isDeprecated ? 'Actor is marked deprecated on Apify.' : '',
-      schema && Object.keys(schema).length ? '' : 'No live input schema found; using a safe starter template.',
+      Object.keys(schema).length ? '' : 'Live input schema unavailable; review the Actor input in Apify before running.',
     ].filter(Boolean),
   };
 }
@@ -127,32 +131,49 @@ async function waitForStartedRun(client, startedRun, options = {}) {
   return run;
 }
 
-function createApifyRunner({ token, Client }) {
+function createApifyRunner({ token, Client, maxRetries }) {
   if (!token) throw new Error('Missing APIFY_API_TOKEN.');
   if (!Client) throw new Error('Missing Apify client.');
-  const client = new Client({ token });
+  const client = new Client({ token, ...(maxRetries === undefined ? {} : { maxRetries }) });
 
   return {
     async runRecipe(inputRecipe, options = {}) {
       const recipe = validateRecipe(inputRecipe);
-      const target = recipe.taskId ? client.task(recipe.taskId) : client.actor(recipe.actorId);
-      if (!target?.start && !target?.call) throw new Error('Selected Apify resource cannot be run.');
-
-      const started = target.start
-        ? await target.start(recipe.input || {}, { maxItems: options.maxItems })
-        : await target.call(recipe.input || {});
-      options.onRunStarted?.(started);
-      const run = target.start ? await waitForStartedRun(client, started, options) : started;
+      let started; let shouldWait;
+      if (options.resumeRunId !== undefined) {
+        if (typeof options.resumeRunId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(options.resumeRunId)) throw new Error('Invalid Apify run ID for resume.');
+        started = await client.run(options.resumeRunId).get();
+        if (!started || started.id !== options.resumeRunId) throw new Error('The saved Apify run could not be found. Check that run in Apify; it will not be started again automatically.');
+        shouldWait = true;
+      } else {
+        const target = recipe.taskId ? client.task(recipe.taskId) : client.actor(recipe.actorId);
+        if (!target?.start && !target?.call) throw new Error('Selected Apify resource cannot be run.');
+        const runOptions = { maxItems: options.maxItems };
+        if (recipe.runOptions) {
+          runOptions.maxTotalChargeUsd = recipe.runOptions.maxTotalChargeUsd;
+          runOptions.timeout = recipe.runOptions.timeoutSecs;
+        }
+        started = target.start
+          ? await target.start(recipe.input || {}, runOptions)
+          : await target.call(recipe.input || {}, runOptions);
+        shouldWait = !!target.start;
+      }
+      // Persist the provider ID before polling or downloading any data.
+      await options.onRunStarted?.(started);
+      const run = shouldWait ? await waitForStartedRun(client, started, options) : started;
       if (run?.status && run.status !== 'SUCCEEDED' && TERMINAL_RUN_STATUSES.has(run.status)) {
-        throw new Error(`Apify run finished with status ${run.status}.`);
+        throw new Error(`Apify run finished with status ${run.status}.${run.statusMessage ? ` ${String(run.statusMessage).slice(0, 800)}` : ''}`);
       }
       if (!run?.defaultDatasetId) throw new Error('Apify run finished without a default dataset.');
 
-      const rawItems = await listAllDatasetItems(client, run.defaultDatasetId, options.maxItems || 5000);
+      throwIfCancelled(options);
+      const rawItems = await listAllDatasetItems(client, run.defaultDatasetId, options.maxItems || 5000, 1000, options);
       const normalizedItems = normalizeDataset(rawItems, {
         mapper: recipe.mapper,
         platform: recipe.platform,
         runId: run.id,
+        expandComments: (options.expandComments === true || recipe.searchContext?.sourceId === 'linkedin-search') && Number(recipe.input.numComments) > 0,
+        maxComments: Number(recipe.input.numComments) || 0,
       });
 
       return {

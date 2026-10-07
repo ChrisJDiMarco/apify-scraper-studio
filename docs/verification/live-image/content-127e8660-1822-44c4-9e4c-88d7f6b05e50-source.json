@@ -1,0 +1,25 @@
+{
+  "editionId": "general",
+  "source": {
+    "kind": "text",
+    "title": "Image connection test — research to campaign",
+    "text": "Synthetic creative brief for a provider connection test, not market evidence. Design a polished editorial campaign illustration: three cream paper cards lead toward a sculpted orange folded-paper mountain, symbolizing collecting sources, reviewing findings and creating content. Off-white studio background, Semrush-like warm orange palette, soft natural shadows, generous negative space. No words, no logos, no charts, no numerical or marketing claims."
+  },
+  "brandKnowledge": {
+    "editionId": "general",
+    "name": "Your brand",
+    "audience": "",
+    "positioning": "",
+    "icp": "",
+    "voice": "",
+    "forbiddenClaims": "",
+    "editorialRules": "",
+    "productContext": "",
+    "version": "1"
+  },
+  "productRegistry": [],
+  "deliverableIds": [
+    "brand-image"
+  ],
+  "imageVariants": 1
+}

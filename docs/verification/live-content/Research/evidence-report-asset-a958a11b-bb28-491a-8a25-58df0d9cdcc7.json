@@ -1,0 +1,221 @@
+{
+  "deliverableId": "evidence-report",
+  "editionId": "general",
+  "title": "Evidence Report: Scraper Studio Implementation Status (Single Internal Brief, Tentative)",
+  "summary": "This report draws on one internal implementation brief. It is not independent market research. The brief describes what Scraper Studio can do today: General and Semrush workspace presets, a content studio that accepts pasted text, Markdown and DOCX, research programs that run in stages with human theme approval, and reports that keep evidence references. It also lists open gaps. Image generation needs a configured image provider. The browser runtime and Windows installer have not been publicly deployed or verified on Windows. Billing and SSO are not built. The source contains no user demand data, performance metrics, platform posts or external trend claims. Every finding below comes from that one document and is tentative.",
+  "sections": [
+    {
+      "id": "executive",
+      "heading": "Executive summary",
+      "body": "The only evidence is one internal implementation brief (approved-implementation-brief). The brief says it is \"not independent market research.\" It reports that Scraper Studio has General and Semrush workspace presets, a content studio that accepts text, Markdown and DOCX, and configurable research programs covering Reddit communities, X accounts, LinkedIn profiles, dates and budgets. These programs run in stages: discovery batches, human theme approval, classification batches and paired reports. The brief also says completed outputs survive unrelated failures and that reports keep evidence references and disclose missing information. It lists four open gaps: image generation needs a configured provider, the browser runtime and Windows installer have not been publicly deployed or verified on Windows, and billing and SSO are not implemented. The source includes no trend, demand or performance evidence, so this report describes implementation status only. It does not describe market trends.",
+      "items": [],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    },
+    {
+      "id": "method",
+      "heading": "Method and coverage",
+      "body": "Coverage: one internal text document, with no URL, platform, author or publication date. No Reddit, X or LinkedIn records were supplied. No precomputed metrics, sample counts, engagement data or date ranges were provided, so nothing could be copied or checked. The product registry is empty, so no product IDs are assigned anywhere in this report. The brand knowledge profile (General edition) has no audience, positioning, ICP, voice, forbidden-claims or editorial rules filled in. The brief proposes a test run: send the brief to the signed-in Claude CLI using claude-opus-5-5 to produce one evidence report and one social pack, with a $1.50 total request budget. That is a stated plan in the source. This report does not confirm that the test has run beyond producing this output.",
+      "items": [],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    },
+    {
+      "id": "trend",
+      "heading": "Trend summary",
+      "body": "No external trend evidence was supplied. The brief states: \"No performance claims or external trend claims are supplied.\" So no market, audience or platform trends can be reported. The only pattern the source supports is internal. The product workflow puts human review and evidence traceability first: theme approval comes before classification, and reports keep references and disclose missing information. That is an observation about how the product is designed. It is not a market trend.",
+      "items": [],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    },
+    {
+      "id": "metrics",
+      "heading": "Evidence and validation",
+      "body": "Precomputed metrics: none supplied. Distinct sources: 1 (internal). Verbatim platform quotes: 0 available. Source links: 0 available, because the brief has no URL. Validation status: the brief calls its own contents \"implementation facts, not proof of user demand or marketing performance.\" Several deployment claims are explicitly unverified, such as the browser runtime and the Windows installer configuration. Nothing in this report has been independently confirmed. There are no counts, dates or engagement figures to report, and none have been estimated.",
+      "items": [],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    },
+    {
+      "id": "pains",
+      "heading": "Top pain points",
+      "body": "The source has no user-reported pain points. The items below are implementation gaps stated in the brief. They are not validated user pains.",
+      "items": [
+        {
+          "label": "Image generation dependency",
+          "text": "Observation: image generation still requires a configured image provider. Inference: if no provider is set up, image output isn't available.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "Unverified Windows deployment",
+          "text": "Observation: the browser runtime and Windows installer configuration have not been publicly deployed or verified on Windows.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "No billing or SSO",
+          "text": "Observation: billing and SSO are not implemented. Whether this matters to any particular buyer group is unknown, because no customer evidence was supplied.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        }
+      ],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    },
+    {
+      "id": "opportunities",
+      "heading": "Opportunities and requests",
+      "body": "No user requests were supplied. The items below are proposals based on implementation facts. They are not demand signals.",
+      "items": [
+        {
+          "label": "Lead with traceable reporting",
+          "text": "Proposal: position around reports that keep evidence references and disclose missing information, which the brief lists as a current capability.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "Human-in-the-loop research",
+          "text": "Proposal: highlight the staged workflow of discovery batches, human theme approval, classification batches and paired reports as a way to keep quality under control.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "Validate before claiming",
+          "text": "Proposal: before making any public claims, verify the Windows installer and gather real user demand evidence. The brief supplies neither.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        }
+      ],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    },
+    {
+      "id": "technical",
+      "heading": "Technical details",
+      "body": "Sourced observations: (1) General and Semrush workspace presets exist. (2) The content studio accepts pasted text, Markdown and DOCX. (3) Research programs configure Reddit communities, X accounts, LinkedIn profiles, dates and budgets. (4) The pipeline runs discovery batches, then human theme approval, then classification batches, then paired reports. (5) Content jobs use supplied brand knowledge and an approved product registry. (6) Completed outputs survive unrelated failures. (7) Image generation requires a configured image provider. (8) The browser runtime and Windows installer have not been publicly deployed or verified on Windows. (9) Billing and SSO are not implemented. (10) The proposed test excludes private source lists, customer records, tokens and raw workflow exports. Unknowns: supported OS versions other than Windows, pricing, and performance or latency.",
+      "items": [],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    },
+    {
+      "id": "content",
+      "heading": "Top performing content",
+      "body": "No content performance data, engagement metrics or platform posts were supplied, so top-performing content can't be identified. Nothing has been inferred.",
+      "items": [],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    },
+    {
+      "id": "takeaways",
+      "heading": "Key takeaways",
+      "body": "",
+      "items": [
+        {
+          "label": "Evidence is internal only",
+          "text": "All findings come from one internal brief that describes itself as not independent market research. Treat every conclusion as tentative.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "Clear capability vs. gap split",
+          "text": "The brief separates current capabilities (presets, multi-format input, staged research, traceable reports) from gaps (image provider dependency, unverified Windows, no billing or SSO).",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "No demand or performance proof",
+          "text": "No trend, demand or performance data exists in the source. Public messaging should avoid market or results claims until external evidence has been collected.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        }
+      ],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    }
+  ],
+  "caveats": [
+    "There is only one source: an internal implementation brief with no URL, author, platform or date. The findings are tentative.",
+    "There is no external trend, user demand or performance evidence. The trend, pains and content sections cannot reflect market data.",
+    "No precomputed metrics, sample counts or date ranges were supplied, so none are reported.",
+    "No Reddit, X or LinkedIn records were supplied. The 6–9 quote and 8–10 source link targets could not be met.",
+    "The product registry is empty, so no product IDs are assigned.",
+    "The brand knowledge fields (audience, positioning, ICP, voice, forbidden claims, editorial rules) are empty, so brand voice could not be applied.",
+    "The Windows deployment and browser runtime are stated as unverified. This report does not verify them.",
+    "The proposed $1.50 test run is described in the source. Apart from producing this report, its completion and results are not confirmed."
+  ],
+  "approvedProducts": [],
+  "evidenceRegister": [
+    {
+      "id": "approved-implementation-brief",
+      "text": "# Proposed live validation source\n\nThis is an internal implementation brief, not independent market research.\n\nScraper Studio now has General and Semrush workspace presets. The new content studio accepts pasted text, Markdown, and DOCX documents. Research programs configure Reddit communities, X accounts, LinkedIn profiles, dates, and budgets. Research proceeds through discovery batches, human theme approval, classification batches, and paired reports. Content jobs use supplied brand knowledge and an approved product registry. Completed outputs survive unrelated failures. Reports preserve evidence references and disclose missing information.\n\nImage generation still requires a configured image provider. The browser runtime and Windows installer configuration have not yet been publicly deployed or verified on Windows. Billing and SSO are not implemented. These are implementation facts, not proof of user demand or marketing performance. No performance claims or external trend claims are supplied.\n\nProposed test: send this exact brief to the signed-in Claude CLI using claude-opus-5-5 and generate one evidence report plus one social pack, with a total request budget of $1.50. No private",
+      "url": "",
+      "platform": "",
+      "author": "",
+      "publishedAt": "",
+      "excerptTruncated": true
+    }
+  ],
+  "quotes": [
+    {
+      "text": "This is an internal implementation brief, not independent market research.",
+      "evidenceId": "approved-implementation-brief"
+    },
+    {
+      "text": "Research proceeds through discovery batches, human theme approval, classification batches, and paired reports.",
+      "evidenceId": "approved-implementation-brief"
+    },
+    {
+      "text": "Reports preserve evidence references and disclose missing information.",
+      "evidenceId": "approved-implementation-brief"
+    },
+    {
+      "text": "Image generation still requires a configured image provider.",
+      "evidenceId": "approved-implementation-brief"
+    },
+    {
+      "text": "Billing and SSO are not implemented.",
+      "evidenceId": "approved-implementation-brief"
+    },
+    {
+      "text": "These are implementation facts, not proof of user demand or marketing performance.",
+      "evidenceId": "approved-implementation-brief"
+    }
+  ]
+}

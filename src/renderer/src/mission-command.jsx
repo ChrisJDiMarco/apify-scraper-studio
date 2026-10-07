@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Archive,
@@ -43,24 +43,88 @@ function Stat({ icon, label, value, detail, tone }) {
 
 export function CommandPalette({ open, items = [], onClose, onRun }) {
   const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const dialogRef = useRef(null);
+  const inputRef = useRef(null);
+  const visible = items.filter((item) => item.label.toLowerCase().includes(query.trim().toLowerCase()));
+  const selectedIndex = Math.min(activeIndex, visible.length - 1);
+  // Enter runs the first match before any arrow key, so show that row as chosen from the start.
+  const highlightedIndex = Math.max(0, selectedIndex);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement;
+    setQuery('');
+    setActiveIndex(-1);
+    inputRef.current?.focus();
+    return () => {
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [open]);
+
+  function runItem(item) {
+    if (!item) return;
+    onRun(item);
+    onClose();
+  }
+
+  function handleKeyDown(event) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    const buttons = Array.from(dialogRef.current?.querySelectorAll('[data-palette-command]') || []);
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      const controls = [inputRef.current, ...buttons].filter(Boolean);
+      const current = controls.indexOf(document.activeElement);
+      const next = (current + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+      controls[next]?.focus();
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!visible.length) return;
+      const next = event.key === 'ArrowDown'
+        ? (selectedIndex + 1) % visible.length
+        : (selectedIndex <= 0 ? visible.length - 1 : selectedIndex - 1);
+      setActiveIndex(next);
+      buttons[next]?.focus();
+      buttons[next]?.scrollIntoView?.({ block: 'nearest' });
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      runItem(visible[Math.max(0, selectedIndex)]);
+      return;
+    }
+    // Typing while a result is focused keeps refining the search instead of being lost.
+    if (event.key.length === 1 && event.key !== ' ' && !event.metaKey && !event.ctrlKey && !event.altKey && document.activeElement !== inputRef.current) {
+      inputRef.current?.focus();
+    }
+  }
+
   if (!open) return null;
-  const visible = items.filter((item) => `${item.label} ${item.shortcut || ''}`.toLowerCase().includes(query.toLowerCase()));
   return (
     <div className="command-palette-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
         <div className="palette-input">
           <Search size={18} aria-hidden="true" />
-          <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Run command or open a V5 surface" />
+          <input ref={inputRef} aria-label="Search commands" value={query} onChange={(event) => { setQuery(event.target.value); setActiveIndex(-1); }} placeholder="Search pages and actions…" />
           <kbd>Esc</kbd>
         </div>
-        <div className="palette-list">
-          {visible.map((item) => (
-            <button type="button" key={item.id} onClick={() => { onRun(item); onClose(); }}>
+        <div className="palette-list" aria-label="Matching commands">
+          {visible.map((item, index) => { const Icon = item.icon || Command; return (
+            <button type="button" data-palette-command="" className={index === highlightedIndex ? 'active' : ''} key={item.id} onFocus={() => setActiveIndex(index)} onMouseMove={() => index !== selectedIndex && setActiveIndex(index)} onClick={() => runItem(item)}>
+              <Icon size={16} aria-hidden="true" />
               <span>{item.label}</span>
-              {item.shortcut && <kbd>{item.shortcut}</kbd>}
+              <kbd aria-hidden="true">↵</kbd>
             </button>
-          ))}
-          {!visible.length && <Empty title="No commands" detail="Try another mission, dataset, or artifact command." />}
+          ); })}
+          {!visible.length && <Empty title="No commands" detail="Try another page or action." />}
         </div>
       </section>
     </div>

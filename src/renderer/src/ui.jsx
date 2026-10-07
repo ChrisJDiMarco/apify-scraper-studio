@@ -1,4 +1,14 @@
 import React, { cloneElement, isValidElement } from 'react';
+import { flushSync } from 'react-dom';
+
+// Moves between states morph instead of cutting (styles in craft.css). Falls back to an instant update.
+// `types` lets a local move (a card changing column) skip the full-page rise used for navigation.
+export function withViewTransition(update, types = []) {
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (!document.startViewTransition || reduce || document.hidden) return update();
+  try { document.startViewTransition({ update: () => flushSync(update), types }); }
+  catch { document.startViewTransition(() => flushSync(update)); }
+}
 
 export function label(value) {
   return value ? `${String(value)[0].toUpperCase()}${String(value).slice(1)}` : 'Idle';
@@ -6,7 +16,7 @@ export function label(value) {
 
 export function short(value, length = 96) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
-  return text.length > length ? `${text.slice(0, length - 1)}...` : text;
+  return text.length > length ? `${text.slice(0, length - 1).trimEnd()}…` : text;
 }
 
 export function number(value) {

@@ -1,0 +1,275 @@
+{
+  "fixtureOnly": true,
+  "startedAt": "2026-09-28T00:11:42.724Z",
+  "dataDir": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/scraper-content-studio-jvDJ3p",
+  "screenshots": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/scraper-content-studio-jvDJ3p/screenshots",
+  "checks": [
+    {
+      "name": "layout-general-overview",
+      "width": 1380,
+      "docWidth": 1380,
+      "mainWidth": 0
+    },
+    {
+      "name": "real-preload-and-scoped-studio-service"
+    },
+    {
+      "name": "persistent-workspace-switcher-on-search"
+    },
+    {
+      "name": "focused-semrush-2026-shell"
+    },
+    {
+      "name": "workspace-knowledge-save"
+    },
+    {
+      "name": "layout-settings-images-normal",
+      "width": 1380,
+      "docWidth": 1380,
+      "mainWidth": 0
+    },
+    {
+      "name": "layout-settings-images-compact",
+      "width": 760,
+      "docWidth": 760,
+      "mainWidth": 0
+    },
+    {
+      "name": "image-settings-secure-save-access-check-remove",
+      "credentialStoredEncrypted": true,
+      "publicCredentialPresenceOnly": true,
+      "accessVerified": true,
+      "generationVerified": false,
+      "accessChecks": 1
+    },
+    {
+      "name": "layout-deliverables-normal",
+      "width": 1380,
+      "docWidth": 1380,
+      "mainWidth": 0
+    },
+    {
+      "name": "layout-semrush-compact",
+      "width": 760,
+      "docWidth": 760,
+      "mainWidth": 0
+    },
+    {
+      "name": "source-to-selected-content-jobs",
+      "writtenAssets": 2,
+      "modelFixtureCalls": 2
+    },
+    {
+      "name": "persisted-preview-and-export-manifest",
+      "assets": 2,
+      "exportPath": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/scraper-content-studio-jvDJ3p/content-studio/exports/export-a74a3de0-4a05-4517-8ac5-04c9ca309757"
+    },
+    {
+      "name": "saved-report-to-content-handoff"
+    },
+    {
+      "name": "source-draft-workspace-isolation"
+    },
+    {
+      "name": "general-semrush-asset-isolation"
+    },
+    {
+      "name": "bulk-program-discovery-review-classification-report-pair",
+      "retained": 6,
+      "assets": 2
+    },
+    {
+      "name": "image-request-and-actual-png-preview",
+      "fixtureVariants": 1
+    },
+    {
+      "name": "layout-create-compact",
+      "width": 760,
+      "docWidth": 760,
+      "mainWidth": 0
+    },
+    {
+      "name": "layout-deliverables-compact",
+      "width": 760,
+      "docWidth": 760,
+      "mainWidth": 0
+    },
+    {
+      "name": "layout-research-compact",
+      "width": 760,
+      "docWidth": 760,
+      "mainWidth": 0
+    },
+    {
+      "name": "layout-semrush-search",
+      "width": 760,
+      "docWidth": 760,
+      "mainWidth": 0
+    },
+    {
+      "name": "layout-semrush-datasets",
+      "width": 760,
+      "docWidth": 760,
+      "mainWidth": 0
+    },
+    {
+      "name": "layout-semrush-reports",
+      "width": 760,
+      "docWidth": 760,
+      "mainWidth": 0
+    },
+    {
+      "name": "layout-semrush-playbooks",
+      "width": 760,
+      "docWidth": 760,
+      "mainWidth": 0
+    },
+    {
+      "name": "layout-semrush-board",
+      "width": 760,
+      "docWidth": 760,
+      "mainWidth": 0
+    }
+  ],
+  "status": "passed",
+  "finishedAt": "2026-09-28T00:12:00.933Z",
+  "nativeBridge": true,
+  "networkCalls": 0,
+  "cliCalls": 0,
+  "aiCalls": [
+    {
+      "runId": "content-8495591f-6b47-45a1-956a-bd392419da5f",
+      "maxBudgetUsd": 1,
+      "schema": [
+        "title",
+        "summary",
+        "sections",
+        "caveats"
+      ]
+    },
+    {
+      "runId": "content-8495591f-6b47-45a1-956a-bd392419da5f",
+      "maxBudgetUsd": 1.99,
+      "schema": [
+        "title",
+        "summary",
+        "sections",
+        "caveats",
+        "quotes"
+      ]
+    },
+    {
+      "runId": "research-93df1e76-2b86-4ad3-bf87-2a1a090bb9be",
+      "maxBudgetUsd": 0.33,
+      "schema": [
+        "candidates"
+      ]
+    },
+    {
+      "runId": "research-93df1e76-2b86-4ad3-bf87-2a1a090bb9be",
+      "maxBudgetUsd": 0.35,
+      "schema": [
+        "themes"
+      ]
+    },
+    {
+      "runId": "research-93df1e76-2b86-4ad3-bf87-2a1a090bb9be",
+      "maxBudgetUsd": 1.66,
+      "schema": [
+        "assignments"
+      ]
+    },
+    {
+      "runId": "content-4ec04e96-07ca-4621-a9d8-f591dd37d329",
+      "maxBudgetUsd": 2.49,
+      "schema": [
+        "title",
+        "summary",
+        "sections",
+        "caveats",
+        "quotes"
+      ]
+    },
+    {
+      "runId": "content-4ec04e96-07ca-4621-a9d8-f591dd37d329",
+      "maxBudgetUsd": 4.98,
+      "schema": [
+        "title",
+        "summary",
+        "sections",
+        "caveats"
+      ]
+    }
+  ],
+  "collectionCalls": [
+    {
+      "runId": "research-93df1e76-2b86-4ad3-bf87-2a1a090bb9be",
+      "targets": [
+        {
+          "id": "source-reddit",
+          "name": "Reddit communities",
+          "sourceId": "reddit",
+          "platform": "reddit",
+          "targets": [
+            "marketing",
+            "saas"
+          ],
+          "enabled": true,
+          "options": {
+            "includeComments": true,
+            "maxComments": 3
+          }
+        },
+        {
+          "id": "source-x",
+          "name": "X accounts",
+          "sourceId": "x",
+          "platform": "x",
+          "targets": [
+            "apify",
+            "nasa"
+          ],
+          "enabled": true,
+          "options": {
+            "replies": "exclude",
+            "media": "images"
+          }
+        },
+        {
+          "id": "source-linkedin-profile",
+          "name": "LinkedIn accounts",
+          "sourceId": "linkedin-profile",
+          "platform": "linkedin",
+          "targets": [],
+          "enabled": false,
+          "options": {}
+        },
+        {
+          "id": "source-linkedin-search",
+          "name": "LinkedIn keyword search",
+          "sourceId": "linkedin-search",
+          "platform": "linkedin",
+          "targets": [],
+          "enabled": false,
+          "options": {}
+        }
+      ]
+    }
+  ],
+  "imageCalls": [
+    {
+      "runId": "content-d768a266-5d0e-48ca-b5c5-2ec25303f38f",
+      "variants": 1
+    }
+  ],
+  "imageAccessChecks": [
+    {
+      "configured": true,
+      "model": "gpt-image-2.5-flare",
+      "accessVerified": true,
+      "generationVerified": false,
+      "message": "Offline QA fixture: model access checked; no provider request was made."
+    }
+  ],
+  "failures": []
+}

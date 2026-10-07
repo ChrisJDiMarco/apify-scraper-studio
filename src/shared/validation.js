@@ -93,10 +93,19 @@ function validateSheetSettings(value, current = {}) {
   };
 }
 
+function aiBudget(value) {
+  const amount = Number(value);
+  if (typeof value === 'boolean' || !Number.isFinite(amount) || amount < 0.01 || amount > 100) throw new Error('AI budget must be between $0.01 and $100.');
+  return amount;
+}
+
 function validateSettings(value, current = {}) {
   const settings = optionalRecord(value, 'Settings');
   return {
     ...current,
+    aiProvider: enumValue(settings.aiProvider ?? current.aiProvider ?? 'claude', 'AI provider', ['claude', 'codex']),
+    aiModel: stringValue(settings.aiModel ?? current.aiModel ?? 'claude-opus-5-5', 'Claude model', { required: true, max: 160, pattern: /^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/ }),
+    aiMaxBudgetUsd: aiBudget(settings.aiMaxBudgetUsd ?? current.aiMaxBudgetUsd ?? 1),
     maxItems: intValue(settings.maxItems, 'Max items', { min: 1, max: 10000, fallback: current.maxItems || 1000 }),
     sheets: validateSheetSettings(settings.sheets, current.sheets || {}),
   };

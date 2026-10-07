@@ -1,3 +1,5 @@
+const { spreadsheetSafeValue } = require('./normalize');
+
 function clean(value) {
   return String(value ?? '').trim();
 }
@@ -87,7 +89,7 @@ function buildDatasetSheetRows(items = []) {
     painPoint: clean(item.painPoint || item.pain_point || item.pain_point_type),
     urgency: clean(item.urgency || item.urgencySignal || item.urgency_signal),
     entities: sheetValue(item.entities),
-  }));
+  })).map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, spreadsheetSafeValue(value)])));
 }
 
 function buildDatasetWriteRequest(settings = {}, dataset = {}, items = [], options = {}) {

@@ -1,0 +1,120 @@
+/* Semrush is a complete workspace edition, including the navigation shell. */
+.app-shell[data-edition="semrush"] { --app-bg: #f3f6f6; --surface-soft: #dceeeb; --bg: #f3f6f6; --border: #dce2dc; --text: #181e15; --primary: #181e15; --ink: #181e15; --muted: #62685e; --faint: #747873; --line: #e5eae6; --line-strong: #d4dcd5; --accent: #c190ff; --accent-ink: #181e15; --teal: #181e15; --ring: 0 0 0 3px #c190ff40; font-family: Lazzer, Arial, sans-serif; grid-template-columns: 238px minmax(0,1fr); }
+/* Reserve the macOS hiddenInset title-bar area above the desktop branding. */
+.app-shell[data-edition="semrush"] .sidebar { padding: 45px 16px 0; background: linear-gradient(180deg, #edf5f2 0%, #f3f6f6 80%); border-color: #dce2dc; }
+.app-shell[data-edition="semrush"] .sidebar::before { display: block; top: 0; left: 0; width: 100%; height: 34px; border-radius: 0; background: transparent; -webkit-app-region: drag; }
+.app-shell[data-edition="semrush"] .brand { padding: 0 8px 22px; gap: 9px; }
+.app-shell[data-edition="semrush"] .brand .brand-mark { width: 27px; height: 31px; background: transparent; color: #181e15; border-radius: 0; }
+.app-shell[data-edition="semrush"] .brand-mark svg { width: 27px; height: 31px; }
+.app-shell[data-edition="semrush"] .brand strong { font-size: 18px; font-weight: 650; color: #181e15; letter-spacing: -.75px; }
+.shell-workspace-control { margin: 0 0 27px; }
+.shell-workspace-picker { position: relative; display: flex; align-items: center; gap: 10px; padding: 7px 9px; border: 1px solid #e1e6e2; border-radius: 12px; background: #fff; }
+.shell-workspace-picker .workspace-avatar { display: grid; place-items: center; flex: 0 0 25px; width: 25px; height: 25px; border: 0; color: #181e15; border-radius: 50%; background: #dceeeb; }
+.shell-workspace-picker select { flex: 1; width: 100%; min-width: 0; padding: 4px 14px 4px 2px; text-overflow: ellipsis; min-height: 28px; font-size: 11px; color: #181e15; border: 0; background: transparent; }
+button.shell-new-workspace { display: block; margin: 4px 4px 0 auto; min-height: 20px; padding: 2px 0; font-size: 9px; font-weight: 400; color: #62685e; background: transparent; }
+button.shell-new-workspace:hover:not(:disabled) { background: transparent; color: #181e15; }
+.app-shell[data-edition="semrush"] .nav-group { gap: 4px; }
+.app-shell[data-edition="semrush"] .sidebar nav button { color: #181e15; font-size: 13px; font-weight: 500; padding: 12px 14px; min-height: 43px; border-radius: 999px; gap: 13px; }
+.app-shell[data-edition="semrush"] .sidebar nav button svg { color: #181e15; stroke-width: 1.6; }
+.app-shell[data-edition="semrush"] .sidebar nav button.active { color: #181e15; background: #c190ff; font-weight: 600; }
+.app-shell[data-edition="semrush"] .sidebar nav button.active svg { color: #181e15; }
+.app-shell[data-edition="semrush"] .sidebar nav button:hover:not(:disabled) { color: #181e15; background: #f3f6f6; }
+.app-shell[data-edition="semrush"] .more-nav { margin-top: 24px; padding-top: 14px; border-top: 1px solid #e5eae6; }
+.app-shell[data-edition="semrush"] .sidebar .more-toggle { color: #62685e; font-size: 11px; }
+.app-shell[data-edition="semrush"] .more-nav > button:not(.more-toggle) { font-size: 11px; padding-top: 9px; padding-bottom: 9px; min-height: 35px; }
+.app-shell[data-edition="semrush"] .sidebar-bottom { border-color: #e5eae6; }
+.app-shell[data-edition="semrush"] .sidebar-foot { color: #62685e; border-color: #e5eae6; }
+.app-shell[data-edition="semrush"] .local-dot { background: #181e15; }
+.app-shell[data-edition="semrush"] .topbar { min-height: 60px; flex-basis: 60px; padding: 0 30px; border-bottom: 1px solid #e1e6e2; background: #ffffff; }
+.app-shell[data-edition="semrush"] .breadcrumb { color: #62685e; }
+.app-shell[data-edition="semrush"] .breadcrumb h1 { color: #181e15; font-size: 12px; font-weight: 600; }
+.app-shell[data-edition="semrush"] .breadcrumb > span, .app-shell[data-edition="semrush"] .breadcrumb > svg { display: none; }
+.app-shell[data-edition="semrush"] .topbar .search-command { min-height: 34px; font-size: 12px; border-radius: 999px; border-color: #e1e6e2; background: #fff; color: #62685e; }
+.app-shell[data-edition="semrush"] .topbar .icon-button { color: #62685e; background: transparent; }
+.app-shell[data-edition="semrush"] .content { padding: 26px 30px 32px; }
+.app-shell[data-edition="semrush"] input:focus, .app-shell[data-edition="semrush"] textarea:focus, .app-shell[data-edition="semrush"] select:focus, .app-shell[data-edition="semrush"] button:focus-visible { outline-color: #6b438f; }
+@media (max-width: 1050px) { .app-shell[data-edition="semrush"] { grid-template-columns: 196px minmax(0,1fr); } .app-shell[data-edition="semrush"] .brand strong { font-size: 16px; } .app-shell[data-edition="semrush"] .sidebar { padding-left: 11px; padding-right: 11px; } .app-shell[data-edition="semrush"] .content { padding: 20px 22px 28px; } }
+@media (max-width: 760px) { .app-shell[data-edition="semrush"] { grid-template-columns: 175px minmax(0,1fr); } .app-shell[data-edition="semrush"] .brand strong { font-size: 14px; } .app-shell[data-edition="semrush"] .brand { gap: 5px; padding-left: 3px; } .app-shell[data-edition="semrush"] .sidebar nav button { font-size: 11px; padding: 10px; gap: 9px; } .app-shell[data-edition="semrush"] .content { padding-left: 17px; padding-right: 17px; } .shell-workspace-picker { gap: 6px; padding-left: 6px; } }
+@media (max-width: 650px) { .app-shell[data-edition="semrush"] { grid-template-columns: 1fr; } }
+
+.app-shell[data-edition="semrush"] .settings-view summary, .app-shell[data-edition="semrush"] .settings-view summary > span, .app-shell[data-edition="semrush"] .settings-view label { color: var(--ink); }
+.app-shell[data-edition="semrush"] .settings-view button.ghost:not(.danger):hover:not(:disabled) { background: #eee9ff; border-color: #c190ff; }
+.app-shell[data-edition="semrush"] .settings-view button:not(.ghost):hover:not(:disabled) { background: #e0c7ff; color: #181e15; }
+.app-shell[data-edition="semrush"] .semrush-brand { display: grid; gap: 9px; padding-top: 2px; }
+.app-shell[data-edition="semrush"] .semrush-wordmark { display: block; width: 167px; max-width: 100%; height: auto; }
+.app-shell[data-edition="semrush"] .semrush-brand > span { font-size: 8px; font-weight: 500; letter-spacing: .65px; text-transform: uppercase; color: #62685e; }
+.app-shell[data-edition="semrush"] .sidebar nav button.active { background: #c190ff; color: #181e15; }
+.app-shell[data-edition="semrush"] .sidebar nav button.active:hover:not(:disabled) { background: #e0c7ff; }
+.app-shell[data-edition="semrush"] .nav-count { color: #181e15; background: #dceeeb; }
+.app-shell[data-edition="semrush"] .settings-view button:not(.ghost) { color: #181e15; background: #c190ff; border-radius: 999px; }
+.app-shell[data-edition="semrush"] .settings-view button.ghost:not(.danger) { color: #181e15; border-radius: 999px; }
+.app-shell[data-edition="semrush"] .settings-image-icon { color: #181e15; background: linear-gradient(135deg, #dceeeb, #eee9ff); }
+.app-shell[data-edition="semrush"] .settings-image-receipt.verified { border-color: #c190ff; background: #fcfaff; }
+.app-shell[data-edition="semrush"] .sidebar-foot, .app-shell[data-edition="semrush"] .sidebar-foot .version { color: #62685e; }
+@media (max-width: 1050px) { .app-shell[data-edition="semrush"] .semrush-wordmark { width: 147px; } .app-shell[data-edition="semrush"] .semrush-brand > span { font-size: 7px; letter-spacing: .5px; } }
+@media (max-width: 760px) { .app-shell[data-edition="semrush"] .semrush-wordmark { width: 133px; } .app-shell[data-edition="semrush"] .semrush-brand > span { font-size: 6px; } }
+
+/* The edition owns neutral controls too; inherited white-on-lavender and green hovers are unreadable. */
+.app-shell[data-edition="semrush"] :where(.content > :not(.content-studio)) button:not(.ghost):not(.danger) { color: #181e15; }
+.app-shell[data-edition="semrush"] :where(.content > :not(.content-studio)) button:not(.ghost):not(.danger):hover:not(:disabled) { background-color: #e0c7ff; }
+.app-shell[data-edition="semrush"] button.ghost:not(.danger) { color: #181e15; }
+.app-shell[data-edition="semrush"] button.ghost:not(.danger):hover:not(:disabled) { color: #181e15; border-color: #c190ff; background: #eee9ff; }
+.app-shell[data-edition="semrush"] :is(input, textarea, select, button, summary, a):focus-visible { outline: 2px solid #181e15; outline-offset: 3px; }
+.app-shell[data-edition="semrush"] input[type="checkbox"] { accent-color: #181e15; }
+.app-shell[data-edition="semrush"] ::selection { color: #181e15; background: #e0c7ff; }
+.app-shell[data-edition="semrush"] kbd { color: #545c53; background: #f3f6f6; border-color: #dce2dc; }
+.app-shell[data-edition="semrush"] .topbar .icon-button:hover { background: #eee9ff; color: #181e15; }
+.app-shell[data-edition="semrush"] .sidebar .more-toggle:hover { background: #e8efeb; }
+.app-shell[data-edition="semrush"] .shell-workspace-picker { box-shadow: 0 2px 3px #181e1504; }
+.app-shell[data-edition="semrush"] .shell-workspace-picker:focus-within { outline: 2px solid #181e15; outline-offset: 2px; }
+.app-shell[data-edition="semrush"] .sidebar-foot { padding-top: 16px; padding-bottom: 16px; }
+.app-shell[data-edition="semrush"] .local-dot { background: #18f0bf; box-shadow: 0 0 0 2px #181e15; }
+.app-shell[data-edition="semrush"] .panel { border-radius: 16px; border-color: #dce2dc; }
+.app-shell[data-edition="semrush"] .settings-view { display: grid; gap: 18px; max-width: 1080px !important; border: 0; background: transparent; padding: 0; }
+.app-shell[data-edition="semrush"] .settings-view > .panel-head { margin: 0 0 2px; padding: 9px 0 10px; align-items: flex-start; }
+.app-shell[data-edition="semrush"] .settings-view > .panel-head h3 { font-size: 30px; line-height: 1.16; letter-spacing: -1px; }
+.app-shell[data-edition="semrush"] .settings-view > .panel-head p { font-size: 13px; color: #545c53; margin-top: 9px; }
+.app-shell[data-edition="semrush"] :is(.settings-block, .settings-health) { margin: 0; padding: 24px; border: 1px solid #dce2dc; border-radius: 16px; background: #fff; }
+.app-shell[data-edition="semrush"] .settings-view > section.settings-block { border-top: 3px solid #c190ff; }
+.app-shell[data-edition="semrush"] .settings-view > section.settings-images { border-top-color: #18f0bf; }
+.app-shell[data-edition="semrush"] .settings-view > .field-grid { margin: 0; border: 1px solid #cbdcd5; background: #dceeeb; padding: 24px; border-radius: 16px; gap: 22px; }
+.app-shell[data-edition="semrush"] .settings-view .badge { background: #eee9ff; color: #181e15; border-radius: 999px; padding: 6px 10px; }
+.app-shell[data-edition="semrush"] .settings-view .badge.ready { background: #dceeeb; }
+.app-shell[data-edition="semrush"] .settings-view .badge.warning { background: #faf1e3; color: #795326; }
+.app-shell[data-edition="semrush"] .settings-view :is(input,select,textarea) { min-height: 42px; border-color: #cdd6cf; background: #fff; }
+.app-shell[data-edition="semrush"] .settings-view input[readonly] { background: #f3f6f6; color: #545c53; }
+.app-shell[data-edition="semrush"] .settings-view .field-grid { gap: 22px; }
+.app-shell[data-edition="semrush"] .settings-view .settings-block h3 { font-size: 18px; font-weight: 600; }
+.app-shell[data-edition="semrush"] .settings-view .button-row { align-items: center; }
+.app-shell[data-edition="semrush"] .settings-view .inline { flex-wrap: wrap; gap: 8px; }
+.app-shell[data-edition="semrush"] .settings-view .inline input { flex: 1 1 180px; }
+.app-shell[data-edition="semrush"] .settings-view summary { font-size: 13px; font-weight: 600; }
+.app-shell[data-edition="semrush"] .settings-view :is(summary > span, label > small, .settings-image-storage, .settings-image-check > small) { color: #545c53; font-size: 11px; }
+.app-shell[data-edition="semrush"] .settings-view :is(.settings-provider-options, .settings-image-check) { border-color: #dce2dc; }
+.app-shell[data-edition="semrush"] .settings-view .readiness-card { background: #f3f6f6; border-color: #dce2dc; }
+.app-shell[data-edition="semrush"] .settings-image-receipt.verified { background: #dceeeb; border-color: #bad2c8; }
+@media (max-width: 1050px) {
+  .app-shell[data-edition="semrush"] { grid-template-columns: 205px minmax(0,1fr); }
+  .app-shell[data-edition="semrush"] .settings-view > .panel-head { flex-wrap: wrap; gap: 14px; }
+}
+@media (max-width: 760px) {
+  .app-shell[data-edition="semrush"] { grid-template-columns: 175px minmax(0,1fr); }
+  .app-shell[data-edition="semrush"] .content { padding-top: 18px; }
+  .app-shell[data-edition="semrush"] :is(.settings-block,.settings-health), .app-shell[data-edition="semrush"] .settings-view > .field-grid { padding: 18px; }
+  .app-shell[data-edition="semrush"] .settings-view > .panel-head h3 { font-size: 26px; }
+}
+@media (max-width: 650px) { .app-shell[data-edition="semrush"] { grid-template-columns: 1fr; } }
+.app-shell[data-edition="semrush"] .settings-view > section.settings-sources { border-top-color: #b1ccc0; }
+.app-shell[data-edition="semrush"] .settings-sources > .field-grid { margin: 0; }
+.app-shell[data-edition="semrush"] .settings-sources > .panel-head p { color: #545c53; }
+
+/* The workspace control stays in the same place in every edition and page. */
+.app-shell[data-edition="general"] .shell-workspace-picker { border-color: var(--line); }
+.app-shell[data-edition="general"] .shell-workspace-picker .workspace-avatar { color: #217a58; background: #e8f3ed; }
+.shell-workspace-picker select { cursor: pointer; }
+.mobile-workspace-picker { display: flex; align-items: center; gap: 15px; flex: 1 0 100%; min-width: 0; }
+.mobile-workspace-picker select { min-width: 0; }
+@media (max-width: 650px) {
+  .app-shell[data-edition="semrush"] { grid-template-columns: 1fr; }
+  .mobile-nav { flex-wrap: wrap; }
+}

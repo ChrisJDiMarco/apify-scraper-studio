@@ -1,0 +1,318 @@
+{
+  "fixtureOnly": true,
+  "startedAt": "2026-09-27T20:16:56.820Z",
+  "dataDir": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/scraper-search-options-2wwLVl",
+  "screenshots": "/var/folders/5w/kz9d0kss2ds77rfqgh5vm65c0000gn/T/scraper-search-options-2wwLVl/screenshots",
+  "checks": [
+    {
+      "name": "layout-brief-normal",
+      "width": 1380,
+      "height": 920,
+      "documentWidth": 1380
+    },
+    {
+      "name": "source-selection-and-explicit-tabs",
+      "selectedSources": 4
+    },
+    {
+      "name": "matching-comment-search-keeps-thread-expansion-off"
+    },
+    {
+      "name": "source-targets-dates-and-engagement-options-entered"
+    },
+    {
+      "name": "offline-preview-rejects-invalid-target-before-run"
+    },
+    {
+      "name": "review-summary-and-budget",
+      "totalBudgetUsd": 0.4,
+      "selectedSources": 4
+    },
+    {
+      "name": "draft-preserved-across-navigation"
+    },
+    {
+      "name": "layout-sources-compact",
+      "width": 760,
+      "height": 700,
+      "documentWidth": 760
+    },
+    {
+      "name": "layout-review-compact",
+      "width": 760,
+      "height": 700,
+      "documentWidth": 760
+    },
+    {
+      "name": "reviewed-plan-matches-actual-provider-inputs",
+      "requestedPosts": 40,
+      "providerRows": 140
+    },
+    {
+      "name": "explicit-nested-comments-and-reply-evidence",
+      "savedItems": 3,
+      "replyExternalId": "fixture-nested-reply",
+      "parentId": "fixture-nested-comment",
+      "urlBasis": "parent-post"
+    },
+    {
+      "name": "native-preload-main-actor-inputs-and-results",
+      "sources": 4,
+      "profilePostAllowance": 10,
+      "profileRowAllowance": 110,
+      "profileRowsSaved": 12
+    },
+    {
+      "name": "layout-results-normal",
+      "width": 1380,
+      "height": 920,
+      "documentWidth": 1380
+    },
+    {
+      "name": "nested-reply-visible-in-dataset"
+    }
+  ],
+  "status": "passed",
+  "finishedAt": "2026-09-27T20:17:11.437Z",
+  "nativeBridge": true,
+  "blockedServiceCalls": 0,
+  "networkCalls": 0,
+  "cliCalls": 0,
+  "mockedProviderStarts": [
+    {
+      "actorId": "trudax/reddit-scraper-lite",
+      "input": {
+        "searches": [
+          "(campaign reporting) AND (subreddit:marketing OR subreddit:SaaS)"
+        ],
+        "startUrls": [],
+        "searchPosts": true,
+        "searchComments": true,
+        "searchCommunities": false,
+        "searchUsers": false,
+        "searchMedia": false,
+        "skipComments": false,
+        "skipCommunity": true,
+        "maxComments": 5,
+        "maxItems": 10,
+        "maxPostCount": 10,
+        "sort": "new",
+        "includeMediaLinks": true,
+        "includeNSFW": false,
+        "proxy": {
+          "useApifyProxy": true,
+          "apifyProxyGroups": [
+            "RESIDENTIAL"
+          ]
+        },
+        "time": "month",
+        "postDateLimit": "2026-09-01",
+        "commentDateLimit": "2026-09-05"
+      },
+      "options": {
+        "maxItems": 10,
+        "maxTotalChargeUsd": 0.1,
+        "timeout": 300
+      }
+    },
+    {
+      "actorId": "apidojo/twitter-scraper-lite",
+      "input": {
+        "searchTerms": [
+          "(campaign reporting) (from:apify OR from:NASA) since:2026-09-01 until:2026-09-28 -filter:replies filter:images -filter:nativeretweets"
+        ],
+        "maxItems": 10,
+        "sort": "Latest",
+        "includeSearchTerms": true
+      },
+      "options": {
+        "maxItems": 10,
+        "maxTotalChargeUsd": 0.1,
+        "timeout": 300
+      }
+    },
+    {
+      "actorId": "supreme_coder/linkedin-post",
+      "input": {
+        "urls": [
+          "https://www.linkedin.com/search/results/content/?keywords=campaign+reporting"
+        ],
+        "limitPerSource": 10,
+        "deepScrape": true,
+        "fetchDocumentDetails": true,
+        "numComments": 3,
+        "numLikes": 2,
+        "rawData": false,
+        "scrapeUntil": "2026-09-01"
+      },
+      "options": {
+        "maxItems": 10,
+        "maxTotalChargeUsd": 0.1,
+        "timeout": 300
+      }
+    },
+    {
+      "actorId": "harvestapi/linkedin-profile-posts",
+      "input": {
+        "targetUrls": [
+          "https://www.linkedin.com/in/qa-person",
+          "https://www.linkedin.com/company/qa-company"
+        ],
+        "maxPosts": 5,
+        "scrapeComments": true,
+        "scrapeReactions": true,
+        "includeQuotePosts": true,
+        "includeReposts": false,
+        "postedLimit": "any",
+        "postedLimitDate": "2026-09-01",
+        "maxComments": 5,
+        "commentsPostedLimit": "week",
+        "maxReactions": 5,
+        "contextCountry": "US"
+      },
+      "options": {
+        "maxItems": 110,
+        "maxTotalChargeUsd": 0.1,
+        "timeout": 300
+      }
+    }
+  ],
+  "datasetReads": [
+    {
+      "datasetId": "fixture-provider-dataset-1",
+      "options": {
+        "offset": 0,
+        "limit": 10,
+        "clean": true
+      }
+    },
+    {
+      "datasetId": "fixture-provider-dataset-2",
+      "options": {
+        "offset": 0,
+        "limit": 10,
+        "clean": true
+      }
+    },
+    {
+      "datasetId": "fixture-provider-dataset-3",
+      "options": {
+        "offset": 0,
+        "limit": 10,
+        "clean": true
+      }
+    },
+    {
+      "datasetId": "fixture-provider-dataset-4",
+      "options": {
+        "offset": 0,
+        "limit": 110,
+        "clean": true
+      }
+    }
+  ],
+  "searchRequests": [
+    {
+      "query": "campaign reporting",
+      "platformIds": [
+        "reddit",
+        "x",
+        "linkedin-search",
+        "linkedin-profile"
+      ],
+      "sourceUrls": "https://linkedin.com/in/qa-person\nhttps://linkedin.com/company/qa-company",
+      "sourceOptions": {
+        "reddit": {
+          "subreddits": "r/marketing, https://www.reddit.com/r/SaaS/",
+          "time": "month",
+          "startDate": "2026-09-01",
+          "sort": "relevance",
+          "searchComments": true,
+          "includeComments": true,
+          "maxComments": 5,
+          "commentStartDate": "2026-09-05",
+          "includeMediaLinks": true,
+          "includeNSFW": false
+        },
+        "x": {
+          "handles": "@apify\nhttps://x.com/NASA",
+          "startDate": "2026-09-01",
+          "endDate": "2026-09-27",
+          "sort": "Latest",
+          "replies": "exclude",
+          "media": "images",
+          "includeRetweets": false,
+          "conversationUrls": ""
+        },
+        "linkedin-search": {
+          "startDate": "2026-09-01",
+          "includeComments": true,
+          "maxComments": 3,
+          "includeReactions": true,
+          "maxReactions": 2,
+          "fetchDocumentDetails": true
+        },
+        "linkedin-profile": {
+          "urls": "https://linkedin.com/in/qa-person\nhttps://linkedin.com/company/qa-company",
+          "postedLimit": "any",
+          "startDate": "2026-09-01",
+          "includeComments": true,
+          "maxComments": 5,
+          "commentsPostedLimit": "week",
+          "includeReactions": true,
+          "maxReactions": 5,
+          "includeQuotePosts": true,
+          "includeReposts": false,
+          "contextCountry": "US"
+        }
+      },
+      "maxItems": 10,
+      "maxTotalChargeUsd": 0.1
+    }
+  ],
+  "previewChecks": [
+    {
+      "valid": true,
+      "error": null,
+      "totalRequestedPosts": 10,
+      "totalRequestedItems": 10
+    },
+    {
+      "valid": false,
+      "error": {
+        "field": "sourceOptions.x.handles",
+        "message": "Use X account handles such as @apify or public profile URLs."
+      }
+    },
+    {
+      "valid": true,
+      "error": null,
+      "totalRequestedPosts": 40,
+      "totalRequestedItems": 140
+    },
+    {
+      "valid": true,
+      "error": null,
+      "totalRequestedPosts": 40,
+      "totalRequestedItems": 140
+    },
+    {
+      "valid": true,
+      "error": null,
+      "totalRequestedPosts": 40,
+      "totalRequestedItems": 140
+    },
+    {
+      "valid": true,
+      "error": null,
+      "totalRequestedPosts": 40,
+      "totalRequestedItems": 140
+    },
+    {
+      "valid": true,
+      "error": null,
+      "totalRequestedPosts": 40,
+      "totalRequestedItems": 140
+    }
+  ]
+}

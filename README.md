@@ -4,9 +4,9 @@
 
 # Apify Scraper Studio
 
-**Run scrapers. Inspect the evidence. Turn it into something useful.**
+**Research your market. Review the evidence. Make your next move.**
 
-A local-first macOS workspace for Apify Actors, structured datasets, and Codex-assisted analysis.
+A research and content workspace with General and Semrush editions, a macOS desktop app, and a portable browser runtime.
 
 [Get started](#get-started) · [Features](#what-you-can-do) · [Development](#development)
 
@@ -18,20 +18,64 @@ A local-first macOS workspace for Apify Actors, structured datasets, and Codex-a
 
 Scraping is the first step. The useful work starts when you can compare results, trace a claim to its source, and turn a dataset into a report worth reviewing. Scraper Studio brings that workflow into one desktop app, with local files and a record of what ran.
 
-> **Early public version (0.1.0).** Includes application code, tests, and macOS packaging configuration. Some discovery and update features remain scaffolds, and some views include illustrative seed data. This is an independent project, not an official Apify or OpenAI product. The hero is AI-generated artwork, not an application screenshot.
+> **Early public version (0.1.0).** Includes application code, tests, and macOS packaging configuration. The interface uses your real workspace data, with guided setup and advanced tools available on demand. Live service workflows require your own account configuration. This is an independent project, not an official Apify, Anthropic, or OpenAI product. The hero is AI-generated artwork, not an application screenshot.
+
+## Research and Content Studio
+
+The default starting screen now has two paths: **Research your market** and **Create from a trend**. Save bulk source programs, review discovered themes, classify every eligible batch, and create paired reports. Or import a brief and choose from twelve written channel families, the report pair, and configured image formats. General and Semrush workspaces keep separate program, knowledge and asset histories.
+
+See the [complete guide and distribution estimates](docs/content-studio-guide.md), [implementation contract](docs/PRD-content-studio.md), and [product research](docs/RESEARCH-content-studio.md). The image provider is awaiting credential setup; Google OAuth tokens require manual reconnection. The browser build is for a private single-team pilot, not a finished multi-tenant SaaS.
+
+```sh
+npm run build:web
+# Set STUDIO_PASSWORD securely in your environment before starting.
+npm run start:web
+```
+
+Windows packaging is configured with `npm run dist:win`; native Windows release testing remains outstanding.
 
 ## What you can do
 
 | Workflow | Inside the app |
 | --- | --- |
-| Collect | Save recipes using an Apify Actor or Task ID, configure inputs, run scrapers, and inspect run history. |
+| Search platforms | Choose a topic or specific targets, set subreddit/account/date/comment filters, and review the exact collection plan before running. |
+| Collect | Save custom Apify Actor or Task recipes, run scrapers, and inspect run history. |
 | Explore | Normalize results, choose columns, save filters, compare raw and normalized rows, and search evidence across runs. |
-| Analyze | Use your installed Codex CLI to tag datasets and draft threads, reports, and other assets. |
+| Chat with findings | Ask questions across up to eight datasets, inspect validated source references, and revisit saved conversations. |
+| Analyze | Use Claude Opus 5.5 through your installed Claude CLI for tags, threads, reports, and asset drafts. Codex CLI remains an explicit optional provider. |
 | Review | Edit generated assets, inspect local evidence scores, review or approve outputs, and open their files. |
 | Coordinate | Use Mission Command for action and evidence graphs, durable jobs, watch loops, and mission bundle exports. |
 | Export | Send normalized rows to Google Sheets through an optional Apps Script bridge with local operation receipts. |
 
-Recipe templates cover Reddit, X, LinkedIn, and general websites. You supply the appropriate Actor or saved Task and any access it requires; templates are starting points, not bundled scraping services.
+Search platforms has four guided Actor integrations. Its [source controls guide](docs/research/source-options-2026-09-27.md) documents each Actor’s filters and date semantics; unsupported cross-platform options are not offered. Refresh Apify catalog shows Actors available in your account history; the development account returned nine in the recorded check. Catalog discovery does not make every Actor a guided source or guarantee its access. Custom recipes still accept other Actors or saved Tasks, including general websites. See the [integration setup guide](docs/integration-setup.md) for the exact Actors and collection differences.
+
+## Marketing playbooks
+
+**Playbooks** now offers eight guided outcomes: competitor positioning, campaign message audit, launch research, account research, voice of customer, content opportunities, advertising messages, and weekly competitor changes. Each card explains the evidence required and what the brief can establish.
+
+Save your offering, audience, positioning, competitors, ICP, voice, and claims to avoid in **Brand context**. Apply that profile to a collection; reports keep a snapshot so later profile edits do not rewrite the context of older research. Account research requires explicit ICP criteria and groups collected pages by source domain.
+
+Public-page playbooks prepare bounded Website Content Crawler recipes: up to 15 supplied URLs, a default $2 Apify cap, and a five-minute timeout. Dataset playbooks use existing collections or **Import research**: CSV, JSON, and JSONL with column mapping, preview, duplicate counts, source metadata, and an authorization acknowledgement. Imports are local; later AI analysis sends its bounded context to the selected provider. Search-result imports preserve supplied queries, ranks and locale, and flatten nested organic results. Ad research uses supplied text and cannot inspect unseen media or infer performance.
+
+**Compare snapshots** matches source URLs, ignores known tracking parameters and whitespace-only differences, and shows dated before/after excerpts. A missing page is marked unavailable rather than removed. A comparison can become a dataset for a change brief. Saved daily/weekly check-ins are local due reminders; you start collection yourself.
+
+## Review a decision before sharing it
+
+Reports start as **Draft**. Their review panel shows requested versus retrieved pages, usable and duplicate records, the exact analysis sample, shortened text, source dates, and collection/AI receipts. Inspect the source register beside the report, record notes, and assign actions with owners, due dates, progress, and evidence references. Classify proposed actions as observations, inferences, or open questions.
+
+Approval requires a named local reviewer, completed evidence checks, acknowledgement of every coverage warning, and usable recorded source evidence. Missing snapshots block approval. Changes to the report or evidence invalidate previous checks. These are local review records; they do not authenticate a teammate or implement enterprise permissions.
+
+Export a printable HTML or Markdown review package containing the brief, evidence CSV, review record, and a receipt with source coverage, brand context, model and cost information. Draft exports are explicitly marked. The Overview shows open actions and due source check-ins from your saved work.
+
+The [research memo](docs/research/enterprise-marketing-2026-09-27.md) explains the rationale; the [eight-playbook guide](docs/templates/enterprise-marketing-playbook-pack.md) describes inputs and limitations. Research programs support daily, weekly, and monthly schedules while the desktop app or web server is running; see the [scheduling guide](docs/content-studio-guide.md#repeat-a-research-program). Shared identity, team permissions, internal-system connectors, and managed always-on hosting remain architecture decisions for a team product.
+
+## Inside the app
+
+![Scraper Studio overview — actual native interface](docs/assets/studio-overview.png)
+
+[Guided scraper builder](docs/assets/studio-scraper-builder.png) · [Dataset explorer](docs/assets/studio-datasets.png)
+
+Screenshots show the native desktop app. The dataset explorer uses explicitly labeled QA fixtures; it is not evidence of a live scraping run.
 
 ## How it works
 
@@ -39,14 +83,16 @@ Recipe templates cover Reddit, X, LinkedIn, and general websites. You supply the
 flowchart LR
     A[Apify Actor or Task] --> B[Local dataset]
     B --> C[Normalize and inspect]
-    C --> D[Codex CLI analysis]
-    D --> E[Review reports and assets]
+    C --> D[Claude CLI analysis]
+    C --> G[Chat with findings]
+    G --> D
+    D --> E[Review sources, reports and assets]
     C --> F[Optional Google Sheets export]
 ```
 
-Apify runs scraping infrastructure, proxies, and extraction. Scraper Studio manages recipes, local datasets, analysis workspaces, jobs, and outputs. Codex runs through a local CLI process and can send analysis context to its configured service. Local-first describes where the app keeps its state; scraping and AI analysis still use external services.
+Apify runs scraping infrastructure, proxies, and extraction. Scraper Studio manages recipes, local datasets, analysis workspaces, jobs, and outputs. Claude runs through a local CLI process using your existing sign-in. The app sends selected context through standard input with file, browser, and connector tools disabled. Codex is available when explicitly selected in Settings. Local-first describes where the app keeps its state; scraping and AI analysis still use external services.
 
-For example, create a subreddit-pulse recipe, collect a small sample, inspect the text and source URLs, then ask Codex for recurring pain points and supporting evidence. Review the result before using it in a report or publishing it elsewhere.
+For example, search a product category, open the collected posts, then ask which customer needs appear in that sample. Chat checks cited IDs and quoted excerpts against the supplied records and opens links from those records. A matching citation does not prove an interpretation; review the sources before using a conclusion.
 
 ## Get started
 
@@ -54,7 +100,8 @@ For example, create a subreddit-pulse recipe, collect a small sample, inspect th
 
 - macOS with Node.js 22.12+ and npm. Node.js 24 also meets the locked toolchain requirements.
 - An Apify account and API token for live scraping. Actor usage may incur Apify charges.
-- Codex CLI installed, authenticated, and available on your `PATH` for AI analysis.
+- [Claude Code CLI](https://code.claude.com/docs/en/setup) installed and signed in, with access to `claude-opus-5-5`. The verified CLI version was 2.1.281; it must support the app's constrained print-mode flags. Run `claude auth login` if needed.
+- Codex CLI is optional. Select it explicitly in Settings to use its existing configuration; Claude failures do not trigger a provider fallback.
 
 ### Run from source
 
@@ -67,11 +114,13 @@ npm run dev
 
 ### Your first run
 
-1. Open **Settings** and save your `APIFY_API_TOKEN`.
-2. Use **Check Codex CLI** to confirm the app can find Codex.
-3. Create a recipe with an Apify Actor ID or saved Task ID. Match its input fields to that Actor's schema.
-4. Start with a small run and inspect the resulting dataset and field mapping.
-5. Run an analysis, then review the generated report or asset alongside its source evidence.
+1. Choose **Connect Apify** from Overview and save your API token in Settings.
+2. In **Your AI assistant**, check Claude and save the default `claude-opus-5-5` model and your per-request budget. The connection check confirms sign-in; a real request verifies model access.
+3. Open **Search platforms**. In **Search brief**, enter a topic and select sources; a topic is optional for targeted account/community collection. In **Sources & filters**, enter subreddits, X handles, or LinkedIn profile/company URLs and choose each source’s supported dates, comments, replies, and extra details. **Review & run** validates the exact plan without service calls and shows the result allowances and per-source spending caps before you click **Search selected sources**. Draft settings stay on this Mac. The default allowance is 10 results and $0.25 per source; LinkedIn account comments/reactions have explicit extra-row limits.
+4. Open a returned collection to inspect its rows, then choose **Chat with findings**. Select up to eight datasets and ask a question; expand the answer's sources and coverage details.
+5. Open **Playbooks** to choose a marketing outcome, save your **Brand context**, and collect or import the required evidence. Saving a public-page playbook prepares a recipe without starting a paid run. Review the resulting brief in **AI reports**, assign actions, and export it with its evidence. **New scraper** supports custom Actor or Task inputs.
+
+Press **⌘K** (or **Ctrl+K**) to search pages and actions. Arrow keys select a result, Enter opens it, and Escape returns focus to your previous control.
 
 ## Data and credentials
 
@@ -96,12 +145,22 @@ Each operation writes a local receipt and request/response snapshot under `sheet
 
 ## Development
 
-Publication checks on September 16, 2026: all 100 tests passed and the production build completed. Dependency installation reported 15 vulnerabilities (5 moderate, 10 high); dependency remediation remains outstanding. These checks do not verify authenticated service workflows.
+September 27 verification: **441 tests and 14 native search workflow checks pass**, and the final production build completes. The [source-controls verification](docs/verification/2026-09-27-source-controls.md) records the full regression results, normal/compact screenshots, and provider limitations. The preceding dependency audit reported zero vulnerabilities; this source-controls pass adds no dependencies. The Vitest suite includes offline main-process integration tests with mocked Apify and CLI processes. They exercise bounded collection, partial failures, chat persistence and retries, citation filtering, exact-model receipts, and Claude routing for reports and assets without service calls or charges. Native desktop smoke tests use disposable fixtures for setup, navigation, datasets, and exports. The [research upgrade verification](docs/verification/2026-09-27-research-upgrades.md) records 11 additional native workflow/layout checks and screenshots.
+
+A separate [September 27 service receipt](docs/verification/service-smoke-2026-09-27T19-18-27-624Z.json) records real X, LinkedIn keyword-search, and LinkedIn profile collections: two posts from each. Claude Opus 5.5 then answered across those six records with six validated references and generated a report from the X sample. The receipt confirms the actual model. Reddit requires a minimum request of 10; after that validation was added, the [isolated retry](docs/verification/service-smoke-2026-09-27T19-25-32-664Z.json) succeeded with seven posts and Apify-reported usage of $0.0616 under its $0.25 cap. Native UI checks review the saved results without repeating paid requests.
+
+These results verify a small sample on one configured account. They do not establish complete platform coverage, invoice accuracy, every report format, or live Google Sheets behavior.
 
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Start Electron with the Vite development workflow. |
 | `npm test` | Run the Vitest suite. |
+| `npm run test:desktop` | Native first-run smoke test after building; creates disposable data and screenshots. |
+| `npm run test:desktop -- --with-data` | Native dataset, CSV export, report, and compact-window checks using clearly marked fixtures. |
+| `npx electron scripts/service-smoke.cjs --review` | Inspect saved-workspace screens and capture normal/compact layouts; starts no Apify or AI runs. |
+| `npx electron scripts/service-smoke.cjs --live` | Manual paid end-to-end check using the app's saved account configuration; see [limits and effects](docs/integration-setup.md#verification). Never part of `npm test`. |
+| `npx electron scripts/research-upgrades-smoke.cjs` | Verify playbooks, brand context, import, comparison, report review, and export in a disposable workspace; provider calls are blocked. |
+| `npx electron scripts/search-options-smoke.cjs` | After building, verify all four source editors, exact preview/run agreement, saved drafts, comment evidence, and compact layouts with a fixture client; provider calls are blocked. |
 | `npm run test:coverage` | Generate a local coverage report. |
 | `npm run build` | Build the main process, preload, and renderer. |
 | `npm run preview` | Build and launch the app. |
@@ -123,7 +182,7 @@ resources/       App icons and macOS entitlements
 
 Packaging configuration is included; a public repository does not imply a signed or notarized release. The notarization hook runs only when `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` are configured. Automatic updates are disabled by default and require an `APIFY_STUDIO_AUTO_UPDATE_URL` feed. Use the diagnostics command before distributing a build.
 
-Live Apify runs, authenticated Codex analysis, and Google Sheets exports require your own configuration and separate end-to-end verification. The [production-readiness plan](PRODUCTION_READINESS_PRD.md) records intended hardening work, not a certification that every item is complete.
+Live Apify and AI requests require your own account configuration. Recheck the integrations you will use; Google Sheets and optional Codex need separate live verification. The [production-readiness plan](PRODUCTION_READINESS_PRD.md) records intended hardening work, not a certification that every item is complete.
 
 ## Feedback and licensing
 

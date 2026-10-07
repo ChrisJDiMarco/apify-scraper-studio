@@ -1,0 +1,13 @@
+{
+  "verifiedAt": "2026-09-28T00:16:03.024Z",
+  "app": "/Applications/Scraper Studio.app",
+  "passed": true,
+  "checks": {
+    "generalPickerVisible": true,
+    "semrushAvailable": true,
+    "settingsPickerVisible": true,
+    "returnedToSemrush": true,
+    "personalWorkspaceRestored": true
+  },
+  "scope": "UI navigation and workspace selection only; no scraping or generation actions."
+}

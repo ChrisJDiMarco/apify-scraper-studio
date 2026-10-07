@@ -1,0 +1,42 @@
+{
+  "verifiedAt": "2026-09-28T00:56:39.825Z",
+  "installedApp": true,
+  "workspace": "semrush",
+  "programs": [
+    {
+      "id": "program-074b6969dd3e327c46912e20",
+      "counts": {
+        "reddit": 18,
+        "x": 382,
+        "linkedin-profile": 515,
+        "linkedin-search": 0
+      },
+      "enabled": false
+    }
+  ],
+  "noActiveJobs": true,
+  "defaultFrequency": "manual",
+  "repeatOptions": [
+    "manual",
+    "daily",
+    "weekly",
+    "monthly"
+  ],
+  "savedReddit": 18,
+  "savedX": 382,
+  "savedLinkedin": 515,
+  "consentChecked": false,
+  "lookback": "7",
+  "hasTimeZone": true,
+  "unsavedPreviewOnly": true,
+  "providerCalls": 0,
+  "savedProgramsUnchanged": true,
+  "researchRunHistoryPreserved": true,
+  "reportHistoryPreserved": true,
+  "noSchedulesEnabled": true,
+  "previewDiscarded": true,
+  "normalDockLaunch": true,
+  "singleInstalledProcess": true,
+  "debugPortClosed": true,
+  "singleDockEntry": true
+}

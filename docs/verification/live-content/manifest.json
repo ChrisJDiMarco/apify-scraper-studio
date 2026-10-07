@@ -1,0 +1,156 @@
+{
+  "exportedAt": "2026-09-27T21:21:08.364Z",
+  "workspaceId": "general",
+  "run": {
+    "id": "content-22d962fa-9d56-4c62-be4c-d02f8cf8c711",
+    "workspaceId": "general",
+    "type": "content",
+    "title": "Internal implementation brief — live validation",
+    "status": "succeeded",
+    "stage": "content",
+    "createdAt": "2026-09-27T21:19:56.571Z",
+    "maxBudgetUsd": 1.5,
+    "reservedUsd": 0.19724799999999987,
+    "costUsd": 0.19724799999999998,
+    "receipts": [
+      {
+        "stage": "output-evidence-report",
+        "allowanceUsd": 0.75,
+        "provider": "claude",
+        "requestedModel": "claude-opus-5-5",
+        "actualModel": "claude-opus-5-5",
+        "actualModels": [
+          "claude-opus-5-5"
+        ],
+        "costUsd": 0.096936,
+        "usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 3151,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3586,
+          "output_tokens_details": {
+            "thinking_tokens": 128
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 3151,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "not_available",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 3586,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 3151,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 3151
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard"
+        },
+        "durationMs": 30258
+      },
+      {
+        "stage": "output-social",
+        "allowanceUsd": 1.4,
+        "provider": "claude",
+        "requestedModel": "claude-opus-5-5",
+        "actualModel": "claude-opus-5-5",
+        "actualModels": [
+          "claude-opus-5-5"
+        ],
+        "costUsd": 0.100312,
+        "usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 2848,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3876,
+          "output_tokens_details": {
+            "thinking_tokens": 1705
+          },
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 2848,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "not_available",
+          "iterations": [
+            {
+              "input_tokens": 2,
+              "output_tokens": 3876,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 2848,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 2848
+              },
+              "type": "message"
+            }
+          ],
+          "speed": "standard"
+        },
+        "durationMs": 34813
+      }
+    ],
+    "warnings": [
+      "No approved products supplied. Product fits and product CTAs must remain explicit gaps."
+    ],
+    "jobs": [
+      {
+        "id": "evidence-report",
+        "label": "Comprehensive evidence report",
+        "kind": "text",
+        "status": "succeeded",
+        "assetId": "asset-a958a11b-bb28-491a-8a25-58df0d9cdcc7"
+      },
+      {
+        "id": "social",
+        "label": "Social captions and thread",
+        "kind": "text",
+        "status": "succeeded",
+        "assetId": "asset-962c8934-c9fc-477b-ba84-8824d5a261d4"
+      }
+    ],
+    "updatedAt": "2026-09-27T21:21:08.352Z",
+    "message": "Drafts ready to review and export."
+  },
+  "assets": [
+    {
+      "id": "asset-962c8934-c9fc-477b-ba84-8824d5a261d4",
+      "workspaceId": "general",
+      "runId": "content-22d962fa-9d56-4c62-be4c-d02f8cf8c711",
+      "deliverableId": "social",
+      "title": "Social pack: Scraper Studio build notes (evidence-first research workflow)",
+      "kind": "text",
+      "channel": "Social",
+      "format": "md",
+      "createdAt": "2026-09-27T21:21:08.351Z",
+      "reviewStatus": "draft"
+    },
+    {
+      "id": "asset-a958a11b-bb28-491a-8a25-58df0d9cdcc7",
+      "workspaceId": "general",
+      "runId": "content-22d962fa-9d56-4c62-be4c-d02f8cf8c711",
+      "deliverableId": "evidence-report",
+      "title": "Evidence Report: Scraper Studio Implementation Status (Single Internal Brief, Tentative)",
+      "kind": "text",
+      "channel": "Research",
+      "format": "md",
+      "createdAt": "2026-09-27T21:20:32.765Z",
+      "reviewStatus": "draft"
+    }
+  ],
+  "notice": "Drafts require editorial review. SVG files embed raster images; they are not editable vectors."
+}

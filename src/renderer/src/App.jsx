@@ -1,38 +1,61 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { buildPipeline, derivePlatformBreakdown, summarizeStudio } from '../../shared/dashboard.js';
-import { readinessItems } from '../../shared/health.js';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Activity, ArrowUpRight, BookOpen, Boxes, ChevronDown, ChevronRight, Database, FileText, FolderOpen, Globe2, Home, Layers3, LayoutGrid, LoaderCircle, MessageSquare, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, SquareKanban, PlugZap, X } from 'lucide-react';
 import { AutomationView } from './automation-view.jsx';
 import { DatasetsView, ReportsView } from './dataset-report-views.jsx';
-import { CommandPalette, MissionCommandCenter, PaletteHint } from './mission-command.jsx';
-import { RunsView, ThreadsView } from './ops-views.jsx';
-import { AssetsView, KanbanView } from './pipeline-view.jsx';
-import { CALENDAR, CLUSTERS, COMPETITORS, SIGNAL_FALLBACK } from './seed.js';
-import { Badge, Button, Empty, formatDate, JsonBlock, StatusBanner, label, number, short, statusTone } from './ui.jsx';
-
-const api = window.apifyStudio || null;
+import { CommandPalette, MissionCommandCenter } from './mission-command.jsx';
+import { ThreadsView } from './ops-views.jsx';
+import { ActivityView } from './activity-view.jsx';
+import { DatasetHub } from './dataset-hub.jsx';
+import { LegacyLibrary } from './legacy-library.jsx';
+import { MARKETING_TEMPLATES } from '../../shared/marketing-templates.js';
+import { TemplateLibraryView } from './template-library-view.jsx';
+import { BrandContextView } from './brand-context-view.jsx';
+import { ImportDataView } from './import-data-view.jsx';
+import { CompareView } from './compare-view.jsx';
+import { MarketingTemplateView } from './marketing-template-view.jsx';
+import { SearchView } from './search-view.jsx';
+import { FindingsChatView } from './findings-chat-view.jsx';
+import { ContentStudioView } from './content-studio-view.jsx';
+import semrushWordmark from './assets/semrush-2026-logo.svg';
+import { HomeView } from './home-view.jsx';
+import { SettingsView } from './settings-view.jsx';
+import { Badge, Button, Empty, StatusBanner, label, number, short, statusTone, withViewTransition } from './ui.jsx';
 
 const NAV = [
-  { id: 'dashboard', label: 'Command', group: 'Intel' },
-  { id: 'signals', label: 'Signals', group: 'Intel' },
-  { id: 'threads', label: 'Threads', group: 'Intel' },
-  { id: 'clusters', label: 'Topic Clusters', group: 'Intel' },
-  { id: 'calendar', label: 'Calendar', group: 'Planning' },
-  { id: 'competitive', label: 'Competitive', group: 'Planning' },
-  { id: 'assets', label: 'Asset Library', group: 'Planning' },
-  { id: 'kanban', label: 'Kanban', group: 'Production' },
-  { id: 'automation', label: 'Automation', group: 'Apify' },
-  { id: 'runs', label: 'Runs', group: 'Apify' },
-  { id: 'datasets', label: 'Datasets', group: 'Apify' },
-  { id: 'reports', label: 'Reports', group: 'Codex' },
-  { id: 'settings', label: 'Settings', group: 'System' },
+  { id: 'content-studio', label: 'Content studio', icon: Sparkles, group: 'Workspace' },
+  { id: 'dashboard', label: 'Overview', icon: Home, group: 'Workspace' },
+  { id: 'templates', label: 'Playbooks', icon: LayoutGrid, group: 'Workspace' },
+  { id: 'search', label: 'Search platforms', icon: Search, group: 'Workspace' },
+  { id: 'chat', label: 'Chat with findings', icon: MessageSquare, group: 'Workspace' },
+  { id: 'automation', label: 'Scrapers', icon: Globe2, group: 'Workspace' },
+  { id: 'datasets', label: 'Datasets', icon: Database, group: 'Workspace' },
+  { id: 'reports', label: 'AI reports', icon: Sparkles, group: 'Workspace' },
+  { id: 'runs', label: 'Activity', icon: Activity, group: 'Workspace' },
+  { id: 'imports', label: 'Import research', icon: Database, group: 'More tools' },
+  { id: 'compare', label: 'Compare snapshots', icon: Layers3, group: 'More tools' },
+  { id: 'missions', label: 'Workflows', icon: SlidersHorizontal, group: 'More tools' },
+  { id: 'settings', label: 'Settings', icon: Settings2, group: 'Preferences' },
 ];
-
+// Pages folded into a better home. Old links (palette, saved actions, other views) still land somewhere useful.
+const DATASET_TAB_FOR = { signals: 'signals', threads: 'conversations', clusters: 'topics', competitive: 'coverage' };
+const STUDIO_HOME_FOR = { kanban: 'board', calendar: 'board', assets: 'library', brands: 'knowledge' };
+const STUDIO_NAV = [
+  { id: 'overview', label: 'Overview', icon: Home },
+  { id: 'research', label: 'Research programs', icon: Search },
+  { id: 'board', label: 'Trend board', icon: SquareKanban },
+  { id: 'create', label: 'Create content', icon: FileText },
+  { id: 'library', label: 'Library', icon: FolderOpen },
+  { id: 'knowledge', label: 'Brand knowledge', icon: BookOpen },
+];
 const EMPTY_STATE = {
   projects: [],
   recipes: [],
   runs: [],
   datasets: [],
   analyses: [],
+  conversations: [],
+  brandProfiles: [], researchReviews: [], researchAudit: [], researchExports: [], monitors: [], comparisons: [],
+  apifyCatalog: { actors: [], syncedAt: '' },
   intentRuns: [],
   settings: {},
   keys: {},
@@ -75,8 +98,8 @@ class ErrorBoundary extends React.Component {
     if (this.state.error) {
       return (
         <div className="app-fallback" role="alert">
-          <strong>Apify Scraper Studio hit a renderer error.</strong>
-          <span>{this.state.error.message || String(this.state.error)}</span>
+          <strong>This screen stopped working.</strong>
+          <span>Your saved work is safe. Try again, or switch views from the sidebar. Details: {this.state.error.message || String(this.state.error)}</span>
           <Button onClick={() => this.setState({ error: null })}>Try again</Button>
         </div>
       );
@@ -94,164 +117,34 @@ function ApiUnavailable() {
   );
 }
 
-function datasetSignals(payload, dataset) {
-  const items = payload?.items || [];
-  if (!items.length) return SIGNAL_FALLBACK;
-  return items.slice(0, 24).map((item, index) => ({
-    source: item.platform || dataset?.platform || 'dataset',
-    intent: item.type || 'post',
-    text: item.text || item.url || item.externalId || 'Untitled item',
-    author: item.author,
-    heat: Math.min(99, Math.max(30, (Number(item.metrics?.likes) || 0) + (Number(item.metrics?.comments) || 0) + 40 + index)),
-    url: item.url,
-  }));
-}
-
-function inferLiveCluster(payload, dataset) {
-  const items = payload?.items || [];
-  if (!items.length) return null;
-  const terms = new Map();
-  for (const item of items.slice(0, 80)) {
-    const words = String(item.text || '').toLowerCase().match(/[a-z][a-z0-9-]{4,}/g) || [];
-    for (const word of words) {
-      if (['about', 'their', 'there', 'would', 'could', 'should', 'because', 'https'].includes(word)) continue;
-      terms.set(word, (terms.get(word) || 0) + 1);
-    }
+function AdvancedView(props) {
+  const [command, setCommand] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [plannedCommand, setPlannedCommand] = useState('');
+  const datasetId = props.selectedDataset?.id || '';
+  useEffect(() => { setPreview(null); setPlannedCommand(''); }, [datasetId]);
+  async function previewPlan(event) {
+    event.preventDefault();
+    const result = await props.onPlanIntent(command);
+    if (result) { setPreview(result); setPlannedCommand(command); }
   }
-  const topics = Array.from(terms.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([word]) => word);
-  return {
-    name: `${label(dataset?.platform || 'Live')} Dataset Cluster`,
-    score: Math.min(99, 55 + topics.length * 6 + Math.min(items.length, 20)),
-    trend: `${number(items.length)} items`,
-    owner: 'Apify live data',
-    summary: dataset?.name || 'Latest normalized dataset from Apify.',
-    topics: topics.length ? topics : ['fresh data', 'scraped posts', 'comments'],
-    signals: ['Latest dataset', 'Normalized items', 'Ready for Codex'],
-  };
-}
-
-function MetricTiles({ metrics }) {
-  const tiles = [
-    { name: 'Signals', value: metrics.totalItems, detail: metrics.totalItems ? 'Normalized rows ready' : 'No signals yet', icon: 'S', tone: 'signal' },
-    { name: 'Recipes', value: metrics.recipes, detail: metrics.recipes ? 'Saved Apify flows' : 'No recipes yet', icon: 'R', tone: 'recipe' },
-    { name: 'Datasets', value: metrics.datasets, detail: metrics.datasets ? 'Live data sources' : 'No datasets yet', icon: 'D', tone: 'dataset' },
-    { name: 'Codex jobs', value: metrics.analyses, detail: metrics.analyses ? 'Analysis outputs' : 'No jobs yet', icon: 'C', tone: 'codex' },
-    { name: 'Reports', value: metrics.reports, detail: metrics.reports ? 'Generated briefs' : 'No reports yet', icon: 'P', tone: 'report' },
-    { name: 'Assets', value: metrics.assets, detail: metrics.assets === 1 ? '1 asset' : `${number(metrics.assets)} assets`, icon: 'A', tone: 'asset' },
-    { name: 'Active', value: metrics.activeJobs, detail: metrics.activeJobs ? 'Runs in flight' : 'No active runs', icon: 'Z', tone: 'active' },
-  ];
-  return (
-    <div className="metric-grid" aria-label="Studio metrics">
-      {tiles.map((tile) => (
-        <div className={`metric ${tile.tone}`} key={tile.name}>
-          <div className="metric-top">
-            <span>{tile.name}</span>
-            <span className="metric-icon" aria-hidden="true">{tile.icon}</span>
-          </div>
-          <strong>{number(tile.value)}</strong>
-          <small>{tile.detail}</small>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function IntentCommandPanel({ state, selectedDataset, busy, onPlanIntent, onRunIntent, onRunAction, onNavigate }) {
-  const [command, setCommand] = useState('make me a lead sheet from the latest data');
-  const [plan, setPlan] = useState(null);
-  const intelligence = state.intelligence || {};
-  const profile = intelligence.datasetProfiles?.find((item) => item.datasetId === selectedDataset?.id) || intelligence.datasetProfiles?.[0] || null;
-  const setupSteps = intelligence.setupSteps || [];
-  const readiness = intelligence.readiness || { percent: 0, label: 'Needs setup', detail: 'Finish setup to unlock intelligence work.', currentStep: null, nextView: 'settings' };
-  const selectedDatasetKey = selectedDataset?.id || '';
-  const suggestions = intelligence.suggestedCommandsByDataset?.[selectedDatasetKey] || intelligence.suggestedCommands || [];
-  const workPlan = intelligence.workPlansByDataset?.[selectedDatasetKey] || intelligence.workPlan || [];
-  const lastIntent = state.intentRuns?.[0] || null;
-
-  async function planCommand(event, nextCommand = command) {
-    event?.preventDefault();
-    const next = await onPlanIntent(nextCommand);
-    if (next) setPlan(next);
-  }
-
-  function useSuggestion(nextCommand) {
-    setCommand(nextCommand);
-    planCommand(null, nextCommand);
-  }
-
-  async function runCommand() {
-    const result = await onRunIntent(command);
-    if (result?.plan) setPlan(result.plan);
-  }
-
-  return (
-    <div className="intent-command">
-      <div className="intent-copy">
-        <div className="intent-kicker">
-          <span className={`status-dot ${profile ? 'ready' : 'warning'}`} aria-hidden="true" />
-          <Badge tone={profile ? 'ready' : 'warning'}>{profile ? profile.label : 'Needs data'}</Badge>
-        </div>
-        <h2>Intent Command Center</h2>
-        <p className="intent-brief">{intelligence.operatorBrief || 'Tell the app what outcome you want, and it will plan the local Apify plus Codex steps.'}</p>
-        <form className="intent-form" onSubmit={planCommand}>
-          <label className="sr-only" htmlFor="intent-command-input">Smart command</label>
-          <div className="command-input-shell">
-            <textarea id="intent-command-input" value={command} onChange={(event) => setCommand(event.target.value)} placeholder="make me a lead sheet from the latest data" rows={6} />
-          </div>
-          <div className="button-row">
-            <Button type="submit" className="plan-button" disabled={busy || !command.trim()}>Plan</Button>
-            <Button type="button" className="run-button" disabled={busy || !command.trim()} onClick={runCommand}>Run plan</Button>
-            <Button type="button" className="ghost" onClick={() => onNavigate('automation')}>Recipes</Button>
-          </div>
+  const examples = ['Make a lead sheet from this dataset', 'Summarize the top complaints and requests', 'Find the most engaged authors to follow up with', 'Write a research brief for the marketing team'];
+  return <section className="ws advanced-workflows">
+    <header className="ws-page-head"><div><span className="ws-eyebrow">Plan before you run</span><h2>Workflows</h2><p>Describe an outcome in plain words. You’ll see every step and anything missing before a single collection or AI request runs.</p></div></header>
+    <div className="ws-two-col">
+      <section className="ws-card workflow-planner"><h3>What would you like to make?</h3>
+        <form onSubmit={previewPlan} className="ws-stack"><label htmlFor="workflow-dataset" className="ws-field">Use dataset<select id="workflow-dataset" value={datasetId} onChange={(event) => props.onNavigate('missions', { datasetId: event.target.value })}>{!datasetId && <option value="">No dataset collected yet</option>}{props.state.datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{dataset.name}</option>)}</select></label>
+          <label htmlFor="workflow-goal" className="ws-field">Your goal<textarea id="workflow-goal" rows={3} value={command} onChange={(event) => setCommand(event.target.value)} placeholder="For example: make a lead sheet from this dataset" /></label>
+          <div className="ws-suggestions" aria-label="Example goals">{examples.map((example) => <button key={example} type="button" className="ws-suggestion" onClick={() => setCommand(example)}>{example}</button>)}</div>
+          <div className="ws-head-actions"><Button type="submit" disabled={props.busy || !command.trim()}><Sparkles size={14} aria-hidden="true" />Preview steps</Button><Button type="button" className="ghost" disabled={props.busy || !preview?.canRun || plannedCommand !== command} onClick={() => props.onRunIntent(command)}>Run reviewed plan</Button></div>
+          {preview && plannedCommand !== command && <p className="ws-hint">You changed the goal. Preview again before running.</p>}
         </form>
-        {suggestions.length > 0 && (
-          <div className="suggestion-rail" aria-label="Suggested smart commands">
-            {suggestions.map((suggestion) => (
-              <Button type="button" className="suggestion-chip" key={suggestion.id} disabled={busy} onClick={() => useSuggestion(suggestion.command)}>
-                <strong>{suggestion.label}</strong>
-                <span>{suggestion.detail}</span>
-              </Button>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="intent-panel">
-        {profile ? (
-          <>
-            <div className="intent-stats">
-              <span><strong>{number(profile.itemCount)}</strong> rows</span>
-              <span><strong>{Math.round(profile.confidence * 100)}%</strong> confidence</span>
-              <span><strong>{profile.health?.score ?? 0}%</strong> health</span>
-              <span><strong>{profile.reportPresetId}</strong> report</span>
-            </div>
-            <p>{profile.summary}</p>
-            {profile.health?.checks?.length > 0 && (
-              <div className="quality-list">
-                {profile.health.checks.map((check) => <small key={check}>{check}</small>)}
-              </div>
-            )}
-            {profile.warnings?.length > 0 && <small>{profile.warnings.join(' ')}</small>}
-          </>
-        ) : (
-          <SetupChecklist steps={setupSteps} readiness={readiness} onNavigate={onNavigate} />
-        )}
-        <ActionQueue actions={workPlan} busy={busy} onRunAction={onRunAction} onNavigate={onNavigate} />
-        {plan && (
-          <div className="intent-plan" aria-live="polite">
-            <div>
-              <strong>{plan.intent}</strong>
-              <Badge tone={plan.canRun ? 'ready' : 'warning'}>{plan.canRun ? 'Runnable' : 'Needs setup'}</Badge>
-            </div>
-            {plan.steps.map((step) => <small key={`${step.id}-${step.action}`}>{step.label} - {step.why}</small>)}
-            {plan.missing.map((item) => <small className="warning-text" key={item}>{item}</small>)}
-          </div>
-        )}
-        {lastIntent && !plan && <small>Last smart run: {lastIntent.status} / {formatDate(lastIntent.startedAt)}</small>}
-      </div>
+      </section>
+      <section className="ws-card workflow-preview-card" aria-live="polite">{preview ? <><div className="ws-card-head"><h3>{preview.intent}</h3><span className="ws-chip">{preview.canRun ? 'Ready to run' : 'Needs input'}</span></div><ol className="ws-steps">{(preview.steps || []).map((step) => <li key={step.id}><strong>{step.label}</strong><p>{step.why}</p></li>)}</ol>{(preview.missing || []).map((item) => <div key={item} className="ws-callout attention">{item}</div>)}</> : <div className="ws-plan-empty"><Sparkles size={20} aria-hidden="true" /><h3>Your plan appears here</h3><p className="ws-hint">Each step says what it does and why. Nothing runs until you choose Run reviewed plan.</p></div>}</section>
     </div>
-  );
+    <details className="ws-card mission-details"><summary>Scheduled workflows & advanced controls</summary><MissionCommandCenter {...props} /></details>
+  </section>;
 }
-
 export function ActionQueue({ actions, busy, onRunAction, onNavigate }) {
   if (!actions?.length) return null;
   return (
@@ -282,426 +175,6 @@ export function ActionQueue({ actions, busy, onRunAction, onNavigate }) {
   );
 }
 
-function SetupChecklist({ steps, readiness, onNavigate }) {
-  if (!steps?.length) {
-    return <Empty title="No setup plan" detail="Refresh the workspace to rebuild the local setup checklist." />;
-  }
-  const percent = Math.max(0, Math.min(100, Number(readiness?.percent) || 0));
-  const currentStep = readiness?.currentStep || steps.find((step) => step.status === 'current') || null;
-  return (
-    <div className="setup-checklist">
-      <div className="readiness-head">
-        <div className="readiness-title">
-          <span className="readiness-orb" aria-hidden="true" />
-          <div>
-            <strong>Launch checklist</strong>
-            <small>{readiness?.detail || (steps.every((step) => step.status === 'done') ? 'Ready for intelligence work.' : 'Finish the current step to unlock the next one.')}</small>
-          </div>
-        </div>
-        <span className="readiness-score">{percent}%</span>
-      </div>
-      <div className="readiness-meter">
-        <meter min="0" max="100" low="25" high="75" optimum="100" value={percent} aria-label="Workspace readiness" />
-        <span>{readiness?.label || 'Needs setup'}</span>
-      </div>
-      {currentStep && (
-        <Button type="button" className="setup-next" onClick={() => onNavigate(currentStep.view)}>
-          Open {currentStep.label}
-        </Button>
-      )}
-      <ol>
-        {steps.map((step) => (
-          <li className={step.status} key={step.id} aria-current={step.status === 'current' ? 'step' : undefined}>
-            <span>{step.status === 'done' ? 'Done' : step.status === 'current' ? 'Now' : 'Next'}</span>
-            <div>
-              <strong>{step.label}</strong>
-              <small>{step.detail}</small>
-            </div>
-            {step.status !== 'done' && <Button type="button" className="ghost" aria-label={`Open ${step.label}`} onClick={() => onNavigate(step.view)}>Open</Button>}
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-function SignalList({ signals, compact = false }) {
-  return (
-    <div className={compact ? 'signal-list compact' : 'signal-list'}>
-      {signals.map((signal, index) => (
-        <article className="signal-row" key={`${signal.source}-${index}`}>
-          <div className="signal-meta">
-            <Badge tone={statusTone(signal.status)}>{signal.source}</Badge>
-            <span>{signal.intent}</span>
-            <strong>{signal.heat}</strong>
-          </div>
-          <p>{short(signal.text, compact ? 118 : 190)}</p>
-          {signal.author && <small>{signal.author}</small>}
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function DashboardView({
-  state,
-  meta,
-  payload,
-  selectedDataset,
-  busy,
-  onPlanIntent,
-  onRunIntent,
-  onRunAction,
-  onRunMission,
-  onRunActionGraph,
-  onPauseMission,
-  onScheduleMission,
-  onExportMissionBundle,
-  onSearchEvidence,
-  onRetryJob,
-  onReadJobLog,
-  onNavigate,
-}) {
-  const metrics = summarizeStudio(state);
-  const signals = datasetSignals(payload, selectedDataset).slice(0, 6);
-  const pipeline = buildPipeline(state);
-  const liveCluster = inferLiveCluster(payload, selectedDataset);
-  const clusters = liveCluster ? [liveCluster, ...CLUSTERS.slice(0, 3)] : CLUSTERS.slice(0, 4);
-
-  return (
-    <section className="dashboard-grid">
-      <div className="panel span-two v5-dashboard-panel">
-        <MissionCommandCenter
-          state={state}
-          selectedDataset={selectedDataset}
-          busy={busy}
-          onRunMission={onRunMission}
-          onRunActionGraph={onRunActionGraph}
-          onPauseMission={onPauseMission}
-          onScheduleMission={onScheduleMission}
-          onExportMissionBundle={onExportMissionBundle}
-          onSearchEvidence={onSearchEvidence}
-          onRetryJob={onRetryJob}
-          onReadJobLog={onReadJobLog}
-          onNavigate={onNavigate}
-        />
-      </div>
-      <div className="panel command-hero">
-        <IntentCommandPanel state={state} selectedDataset={selectedDataset} busy={busy} onPlanIntent={onPlanIntent} onRunIntent={onRunIntent} onRunAction={onRunAction} onNavigate={onNavigate} />
-      </div>
-      <MetricTiles metrics={metrics} />
-      <div className="panel span-two">
-        <div className="panel-head">
-          <div><h3>Live Signal Intelligence</h3><p>{selectedDataset?.name || 'Fallback market model until Apify data lands.'}</p></div>
-          <Button className="ghost" onClick={() => onNavigate('signals')}>Inspect</Button>
-        </div>
-        <SignalList signals={signals} compact />
-      </div>
-      <div className="panel">
-        <div className="panel-head"><h3>Topic Clusters</h3><Button className="ghost" onClick={() => onNavigate('clusters')}>Open</Button></div>
-        <div className="cluster-stack">
-          {clusters.map((cluster) => <ClusterCard cluster={cluster} compact key={cluster.name} />)}
-        </div>
-      </div>
-      <div className="panel">
-        <div className="panel-head"><h3>Workflow Pipeline</h3><small>{meta?.dataRoot}</small></div>
-        <div className="pipeline">
-          {pipeline.map((stage) => (
-            <article className="pipeline-stage" key={stage.id}>
-              <Badge tone={stage.tone}>{stage.title}</Badge>
-              <strong>{number(stage.count)}</strong>
-              <p>{stage.detail}</p>
-            </article>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function SignalsView({ payload, selectedDataset, state, onDatasetSelect, onNavigate }) {
-  const [query, setQuery] = useState('');
-  const allSignals = datasetSignals(payload, selectedDataset);
-  const filtered = allSignals.filter((signal) => `${signal.source} ${signal.intent} ${signal.text} ${signal.author || ''}`.toLowerCase().includes(query.toLowerCase()));
-
-  return (
-    <section className="view-grid signals-view">
-      <div className="panel side-panel">
-        <h3>Datasets</h3>
-        <div className="stack">
-          {state.datasets.map((dataset) => (
-            <button className={`dataset-button ${dataset.id === selectedDataset?.id ? 'active' : ''}`} key={dataset.id} onClick={() => onDatasetSelect(dataset.id)}>
-              <strong>{dataset.name}</strong>
-              <small>{dataset.platform} - {number(dataset.itemCount)} items</small>
-            </button>
-          ))}
-          {!state.datasets.length && <Empty title="No Apify datasets yet" detail="Create a recipe, run it, then signals will appear here." action="Create recipe" onAction={() => onNavigate('automation')} />}
-        </div>
-      </div>
-      <div className="panel">
-        <div className="panel-head">
-          <div><h3>Signal Feed</h3><p>Posts, comments, accounts, and threads normalized into one review queue.</p></div>
-          <input className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search signals, authors, platforms" />
-        </div>
-        <SignalList signals={filtered} />
-      </div>
-    </section>
-  );
-}
-
-function ClusterCard({ cluster, compact = false }) {
-  return (
-    <article className={compact ? 'cluster-card compact' : 'cluster-card'}>
-      <div className="cluster-top">
-        <div>
-          <strong>{cluster.name}</strong>
-          <span>{cluster.owner}</span>
-        </div>
-        <div className="cluster-score">{cluster.score}</div>
-      </div>
-      <p>{cluster.summary}</p>
-      <div className="chip-row">
-        {cluster.topics.map((topic) => <span className="chip" key={topic}>{topic}</span>)}
-      </div>
-      {!compact && <small>{cluster.signals.join(' / ')} - {cluster.trend}</small>}
-    </article>
-  );
-}
-
-function ClustersView({ payload, selectedDataset }) {
-  const liveCluster = inferLiveCluster(payload, selectedDataset);
-  const clusters = liveCluster ? [liveCluster, ...CLUSTERS] : CLUSTERS;
-  return (
-    <section className="panel full">
-      <div className="panel-head">
-        <div><h3>Topic Clusters</h3><p>Thinklet-style strategic themes, now fed by Apify datasets and Codex tags.</p></div>
-        <Badge tone="ready">{clusters.length} active</Badge>
-      </div>
-      <div className="cluster-grid">
-        {clusters.map((cluster) => <ClusterCard cluster={cluster} key={cluster.name} />)}
-      </div>
-    </section>
-  );
-}
-
-function CalendarView({ state, onNavigate }) {
-  const dynamic = state.datasets.slice(0, 3).map((dataset, index) => ({
-    date: ['Today', 'Next', 'Review'][index] || 'Next',
-    title: dataset.name,
-    channel: dataset.platform,
-    status: dataset.itemCount ? 'Needs tags' : 'Queued',
-  }));
-  const events = dynamic.length ? [...dynamic, ...CALENDAR] : CALENDAR;
-
-  return (
-    <section className="panel full">
-      <div className="panel-head">
-        <div><h3>Content Calendar</h3><p>Signals become report beats, lead lists, social angles, and campaign briefs.</p></div>
-        <Button onClick={() => onNavigate('reports')}>Generate report</Button>
-      </div>
-      <div className="calendar-grid">
-        {events.map((event, index) => (
-          <article className="calendar-card" key={`${event.title}-${index}`}>
-            <span>{event.date}</span>
-            <strong>{event.title}</strong>
-            <div><Badge>{event.channel}</Badge><Badge tone={statusTone(event.status)}>{event.status}</Badge></div>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function CompetitiveView({ state }) {
-  const platforms = derivePlatformBreakdown(state.datasets);
-  return (
-    <section className="view-grid">
-      <div className="panel">
-        <h3>Competitive Intel</h3>
-        <div className="competitor-list">
-          {COMPETITORS.map((competitor) => (
-            <article className="competitor" key={competitor.name}>
-              <div><strong>{competitor.name}</strong><span>{competitor.channel}</span></div>
-              <meter value={competitor.share} min="0" max="40" />
-              <p>{competitor.move}</p>
-            </article>
-          ))}
-        </div>
-      </div>
-      <div className="panel">
-        <h3>Apify Coverage</h3>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Platform</th><th>Datasets</th><th>Signals</th></tr></thead>
-            <tbody>
-              {platforms.map((row) => <tr key={row.platform}><td>{row.platform}</td><td>{row.datasets}</td><td>{number(row.items)}</td></tr>)}
-            </tbody>
-          </table>
-        </div>
-        {!platforms.length && <Empty title="No platform coverage yet" detail="Run Reddit, X, LinkedIn, or any configured Actor task to populate this view." />}
-      </div>
-    </section>
-  );
-}
-
-function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveSettings, onTestSheetsBridge, onArchiveAndClearSheets, onImportWorkingSheets, onReplaySheetRun, onCheckCodex, onOpenDataFolder, onOpenWorkspace }) {
-  const [token, setToken] = useState('');
-  const [sheetWebhook, setSheetWebhook] = useState('');
-  const [maxItems, setMaxItems] = useState(state.settings.maxItems || 1000);
-  const [sheetForm, setSheetForm] = useState({
-    workingSpreadsheetUrl: state.settings.sheets?.workingSpreadsheetUrl || '',
-    archiveFolderId: state.settings.sheets?.archiveFolderId || '',
-    twitterTab: state.settings.sheets?.twitterTab || 'Twitter',
-    linkedinTab: state.settings.sheets?.linkedinTab || 'LinkedIn',
-    redditTab: state.settings.sheets?.redditTab || 'Reddit',
-  });
-  const [codex, setCodex] = useState(null);
-  const [checkingCodex, setCheckingCodex] = useState(false);
-
-  useEffect(() => setMaxItems(state.settings.maxItems || 1000), [state.settings.maxItems]);
-  useEffect(() => {
-    setSheetForm({
-      workingSpreadsheetUrl: state.settings.sheets?.workingSpreadsheetUrl || '',
-      archiveFolderId: state.settings.sheets?.archiveFolderId || '',
-      twitterTab: state.settings.sheets?.twitterTab || 'Twitter',
-      linkedinTab: state.settings.sheets?.linkedinTab || 'LinkedIn',
-      redditTab: state.settings.sheets?.redditTab || 'Reddit',
-    });
-  }, [
-    state.settings.sheets?.workingSpreadsheetUrl,
-    state.settings.sheets?.archiveFolderId,
-    state.settings.sheets?.twitterTab,
-    state.settings.sheets?.linkedinTab,
-    state.settings.sheets?.redditTab,
-  ]);
-
-  function updateSheetField(key, value) {
-    setSheetForm((current) => ({ ...current, [key]: value }));
-  }
-
-  async function checkCodex() {
-    setCheckingCodex(true);
-    try {
-      setCodex(await onCheckCodex());
-    } catch (err) {
-      setCodex({ ok: false, error: err.message || String(err) });
-    } finally {
-      setCheckingCodex(false);
-    }
-  }
-
-  return (
-    <section className="panel full settings-view">
-      <div className="panel-head">
-        <div><h3>Settings</h3><p>Secrets stay in Electron safeStorage and are redacted before Codex sees data.</p></div>
-        <div className="button-row">
-          <Badge tone={state.keys.APIFY_API_TOKEN ? 'ready' : 'warning'}>{state.keys.APIFY_API_TOKEN ? 'Apify saved' : 'Apify missing'}</Badge>
-          <Badge tone={state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'ready' : 'warning'}>{state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'Sheets saved' : 'Sheets missing'}</Badge>
-        </div>
-      </div>
-      <div className="readiness-grid">
-        {readinessItems(state, meta, codex).map((item) => (
-          <article className="readiness-card" key={item.id}>
-            <Badge tone={item.tone}>{item.label}</Badge>
-            <p>{short(item.detail, 160)}</p>
-          </article>
-        ))}
-      </div>
-      <div className="field-grid two">
-        <label>APIFY_API_TOKEN
-          <div className="inline">
-            <input type="password" value={token} placeholder={state.keys.APIFY_API_TOKEN ? 'Saved in keychain' : 'Paste token'} onChange={(event) => setToken(event.target.value)} />
-            <Button disabled={busy || !token} onClick={() => { onSaveKey('APIFY_API_TOKEN', token); setToken(''); }}>Save</Button>
-            <Button className="ghost" disabled={busy} onClick={() => onClearKey('APIFY_API_TOKEN')}>Clear</Button>
-          </div>
-        </label>
-        <label>Max items per Apify run
-          <div className="inline">
-            <input type="number" min="1" max="10000" value={maxItems} onChange={(event) => setMaxItems(event.target.value)} />
-            <Button disabled={busy} onClick={() => onSaveSettings({ maxItems })}>Save</Button>
-          </div>
-        </label>
-        <label>Codex CLI
-          <div className="inline">
-            <input readOnly value={codex?.ok ? codex.version || 'Codex available' : codex?.error || 'Not checked'} />
-            <Button disabled={busy || checkingCodex} onClick={checkCodex}>{checkingCodex ? 'Checking' : 'Check'}</Button>
-          </div>
-        </label>
-      </div>
-      <div className="settings-block">
-        <div className="panel-head compact">
-          <div><h3>Google Sheets bridge</h3><p>Use an Apps Script webhook to archive, clear, import, and write shared weekly sheets.</p></div>
-        </div>
-        <div className="field-grid two">
-          <label>GOOGLE_SHEETS_WEBHOOK_URL
-            <div className="inline">
-              <input type="password" value={sheetWebhook} placeholder={state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'Saved in keychain' : 'Paste Apps Script web app URL'} onChange={(event) => setSheetWebhook(event.target.value)} />
-              <Button disabled={busy || !sheetWebhook} onClick={() => { onSaveKey('GOOGLE_SHEETS_WEBHOOK_URL', sheetWebhook); setSheetWebhook(''); }}>Save</Button>
-              <Button className="ghost" disabled={busy} onClick={() => onClearKey('GOOGLE_SHEETS_WEBHOOK_URL')}>Clear</Button>
-            </div>
-          </label>
-          <label>Working spreadsheet URL
-            <input value={sheetForm.workingSpreadsheetUrl} onChange={(event) => updateSheetField('workingSpreadsheetUrl', event.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." />
-          </label>
-          <label>Archive folder ID
-            <input value={sheetForm.archiveFolderId} onChange={(event) => updateSheetField('archiveFolderId', event.target.value)} placeholder="Google Drive folder ID" />
-          </label>
-          <label>Twitter tab
-            <input value={sheetForm.twitterTab} onChange={(event) => updateSheetField('twitterTab', event.target.value)} />
-          </label>
-          <label>LinkedIn tab
-            <input value={sheetForm.linkedinTab} onChange={(event) => updateSheetField('linkedinTab', event.target.value)} />
-          </label>
-          <label>Reddit tab
-            <input value={sheetForm.redditTab} onChange={(event) => updateSheetField('redditTab', event.target.value)} />
-          </label>
-        </div>
-        <div className="button-row">
-          <Button disabled={busy} onClick={() => onSaveSettings({ sheets: sheetForm })}>Save sheet settings</Button>
-          <Button className="ghost" disabled={busy || !state.keys.GOOGLE_SHEETS_WEBHOOK_URL || !state.settings.sheets?.workingSpreadsheetId} onClick={onTestSheetsBridge}>Test bridge</Button>
-          <Button
-            className="ghost"
-            disabled={busy || !state.keys.GOOGLE_SHEETS_WEBHOOK_URL || !state.settings.sheets?.workingSpreadsheetId}
-            onClick={() => {
-              if (window.confirm('Clone the working spreadsheet to archive, then clear the configured working tabs?')) onArchiveAndClearSheets({});
-            }}
-          >
-            Archive + clear
-          </Button>
-          <Button className="ghost" disabled={busy || !state.keys.GOOGLE_SHEETS_WEBHOOK_URL || !state.settings.sheets?.workingSpreadsheetId} onClick={onImportWorkingSheets}>Pull working sheet</Button>
-        </div>
-        {state.sheetRuns?.length > 0 && (
-          <div className="stack">
-            {state.sheetRuns.slice(0, 3).map((run) => (
-              <article className="readiness-card" key={run.id}>
-                <Badge tone={statusTone(run.status)}>{run.kind}</Badge>
-                <p>{short(run.error || run.archiveUrl || run.tabName || run.datasetId || run.spreadsheetId || 'Sheet run saved', 160)}</p>
-                {run.status === 'failed' && (
-                  <Button
-                    className="ghost"
-                    disabled={busy}
-                    onClick={() => {
-                      if (run.kind === 'archive-clear' && !window.confirm('Replay archive + clear for this failed sheet run?')) return;
-                      onReplaySheetRun(run.id);
-                    }}
-                  >
-                    Replay
-                  </Button>
-                )}
-              </article>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="button-row">
-        <Button className="ghost" disabled={busy} onClick={onOpenDataFolder}>Open data folder</Button>
-        <Button className="ghost" disabled={busy} onClick={onOpenWorkspace}>Open workspace</Button>
-      </div>
-      <JsonBlock value={{ app: meta?.name, version: meta?.version, dataRoot: meta?.dataRoot }} />
-    </section>
-  );
-}
-
 function JobTray({ jobs, busy, onCancelJob }) {
   if (!jobs.length) return null;
   return (
@@ -710,76 +183,72 @@ function JobTray({ jobs, busy, onCancelJob }) {
         <div className="job-pill" key={job.id}>
           <Badge tone={statusTone(job.status)}>{job.kind}</Badge>
           <span>{short(job.title || job.id, 52)}</span>
-          {job.cancellable && <Button className="ghost danger" disabled={busy} onClick={() => onCancelJob(job.id)}>Cancel</Button>}
+          {job.cancellable && <Button className="ghost danger" onClick={() => onCancelJob(job.id)}>Cancel</Button>}
         </div>
       ))}
     </div>
   );
 }
 
-function Header({ active, busy, error, notice, state, onRefresh, onCancelJob, onOpenPalette }) {
+function Header({ active, title, busy, state, onRefresh, onOpenPalette }) {
   const item = NAV.find((nav) => nav.id === active);
-  const metrics = summarizeStudio(state);
-  return (
-    <header className="topbar">
-      <div>
-        <span>{item?.group || 'Workspace'}</span>
-        <h1>{item?.label || 'Command'}</h1>
-      </div>
-      <div className="topbar-right">
-        <StatusBanner error={error} notice={notice} />
-        <JobTray jobs={state.jobs || []} busy={busy} onCancelJob={onCancelJob} />
-        {busy && <Badge tone="running">Working</Badge>}
-        <Badge tone={metrics.apifyConnected ? 'ready' : 'warning'}>{metrics.apifyConnected ? 'Apify' : 'No token'}</Badge>
-        <PaletteHint onOpen={onOpenPalette} />
-        <Button className="ghost" onClick={onRefresh}>Refresh</Button>
-      </div>
-    </header>
-  );
+  return <header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={14} aria-hidden="true" /><h1>{title || item?.label || 'Overview'}</h1></div><div className="topbar-right"><Button className="search-command ghost" onClick={onOpenPalette}><Search size={16} /><span>Search or jump to…</span><kbd>⌘ K</kbd></Button>{busy && <span className="working-status" role="status"><LoaderCircle className="spin" size={14} />Working</span>}<Button className={`ghost icon-button ${busy ? 'is-working' : ''}`} aria-label="Refresh workspace" title="Refresh workspace" disabled={busy} onClick={onRefresh}><RefreshCw size={16} /></Button></div></header>;
 }
-
-function MobileNav({ active, onNavigate }) {
-  return (
-    <div className="mobile-nav">
-      <label>
-        View
-        <select value={active} onChange={(event) => onNavigate(event.target.value)}>
-          {NAV.map((item) => <option key={item.id} value={item.id}>{item.group} / {item.label}</option>)}
-        </select>
-      </label>
-    </div>
-  );
+function MobileNav({ active, onNavigate, items = NAV, workspaces = [], workspaceId, busy, onWorkspaceChange }) {
+  return <div className="mobile-nav">{workspaces.length > 0 && <label className="mobile-workspace-picker"><span>Workspace</span><select aria-label="Switch workspace" value={workspaceId} disabled={busy} onChange={(event) => onWorkspaceChange(event.target.value)}>{workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label>}<label htmlFor="mobile-view">Navigate</label><select id="mobile-view" value={active} onChange={(event) => onNavigate(event.target.value)}>{items.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div>;
 }
-
 export default function App() {
-  if (!api) return <ApiUnavailable />;
+  return <ErrorBoundary>{window.apifyStudio ? <StudioApp api={window.apifyStudio} /> : <ApiUnavailable />}</ErrorBoundary>;
+}
+
+function StudioApp({ api }) {
 
   const [meta, setMeta] = useState(null);
   const [state, setState] = useState(EMPTY_STATE);
-  const [active, setActive] = useState('dashboard');
+  const [active, setActive] = useState(api.contentCatalog ? 'content-studio' : 'dashboard');
+  const [studioView, setStudioView] = useState('overview');
+  const [createWorkspaceKey, setCreateWorkspaceKey] = useState(0);
+  const contentWorkspaces = state.contentStudio?.workspaces || [];
+  const contentWorkspace = contentWorkspaces.find(item => item.id === state.contentStudio?.activeWorkspaceId);
+  const semrushShell = contentWorkspace?.editionId === 'semrush';
+  const hasWorkspaceSwitcher = Boolean(contentWorkspace && api.selectContentWorkspace);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [pendingActions, setPendingActions] = useState(0);
+  const busy = pendingActions > 0;
+  const [loading, setLoading] = useState(true);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [datasetTab, setDatasetTab] = useState('explorer');
+  const [knowledgeTab, setKnowledgeTab] = useState('workspace');
+  const [creation, setCreation] = useState({ key: null, templateId: '' });
+  const contentRef = useRef(null);
+  const [payloadDatasetId, setPayloadDatasetId] = useState('');
   const [selectedDatasetId, setSelectedDatasetId] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [payload, setPayload] = useState(null);
   const datasetKey = state.datasets.map((dataset) => `${dataset.id}:${dataset.itemCount}:${dataset.createdAt}`).join('|');
 
   async function refresh() {
-    setMeta(await api.appMeta());
-    setState(await api.state());
+    const [nextMeta, nextState] = await Promise.all([api.appMeta(), api.state()]);
+    setMeta(nextMeta);
+    setState({ ...EMPTY_STATE, ...nextState });
   }
 
   useEffect(() => {
-    refresh().catch((err) => setError(err.message || String(err)));
-    return api.onStateChanged((next) => setState(next));
+    refresh().catch((err) => setError(err.message || String(err))).finally(() => setLoading(false));
+    return api.onStateChanged((next) => setState({ ...EMPTY_STATE, ...next }));
   }, []);
 
   useEffect(() => {
     function onKeyDown(event) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        setPaletteOpen(true);
+        setPaletteOpen((open) => !open);
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+        event.preventDefault();
+        setPaletteOpen(false);
+        navigateRef.current('settings');
       }
       if (event.key === 'Escape') setPaletteOpen(false);
     }
@@ -787,16 +256,29 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  useEffect(() => { contentRef.current?.scrollTo?.(0, 0); }, [active, studioView]);
+
+  // Notices leave on their own, but never while the pointer is resting on them.
+  const [noticeHeld, setNoticeHeld] = useState(false);
+  useEffect(() => {
+    if (!notice && !error) setNoticeHeld(false); // the banner unmounted under the pointer, so no mouseleave arrives
+    if (!notice || noticeHeld) return;
+    const timeout = setTimeout(() => setNotice(''), 6000);
+    return () => clearTimeout(timeout);
+  }, [notice, error, noticeHeld]);
+
   useEffect(() => {
     let cancelled = false;
-    const datasetId = selectedDatasetId || state.datasets[0]?.id || '';
+    const datasetId = state.datasets.find((item) => item.id === selectedDatasetId)?.id || state.datasets[0]?.id || '';
+    setPayload(null);
+    setPayloadDatasetId('');
     if (!datasetId) {
       setPayload(null);
       return;
     }
     if (datasetId !== selectedDatasetId) setSelectedDatasetId(datasetId);
     api.readDataset(datasetId).then((nextPayload) => {
-      if (!cancelled) setPayload(nextPayload);
+      if (!cancelled) { setPayload(nextPayload); setPayloadDatasetId(datasetId); }
     }).catch((err) => {
       if (cancelled) return;
       setNotice('');
@@ -808,7 +290,7 @@ export default function App() {
   }, [selectedDatasetId, datasetKey]);
 
   async function runAction(action, successMessage = '', throwOnError = false) {
-    setBusy(true);
+    setPendingActions((count) => count + 1);
     setError('');
     setNotice('');
     try {
@@ -821,7 +303,7 @@ export default function App() {
       if (throwOnError) throw err;
       return null;
     } finally {
-      setBusy(false);
+      setPendingActions((count) => Math.max(0, count - 1));
     }
   }
 
@@ -831,8 +313,44 @@ export default function App() {
   );
 
   function navigate(view, args = {}) {
+    withViewTransition(() => applyNavigation(view, args));
+  }
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
+  function applyNavigation(view, args = {}) {
+    setNotice('');
+    setError('');
     if (args.datasetId) setSelectedDatasetId(args.datasetId);
-    setActive(view);
+    if (STUDIO_HOME_FOR[view]) {
+      if (view === 'brands') setKnowledgeTab('profiles');
+      setStudioView(STUDIO_HOME_FOR[view]);
+      setActive('content-studio');
+      return;
+    }
+    if (DATASET_TAB_FOR[view]) { setDatasetTab(DATASET_TAB_FOR[view]); view = 'datasets'; }
+    else if (view === 'datasets' && args.tab) setDatasetTab(args.tab);
+    const nextView = (view === 'marketing-template' || NAV.some((item) => item.id === view)) ? view : 'dashboard';
+    if (args.create || args.templateId || args.reportPresetId || args.analysisId) setCreation((current) => ({ key: (current.key || 0) + 1, templateId: args.templateId || '', reportPresetId: args.reportPresetId || '', analysisId: args.analysisId || '' }));
+    else if (['reports', 'imports'].includes(nextView)) setCreation({ key: null, templateId: '', reportPresetId: '', analysisId: '' });
+    else if (nextView === 'automation') setCreation({ key: null, templateId: '' });
+    if (NAV.find((item) => item.id === nextView)?.group === 'More tools' || (semrushShell && nextView !== 'content-studio' && nextView !== 'settings')) setMoreOpen(true);
+    setActive(nextView);
+  }
+
+  function navigateStudio(view) {
+    withViewTransition(() => {
+      setStudioView(view);
+      applyNavigation('content-studio');
+    });
+  }
+
+  function choosePlaybook(id) {
+    const template = MARKETING_TEMPLATES.find(item => item.id === id);
+    if (!template) return;
+    if (template.sourceMode === 'comparison') navigate('compare', { templateId: id, reportPresetId: id });
+    else if (template.sourceMode === 'dataset') navigate(state.datasets.length ? 'reports' : 'imports', { templateId: id, reportPresetId: id });
+    else navigate('marketing-template', { templateId: id });
   }
 
   async function runPaletteItem(item) {
@@ -847,86 +365,61 @@ export default function App() {
 
   const content = useMemo(() => {
     const common = { state, busy };
-    if (active === 'signals') return <SignalsView {...common} payload={payload} selectedDataset={selectedDataset} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} />;
-    if (active === 'threads') {
-      return (
-        <ThreadsView
-          {...common}
-          payload={payload}
-          selectedDataset={selectedDataset}
-          onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)}
-          onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), 'Analysis output opened.')}
-          onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), 'Analysis output revealed in Finder.')}
-          onAnalyze={(datasetId, kind) => runAction(() => api.analyzeDataset({ datasetId, kind }), 'Thread analysis complete.')}
-        />
-      );
-    }
-    if (active === 'clusters') return <ClustersView payload={payload} selectedDataset={selectedDataset} />;
-    if (active === 'calendar') return <CalendarView state={state} onNavigate={navigate} />;
-    if (active === 'competitive') return <CompetitiveView state={state} />;
-    if (active === 'assets') {
-      return (
-        <AssetsView
-          state={state}
-          onNavigate={navigate}
-          onOpenAssetsFolder={() => runAction(() => api.openAssetsFolder(), 'Assets folder opened.')}
-          onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), 'Asset opened.')}
-          onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), 'Asset revealed in Finder.')}
-          onExportAssetPack={(payload) => runAction(() => api.exportAssetPack(payload), (result) => `Exported ${result.assetCount} assets.`)}
-          onSaveAsset={(asset) => runAction(() => api.saveAsset(asset), 'Asset saved.')}
-          onCreateCardFromAsset={(card) => runAction(() => api.saveCard(card), 'Card created from asset.')}
-        />
-      );
-    }
-    if (active === 'kanban') {
-      return (
-        <KanbanView
-          {...common}
-          selectedDataset={selectedDataset}
-          onMoveCard={(payload) => runAction(() => api.moveCard(payload), 'Card moved.')}
-          onSaveCard={(card) => runAction(() => api.saveCard(card), 'Card saved.', true)}
-          onGenerateAssets={(payload) => runAction(() => api.generateAssets(payload), 'Asset pack generated.')}
-          onNavigate={navigate}
-        />
-      );
-    }
+    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} onViewChange={(view) => withViewTransition(() => setStudioView(view))} shellNavigation={semrushShell} workspaceControlsInShell={hasWorkspaceSwitcher} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), 'Brand context saved.', true)} onDeleteProfile={(id) => runAction(() => api.deleteBrandProfile(id), 'Profile removed. Existing research keeps its saved context.', true)} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), 'Workspace brand selected.', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), 'Asset opened.')} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), 'Asset revealed in Finder.')} />} />;
+    if (active === 'templates') return <TemplateLibraryView {...common} onChooseTemplate={choosePlaybook} onNavigate={navigate} />;
+    if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), 'Research imported with source provenance.', true)} onNavigate={navigate} />;
+    if (active === 'compare') return <CompareView {...common} onCompare={(request) => runAction(() => api.compareDatasets(request), 'Snapshots compared.', true)} onSaveMonitor={(request) => runAction(() => api.saveMonitor(request), 'Manual source check saved.', true)} onNavigate={navigate} />;
+    if (active === 'search') return <SearchView {...common} onPreviewSearch={(request) => api.previewSearchSources(request)} onSearch={(request) => runAction(() => api.searchSources(request), '', true)} onRefreshActors={() => runAction(() => api.refreshApifyActors(), 'Apify Actors synced.', true)} onNavigate={navigate} />;
+    if (active === 'chat') return <FindingsChatView {...common} selectedDatasetId={selectedDatasetId} onDatasetSelect={setSelectedDatasetId} onAskQuestion={(request) => runAction(() => api.askFindings(request), '', true)} onOpenSourceUrl={(url) => api.openSourceUrl(url)} onNavigate={navigate} />;
+    if (active === 'marketing-template') return <MarketingTemplateView key={creation.key} templateId={creation.templateId} busy={busy} brandProfiles={state.brandProfiles} selectedBrandProfileId={state.settings.selectedBrandProfileId} onSelectBrandProfile={(id) => api.selectBrandProfile(id)} onManageProfiles={() => navigate('brands')} onOpenScrapers={() => navigate('automation')} onCancel={() => navigate('templates')} onSave={(recipe) => runAction(() => api.saveRecipe(recipe), 'Collection saved. Open Scrapers to collect pages, then AI reports to create the brief.', true)} />;
     if (active === 'automation') {
       return (
         <AutomationView
           {...common}
+          initialTemplateId={creation.templateId}
+          creationKey={creation.key}
           onSaveRecipe={(recipe) => runAction(() => api.saveRecipe(recipe), 'Recipe saved.')}
           onRunRecipe={(recipeId) => runAction(() => api.runRecipe(recipeId), 'Apify run complete.')}
           onDeleteRecipe={(recipeId) => runAction(() => api.deleteRecipe(recipeId), 'Recipe deleted.')}
           onDiscoverApifyResource={(payload) => api.discoverApifyResource(payload)}
           onTestRecipe={(recipe) => api.testRecipe(recipe)}
           onSaveRecipeVersion={(payload) => runAction(() => api.saveRecipeVersion(payload), 'Recipe version saved.')}
+          onOpenDataset={(datasetId) => navigate('datasets', { datasetId, tab: 'explorer' })}
         />
       );
     }
-    if (active === 'runs') return <RunsView {...common} onRunRecipe={(recipeId) => runAction(() => api.runRecipe(recipeId), 'Apify run complete.')} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} />;
+    if (active === 'runs') return <ActivityView {...common} onRunRecipe={(recipeId) => runAction(() => api.runRecipe(recipeId), 'Apify run complete.')} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenStudio={navigateStudio} onCancelJob={(jobId) => runAction(() => api.cancelJob(jobId), 'Job cancelled.')} />;
     if (active === 'datasets') {
-      return (
+      const datasetPayload = payloadDatasetId === selectedDataset?.id ? payload : null;
+      return <DatasetHub state={state} tab={datasetTab} onTabChange={setDatasetTab} selectedDataset={selectedDataset} payload={datasetPayload} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenSourceUrl={(url) => api.openSourceUrl(url)}
+        renderExplorer={() => (
         <DatasetsView
           {...common}
           selectedDatasetId={selectedDatasetId}
           onDatasetSelect={setSelectedDatasetId}
-          payload={payload}
+          payload={payloadDatasetId === selectedDataset?.id ? payload : null}
           onNavigate={navigate}
           onSearchEvidence={(query) => api.searchEvidence(query)}
-          onAnalyze={(datasetId, kind, options = {}) => runAction(() => api.analyzeDataset({ datasetId, kind, ...options }), 'Codex analysis complete.')}
+          onAnalyze={(datasetId, kind, options = {}) => runAction(() => api.analyzeDataset({ datasetId, kind, ...options }), 'AI analysis complete.')}
           onExportDataset={(datasetId, format) => runAction(() => api.exportDataset({ datasetId, format }), (result) => `Exported ${result.itemCount} rows to ${result.format.toUpperCase()}.`)}
           onExportDatasetToSheets={(datasetId) => runAction(() => api.exportDatasetToSheets({ datasetId }), (result) => `Wrote ${number(result.rowCount || 0)} rows to ${result.tabName || 'Sheets'}.`)}
-        />
-      );
+        />)}
+        renderConversations={() => <ThreadsView {...common} payload={datasetPayload} selectedDataset={selectedDataset} onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)} onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), 'Analysis output opened.')} onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), 'Analysis output revealed in Finder.')} onAnalyze={(datasetId, kind) => runAction(() => api.analyzeDataset({ datasetId, kind }), 'Conversation summary complete.')} />} />;
     }
     if (active === 'reports') {
       return (
         <ReportsView
           {...common}
+          initialReportPresetId={creation.reportPresetId}
+          initialAnalysisId={creation.analysisId}
+          onReadResearchReview={(id) => api.readResearchReview(id)}
+          onSaveResearchReview={(request) => runAction(() => api.saveResearchReview(request), 'Review and actions saved.', true)}
+          onExportResearchReview={(request) => runAction(() => api.exportResearchReview(request), 'Review package exported with evidence and receipt.', true)}
+          onNavigate={navigate}
           selectedDatasetId={selectedDatasetId}
           onDatasetSelect={setSelectedDatasetId}
           onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)}
-          onAnalyze={(datasetId, kind, options = {}) => runAction(() => api.analyzeDataset({ datasetId, kind, ...options }), 'Codex analysis complete.')}
+          onAnalyze={(datasetId, kind, options = {}) => runAction(() => api.analyzeDataset({ datasetId, kind, ...options }), 'AI analysis complete.')}
           onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), 'Analysis output opened.')}
           onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), 'Analysis output revealed in Finder.')}
         />
@@ -937,24 +430,29 @@ export default function App() {
         <SettingsView
           {...common}
           meta={meta}
-          onSaveKey={(keyName, value) => runAction(() => api.saveKey(keyName, value), 'Token saved.')}
-          onClearKey={(keyName) => runAction(() => api.clearKey(keyName), 'Token cleared.')}
+          onSaveKey={(keyName, value) => runAction(() => api.saveKey(keyName, value), 'Credential saved.', keyName === 'OPENAI_API_KEY')}
+          onClearKey={(keyName) => runAction(() => api.clearKey(keyName), 'Credential disconnected.', keyName === 'OPENAI_API_KEY')}
           onSaveSettings={(settings) => runAction(() => api.saveSettings(settings), 'Settings saved.')}
           onTestSheetsBridge={() => runAction(() => api.testSheetsBridge(), 'Sheets bridge reachable.')}
           onArchiveAndClearSheets={(payload) => runAction(() => api.archiveAndClearSheets(payload), 'Working sheet archived and cleared.')}
           onImportWorkingSheets={() => runAction(() => api.importWorkingSheets(), 'Working sheet imported.')}
           onReplaySheetRun={(sheetRunId) => runAction(() => api.replaySheetRun(sheetRunId), 'Sheet run replayed.')}
+          onTestImages={() => api.testImageProvider()}
+          onCheckAi={(request) => api.checkAi(request)}
           onCheckCodex={() => api.checkCodex()}
           onOpenDataFolder={() => runAction(() => api.openDataFolder(), 'Data folder opened.')}
           onOpenWorkspace={() => runAction(() => api.openWorkspace('default'), 'Workspace opened.')}
+          onSaveMondayBoard={api.saveMondayBoard ? (payload) => runAction(() => api.saveMondayBoard(payload), (result) => `Monday.com board connected: ${result.boardName}.`) : undefined}
+          onClearMondayBoard={() => runAction(() => api.clearMondayBoard(), 'Monday.com board forgotten. Trends stay on your board here.')}
         />
       );
     }
+    if (active === 'dashboard') return <HomeView state={state} busy={busy} onNavigate={navigate} />;
     return (
-      <DashboardView
+      <AdvancedView
         state={state}
         meta={meta}
-        payload={payload}
+        payload={payloadDatasetId === selectedDataset?.id ? payload : null}
         selectedDataset={selectedDataset}
         busy={busy}
         onPlanIntent={(command) => runAction(() => api.planIntent({ command, datasetId: selectedDataset?.id || '' }))}
@@ -971,57 +469,66 @@ export default function App() {
         onNavigate={navigate}
       />
     );
-  }, [active, state, meta, busy, selectedDatasetId, payload, selectedDataset]);
+  }, [active, state, meta, busy, selectedDatasetId, payload, selectedDataset, payloadDatasetId, creation, studioView, createWorkspaceKey, semrushShell, hasWorkspaceSwitcher, datasetTab, knowledgeTab]);
 
-  const groupedNav = NAV.reduce((groups, item) => {
-    groups[item.group] = [...(groups[item.group] || []), item];
-    return groups;
-  }, {});
-
+  // One real pill slides under the active item (a snapshot would cover its label mid-transition).
+  const primaryNavRef = useRef(null);
+  const [navIndicator, setNavIndicator] = useState(null);
+  useLayoutEffect(() => {
+    const nav = primaryNavRef.current;
+    if (!nav) return undefined;
+    const measure = () => {
+      const button = nav.querySelector('button[aria-current="page"]');
+      setNavIndicator((current) => button ? { left: button.offsetLeft, top: button.offsetTop, width: button.offsetWidth, height: button.offsetHeight, settled: Boolean(current) } : null);
+    };
+    measure();
+    // Keep the active item clear of the sidebar's edge fade.
+    const scroller = nav.closest('.sidebar-body');
+    const current = nav.querySelector('button[aria-current="page"]');
+    if (scroller && current) {
+      const item = current.getBoundingClientRect(); const view = scroller.getBoundingClientRect();
+      if (item.bottom > view.bottom - 36) scroller.scrollBy?.({ top: item.bottom - view.bottom + 48, behavior: 'smooth' });
+      else if (item.top < view.top + 24) scroller.scrollBy?.({ top: item.top - view.top - 36, behavior: 'smooth' });
+    }
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    observer?.observe(nav);
+    return () => observer?.disconnect();
+  }, [active, studioView, moreOpen, semrushShell]);
+  const renderNavItem = (item, index = 0) => {
+    const Icon = item.icon;
+    const count = item.id === 'automation' ? state.recipes.length : item.id === 'datasets' ? state.datasets.length : item.id === 'runs' ? state.jobs.length : 0;
+    return <Button key={item.id} aria-label={item.label} className={active === item.id ? 'active' : ''} aria-current={active === item.id ? 'page' : undefined} style={{ '--i': index }} onClick={() => navigate(item.id)}><Icon size={18} aria-hidden="true" /><span>{item.label}</span>{count > 0 && <span className="nav-count">{count}</span>}</Button>;
+  };
+  const paletteItems = [
+    { id: 'create-scraper', label: 'Create a new scraper', icon: Globe2, action: 'navigate', args: { view: 'automation', create: true } },
+    ...NAV.map((item) => ({ id: `go-${item.id}`, label: `Open ${item.label}`, icon: item.icon, action: 'navigate', args: { view: item.id } })),
+    ...(state.v5?.commandPalette || []).filter((item) => item.action === 'runMission' && item.args?.missionId),
+  ];
+  const studioState = state.contentStudio || {};
+  const liveRuns = [...(state.jobs || []), ...(studioState.researchRuns || []), ...(studioState.contentRuns || [])].filter((run) => ['queued', 'running'].includes(run.status)).length;
   return (
-    <ErrorBoundary>
-      <div className="app-shell">
-        <aside className="sidebar">
-          <div className="brand">
-            <span>AS</span>
-            <div><strong>Apify Scraper Studio</strong><small>Golden Thread Mac</small></div>
-          </div>
-          <nav aria-label="Primary">
-            {Object.entries(groupedNav).map(([group, items]) => (
-              <div className="nav-group" key={group}>
-                <small>{group}</small>
-                {items.map((item) => (
-                  <Button key={item.id} className={active === item.id ? 'active' : ''} onClick={() => setActive(item.id)}>{item.label}</Button>
-                ))}
-              </div>
-            ))}
+    <div className="app-shell" data-edition={semrushShell ? 'semrush' : 'general'}>
+      <aside className="sidebar">
+        <div className="brand">{semrushShell ? <div className="semrush-brand"><img src={semrushWordmark} alt="Semrush" className="semrush-wordmark" /><span>Research & content studio</span></div> : <><span className="brand-mark"><Layers3 size={23} strokeWidth={1.8} /></span><div><strong>scraper<span>studio</span></strong><small>POWERED BY APIFY</small></div></>}</div>
+        <div className="sidebar-body">
+          {hasWorkspaceSwitcher ? <div className="shell-workspace-control"><label className="shell-workspace-picker"><span className="workspace-avatar"><Layers3 size={15} aria-hidden="true" /></span><select aria-label="Content workspace" value={contentWorkspace.id} disabled={busy} onChange={(event) => runAction(() => api.selectContentWorkspace(event.target.value))}>{contentWorkspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label><button className="shell-new-workspace" type="button" disabled={busy} onClick={() => { setCreateWorkspaceKey(value => value + 1); navigateStudio('knowledge'); }}>+ New workspace</button></div> : <div className="workspace-label"><span className="workspace-avatar">S</span><div><strong>My workspace</strong><small>Local to this Mac</small></div></div>}
+          <nav aria-label="Primary" ref={primaryNavRef}>{navIndicator && <span className={`nav-indicator ${navIndicator.settled ? 'settled' : ''}`} aria-hidden="true" style={{ transform: `translate(${navIndicator.left}px, ${navIndicator.top}px)`, width: navIndicator.width, height: navIndicator.height }} />}<div className="nav-group">{semrushShell ? STUDIO_NAV.map(item => { const Icon = item.icon; const selected = active === 'content-studio' && studioView === item.id; return <Button key={item.id} aria-label={item.label} className={selected ? 'active' : ''} aria-current={selected ? 'page' : undefined} onClick={() => navigateStudio(item.id)}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></Button>; }) : <><small>WORKSPACE</small>{NAV.filter((item) => item.group === 'Workspace').map((item) => renderNavItem(item))}</>}</div>
+            <div className="nav-group more-nav"><Button className="more-toggle" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><SlidersHorizontal size={18} /><span>More tools</span><ChevronDown className={moreOpen ? 'rotated' : ''} size={14} /></Button>{moreOpen && NAV.filter((item) => semrushShell ? !['content-studio', 'settings'].includes(item.id) : item.group === 'More tools').map((item, index) => renderNavItem(semrushShell && item.id === 'dashboard' ? { ...item, label: 'Collection overview' } : item, index))}</div>
           </nav>
-          <div className="sidebar-foot">
-            <Badge tone={state.keys.APIFY_API_TOKEN ? 'ready' : 'warning'}>{state.keys.APIFY_API_TOKEN ? 'Connected' : 'Setup'}</Badge>
-            <span>{state.jobs.length ? `${state.jobs.length} active job` : 'Idle workspace'}</span>
-          </div>
-        </aside>
-        <main className="workspace">
-          <Header
-            active={active}
-            busy={busy}
-            error={error}
-            notice={notice}
-            state={state}
-            onRefresh={() => runAction(refresh)}
-            onCancelJob={(jobId) => runAction(() => api.cancelJob(jobId), 'Job cancelled.')}
-            onOpenPalette={() => setPaletteOpen(true)}
-          />
-          <MobileNav active={active} onNavigate={setActive} />
-          <div className="content">{content}</div>
-          <CommandPalette
-            open={paletteOpen}
-            items={state.v5?.commandPalette || []}
-            onClose={() => setPaletteOpen(false)}
-            onRun={runPaletteItem}
-          />
-        </main>
-      </div>
-    </ErrorBoundary>
+          {!semrushShell && !state.keys.APIFY_API_TOKEN && <div className="sidebar-setup"><span className="small-icon"><PlugZap size={17} /></span><strong>A little setup.<br />A lot to discover.</strong><p>Connect Apify to start collecting from the web.</p><Button className="ghost" onClick={() => navigate('settings')}>Connect Apify <ArrowUpRight size={14} /></Button></div>}
+        </div>
+        <div className="sidebar-bottom"><nav aria-label="Preferences">{renderNavItem(NAV.find((item) => item.id === 'settings'))}</nav><div className="sidebar-foot" role="status"><span className="local-dot" data-live={liveRuns ? '' : undefined} aria-hidden="true" /><span>{liveRuns ? `${number(liveRuns)} ${liveRuns === 1 ? 'run' : 'runs'} in progress` : 'Local workspace'}</span><span className="version">v{meta?.version || '0.1.0'}</span></div></div>
+      </aside>
+      <main className="workspace">
+        <Header active={active === 'marketing-template' ? 'dashboard' : active} title={semrushShell && active === 'content-studio' ? STUDIO_NAV.find(item => item.id === studioView)?.label : undefined} busy={busy} state={state} onRefresh={() => runAction(refresh)} onOpenPalette={() => setPaletteOpen(true)} />
+        <MobileNav workspaces={hasWorkspaceSwitcher ? contentWorkspaces : []} workspaceId={contentWorkspace?.id} busy={busy} onWorkspaceChange={id => runAction(() => api.selectContentWorkspace(id))} active={semrushShell && active === 'content-studio' ? `studio:${studioView}` : active === 'marketing-template' ? 'dashboard' : active} items={semrushShell ? [...STUDIO_NAV.map(item => ({ ...item, id: `studio:${item.id}` })), ...NAV.filter(item => item.id !== 'content-studio').map(item => item.id === 'dashboard' ? { ...item, label: 'Collection overview' } : item)] : NAV} onNavigate={value => value.startsWith('studio:') ? navigateStudio(value.slice(7)) : navigate(value)} />
+        <div className="content" ref={contentRef}>
+          {(error || notice) && <div className="feedback" onMouseEnter={() => setNoticeHeld(true)} onMouseLeave={() => setNoticeHeld(false)}><StatusBanner error={error} notice={notice} /><Button className="ghost icon-button" aria-label="Dismiss notification" onClick={() => { setError(''); setNotice(''); }}><X size={16} /></Button></div>}
+          <JobTray jobs={state.jobs || []} busy={false} onCancelJob={(jobId) => runAction(() => api.cancelJob(jobId), 'Job cancelled.')} />
+          {loading ? <div className="loading-state" role="status"><LoaderCircle className="spin" size={26} /><h2>Opening your workspace</h2><p>Loading your scrapers, datasets, and reports.</p></div> : content}
+        </div>
+        <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} onRun={runPaletteItem} />
+      </main>
+    </div>
   );
 }

@@ -6,8 +6,6 @@ import { Badge, Button, Empty, JsonBlock, number, short, statusTone } from './ui
 
 function cardsForBoard(state) {
   const saved = new Map((state.cards || []).map((card) => [card.id, card]));
-  const seeded = workflow.initialCards.map((card) => ({ ...card, ...(saved.get(card.id) || {}) }));
-  const custom = (state.cards || []).filter((card) => !workflow.initialCards.some((seed) => seed.id === card.id));
   const datasets = (state.datasets || []).map((dataset) => ({
     id: `dataset-${dataset.id}`,
     title: dataset.name,
@@ -20,7 +18,8 @@ function cardsForBoard(state) {
     date: 'Dataset',
     ...(saved.get(`dataset-${dataset.id}`) || {}),
   }));
-  return [...datasets, ...custom, ...seeded];
+  const datasetCardIds = new Set(datasets.map((card) => card.id));
+  return [...datasets, ...(state.cards || []).filter((card) => !datasetCardIds.has(card.id))];
 }
 
 function assetsForCard(state, cardId) {
@@ -105,7 +104,7 @@ function AssetFactory({ card, state, selectedDataset, busy, onSaveCard, onGenera
         <div><h3>Asset Factory</h3><p>{card ? card.title : 'Create or run a card to generate assets.'}</p></div>
         <Button className="ghost" onClick={() => onNavigate('assets')}>Library</Button>
       </div>
-      {!card && <Empty title="No card selected" detail="Run an Apify dataset or create a card to start the Golden Thread asset workflow." />}
+      {!card && <Empty title="Your content board is empty" detail="Collect a dataset to create a source card, or add your own idea below." action="Collect data" onAction={() => onNavigate('automation')} />}
       {card && (
         <>
           <div className="factory-summary">
@@ -124,7 +123,7 @@ function AssetFactory({ card, state, selectedDataset, busy, onSaveCard, onGenera
               return (
                 <div className="asset-status" key={assetType.id}>
                   <span>{assetType.name}</span>
-                  <Badge tone={statusTone(asset?.status)}>{asset?.status || 'queued'}</Badge>
+                  <Badge tone={statusTone(asset?.status)}>{asset?.status || 'not generated'}</Badge>
                   <Button className="ghost" disabled={busy} onClick={() => onGenerateAssets({ card, assetTypeIds: [assetType.id], datasetId: card.datasetId || selectedDataset?.id })}>Generate</Button>
                 </div>
               );
@@ -152,9 +151,9 @@ function AssetFactory({ card, state, selectedDataset, busy, onSaveCard, onGenera
         }
       }}>
         <h3>New card</h3>
-        <input name="title" defaultValue={draftTitle} placeholder="Trend title" required />
-        <input name="tags" placeholder="blog, linkedin, report" />
-        <textarea name="description" rows="3" placeholder="Why this matters" />
+        <label>Card title<input name="title" defaultValue={draftTitle} placeholder="Your idea or research topic" required /></label>
+        <label>Tags<input name="tags" placeholder="blog, linkedin, report" /></label>
+        <label>Notes<textarea name="description" rows="3" placeholder="What would you like to create?" /></label>
         {cardError && <p className="field-error">{cardError}</p>}
         <Button disabled={busy || savingCard}>{savingCard ? 'Adding' : 'Add to Kanban'}</Button>
       </form>
@@ -241,6 +240,11 @@ export function AssetsView({ state, onNavigate, onSaveAsset, onCreateCardFromAss
 function AssetEditor({ asset, evidence, onSaveAsset, onCreateCardFromAsset, onOpenAsset, onRevealAsset }) {
   const statusOptions = unique([asset.status, 'draft', 'in-review', 'running', 'failed', 'done', 'approved', 'posted']);
   const evalScore = evaluateArtifact(asset, evidence || []);
+  const previewIssues = evalScore.issues.map((issue) => {
+    if (issue === 'Some evidence IDs do not exist in the evidence graph.') return 'Some attached evidence IDs are outside the loaded preview.';
+    if (issue.startsWith('Unsupported claim count:')) return `${evalScore.unsupportedClaims.length} sentences have no keyword match in the preview.`;
+    return issue;
+  });
   return (
     <form className="asset-edit-form" onSubmit={(event) => {
       event.preventDefault();
@@ -248,10 +252,11 @@ function AssetEditor({ asset, evidence, onSaveAsset, onCreateCardFromAsset, onOp
       onSaveAsset({ ...asset, markdown: form.get('markdown'), status: form.get('status') });
     }}>
       <div className="artifact-eval">
-        <Badge tone={evalScore.passed ? 'ready' : 'warning'}>{evalScore.score}/100</Badge>
+        <Badge>{evalScore.score}/100 · heuristic</Badge>
         <div>
-          <strong>Evidence check</strong>
-          <small>{evalScore.issues.length ? evalScore.issues.join(' ') : 'Evidence links look consistent.'}</small>
+          <strong>Saved draft checks</strong>
+          <small>{previewIssues.length ? previewIssues.join(' ') : 'Attached sources match the loaded preview.'}</small>
+          <small>Keyword checks use a limited evidence preview. This score does not verify factual accuracy.</small>
         </div>
       </div>
       <select name="status" defaultValue={asset.status}>

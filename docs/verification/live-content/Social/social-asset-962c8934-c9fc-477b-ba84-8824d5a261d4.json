@@ -1,0 +1,116 @@
+{
+  "deliverableId": "social",
+  "editionId": "general",
+  "title": "Social pack: Scraper Studio build notes (evidence-first research workflow)",
+  "summary": "These are social posts for LinkedIn, X and Facebook, written as build notes. They're based only on the internal implementation brief (approved-implementation-brief). The source is an internal brief, not market research. It has no statistics, performance results or trend data, so none are used. Every factual line repeats what the brief says about how the workflow is designed or what's missing. This pack includes: how research programs are set up, discovery in batches, a person approving themes, reports produced in pairs, reports that keep their evidence references and state missing information, content jobs based on brand knowledge and a product registry, completed outputs surviving unrelated failures, and supported input formats. The unfinished work is stated plainly: image generation needs a configured provider, the Windows installer isn't deployed or verified, and billing and SSO aren't built. The hooks, framing and calls to action are proposed copy, not facts from the source.",
+  "sections": [
+    {
+      "id": "linkedin",
+      "heading": "LinkedIn",
+      "body": "A research report is only as useful as what it admits it doesn't know.\n\nThat's the rule we've been building Scraper Studio around: reports keep their evidence references and disclose missing information.\n\nHow the workflow is designed:\n\nResearch programs are configured by Reddit communities, X accounts, LinkedIn profiles, dates, and budgets.\n\nDiscovery runs in batches. A person approves the themes before classification starts. Reports come out in pairs.\n\nContent jobs use supplied brand knowledge and an approved product registry. Completed outputs survive unrelated failures.\n\nThe content studio accepts pasted text, Markdown, and DOCX.\n\nWhat's not done: image generation still needs a configured provider, the Windows installer hasn't been publicly deployed or verified, and billing and SSO aren't implemented.\n\nThese are build notes, not a launch announcement.\n\nWhere does your current research process lose track of its sources? Tell us in the comments.",
+      "items": [],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    },
+    {
+      "id": "x",
+      "heading": "X thread",
+      "body": "",
+      "items": [
+        {
+          "label": "Tweet 1 (hook)",
+          "text": "A research report should tell you what it doesn't know. That's the design rule behind what we're building in Scraper Studio. Build notes below.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "Tweet 2",
+          "text": "Research programs are configured by Reddit communities, X accounts, LinkedIn profiles, dates, and budgets.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "Tweet 3",
+          "text": "Discovery runs in batches. A person approves the themes before classification begins. Reports are produced in pairs.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "Tweet 4",
+          "text": "Reports preserve evidence references and disclose missing information. Content jobs use supplied brand knowledge and an approved product registry.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "Tweet 5",
+          "text": "Completed outputs survive unrelated failures. The content studio accepts pasted text, Markdown, and DOCX documents.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "Tweet 6",
+          "text": "Not done yet: image generation needs a configured provider, the Windows installer isn't publicly deployed or verified, and billing and SSO aren't implemented.",
+          "evidenceIds": [
+            "approved-implementation-brief"
+          ],
+          "productIds": []
+        },
+        {
+          "label": "Tweet 7 (CTA)",
+          "text": "Where does your research workflow lose track of its sources? Reply and tell us.",
+          "evidenceIds": [],
+          "productIds": []
+        }
+      ],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    },
+    {
+      "id": "facebook",
+      "heading": "Facebook",
+      "body": "What's the most useful thing a research report can do? Be honest about what it doesn't know.\n\nWe're building Scraper Studio so reports keep their evidence references and disclose missing information. Research runs in discovery batches, a person approves themes before classification, and reports come out in pairs. The content studio takes pasted text, Markdown, and DOCX.\n\nStill to come: image generation needs a configured provider, the Windows installer hasn't been publicly verified, and billing and SSO aren't implemented yet.\n\nHow does your team keep research tied to its sources? Share in the comments.",
+      "items": [],
+      "evidenceIds": [
+        "approved-implementation-brief"
+      ],
+      "productIds": []
+    }
+  ],
+  "caveats": [
+    "The only source is an internal implementation brief. It explicitly says it isn't independent market research and isn't proof of user demand or marketing performance. The posts are framed as build notes to match that.",
+    "The source has no statistics, measurements or external trend data, so no numbers appear in any post. The LinkedIn requirement for a sourced data point couldn't be met.",
+    "The product registry is empty, so every productIds list is empty. 'Scraper Studio' is named because it appears in the source, but it has no registry ID.",
+    "The saved brand profile has no audience, positioning, ICP, voice, forbidden claims or editorial rules. The tone is a neutral default and should be checked against the real brand voice before publishing.",
+    "The Semrush workspace preset mentioned in the source is left out on purpose, because this is the General edition and no Semrush-specific context was approved.",
+    "The source doesn't say whether the product is available, when it launches, what it costs, or whether it's enterprise or self-serve. The calls to action ask for comments rather than sign-ups, and nothing suggests availability.",
+    "Hooks, framing lines and CTAs are proposed copy, not facts from the source. That includes the idea that a report should say what it doesn't know, which is an editorial framing of the brief's statement that reports 'disclose missing information'.",
+    "The test described in the brief (sending it to a Claude CLI and running a request budget) is left out of the posts. It's an internal process detail, not a product fact.",
+    "Character and word counts were estimated by hand and should be checked before publishing."
+  ],
+  "approvedProducts": [],
+  "evidenceRegister": [
+    {
+      "id": "approved-implementation-brief",
+      "text": "# Proposed live validation source\n\nThis is an internal implementation brief, not independent market research.\n\nScraper Studio now has General and Semrush workspace presets. The new content studio accepts pasted text, Markdown, and DOCX documents. Research programs configure Reddit communities, X accounts, LinkedIn profiles, dates, and budgets. Research proceeds through discovery batches, human theme approval, classification batches, and paired reports. Content jobs use supplied brand knowledge and an approved product registry. Completed outputs survive unrelated failures. Reports preserve evidence references and disclose missing information.\n\nImage generation still requires a configured image provider. The browser runtime and Windows installer configuration have not yet been publicly deployed or verified on Windows. Billing and SSO are not implemented. These are implementation facts, not proof of user demand or marketing performance. No performance claims or external trend claims are supplied.\n\nProposed test: send this exact brief to the signed-in Claude CLI using claude-opus-5-5 and generate one evidence report plus one social pack, with a total request budget of $1.50. No private",
+      "url": "",
+      "platform": "",
+      "author": "",
+      "publishedAt": "",
+      "excerptTruncated": true
+    }
+  ]
+}

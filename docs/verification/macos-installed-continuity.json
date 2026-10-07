@@ -1,0 +1,46 @@
+{
+  "kind": "installed-app-read-only-continuity",
+  "createdAt": "2026-09-28T00:56:15.101Z",
+  "passed": true,
+  "checks": {
+    "bundleIdentityMatches": true,
+    "executableSupportsArm64": true,
+    "signatureValid": true,
+    "developerIdSigned": true,
+    "signingTeamMatches": true,
+    "hardenedRuntime": true,
+    "runtimeAppMatches": true,
+    "runtimeDataRootMatches": true,
+    "datasetsMatchProfile": true,
+    "generalWorkspacePresent": true,
+    "semrushWorkspacePresent": true,
+    "noRunningJobs": true,
+    "noEnabledSchedules": true,
+    "expectedDatasetCount": true,
+    "encryptedCredentialsAvailable": true,
+    "allWorkspaceJobsIdle": true,
+    "googleCredentialsPreserved": true,
+    "apifyAvailable": true,
+    "openAiAvailable": true,
+    "explicitImageFileMatches": true,
+    "profileUnchangedDuringProbe": true,
+    "cleanLaunchAttested": true
+  },
+  "datasetCount": 4,
+  "encryptedEntriesPresent": {
+    "APIFY_API_TOKEN": true,
+    "GOOGLE_SHEETS_WEBHOOK_URL": false,
+    "GOOGLE_DOCS_ACCESS_TOKEN": false,
+    "OPENAI_API_KEY": false
+  },
+  "credentialsAvailable": {
+    "APIFY_API_TOKEN": true,
+    "GOOGLE_SHEETS_WEBHOOK_URL": false,
+    "GOOGLE_DOCS_ACCESS_TOKEN": false,
+    "OPENAI_API_KEY": true
+  },
+  "probeProviderCalls": 0,
+  "probeAiCliCalls": 0,
+  "probeConfigWrites": 0,
+  "scope": "Only appMeta/state IPC was invoked. Normal app startup/background activity is outside this probe. Clean credential environment is operator-attested; credential values and source-file contents were not returned. Notarization is not assessed."
+}

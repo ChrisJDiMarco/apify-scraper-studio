@@ -1,0 +1,110 @@
+[
+  {
+    "id": "reddit",
+    "name": "Reddit",
+    "platform": "reddit",
+    "actorId": "trudax/reddit-scraper-lite",
+    "mode": "keyword",
+    "description": "Search selected subreddits or all public Reddit.",
+    "scopeNote": "Posts and comments share the result limit. Relative time filters apply to posts; custom dates collect newer posts or thread comments. At least 10 results must be requested.",
+    "mapper": {
+      "text": "body",
+      "author": "username",
+      "url": "url",
+      "publishedAt": "createdAt",
+      "externalId": "id",
+      "type": "dataType"
+    },
+    "outputMappingVerified": true,
+    "schemaUrl": "https://apify.com/trudax/reddit-scraper-lite/input-schema",
+    "schemaCheckedAt": "2026-09-27",
+    "pricingUrl": "https://apify.com/trudax/reddit-scraper-lite/pricing",
+    "minItems": 10,
+    "capabilityNote": "Subreddits, relative dates, earliest dates, comments, media links and post sorting.",
+    "documentationUrls": [
+      "https://apify.com/trudax/reddit-scraper-lite/input-schema",
+      "https://apify.com/trudax/reddit-scraper-lite",
+      "https://support.reddithelp.com/hc/en-us/articles/19696541895316-Available-search-features"
+    ]
+  },
+  {
+    "id": "x",
+    "name": "X / Twitter",
+    "platform": "x",
+    "actorId": "apidojo/twitter-scraper-lite",
+    "mode": "keyword",
+    "description": "Search topics, specific accounts, or conversation threads.",
+    "scopeNote": "Uses X search with account, date, reply and media filters. Dates include the whole UTC day. Search coverage and repost availability depend on X.",
+    "mapper": {
+      "text": "text",
+      "author": "author.userName",
+      "url": "url",
+      "publishedAt": "createdAt",
+      "externalId": "id",
+      "type": "type"
+    },
+    "outputMappingVerified": true,
+    "schemaUrl": "https://apify.com/apidojo/twitter-scraper-lite/input-schema",
+    "schemaCheckedAt": "2026-09-27",
+    "pricingUrl": "https://apify.com/apidojo/twitter-scraper-lite/pricing",
+    "minItems": 1,
+    "capabilityNote": "Accounts, inclusive date range, replies, conversation threads, reposts and media.",
+    "documentationUrls": [
+      "https://apify.com/apidojo/twitter-scraper-lite/input-schema",
+      "https://apify.com/apidojo/twitter-scraper-lite",
+      "https://github.com/igorbrigadir/twitter-advanced-search"
+    ]
+  },
+  {
+    "id": "linkedin-search",
+    "name": "LinkedIn search",
+    "platform": "linkedin",
+    "actorId": "supreme_coder/linkedin-post",
+    "mode": "keyword",
+    "description": "Discover LinkedIn posts about a topic.",
+    "scopeNote": "Keyword search with an optional earliest date. Comments, liked-user details and document details are optional; availability depends on the Actor and LinkedIn.",
+    "mapper": {
+      "text": "text",
+      "author": "authorName",
+      "url": "url",
+      "publishedAt": "postedAtISO",
+      "externalId": "urn"
+    },
+    "outputMappingVerified": true,
+    "schemaUrl": "https://apify.com/supreme_coder/linkedin-post/input-schema",
+    "schemaCheckedAt": "2026-09-27",
+    "pricingUrl": "https://apify.com/supreme_coder/linkedin-post/pricing",
+    "minItems": 1,
+    "capabilityNote": "Keyword search, earliest date, comments, liked-user details and attached documents.",
+    "documentationUrls": [
+      "https://apify.com/supreme_coder/linkedin-post/input-schema"
+    ]
+  },
+  {
+    "id": "linkedin-profile",
+    "name": "LinkedIn accounts",
+    "platform": "linkedin",
+    "actorId": "harvestapi/linkedin-profile-posts",
+    "mode": "profiles",
+    "description": "Collect posts from selected people and companies.",
+    "scopeNote": "Collects account posts, with optional comments and reactions billed as additional rows. Topic text is research context, not a keyword filter. The post allowance is shared evenly across accounts.",
+    "mapper": {
+      "text": "content",
+      "author": "author.name",
+      "url": "linkedinUrl",
+      "publishedAt": "postedAt.date",
+      "externalId": "id",
+      "type": "type"
+    },
+    "outputMappingVerified": true,
+    "schemaUrl": "https://apify.com/harvestapi/linkedin-profile-posts/input-schema",
+    "schemaCheckedAt": "2026-09-27",
+    "pricingUrl": "https://apify.com/harvestapi/linkedin-profile-posts/pricing",
+    "minItems": 1,
+    "capabilityNote": "Profiles and companies, relative or earliest date, comments, reactions, quote posts and reposts.",
+    "documentationUrls": [
+      "https://apify.com/harvestapi/linkedin-profile-posts/input-schema",
+      "https://apify.com/harvestapi/linkedin-profile-posts"
+    ]
+  }
+]

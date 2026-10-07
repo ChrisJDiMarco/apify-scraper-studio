@@ -1,0 +1,85 @@
+{
+  "dataset": {
+    "id": "qa-current",
+    "name": "QA FIXTURE · current competitor pages",
+    "platform": "web",
+    "sourceType": "",
+    "createdAt": "2026-09-27T12:00:00.000Z",
+    "brandContext": null,
+    "marketingBrief": null,
+    "importMetadata": null,
+    "comparisonSummary": null
+  },
+  "collectionReceipt": null,
+  "id": "review-export-1790538805198-88owm9",
+  "analysisId": "qa-report",
+  "createdAt": "2026-09-27T19:53:25.199Z",
+  "reviewStatus": "approved",
+  "reviewer": "QA reviewer — fixture only",
+  "reviewVersion": 1,
+  "contentFingerprint": "10d8774946cb1e62948236cac15d88d332bc9febb43ec94134cc98cd55d20c6f",
+  "reportSha256": "3402c362a03bef10270870869d5d9f4611c34f92faa5e6efdcbc9f29ebdd9f04",
+  "aiReceipt": {
+    "provider": "qa-fixture",
+    "actualModel": "QA fixture — no AI call",
+    "costUsd": null
+  },
+  "coverage": {
+    "requestedScopeKnown": true,
+    "requestedUrls": [
+      "https://example.com/pricing",
+      "https://example.com/features",
+      "https://example.com/faq"
+    ],
+    "retrievedUrls": [
+      "https://example.com/pricing",
+      "https://example.com/features"
+    ],
+    "missingUrls": [
+      "https://example.com/faq"
+    ],
+    "missingSampleIds": [],
+    "counts": {
+      "total": 2,
+      "usable": 2,
+      "textless": 0,
+      "duplicateRows": 0,
+      "missingIds": 0,
+      "ambiguousIds": 0,
+      "unsafeUrls": 0,
+      "missingUrls": 0,
+      "uniqueUrls": 2,
+      "uniqueDomains": 1,
+      "included": 1,
+      "usableIncluded": 1,
+      "omitted": 1,
+      "truncated": 0,
+      "unknownPublicationDates": 0,
+      "importInputRows": null,
+      "importSkippedRows": null,
+      "importDuplicateRows": null
+    },
+    "collectedAt": "2026-09-27T12:00:00.000Z",
+    "collectedAtBasis": "recorded collection time",
+    "publicationRange": {
+      "earliest": "2026-09-19T12:00:00.000Z",
+      "latest": "2026-09-19T12:00:00.000Z"
+    },
+    "sourceCounts": {
+      "example.com": 2
+    },
+    "blockers": [],
+    "warnings": [
+      {
+        "id": "missing-requested-pages",
+        "message": "1 requested URLs have no matching returned record. This is not proof that those pages were removed."
+      },
+      {
+        "id": "outside-analysis-sample",
+        "message": "1 loaded records were outside the recorded analysis sample."
+      }
+    ],
+    "fingerprint": "d66443157dfde0e22ceb2f17bf90f8652c9f6a40678a42a848b7af0100063ab4"
+  },
+  "localReviewOnly": true
+}

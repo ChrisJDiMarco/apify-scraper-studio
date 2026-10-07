@@ -1,0 +1,107 @@
+/* Craft layer: one motion vocabulary and the small details every view shares. Loaded last. */
+:root {
+  /* Springs sampled from a damped oscillator. `open` arrives with ~4% overshoot; `settle` has none. */
+  --spring-open: linear(0, 0.084, 0.266, 0.471, 0.657, 0.805, 0.911, 0.979, 1.017, 1.035, 1.038, 1.034, 1.027, 1.019, 1.012, 1.007, 1.003, 1.001, 0.999, 1);
+  --spring-settle: linear(0, 0.055, 0.173, 0.31, 0.442, 0.559, 0.657, 0.737, 0.801, 0.85, 0.888, 0.917, 0.939, 0.955, 0.967, 0.976, 0.983, 0.987, 0.991, 0.993, 0.995, 0.997, 0.998, 1);
+  --fade: 140ms ease-out;
+  --dur-open: 260ms;
+  --dur-settle: 300ms;
+  --nav-indicator: #edf4ee;
+  interpolate-size: allow-keywords;
+}
+.app-shell[data-edition="semrush"] { --nav-indicator: #c190ff; }
+
+/* Numbers that change should not jitter. */
+.nav-count, .badge, kbd, td, .version, .sidebar-foot, .cs-activity-strip strong, .cs-stat-line strong, .dataset-window-tools, .home-metric strong { font-variant-numeric: tabular-nums; }
+h1, h2, h3 { text-wrap: balance; }
+p, small { text-wrap: pretty; }
+
+/* Press acknowledges the click before the work starts. */
+button:active:not(:disabled) { transform: translateY(1px); transition-duration: 40ms; }
+
+/* Navigation: one pill slides under the active item; the page area rises in via a view transition. */
+.sidebar nav[aria-label="Primary"] { position: relative; }
+.sidebar nav button { position: relative; z-index: 1; }
+.app-shell[data-edition] .sidebar nav[aria-label="Primary"] button.active,
+.app-shell[data-edition] .sidebar nav[aria-label="Primary"] button.active:hover:not(:disabled) { background: transparent; }
+.nav-indicator { position: absolute; top: 0; left: 0; z-index: 0; border-radius: 7px; background: var(--nav-indicator); pointer-events: none; }
+.app-shell[data-edition="semrush"] .nav-indicator { border-radius: 999px; }
+.nav-indicator.settled { transition: transform var(--dur-settle) var(--spring-settle), width var(--dur-settle) var(--spring-settle), height var(--dur-settle) var(--spring-settle); }
+.content { view-transition-name: workspace-content; }
+::view-transition-group(workspace-content) { animation: none; }
+::view-transition-old(workspace-content) { animation: craft-fade-out 110ms ease-out both; }
+::view-transition-new(workspace-content) { animation: craft-rise-in 240ms var(--spring-settle) both; }
+/* The rest of the window stays live so the pill's own slide is what you see. */
+::view-transition-old(root) { animation: none; opacity: 0; }
+::view-transition-new(root) { animation: none; }
+
+/* The sidebar scrolls quietly: a soft fade marks more items above or below instead of a scrollbar track. */
+@property --fade-top { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --fade-bottom { syntax: '<length>'; inherits: false; initial-value: 0px; }
+.sidebar-body {
+  scrollbar-width: none;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent 100%);
+  animation: craft-scroll-fade linear both;
+  animation-timeline: scroll(self);
+}
+@keyframes craft-scroll-fade {
+  0% { --fade-top: 0px; --fade-bottom: 32px; }
+  6% { --fade-top: 20px; --fade-bottom: 32px; }
+  94% { --fade-top: 20px; --fade-bottom: 32px; }
+  100% { --fade-top: 20px; --fade-bottom: 0px; }
+}
+.more-nav > button:not(.more-toggle) { animation: craft-rise-in 220ms var(--spring-settle) both; animation-delay: calc(var(--i, 0) * 22ms); }
+
+/* Disclosures open and close at their real height instead of snapping. Menus keep their instant popover. */
+details:not(.data-export-menu)::details-content { block-size: 0; overflow-y: clip; transition: block-size var(--dur-settle) var(--spring-settle), content-visibility var(--dur-settle) allow-discrete; }
+details:not(.data-export-menu)[open]::details-content { block-size: auto; }
+summary > svg:last-child { transition: transform 200ms var(--spring-settle); }
+
+/* Command palette grows from the search field the person just reached for. */
+.command-palette-backdrop { animation: craft-fade-in var(--fade) both; }
+.command-palette { transform-origin: 50% 0; animation: craft-pop-in var(--dur-open) var(--spring-open) both; }
+.palette-list button { display: flex; align-items: center; gap: 11px; transition: background 90ms ease, color 90ms ease; }
+.palette-list button:hover { background: none; }
+.palette-list button.active, .palette-list button.active:hover:not(:disabled) { background: #edf5ec; color: var(--ink); }
+.app-shell[data-edition="semrush"] .palette-list button.active { background: #f1e6ff; }
+.palette-list button > svg { flex: 0 0 auto; color: #8a9a8e; }
+.palette-list button > span { flex: 1; }
+.palette-list button > kbd { visibility: hidden; font-size: 10px; color: #7c8a80; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; background: #fff; }
+.palette-list button.active > kbd { visibility: visible; }
+
+/* Confirmations stay where the eye is, even deep in a long form. */
+.feedback { position: sticky; top: 0; z-index: 6; animation: craft-drop-in var(--dur-open) var(--spring-open) both; }
+.feedback .notice-line, .feedback .error-line { box-shadow: 0 8px 24px rgba(22, 32, 33, 0.07); }
+.job-pill { animation: craft-rise-in 240ms var(--spring-settle) both; }
+
+/* Refresh turns while work is in flight. */
+.icon-button.is-working svg { animation: spin 1s linear infinite; }
+
+/* Signature: the workspace pulse. Still when idle; a slow ripple while research is collecting. */
+.local-dot { position: relative; transition: background 300ms ease; }
+.local-dot[data-live]::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: inherit; animation: craft-listen 2.4s cubic-bezier(.2, .6, .3, 1) infinite; }
+.app-shell[data-edition="general"] .local-dot[data-live] { background: #238c70; }
+
+@keyframes craft-fade-in { from { opacity: 0; } }
+@keyframes craft-fade-out { to { opacity: 0; } }
+@keyframes craft-rise-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes craft-drop-in { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes craft-pop-in { from { opacity: 0; transform: translateY(-4px) scale(.985); } }
+@keyframes craft-listen { from { transform: scale(1); opacity: .5; } to { transform: scale(3.6); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Movement becomes a plain fade; the scroll fade and spinners stay because they carry information. */
+  .more-nav > button:not(.more-toggle), .job-pill, .feedback, .command-palette { animation-name: craft-fade-in; animation-delay: 0ms; }
+  .nav-indicator.settled { transition: none; }
+  details:not(.data-export-menu)::details-content, summary > svg:last-child { transition: none; }
+  .local-dot[data-live]::after { display: none; }
+  button:active:not(:disabled) { transform: none; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
+@media (prefers-contrast: more) {
+  :root, .app-shell[data-edition] { --line: #b8c4bd; }
+  .sidebar-body { mask-image: none; }
+}
+
+/* The open palette is already the focus context; a ring around its only field is noise. */
+.app-shell .palette-input input:is(:focus, :focus-visible) { outline: none; box-shadow: none; }
