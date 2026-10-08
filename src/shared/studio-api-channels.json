@@ -23,6 +23,8 @@
     "readReferenceDoc": "studio:readReferenceDoc",
     "deleteReferenceDoc": "studio:deleteReferenceDoc",
     "askHelp": "help:ask",
+    "createHelpImage": "help:image",
+    "saveHelpImage": "help:save-image",
     "exportSetup": "setup:export",
     "openSetupFile": {
       "channel": "setup:open",

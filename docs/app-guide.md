@@ -49,14 +49,24 @@ The header on every page has **Ask AI** (⌘J), **Search or jump to…** (⌘K, 
 
 ### Ask AI
 
-**Ask AI** in the header opens a help panel on any page. Ask how something works, what a run will cost, why a run stopped, or what to do next.
+**Ask AI** in the header opens a help panel on any page. Ask how something works, what a run will cost, why a run stopped, or what to do next. You can also ask it for a picture.
 
 - It answers from this guide plus a summary of your setup: current page, workspace, product and taxonomy counts, reference document titles, which connections are saved (yes or no only), Claude route and model, up to 10 programs' settings, your last three research runs (status, message, cost, warnings), and what is running now.
-- It never sees API keys, tokens, collected posts or report text.
+- It also sees the names of your latest trends (so "an image for my latest trend" works) and the workspace's visual direction. It never sees API keys, tokens, collected posts or report text.
 - It can't click, change settings, or start or stop runs. Answers can include **Open** buttons for the right pages and suggested follow-up questions.
 - Each question uses your Claude connection (Settings → Writing & research) and **Default Claude model** at low effort: about $0.10 a question, capped at $0.50. Each answer shows the model and cost.
 - The conversation lasts until you quit. The round-arrow button starts a new one. Esc closes the panel. If Claude isn't reachable, the error offers **Open Settings → Writing & research**.
 - AI answers can be mistaken. Check important numbers on the page itself.
+
+**Pictures in Ask AI.** Ask for a picture in plain words, for example "Create a hero image for my latest trend" or "a square LinkedIn graphic about AI Overviews in lavender and mint". Claude writes a detailed prompt and OpenAI draws it; a placeholder shows while it's drawn, usually under a minute.
+
+- Pictures need an OpenAI API key in **Settings → Image generation** (the same key Create content uses). Without it, Ask AI explains how to add one.
+- Brand and campaign pictures follow the workspace's visual direction (in the Semrush workspace, the Semrush brand palette). Describe your own style and it follows yours instead. It never draws company logos; it leaves space for one.
+- Sizes: landscape (the default, for social and hero images), square or portrait. Ask for the shape you want.
+- To change a picture, just say so ("make it bluer", "remove the text"): Ask AI rewrites the earlier prompt with your change and draws a new one.
+- Click a picture to see it full size. **Download** saves the PNG. If drawing fails, **Try again** repeats it.
+- Each picture costs a few cents of OpenAI usage on top of the answer (about $0.10 of Claude); the cost shows under the picture. The app reserves at most $1 per picture.
+- Pictures are saved in the studio's data folder. They don't appear in **Library**; use **Create content** for campaign images that belong with a report.
 
 ## The browser studio
 

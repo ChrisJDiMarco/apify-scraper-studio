@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   deleteReferenceDoc: (payload) => invoke('studio:deleteReferenceDoc', payload),
   // Ask AI: questions about the app, answered from the app guide and this person's setup.
   askHelp: (payload) => invoke('help:ask', payload),
+  createHelpImage: (payload) => invoke('help:image', payload),
+  saveHelpImage: (payload) => invoke('help:save-image', payload),
   // Share a setup: export to a file, open one for preview, then import the previewed file.
   exportSetup: (payload) => invoke('setup:export', payload),
   openSetupFile: () => invoke('setup:open'),

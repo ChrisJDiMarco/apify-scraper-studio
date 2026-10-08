@@ -11,6 +11,7 @@ const copies = [
   ['src/main/bridge-delivery.js', 'out/main/bridge-delivery.js'],
   ['src/main/ai-routes.js', 'out/main/ai-routes.js'],
   ['src/main/web-runtime.js', 'out/main/web-runtime.js'], // loaded only under STUDIO_RUNTIME=web
+  ['src/main/help-images.js', 'out/main/help-images.js'],
   ['docs/app-guide.md', 'out/main/app-guide.md'], // Ask AI answers from this guide
   ['src/shared/setup-bundle.js', 'out/shared/setup-bundle.js'],
   ['src/shared/anthropic-runner.js', 'out/shared/anthropic-runner.js'],

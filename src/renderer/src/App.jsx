@@ -594,7 +594,7 @@ function StudioApp({ api }) {
           <JobTray jobs={state.jobs || []} busy={false} onCancelJob={(jobId) => confirmCancel() && runAction(() => api.cancelJob(jobId), 'Job cancelled.')} />
           {loading ? <div className="loading-state" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><h2>Opening your workspace</h2><p>Loading your research, sheets and reports.</p></div> : <ErrorBoundary page key={`${active}:${studioView}`}>{content}</ErrorBoundary>}
         </div>
-        <HelpAssistant api={api} open={helpOpen} onClose={() => setHelpOpen(false)} page={{ id: active === 'content-studio' ? studioView : active, label: (semrushShell && active === 'content-studio' ? STUDIO_NAV.find((item) => item.id === studioView)?.label : semrushShell && active === 'dashboard' ? 'Collection overview' : NAV.find((item) => item.id === active)?.label) || '' }} onOpenPage={openHelpPage} onOpenSettings={() => navigate('settings')} />
+        <HelpAssistant api={api} open={helpOpen} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} onClose={() => setHelpOpen(false)} page={{ id: active === 'content-studio' ? studioView : active, label: (semrushShell && active === 'content-studio' ? STUDIO_NAV.find((item) => item.id === studioView)?.label : semrushShell && active === 'dashboard' ? 'Collection overview' : NAV.find((item) => item.id === active)?.label) || '' }} onOpenPage={openHelpPage} onOpenSettings={() => navigate('settings')} />
         <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} onRun={runPaletteItem} />
       </main>
     </div>

@@ -46,6 +46,57 @@ describe('Ask AI panel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Open Settings/ }));
     expect(onOpenSettings).toHaveBeenCalled();
   });
+  it('creates a picture in the chat: placeholder first, then the picture with its cost, download and enlarge', async () => {
+    let finish; const drawn = new Promise((resolve) => { finish = resolve; });
+    const picture = { title: 'AI Overviews hero', prompt: 'A lavender comet trail over a results page', size: '1536x1024' };
+    const api = {
+      askHelp: vi.fn(async () => reply({ answer: 'Making a landscape hero image for **Branded AI Overviews Click Collapse**.', pages: [], followUps: [], image: picture })),
+      createHelpImage: vi.fn(() => drawn),
+      saveHelpImage: vi.fn(async () => ({ fileName: 'AI Overviews hero.png' })),
+    };
+    const onClose = vi.fn();
+    render(<HelpAssistant api={api} open imagesReady onClose={onClose} page={page} onOpenPage={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Create a hero image for my latest trend/ }));
+    expect(await screen.findByText(/Creating the picture/)).toBeInTheDocument();
+    expect(api.createHelpImage).toHaveBeenCalledWith(picture);
+    finish({ ...picture, id: 'help-image-1', dataUrl: 'data:image/png;base64,iVBORw0KGgo=', costUsd: 0.0472, model: 'gpt-image-2.5-flare' });
+    const image = await screen.findByRole('img', { name: 'AI Overviews hero' });
+    expect(image).toHaveAttribute('src', 'data:image/png;base64,iVBORw0KGgo=');
+    expect(screen.getByRole('article', { name: 'Answer' })).toHaveTextContent('OpenAI image · $0.05');
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+    await waitFor(() => expect(api.saveHelpImage).toHaveBeenCalledWith({ id: 'help-image-1' }));
+    expect(await screen.findByText('Saved AI Overviews hero.png.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Enlarge AI Overviews hero' }));
+    expect(screen.getByRole('dialog', { name: 'AI Overviews hero' })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); expect(onClose).not.toHaveBeenCalled();
+  });
+  it('sends the earlier picture prompt with a follow-up so revisions build on it', async () => {
+    const picture = { title: 'Hero', prompt: 'A lavender comet trail', size: '1536x1024' };
+    const api = { askHelp: vi.fn(async () => reply({ answer: 'Here it is.', pages: [], followUps: [], image: picture })), createHelpImage: vi.fn(async () => ({ ...picture, id: 'help-image-1', dataUrl: 'data:image/png;base64,AA==', costUsd: 0.05 })), saveHelpImage: vi.fn() };
+    render(<HelpAssistant api={api} open imagesReady onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    const box = screen.getByRole('textbox', { name: 'Question about Scraper Studio' });
+    fireEvent.change(box, { target: { value: 'Make a hero image' } }); fireEvent.keyDown(box, { key: 'Enter' });
+    await screen.findByRole('img', { name: 'Hero' });
+    fireEvent.change(box, { target: { value: 'Make it bluer' } }); fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(api.askHelp).toHaveBeenCalledTimes(2));
+    expect(api.askHelp.mock.calls[1][0].history[1].content).toBe('Here it is.\n[Picture created from this prompt: A lavender comet trail]');
+  });
+  it('offers Try again when a picture fails, and hides picture suggestions without an image key', async () => {
+    const picture = { title: 'Hero', prompt: 'A lavender comet trail', size: '1024x1024' };
+    const createHelpImage = vi.fn().mockRejectedValueOnce(new Error('OpenAI denied image access.')).mockResolvedValueOnce({ ...picture, id: 'help-image-2', dataUrl: 'data:image/png;base64,AA==', costUsd: 0.04 });
+    const api = { askHelp: vi.fn(async () => reply({ answer: 'Making it.', pages: [], followUps: [], image: picture })), createHelpImage, saveHelpImage: vi.fn() };
+    const { rerender } = render(<HelpAssistant api={api} open imagesReady onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Create a hero image/ }));
+    expect(await screen.findByText(/OpenAI denied image access/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('img', { name: 'Hero' })).toBeInTheDocument();
+    expect(createHelpImage).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new conversation' }));
+    rerender(<HelpAssistant api={api} open imagesReady={false} onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /Create a hero image/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Add an OpenAI key in Settings/)).toBeInTheDocument();
+  });
   it('is hidden and inert while closed, closes on Escape, and is absent without the bridge', () => {
     const onClose = vi.fn();
     const { container, rerender } = render(<HelpAssistant api={{ askHelp: vi.fn() }} open={false} onClose={onClose} page={page} onOpenPage={vi.fn()} />);
