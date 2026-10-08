@@ -1,0 +1,15 @@
+.git
+.claude
+node_modules
+out
+dist
+test
+resources
+docs/assets
+docs/verification
+coverage
+*.log
+.env
+.env.*
+*.pem
+*.key

@@ -1,25 +1,45 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ContentStudioView } from '../renderer/src/content-studio-view.jsx';
+import App from '../renderer/src/App.jsx';
+import { createWebApi, postJson, request, SignedOut } from './web-api.js';
 import '../renderer/src/styles.css';
+import '../renderer/src/workflow.css';
 import '../renderer/src/premium.css';
+import '../renderer/src/semrush-shell.css';
+import '../renderer/src/semrush-tools.css';
 import '../renderer/src/craft.css';
 import './web.css';
-async function request(url, payload) { const response = await fetch(url, payload === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); const result = await response.json(); if (!response.ok) { const error = new Error(result.error || 'Request failed.'); error.status = response.status; throw error; } return result; }
-function App() {
-  const [state, setState] = useState(null); const [error, setError] = useState(''); const [password, setPassword] = useState(''); const [notice, setNotice] = useState(''); const [signedOut, setSignedOut] = useState(false); const [busy, setBusy] = useState(false);
-  async function refresh() { try { setState(await request('/api/state')); setSignedOut(false); } catch (e) { if (e.status === 401) setSignedOut(true); else setError(e.message); } }
-  // Poll only while the tab is visible; catch up the moment it returns so a background tab costs nothing.
-  useEffect(() => { refresh(); const timer = setInterval(() => { if (!document.hidden) refresh(); }, 2500); const onVisible = () => { if (!document.hidden) refresh(); }; document.addEventListener('visibilitychange', onVisible); return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); }; }, []);
-  const api = useMemo(() => { const call = async (method, payload) => {
-    if (method === 'importStudioSource' && !payload?.url) { const file = await new Promise(resolve => { const input = document.createElement('input'); input.type = 'file'; input.accept = '.txt,.md,.docx'; input.onchange = () => resolve(input.files?.[0]); input.oncancel = () => resolve(null); input.click(); }); if (!file) return null; if (file.size > 20 * 1024 * 1024) throw new Error('Choose a file under 20 MB.'); const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = reject; reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.readAsDataURL(file); }); payload = { fileName: file.name, base64 }; }
-    const result = await request('/api/rpc', { method, payload }); await refresh();
-    if (method === 'exportStudioRun' && result.downloadUrl) { const a = document.createElement('a'); a.href = result.downloadUrl; a.download = 'studio-campaign.tar.gz'; a.click(); }
-    if (method === 'openStudioAsset') { const blob = result.imageDataUrl ? await (await fetch(result.imageDataUrl)).blob() : new Blob([result.markdown], { type: 'text/markdown' }); const href = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = href; a.download = `${result.asset.title.replace(/[^a-zA-Z0-9_-]/g, '-')}.${result.imageDataUrl ? 'png' : 'md'}`; a.click(); setTimeout(() => URL.revokeObjectURL(href), 30000); }
-    return result;
-  }; return Object.fromEntries(['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus'].map(method => [method, payload => call(method, payload)])); }, []);
-  if (signedOut) return <main className="web-login"><form onSubmit={async e => { e.preventDefault(); setBusy(true); setError(''); try { await request('/api/login', { password }); setPassword(''); await refresh(); } catch(e) { setError(e.message); } finally { setBusy(false); } }}><span className="web-wordmark">Scraper Studio</span><h1>Your research.<br/>Ready for what’s next.</h1><p>Sign in to your team’s private studio.</p><label>Studio password<input type="password" required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)}/></label>{error && <p role="alert">{error}</p>}<button disabled={busy}>{busy ? 'Signing in…' : 'Open studio'}</button></form></main>;
-  if (!state) return <main className="web-loading">{error || 'Opening your studio…'}</main>;
-  return <main className="web-shell"><header className="web-header"><strong>Scraper Studio</strong><span>Research & content workspace</span><button className="web-signout" onClick={async () => { await request('/api/logout', {}); setState(null); setSignedOut(true); }}>Sign out</button></header>{(notice || error) && <div className="web-notice" role="status">{error || notice}<button onClick={() => { setNotice(''); setError(''); }}>Dismiss</button></div>}<ContentStudioView state={state} api={api} onNotice={setNotice} onNavigate={() => setNotice('Server connections use the host’s Apify and Claude configuration. Ask your studio administrator to update them.')} /></main>;
+
+function SignIn({ mode, onSignedIn }) {
+  const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  if (mode === 'proxy') return <main className="web-login"><section><h1>Scraper Studio</h1><p>Your company sign-in has expired. Reload the page to sign in again.</p><button type="button" onClick={() => window.location.reload()}>Reload</button></section></main>;
+  return <main className="web-login"><form onSubmit={async (event) => {
+    event.preventDefault(); setBusy(true); setError('');
+    try { await postJson('/api/login', { password }); setPassword(''); onSignedIn(); } catch (failure) { setError(failure.message); } finally { setBusy(false); }
+  }}><h1>Scraper Studio</h1><p>Research and content studio. Sign in with the team password.</p>
+    <label htmlFor="web-password">Password</label>
+    <input id="web-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} autoFocus />
+    {error && <p className="web-login-error" role="alert">{error}</p>}
+    <button type="submit" disabled={busy || !password}>{busy ? 'Signing in…' : 'Open studio'}</button>
+  </form></main>;
 }
-createRoot(document.getElementById('root')).render(<App/>);
+
+function WebStudio() {
+  const [status, setStatus] = useState({ phase: 'checking', mode: 'password' });
+  async function check() {
+    try { await request('/api/session'); window.apifyStudio = window.apifyStudio || createWebApi(); setStatus({ phase: 'ready' }); }
+    catch (failure) { setStatus(failure instanceof SignedOut ? { phase: 'signed-out', mode: failure.mode || 'password' } : { phase: 'error', message: failure.message }); }
+  }
+  useEffect(() => {
+    check();
+    const signedOut = (event) => setStatus((current) => (current.phase === 'ready' ? { phase: 'signed-out', mode: event.detail || 'password' } : current));
+    window.addEventListener('studio-signed-out', signedOut);
+    return () => window.removeEventListener('studio-signed-out', signedOut);
+  }, []);
+  if (status.phase === 'checking') return <main className="web-loading">Opening your studio…</main>;
+  if (status.phase === 'error') return <main className="web-loading" role="alert">{status.message} <button type="button" onClick={check}>Try again</button></main>;
+  if (status.phase === 'signed-out') return <SignIn mode={status.mode} onSignedIn={check} />;
+  return <App />;
+}
+
+createRoot(document.getElementById('root')).render(<WebStudio />);

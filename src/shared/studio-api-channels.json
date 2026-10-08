@@ -1,0 +1,157 @@
+{
+  "//": "Every method the studio UI calls and the main-process channel it maps to: a string passes one payload through; {channel, args} sends no payload when args is empty, otherwise one object built from the named arguments. src/preload/index.js (desktop) and src/web/web-api.js (browser) expose exactly these; test/web-parity.test.js keeps them in step.",
+  "methods": {
+    "publishStudioRun": "studio:publishStudioRun",
+    "contentCatalog": "studio:contentCatalog",
+    "selectContentWorkspace": "studio:selectContentWorkspace",
+    "saveContentWorkspace": "studio:saveContentWorkspace",
+    "saveResearchProgram": "studio:saveResearchProgram",
+    "startResearchRun": "studio:startResearchRun",
+    "approveResearchThemes": "studio:approveResearchThemes",
+    "decideResearchTheme": "studio:decideResearchTheme",
+    "continueResearchRun": "studio:continueResearchRun",
+    "createContentRun": "studio:createContentRun",
+    "cancelStudioRun": "studio:cancelStudioRun",
+    "retryStudioRun": "studio:retryStudioRun",
+    "readStudioRun": "studio:readStudioRun",
+    "exportStudioRun": "studio:exportStudioRun",
+    "readStudioAsset": "studio:readStudioAsset",
+    "openStudioAsset": "studio:openStudioAsset",
+    "importStudioSource": "studio:importStudioSource",
+    "saveWorkspaceTaxonomy": "studio:saveWorkspaceTaxonomy",
+    "saveReferenceDoc": "studio:saveReferenceDoc",
+    "readReferenceDoc": "studio:readReferenceDoc",
+    "deleteReferenceDoc": "studio:deleteReferenceDoc",
+    "askHelp": "help:ask",
+    "exportSetup": "setup:export",
+    "openSetupFile": {
+      "channel": "setup:open",
+      "args": []
+    },
+    "applySetup": "setup:apply",
+    "importProductRegistry": "studio:importProductRegistry",
+    "estimateResearchProgram": "studio:estimateResearchProgram",
+    "setThemeStatus": "studio:setThemeStatus",
+    "listWorkbooks": {
+      "channel": "workbooks:list",
+      "args": []
+    },
+    "readWorkbook": "workbooks:read",
+    "importWorkbook": "workbooks:import",
+    "pullGoogleSheet": "workbooks:pull-google",
+    "saveWorkbookEdits": "workbooks:save-edits",
+    "removeWorkbook": "workbooks:remove",
+    "renameWorkbook": "workbooks:rename",
+    "exportWorkbookXlsx": "workbooks:export-xlsx",
+    "exportWorkbookToGoogle": "workbooks:export-google",
+    "saveBrandProfile": "save-brand-profile",
+    "selectBrandProfile": "select-brand-profile",
+    "deleteBrandProfile": "delete-brand-profile",
+    "pickImportFile": "pick-import-file",
+    "previewImportDataset": "preview-import-dataset",
+    "importDataset": "import-dataset",
+    "compareDatasets": "compare-datasets",
+    "saveMonitor": "save-monitor",
+    "readResearchReview": "read-research-review",
+    "saveResearchReview": "save-research-review",
+    "exportResearchReview": "export-research-review",
+    "refreshApifyActors": {
+      "channel": "refresh-apify-actors",
+      "args": []
+    },
+    "searchSources": "search-sources",
+    "previewSearchSources": "preview-search-sources",
+    "askFindings": "ask-findings",
+    "checkAi": "check-ai",
+    "openSourceUrl": "open-source-url",
+    "appMeta": {
+      "channel": "app-meta",
+      "args": []
+    },
+    "state": {
+      "channel": "state",
+      "args": []
+    },
+    "listMissions": {
+      "channel": "list-missions",
+      "args": []
+    },
+    "saveMission": "save-mission",
+    "runMission": "run-mission",
+    "runActionGraph": "run-action-graph",
+    "pauseMission": "pause-mission",
+    "scheduleMission": "schedule-mission",
+    "discoverApifyResource": "discover-apify-resource",
+    "testRecipe": "test-recipe",
+    "saveRecipeVersion": "save-recipe-version",
+    "getJob": "get-job",
+    "retryJob": "retry-job",
+    "readJobLog": "read-job-log",
+    "searchEvidence": "search-evidence",
+    "readEvidence": "read-evidence",
+    "exportMissionBundle": "export-mission-bundle",
+    "exportAssetPack": "export-asset-pack",
+    "checkCodex": {
+      "channel": "check-codex",
+      "args": []
+    },
+    "testImageProvider": {
+      "channel": "test-image-provider",
+      "args": []
+    },
+    "planIntent": "plan-intent",
+    "runIntent": "run-intent",
+    "runIntentAction": "run-intent-action",
+    "saveKey": {
+      "channel": "save-key",
+      "args": [
+        "keyName",
+        "value"
+      ]
+    },
+    "clearKey": "clear-key",
+    "saveSettings": "save-settings",
+    "saveCard": "save-card",
+    "moveCard": "move-card",
+    "saveAsset": "save-asset",
+    "saveRecipe": "save-recipe",
+    "deleteRecipe": "delete-recipe",
+    "runRecipe": "run-recipe",
+    "readDataset": "read-dataset",
+    "exportDataset": "export-dataset",
+    "testSheetsBridge": {
+      "channel": "test-sheets-bridge",
+      "args": []
+    },
+    "saveMondayBoard": "save-monday-board",
+    "clearMondayBoard": {
+      "channel": "clear-monday-board",
+      "args": []
+    },
+    "syncTrendBoardToMonday": "sync-trend-board-to-monday",
+    "archiveAndClearSheets": "archive-and-clear-sheets",
+    "importWorkingSheets": {
+      "channel": "import-working-sheets",
+      "args": []
+    },
+    "exportDatasetToSheets": "export-dataset-to-sheets",
+    "replaySheetRun": "replay-sheet-run",
+    "readAnalysis": "read-analysis",
+    "analyzeDataset": "analyze-dataset",
+    "openAnalysisOutput": "open-analysis-output",
+    "revealAnalysisOutput": "reveal-analysis-output",
+    "generateAssets": "generate-assets",
+    "openDataFolder": {
+      "channel": "open-data-folder",
+      "args": []
+    },
+    "openAssetsFolder": {
+      "channel": "open-assets-folder",
+      "args": []
+    },
+    "openAsset": "open-asset",
+    "revealAsset": "reveal-asset",
+    "openWorkspace": "open-workspace",
+    "cancelJob": "cancel-job"
+  }
+}

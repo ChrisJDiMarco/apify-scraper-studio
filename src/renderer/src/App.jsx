@@ -222,6 +222,9 @@ export default function App() {
 function StudioApp({ api }) {
 
   const [meta, setMeta] = useState(null);
+  // The browser studio runs on a server: "open" and "reveal" become downloads there.
+  const web = meta?.runtime === 'web';
+  const fileNotice = (desktopText) => (web ? 'Download started.' : desktopText);
   const [state, setState] = useState(EMPTY_STATE);
   const [active, setActive] = useState(api.contentCatalog ? 'content-studio' : 'dashboard');
   const [studioView, setStudioView] = useState('overview');
@@ -423,7 +426,7 @@ function StudioApp({ api }) {
 
   const content = useMemo(() => {
     const common = { state, busy };
-    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} onViewChange={(view) => withViewTransition(() => setStudioView(view))} shellNavigation={semrushShell} workspaceControlsInShell={hasWorkspaceSwitcher} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={(id) => runAction(() => api.deleteBrandProfile(id), '', true)} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), 'Asset opened.')} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), 'Asset revealed in Finder.')} />} />;
+    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} onViewChange={(view) => withViewTransition(() => setStudioView(view))} shellNavigation={semrushShell} workspaceControlsInShell={hasWorkspaceSwitcher} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={(id) => runAction(() => api.deleteBrandProfile(id), '', true)} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice('Asset revealed in Finder.'))} />} />;
     if (active === 'sheets') return <SheetsView api={api} state={state} initialWorkbookId={sheetRequest.id} workbookRequestKey={sheetRequest.key} onNavigate={(target) => (target === 'research-programs' ? navigateStudio('research') : target === 'trend-board' ? navigateStudio('board') : navigate(target))} />;
     if (active === 'templates') return <TemplateLibraryView {...common} onChooseTemplate={choosePlaybook} onNavigate={navigate} />;
     if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), '', true)} onNavigate={navigate} />;
@@ -465,7 +468,7 @@ function StudioApp({ api }) {
           onExportDataset={(datasetId, format) => runAction(() => api.exportDataset({ datasetId, format }), (result) => `Exported ${result.itemCount} rows to ${result.format.toUpperCase()}.`)}
           onExportDatasetToSheets={(datasetId) => runBackground(`sheets-export:${datasetId}`, 'Sending rows to Google Sheets', () => api.exportDatasetToSheets({ datasetId }), (result) => `Wrote ${number(result.rowCount || 0)} rows to ${result.tabName || 'Sheets'}.`)}
         />)}
-        renderConversations={() => <ThreadsView {...common} payload={datasetPayload} selectedDataset={selectedDataset} onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)} onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), 'Analysis output opened.')} onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), 'Analysis output revealed in Finder.')} onAnalyze={(datasetId, kind) => runBackground(`analyze:${datasetId}:${kind}`, 'Conversation summary', () => api.analyzeDataset({ datasetId, kind }), 'Conversation summary complete.')} />} />;
+        renderConversations={() => <ThreadsView {...common} payload={datasetPayload} selectedDataset={selectedDataset} onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)} onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), fileNotice('Analysis output opened.'))} onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), fileNotice('Analysis output revealed in Finder.'))} onAnalyze={(datasetId, kind) => runBackground(`analyze:${datasetId}:${kind}`, 'Conversation summary', () => api.analyzeDataset({ datasetId, kind }), 'Conversation summary complete.')} />} />;
     }
     if (active === 'reports') {
       return (
@@ -481,8 +484,8 @@ function StudioApp({ api }) {
           onDatasetSelect={setSelectedDatasetId}
           onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)}
           onAnalyze={(datasetId, kind, options = {}) => runBackground(`analyze:${datasetId}:${kind}`, 'AI report', () => api.analyzeDataset({ datasetId, kind, ...options }), 'AI report ready.')}
-          onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), 'Analysis output opened.')}
-          onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), 'Analysis output revealed in Finder.')}
+          onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), fileNotice('Analysis output opened.'))}
+          onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), fileNotice('Analysis output revealed in Finder.'))}
         />
       );
     }
@@ -581,7 +584,7 @@ function StudioApp({ api }) {
           </nav>
           {!semrushShell && !state.keys.APIFY_API_TOKEN && <div className="sidebar-setup"><span className="small-icon"><PlugZap size={17} /></span><strong>A little setup.<br />A lot to discover.</strong><p>Connect Apify to start collecting from the web.</p><Button className="ghost" onClick={() => navigate('settings')}>Connect Apify <ArrowUpRight size={14} /></Button></div>}
         </div>
-        <div className="sidebar-bottom"><nav aria-label="Preferences">{renderNavItem(NAV.find((item) => item.id === 'settings'))}</nav><div className="sidebar-foot" role="status"><span className="local-dot" data-live={liveRuns ? '' : undefined} aria-hidden="true" /><span>{liveRuns ? `${number(liveRuns)} ${liveRuns === 1 ? 'run' : 'runs'} in progress` : 'Local workspace'}</span>{meta?.version && <span className="version">v{meta.version}</span>}</div></div>
+        <div className="sidebar-bottom"><nav aria-label="Preferences">{renderNavItem(NAV.find((item) => item.id === 'settings'))}</nav><div className="sidebar-foot" role="status"><span className="local-dot" data-live={liveRuns ? '' : undefined} aria-hidden="true" /><span>{liveRuns ? `${number(liveRuns)} ${liveRuns === 1 ? 'run' : 'runs'} in progress` : (web ? 'Shared studio' : 'Local workspace')}</span>{meta?.version && <span className="version">v{meta.version}</span>}{web && api.signOut && <button type="button" className="sidebar-signout" onClick={() => api.signOut()}>Sign out</button>}</div></div>
       </aside>
       <main className="workspace">
         <Header active={active === 'marketing-template' ? 'dashboard' : active} title={semrushShell && active === 'content-studio' ? STUDIO_NAV.find(item => item.id === studioView)?.label : semrushShell && active === 'dashboard' ? 'Collection overview' : undefined} busy={busy} background={Object.values(background)} state={state} onAskAi={api.askHelp ? () => setHelpOpen((open) => !open) : undefined} askAiOpen={helpOpen} onRefresh={() => runAction(refresh)} onOpenPalette={() => setPaletteOpen(true)} />

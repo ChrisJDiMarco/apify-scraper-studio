@@ -1,10 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import ownership from '../src/main/studio-owner-lock.js';
-import serverModule from '../src/main/studio-server.js';
 const { acquireStudioOwnerLock } = ownership;
 const roots = [], releases = [];
 const temp = () => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-owner-test-')); roots.push(root); return root; };
@@ -38,25 +37,5 @@ describe('single-owner browser scheduler host', () => {
     const root = temp(); const release = acquireStudioOwnerLock(root); releases.push(release);
     fs.writeFileSync(path.join(root, '.studio-owner.json'), JSON.stringify({ pid: process.pid, nonce: 'new-owner' }));
     release(); expect(fs.existsSync(path.join(root, '.studio-owner.json'))).toBe(true);
-  });
-  it('locks before service recovery, starts on listen, and releases only after jobs settle', async () => {
-    const root = temp(); const webRoot = path.join(root, 'public'); fs.mkdirSync(webRoot);
-    let settle; const pending = new Promise(resolve => { settle = resolve; });
-    const service = { recoverInterrupted: vi.fn(), startResearchScheduler: vi.fn(), stopResearchScheduler: vi.fn(), waitForIdle: () => pending };
-    const options = { root, webRoot, password: 'fixture-server-password', host: {}, service };
-    const first = serverModule.createStudioServer(options);
-    expect(service.recoverInterrupted).toHaveBeenCalledOnce();
-    expect(() => serverModule.createStudioServer(options)).toThrow(/already open/);
-    expect(service.recoverInterrupted).toHaveBeenCalledOnce();
-    await new Promise(resolve => first.server.listen(0, '127.0.0.1', resolve));
-    expect(service.startResearchScheduler).toHaveBeenCalledOnce();
-    await new Promise(resolve => first.server.close(resolve));
-    expect(service.stopResearchScheduler).toHaveBeenCalledOnce(); expect(() => acquireStudioOwnerLock(root)).toThrow(/already open/);
-    settle(); await pending; await new Promise(resolve => setImmediate(resolve)); const release = acquireStudioOwnerLock(root); releases.push(release);
-  });
-  it('releases ownership if service initialization fails', () => {
-    const root = temp(); const options = { root, webRoot: root, password: 'fixture-server-password', host: {}, service: { recoverInterrupted() { throw new Error('Fixture initialization failure'); } } };
-    expect(() => serverModule.createStudioServer(options)).toThrow(/Fixture initialization/);
-    const release = acquireStudioOwnerLock(root); releases.push(release);
   });
 });

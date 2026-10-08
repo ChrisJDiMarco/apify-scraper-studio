@@ -36,6 +36,7 @@ function AiCheckResult({ result }) {
 }
 
 export function SettingsView({ setupApi, onOpenPrograms, state, meta, busy, onSaveKey, onClearKey, onSaveSettings, onTestSheetsBridge, onArchiveAndClearSheets, onImportWorkingSheets, onReplaySheetRun, onCheckAi, onCheckCodex, onTestImages, onOpenDataFolder, onOpenWorkspace, onSaveMondayBoard, onClearMondayBoard }) {
+  const web = meta?.runtime === 'web'; // the browser studio: keys and the Claude connection live on the studio server
   const [token, setToken] = useState('');
   const [docsToken, setDocsToken] = useState('');
   const [mondayToken, setMondayToken] = useState('');
@@ -188,17 +189,17 @@ export function SettingsView({ setupApi, onOpenPrograms, state, meta, busy, onSa
           <Badge tone={state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'ready' : 'neutral'}>{state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'Sheets saved' : 'Sheets optional'}</Badge>
         </div>
       </div>
-      {setupApi?.openSetupFile && <section className="settings-block settings-setup" aria-labelledby="settings-setup-title"><div className="panel-head"><div><h3 id="settings-setup-title">Share your setup</h3><p>Give a teammate this workspace's research program and knowledge in one file, or load one they shared with you.</p></div></div><SetupShare api={setupApi} onOpenPrograms={onOpenPrograms} /></section>}
+      {setupApi?.openSetupFile && <section className="settings-block settings-setup" aria-labelledby="settings-setup-title"><div className="panel-head"><div><h3 id="settings-setup-title">Share your setup</h3><p>Give a teammate this workspace's research program and knowledge in one file, or load one they shared with you.</p></div></div><SetupShare api={setupApi} web={web} onOpenPrograms={onOpenPrograms} /></section>}
       {semrush && <section className="settings-block settings-sources" aria-labelledby="settings-sources-title"><div className="panel-head"><div><h3 id="settings-sources-title">Source collection</h3><p>Connect Apify to research the accounts and communities you choose.</p></div><Badge tone={state.keys.APIFY_API_TOKEN ? 'ready' : 'neutral'}>{state.keys.APIFY_API_TOKEN ? 'Credential saved' : 'Setup needed'}</Badge></div>{sourceSettings}</section>}
       <section className="settings-block" aria-labelledby="settings-ai-title">
-        <div className="panel-head"><div><h3 id="settings-ai-title">Writing & research</h3><p>Claude writes the research, reports and drafts. Reach it through the Claude app on this Mac or an Anthropic API key.</p></div><Badge tone={aiChecks[savedProvider]?.ok ? 'ready' : 'neutral'}>{ROUTE_BADGE[savedProvider] || 'Claude'}</Badge></div>
+        <div className="panel-head"><div><h3 id="settings-ai-title">Writing & research</h3><p>Claude writes the research, reports and drafts. {web ? 'The studio server reaches it with an Anthropic API key, or Claude Code if it is installed there.' : 'Reach it through the Claude app on this Mac or an Anthropic API key.'}</p></div><Badge tone={aiChecks[savedProvider]?.ok ? 'ready' : 'neutral'}>{ROUTE_BADGE[savedProvider] || 'Claude'}</Badge></div>
         {aiProvider !== 'codex' && <fieldset className="settings-route" disabled={busy || savingAi || checkingAi}><legend>How to reach Claude</legend>
-          {CLAUDE_ROUTES.map(([value, title, detail]) => <label className="settings-route-option" key={value}><input type="radio" name="settings-ai-route" value={value} checked={aiProvider === value} onChange={() => { setAiProvider(value); setAiError(''); }} /><span><strong>{title}</strong><small>{detail}</small></span></label>)}
+          {CLAUDE_ROUTES.map(([value, title, detail]) => [value, title, web && value === 'claude' ? "Uses Claude Code signed in on the studio server." : detail]).map(([value, title, detail]) => <label className="settings-route-option" key={value}><input type="radio" name="settings-ai-route" value={value} checked={aiProvider === value} onChange={() => { setAiProvider(value); setAiError(''); }} /><span><strong>{title}</strong><small>{detail}</small></span></label>)}
         </fieldset>}
         {(aiProvider === 'auto' || aiProvider === 'claude-api') && <div className="settings-api-key">
           <label htmlFor="settings-anthropic-key">Anthropic API key{state.keys.ANTHROPIC_API_KEY ? <span className="settings-key-saved"> · saved</span> : null}</label>
           <div className="inline"><input id="settings-anthropic-key" type="password" autoComplete="off" spellCheck="false" value={anthropicKey} disabled={busy} placeholder={state.keys.ANTHROPIC_API_KEY ? 'Enter a replacement key' : 'sk-ant-…'} onChange={(event) => setAnthropicKey(event.target.value)} /><Button type="button" disabled={busy || !anthropicKey.trim()} onClick={() => { onSaveKey('ANTHROPIC_API_KEY', anthropicKey.trim()).then((saved) => { if (saved) setAnthropicKey(''); }); }}>Save key</Button>{state.keys.ANTHROPIC_API_KEY && <Button type="button" className="ghost" disabled={busy} onClick={() => onClearKey('ANTHROPIC_API_KEY')}>Clear</Button>}</div>
-          <small>{aiProvider === 'auto' ? 'Used only when the Claude app is missing, signed out or out of date. ' : ''}Stored encrypted in this Mac's keychain and sent only to Anthropic. Usage is billed to the key's account at list prices.</small>
+          <small>{aiProvider === 'auto' ? 'Used only when the Claude app is missing, signed out or out of date. ' : ''}{web ? 'Stored encrypted on the studio server' : "Stored encrypted in this Mac's keychain"} and sent only to Anthropic. Usage is billed to the key's account at list prices.</small>
         </div>}
         <div className="field-grid two">
           {aiProvider !== 'codex' ? <>
@@ -320,11 +321,11 @@ export function SettingsView({ setupApi, onOpenPrograms, state, meta, busy, onSa
           </div>
         )}
       </details>
-      <details className="settings-block"><summary>Local files & workspace details</summary><div className="button-row">
+      <details className="settings-block"><summary>{web ? 'Studio details' : 'Local files & workspace details'}</summary>{!web && <div className="button-row">
         <Button className="ghost" disabled={busy} onClick={onOpenDataFolder}>Open data folder</Button>
         <Button className="ghost" disabled={busy} onClick={onOpenWorkspace}>Open workspace</Button>
-      </div>
-      <JsonBlock value={{ app: meta?.name, version: meta?.version, dataRoot: meta?.dataRoot }} /></details>
+      </div>}
+      <JsonBlock value={web ? { app: meta?.name, version: meta?.version, runtime: 'Browser studio (data stays on the studio server)' } : { app: meta?.name, version: meta?.version, dataRoot: meta?.dataRoot }} /></details>
     </section>
   );
 }

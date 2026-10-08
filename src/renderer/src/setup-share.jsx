@@ -28,7 +28,8 @@ function SetupContents({ summary }) {
   </div>;
 }
 
-export function SetupShare({ api, mode = 'full', onImported, onOpenPrograms }) {
+export function SetupShare({ api, mode = 'full', web = false, onImported, onOpenPrograms }) {
+  const place = web ? 'in this studio' : 'on this Mac';
   const [includeToken, setIncludeToken] = useState(false);
   const [preview, setPreview] = useState(null);
   const [saveToken, setSaveToken] = useState(false);
@@ -53,7 +54,7 @@ export function SetupShare({ api, mode = 'full', onImported, onOpenPrograms }) {
     {mode === 'full' ? <div className="setup-share-actions">
       <div className="setup-share-action">
         <h4>Export this workspace</h4>
-        <p>One file with the brand knowledge, approved products, taxonomy, reference documents and research programs. Runs, collected posts and reports stay on this Mac.</p>
+        <p>One file with the brand knowledge, approved products, taxonomy, reference documents and research programs. Runs, collected posts and reports stay {place}.</p>
         <label className="setup-share-check"><input type="checkbox" checked={includeToken} disabled={Boolean(busy)} onChange={(event) => setIncludeToken(event.target.checked)} /><span>Include the shared Apify token<small>For a team that shares one Apify account. Anyone holding the file can spend on that account, so share it only through internal channels.</small></span></label>
         <Button type="button" className="ghost" disabled={Boolean(busy)} onClick={exportSetup}>{spinner('export', Download)}Export setup…</Button>
       </div>
@@ -69,7 +70,7 @@ export function SetupShare({ api, mode = 'full', onImported, onOpenPrograms }) {
       <SetupContents summary={preview.summary} />
       {preview.summary?.changes?.length > 0 && <ul className="setup-share-changes">{preview.summary.changes.map((line) => <li key={line}>{line}</li>)}</ul>}
       {preview.warnings?.length > 0 && <ul className="setup-share-warnings">{preview.warnings.map((line) => <li key={line}><CircleAlert size={13} aria-hidden="true" />{line}</li>)}</ul>}
-      {preview.apifyTokenIncluded && <label className="setup-share-check"><input type="checkbox" checked={saveToken} disabled={Boolean(busy)} onChange={(event) => setSaveToken(event.target.checked)} /><span><KeyRound size={13} aria-hidden="true" /> Save the Apify token from this file{preview.apifyTokenSaved ? ' (replaces the one saved on this Mac)' : ''}<small>Stored encrypted in this Mac's keychain, like a token you paste in Settings.</small></span></label>}
+      {preview.apifyTokenIncluded && <label className="setup-share-check"><input type="checkbox" checked={saveToken} disabled={Boolean(busy)} onChange={(event) => setSaveToken(event.target.checked)} /><span><KeyRound size={13} aria-hidden="true" /> Save the Apify token from this file{preview.apifyTokenSaved ? ` (replaces the one saved ${place})` : ''}<small>{web ? 'Stored encrypted on the studio server' : "Stored encrypted in this Mac's keychain"}, like a token you paste in Settings.</small></span></label>}
       <div className="setup-share-buttons"><Button type="button" disabled={Boolean(busy)} onClick={applySetup}>{spinner('apply', FileCheck2)}Import this setup</Button><Button type="button" className="ghost" disabled={Boolean(busy)} onClick={() => setPreview(null)}>Cancel</Button></div>
     </div>}
 

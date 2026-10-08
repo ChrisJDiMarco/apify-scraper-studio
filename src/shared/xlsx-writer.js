@@ -184,4 +184,4 @@ function buildXlsx({ sheets, title, modifiedAt = new Date(), onStats } = {}) {
   return zip(entries, stamp);
 }
 
-module.exports = { buildXlsx, exactNumber, sheetNames, crc32, columnLetter, MAX_XLSX_CELL_CHARS };
+module.exports = { buildXlsx, exactNumber, sheetNames, crc32, columnLetter, MAX_XLSX_CELL_CHARS, zip };

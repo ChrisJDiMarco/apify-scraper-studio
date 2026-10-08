@@ -1,4 +1,15 @@
-const { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Menu } = require('electron');
+// The same main process runs the Mac app and, with STUDIO_RUNTIME=web, the browser studio on a server
+// (web-runtime.js stands in for Electron there; studio-server.js serves it).
+const WEB_RUNTIME = process.env.STUDIO_RUNTIME === 'web';
+const { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Menu } = WEB_RUNTIME ? require('./web-runtime').electron : require('electron');
+// Browser studio: a file the Mac app saves or reveals downloads instead (an export folder as one .zip), and the
+// page never receives server paths. On the Mac this returns the result unchanged.
+const SERVER_PATH_KEYS = ['path', 'filePath', 'folder', 'dir', 'evidencePath', 'markdownPath', 'htmlPath', 'reportPath'];
+function forBrowser(result, ...downloads) {
+  if (!WEB_RUNTIME || !result || typeof result !== 'object') return result;
+  for (const target of downloads.filter(Boolean)) shell.showItemInFolder(target);
+  return Object.fromEntries(Object.entries(result).filter(([key]) => !SERVER_PATH_KEYS.includes(key)));
+}
 const path = require('path');
 const { randomUUID } = require('crypto');
 // Keep the original data directory and macOS Safe Storage identity across bundle renames.
@@ -36,7 +47,7 @@ const workflow = require('../shared/asset-workflow.json');
 const monday = require('./monday-sync');
 let autoUpdater = null;
 try {
-  ({ autoUpdater } = require('electron-updater'));
+  ({ autoUpdater } = WEB_RUNTIME ? require('./web-runtime') : require('electron-updater'));
 } catch (_) {
   autoUpdater = null;
 }
@@ -195,8 +206,28 @@ function loadData() {
   dataCache.assets = dataCache.assets || [];
   dataCache.sheetRuns = dataCache.sheetRuns || [];
   dataCache.settings = { ...defaultData().settings, ...(dataCache.settings || {}) };
+  rebaseStoredPaths(dataCache);
   saveData();
   return dataCache;
+}
+
+// Older records keep absolute file paths. When a studio's data folder moves (a Mac's data copied to the browser
+// studio's server), re-anchor each path on this data folder if the same file exists here.
+const DATA_FOLDERS = new Set(['workspaces', 'assets', 'exports', 'reports', 'datasets', 'sheets', 'workbooks', 'v5', 'content-studio']);
+function rebasedPath(stored) {
+  if (typeof stored !== 'string' || !path.isAbsolute(stored) || fs.existsSync(stored)) return stored;
+  const parts = stored.split(/[\\/]+/);
+  for (let index = 0; index < parts.length; index++) {
+    if (!DATA_FOLDERS.has(parts[index])) continue;
+    const candidate = path.join(dataRoot(), ...parts.slice(index));
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return stored;
+}
+function rebaseStoredPaths(data) {
+  for (const record of [...(data.analyses || []), ...(data.assets || []), ...(data.researchExports || [])]) {
+    for (const [key, value] of Object.entries(record || {})) if (/Path$|^folder$/.test(key) && typeof value === 'string') record[key] = rebasedPath(value);
+  }
 }
 
 function saveData() {
@@ -271,10 +302,24 @@ async function syncTrendBoardToMonday({ cards } = {}) {
   return { created: result.created, updated: result.updated, failed: result.failed.length, error: result.failed[0]?.error || '' };
 }
 
+// The browser studio never receives server file locations: path fields in records shrink to their file name.
+// Files still open and download by record ID, so nothing in the UI depends on the full path.
+const RECORD_LISTS_WITH_PATHS = ['analyses', 'assets', 'researchExports', 'datasets', 'runs', 'conversations', 'jobs'];
+function withoutServerPaths(state) {
+  if (!WEB_RUNTIME) return state;
+  const strip = (record) => (record && typeof record === 'object' && !Array.isArray(record)
+    ? Object.fromEntries(Object.entries(record).map(([key, value]) => [key, typeof value === 'string' && (/Path$/.test(key) || key === 'path' || key === 'folder') && path.isAbsolute(value) ? path.basename(value) : value]))
+    : record);
+  const lists = (container) => { const copy = { ...container }; for (const key of RECORD_LISTS_WITH_PATHS) if (Array.isArray(copy[key])) copy[key] = copy[key].map(strip); return copy; };
+  const copy = lists(state);
+  if (copy.v5 && typeof copy.v5 === 'object') copy.v5 = lists(copy.v5); // the v5 projection repeats the same records
+  return copy;
+}
+
 function publicState() {
   const data = loadData();
   const v5 = publicV5State(data);
-  return {
+  return withoutServerPaths({
     ...data,
     contentStudio: contentWorkspace.publicState(),
     recipes: data.recipes.map(publicRecipe),
@@ -283,7 +328,7 @@ function publicState() {
     monday: publicMonday(),
     jobs: Array.from(jobs.values()),
     v5,
-  };
+  });
 }
 
 function studioIntelligence(data = loadData()) {
@@ -638,7 +683,7 @@ function exportMissionBundle(missionId) {
   const bundle = createMissionBundle(validateId(missionId, 'Mission ID'), { ...projection, evidence: buildAllEvidence() });
   const filePath = dataPath('v5', 'bundles', `${safeFilename(bundle.mission.name)}-${Date.now()}.json`);
   writeJson(filePath, bundle);
-  return { filePath, bundle };
+  return forBrowser({ filePath, bundle }, filePath);
 }
 
 function exportAssetPack(payload = {}) {
@@ -655,7 +700,7 @@ function exportAssetPack(payload = {}) {
   const htmlPath = path.join(dir, 'asset-pack.html');
   fs.writeFileSync(markdownPath, markdown);
   fs.writeFileSync(htmlPath, html);
-  return { dir, markdownPath, htmlPath, assetCount: assets.length };
+  return forBrowser({ dir, markdownPath, htmlPath, assetCount: assets.length }, dir);
 }
 
 function recoverInterruptedJobs() {
@@ -959,8 +1004,8 @@ function exportDataset(exportPayload) {
   const filePath = dataPath('exports', `${safeFilename(dataset.name || dataset.id)}.${extension}`);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
-  if (valid.reveal) shell.showItemInFolder(filePath);
-  return { filePath, itemCount: items.length, format: extension };
+  if (valid.reveal && !WEB_RUNTIME) shell.showItemInFolder(filePath);
+  return forBrowser({ filePath, itemCount: items.length, format: extension }, filePath);
 }
 
 function sheetSettings() {
@@ -2032,7 +2077,9 @@ const STUDIO_PREFLIGHT = {
 };
 for (const method of studioMethods) ipcMain.handle(`studio:${method}`, async (_, payload) => {
   if (STUDIO_PREFLIGHT[method]) await aiRoutes.preflight(STUDIO_PREFLIGHT[method](payload));
-  return contentWorkspace[method](payload);
+  const result = await contentWorkspace[method](payload);
+  if (method === 'exportStudioRun') return forBrowser(result, result?.path);
+  return method === 'openStudioAsset' ? forBrowser(result) : result; // the file itself downloads through the shell
 });
 
 // Sheets: research runs and imported spreadsheets, laid out like the Google Sheets the team reviews.
@@ -2058,22 +2105,23 @@ ipcMain.handle('workbooks:export-xlsx', async (_, payload) => {
   if (choice.canceled || !choice.filePath) return null;
   const target = /\.xlsx$/i.test(choice.filePath) ? choice.filePath : `${choice.filePath}.xlsx`;
   fs.writeFileSync(target, file.buffer);
-  return { path: target, fileName: path.basename(target), bytes: file.buffer.length, sheetCount: file.sheetCount, rowCount: file.rowCount, truncatedCells: file.truncatedCells };
+  return forBrowser({ path: target, fileName: path.basename(target), bytes: file.buffer.length, sheetCount: file.sheetCount, rowCount: file.rowCount, truncatedCells: file.truncatedCells });
 });
 ipcMain.handle('workbooks:export-google', (_, payload) => exportWorkbookToGoogleSheets(payload));
 
-const researchWorkspace = createResearchWorkspace({ loadData, saveData, emitState, dataPath, readJson, writeJson, readDatasetPayload, toId, dialog, getWindow: () => mainWindow, shell });
+const researchWorkspace = createResearchWorkspace({ loadData, saveData, emitState, dataPath, readJson, writeJson, readDatasetPayload, toId, dialog, getWindow: () => mainWindow, shell: WEB_RUNTIME ? { ...shell, showItemInFolder: () => {} } : shell });
 for (const [channel, method] of Object.entries({
   'save-brand-profile': 'saveBrandProfile', 'select-brand-profile': 'selectBrandProfile', 'delete-brand-profile': 'deleteBrandProfile',
   'pick-import-file': 'pickImportFile', 'preview-import-dataset': 'previewImportDataset', 'import-dataset': 'importDataset',
   'compare-datasets': 'compareDatasets', 'save-monitor': 'saveMonitor', 'read-research-review': 'readResearchReview',
   'save-research-review': 'saveResearchReview', 'export-research-review': 'exportResearchReview',
-})) ipcMain.handle(channel, (_, payload) => researchWorkspace[method](payload));
+})) ipcMain.handle(channel, async (_, payload) => { const result = await researchWorkspace[method](payload); return method === 'exportResearchReview' ? forBrowser(result, result?.folder) : result; });
 
 ipcMain.handle('app-meta', () => ({
   name: APP_NAME,
   version: packageConfig.version,
-  dataRoot: dataRoot(),
+  runtime: WEB_RUNTIME ? 'web' : 'desktop',
+  dataRoot: WEB_RUNTIME ? '' : dataRoot(), // a server path means nothing to someone in a browser
 }));
 
 ipcMain.handle('state', () => publicState());
@@ -2129,6 +2177,7 @@ function helpContext(page) {
   const money = (value) => (Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) / 100 : null);
   return {
     appVersion: app.getVersion(),
+    edition: WEB_RUNTIME ? 'browser studio (shared, on a server)' : 'Mac app',
     currentPage: page && typeof page === 'object' ? { id: String(page.id || '').slice(0, 40), name: String(page.label || '').slice(0, 80) } : null,
     workspace: { name: workspace.name || '', edition: workspace.editionId || '', approvedProducts: (workspace.products || []).length, taxonomyCategories: workspace.taxonomy?.categories?.length || 0, referenceDocuments: (workspace.referenceDocs || []).map((doc) => doc.title).slice(0, 20) },
     connections: { apifyToken: Boolean(getKey('APIFY_API_TOKEN')), anthropicApiKey: Boolean(getKey('ANTHROPIC_API_KEY')), googleSheetsBridge: Boolean(getKey('GOOGLE_SHEETS_WEBHOOK_URL')), imageKey: Boolean(getKey('OPENAI_API_KEY')) },
@@ -2197,7 +2246,7 @@ ipcMain.handle('setup:export', async (_, { includeApifyToken = false } = {}) => 
   if (canceled || !filePath) return { cancelled: true };
   fs.writeFileSync(filePath, `${JSON.stringify(bundle, null, 2)}\n`, { mode: bundle.secrets ? 0o600 : 0o644 });
   if (bundle.secrets) fs.chmodSync(filePath, 0o600); // `mode` applies only to a new file; an overwritten one keeps its old permissions
-  return { fileName: path.basename(filePath), path: filePath, summary: summarizeSetupBundle(bundle).summary, includesApifyToken: Boolean(bundle.secrets?.APIFY_API_TOKEN) };
+  return forBrowser({ fileName: path.basename(filePath), path: filePath, summary: summarizeSetupBundle(bundle).summary, includesApifyToken: Boolean(bundle.secrets?.APIFY_API_TOKEN) });
 });
 ipcMain.handle('setup:open', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { title: 'Import setup', properties: ['openFile'], filters: setupFilters });
@@ -2376,6 +2425,8 @@ function stopAllWork() {
   apiRequests.clear();
   for (const run of apifyRunControllers.values()) Promise.resolve().then(() => run.abort?.()).catch(() => { /* already settled */ });
 }
+// The browser studio stops with its server process (no quit dialog there): stop schedules and in-flight AI work.
+if (WEB_RUNTIME) app.once('quit', () => { contentWorkspace.stopResearchScheduler(); stopAllWork(); });
 let quitConfirmed = false;
 app.on('before-quit', (event) => {
   const busy = quitConfirmed ? [] : activeWorkSummary();

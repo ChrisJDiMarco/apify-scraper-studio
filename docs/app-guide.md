@@ -58,6 +58,17 @@ The header on every page has **Ask AI** (⌘J), **Search or jump to…** (⌘K, 
 - The conversation lasts until you quit. The round-arrow button starts a new one. Esc closes the panel. If Claude isn't reachable, the error offers **Open Settings → Writing & research**.
 - AI answers can be mistaken. Check important numbers on the page itself.
 
+## The browser studio
+
+Scraper Studio also runs as a website: the same pages and features as the Mac app, served from a company server. LIVE CONTEXT says which one the person is using ("edition").
+
+- **Signing in:** a team password, or the company sign-in when the site sits behind it. **Sign out** is at the bottom of the sidebar, next to the version.
+- **One shared studio:** everyone who signs in works in the same workspaces, programs, runs, Library and Settings. A run someone starts is visible to everyone, and two people can't each have their own copy of a program.
+- **Keys live on the server:** keys saved in Settings are encrypted on the studio server and used for everyone. The server reaches Claude with an Anthropic API key (or Claude Code, if it's installed there). Nobody installs anything.
+- **Files:** where the Mac app shows a file dialog, the browser opens its own file picker and uploads the file. Exports, **Open file**, and **Show in Finder** download the file instead; an export folder downloads as one .zip. **Open data folder** and **Open workspace** aren't available, because folders stay on the server.
+- **Runs keep going** when a browser tab closes; they run on the server. Reopen the site to follow them. The Mac app's quit warning doesn't apply.
+- **Not in the browser studio:** the Mac installer, "Open Anyway" and Claude Code on your own computer.
+
 ## First-time setup checklist
 
 Use this list for a new tester install.

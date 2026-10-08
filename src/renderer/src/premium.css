@@ -63,6 +63,9 @@ nav button > svg { stroke-width: 1.65; } nav button > span:not(.nav-count) { fle
 .sidebar-setup button { margin-top: 3px; min-height: 31px; font-size: 10px; padding: 7px 9px; justify-content: space-between; }
 .sidebar-bottom { padding-top: 8px; } .sidebar-foot { border: 0; border-top: 1px solid var(--line); padding: 17px 6px; margin-top: 10px; display: flex; justify-content: start; gap: 6px; background: none; border-radius: 0; font-size: 9px; color: #9ba49b; }
 .local-dot { display: inline-block; height: 5px; width: 5px; border-radius: 100%; background: #80a68b; } .sidebar-foot .version { margin-left: auto; font-size: 9px; }
+/* Browser studio: sign out sits after the version in the sidebar footer. */
+.sidebar-foot .sidebar-signout { min-height: 0; padding: 2px 6px; border: 0; background: transparent; color: inherit; font-size: 10px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.sidebar-foot .sidebar-signout:hover:not(:disabled) { background: transparent; color: var(--ink, #181e15); }
 .workspace { display: flex; flex-direction: column; min-width: 0; height: 100dvh; overflow: hidden; }
 .topbar { display: flex; flex-direction: row; align-items: center; min-height: 70px; flex: 0 0 70px; padding: 0 34px; gap: 15px; background: #fff; border-bottom: 1px solid var(--line); box-shadow: none; -webkit-app-region: drag; }
 .topbar .breadcrumb { display: flex; align-items: center; gap: 12px; color: #a6b0a7; }

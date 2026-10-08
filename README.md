@@ -134,6 +134,10 @@ Press **⌘K** (or **Ctrl+K**) to search pages and actions. Arrow keys select a 
 
 **Settings → Share your setup → Export setup…** writes one JSON file with the workspace's brand knowledge, approved products, taxonomy, reference documents and research programs. It leaves out runs, collected data and reports. A teammate chooses **Import setup…**, reviews what will change, and imports it in one step. Imported schedules arrive paused. Optionally, the file carries the Apify token for a team that shares one Apify account; anyone holding such a file can spend on that account, so share it only through internal channels. Setup files can contain internal documents: never commit them.
 
+## Run it in a browser
+
+The same app also runs as a website for a team: one server, one shared studio, sign-in by team password or your company's SSO. `npm run build:web` then `npm run start:web` (with `STUDIO_DATA_DIR`, `STUDIO_SECRET_KEY` and `STUDIO_PASSWORD`) starts it locally, and the `Dockerfile` packages it for a server. [docs/web-deploy.md](docs/web-deploy.md) covers configuration, HTTPS on a subdomain, SSO, backups and moving Mac data to the server.
+
 ## Data and credentials
 
 The app stores state, datasets, workspaces, and receipts in its Electron `userData` directory under macOS Application Support. Mission state uses an append-only event log with projected state under `v5/`; legacy `data.json` can be imported without relocating existing assets.
