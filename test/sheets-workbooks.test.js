@@ -165,7 +165,9 @@ describe('workbook store', () => {
     const readGoogleTabs = vi.fn(async () => ({ title: 'Internal NEW - Golden Thread Data Sheet', order: ['Theme Repository', 'Twitter'], tabs: { Twitter: [{ post_url: 'https://x.com/a/1', likeCount: 3, isQuote: true }], 'Theme Repository': [{ Theme: 'GEO', Novelty: 'NEW ANGLE' }], Empty: [] } }));
     const { api } = store({ readGoogleTabs });
     await expect(api.pullGoogleSheet({ spreadsheetUrl: 'https://example.com/sheet' })).rejects.toThrow(/full Google Sheets link/);
-    const meta = await api.pullGoogleSheet({ spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/1FixtureSheetIdForTests_0123456789abcdefABCD/edit' });
+    const sheetUrl = 'https://docs.google.com/spreadsheets/d/1FixtureSheetIdForTests_0123456789abcdefABCD/edit';
+    const meta = await api.pullGoogleSheet({ spreadsheetUrl: sheetUrl });
+    expect(readGoogleTabs).toHaveBeenCalledWith(expect.objectContaining({ spreadsheetUrl: sheetUrl })); // the link the person pasted is the one read
     expect(meta.name).toBe('Internal NEW - Golden Thread Data Sheet');
     expect(meta.sheets.map((entry) => entry.name)).toEqual(['Theme Repository', 'Twitter']);
     const workbook = await api.read({ workbookId: meta.id });
