@@ -39,7 +39,7 @@ decrypts the keys saved in Settings.
 | `STUDIO_DATA_DIR` | yes (default `~/.scraper-studio-web`) | Studio data. Back this folder up. Only one server process may use it at a time. |
 | `STUDIO_SECRET_KEY` | yes | 32+ random characters. Encrypts keys saved in Settings. Losing it means re-entering those keys. |
 | `STUDIO_PASSWORD` | unless sign-in comes from a proxy | Shared team password, 16+ characters. |
-| `STUDIO_TRUSTED_EMAIL_HEADER` | for company sign-in | Header your sign-in proxy sets with the signed-in email, e.g. `x-auth-request-email` (oauth2-proxy) or `cf-access-authenticated-user-email` (Cloudflare Access). |
+| `STUDIO_TRUSTED_EMAIL_HEADER` | for company sign-in | Header your sign-in proxy sets with the signed-in email: `x-forwarded-email` (oauth2-proxy in front of the app), `x-auth-request-email` (oauth2-proxy behind nginx `auth_request`) or `cf-access-authenticated-user-email` (Cloudflare Access). |
 | `STUDIO_ALLOWED_EMAIL_DOMAINS` | with the header | Comma-separated, e.g. `semrush.com`. Other emails are refused. |
 | `STUDIO_PUBLIC_ORIGIN` | if the proxy rewrites `Host` | The public address, e.g. `https://studio.example.com`. Requests must come from this page. |
 | `STUDIO_SECURE_COOKIES` | behind HTTPS | `1` marks the session cookie Secure and sends HSTS. |
