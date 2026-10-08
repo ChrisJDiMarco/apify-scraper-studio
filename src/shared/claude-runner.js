@@ -41,6 +41,16 @@ function buildClaudeCommand({ model = DEFAULT_CLAUDE_MODEL, schema, prompt = '',
   return { command: 'claude', args, stdin: prompt };
 }
 
+// Every flag buildClaudeCommand passes. An older Claude Code that lacks one fails every request, so the
+// app compares this list with `claude --help` before spending anything.
+function requiredClaudeFlags() {
+  return [...new Set(buildClaudeCommand({ schema: { type: 'object' }, prompt: '', effort: 'low' }).args.filter((arg) => /^--[a-z]/i.test(arg)))];
+}
+function missingClaudeFlags(helpText) {
+  const help = String(helpText || '');
+  return requiredClaudeFlags().filter((flag) => !new RegExp(`(^|[\\s,])${flag.replace(/-/g, '\\-')}(?![\\w-])`, 'm').test(help));
+}
+
 function fail(message, code) {
   const error = new Error(message);
   error.code = code;
@@ -105,4 +115,4 @@ function modelMatches(requested, actualModels = []) {
   return actualModels.some((model) => model === requested || (typeof model === 'string' && model.startsWith(`${requested}-`) && /^\d{8}$/.test(model.slice(requested.length + 1))));
 }
 
-module.exports = { CLAUDE_EFFORT_LEVELS, CLAUDE_CLI_ENV, modelMatches, readClaudeCost, DEFAULT_CLAUDE_MODEL, DEFAULT_AI_MAX_BUDGET_USD, MAX_CLAUDE_STDIN_BYTES, CLAUDE_SYSTEM_PROMPT, buildClaudeCommand, parseClaudeResult };
+module.exports = { CLAUDE_EFFORT_LEVELS, CLAUDE_CLI_ENV, requiredClaudeFlags, missingClaudeFlags, modelMatches, readClaudeCost, DEFAULT_CLAUDE_MODEL, DEFAULT_AI_MAX_BUDGET_USD, MAX_CLAUDE_STDIN_BYTES, CLAUDE_SYSTEM_PROMPT, buildClaudeCommand, parseClaudeResult };

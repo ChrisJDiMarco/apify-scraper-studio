@@ -6,9 +6,30 @@ const { randomUUID, createHash } = require('crypto');
 const { ApifyClient } = require('apify-client');
 const { createApifyRunner } = require('../shared/apify-runner');
 const { buildClaudeCommand, parseClaudeResult, modelMatches, readClaudeCost, DEFAULT_CLAUDE_MODEL, CLAUDE_CLI_ENV } = require('../shared/claude-runner');
+// An app opened from Finder starts with launchd's minimal PATH, so a CLI installed through nvm, volta, asdf or a
+// custom npm prefix would look missing. The login shell's PATH, read once in the background, comes first so the
+// app runs the same `claude` that Terminal does; the common install locations stay as a fallback.
+let loginShellPath = '';
+const SHELL_PATH_MARKER = '__SCRAPER_STUDIO_PATH__';
+function loadLoginShellPath({ shell = process.env.SHELL || '/bin/zsh', timeoutMs = 5000 } = {}) {
+  if (process.platform === 'win32') return Promise.resolve('');
+  return new Promise((resolve) => {
+    let output = ''; let settled = false; let child;
+    const finish = () => {
+      if (settled) return; settled = true; clearTimeout(timer);
+      const parts = output.split(SHELL_PATH_MARKER); // rc files may print around the marked value
+      if (parts.length >= 3) { loginShellPath = parts[1].trim(); resolve(loginShellPath); } else resolve('');
+    };
+    const timer = setTimeout(() => { try { child?.kill('SIGKILL'); } catch {} finish(); }, timeoutMs);
+    try { child = spawn(shell, ['-ilc', `printf '%s%s%s' '${SHELL_PATH_MARKER}' "$PATH" '${SHELL_PATH_MARKER}'`], { stdio: ['ignore', 'pipe', 'ignore'] }); }
+    catch { finish(); return; }
+    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.on('error', finish); child.on('close', finish);
+  });
+}
 function studioCliEnv() {
-  const searchPaths = process.platform === 'win32' ? [path.join(os.homedir(), '.local', 'bin'), path.join(process.env.APPDATA || os.homedir(), 'npm')] : [path.join(os.homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'];
-  const env = { ...process.env, PATH: [...searchPaths, process.env.PATH || ''].join(path.delimiter) };
+  const searchPaths = process.platform === 'win32' ? [path.join(os.homedir(), '.local', 'bin'), path.join(process.env.APPDATA || os.homedir(), 'npm')] : [path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.claude', 'local'), '/opt/homebrew/bin', '/usr/local/bin'];
+  const env = { ...process.env, PATH: [loginShellPath, ...searchPaths, process.env.PATH || ''].filter(Boolean).join(path.delimiter) };
   for (const name of Object.keys(env)) if (/^(OPENAI_API_KEY|APIFY_API_TOKEN|GOOGLE_.*TOKEN|STUDIO_.*PASSWORD|STUDIO_SESSION_SECRET)$/.test(name)) delete env[name];
   return env;
 }
@@ -182,4 +203,4 @@ function createStudioHost({ root, getApifyToken = () => process.env.APIFY_API_TO
   async function cancelProvider(runId) { for (const child of children.get(runId) || []) child.kill(); const entry = aborts.get(runId); const list = entry instanceof Map ? [...entry.values()] : entry ? [entry] : []; await Promise.all(list.map(abort => abort().catch(() => {}))); }
   return { collect, getDatasets, readDataset, runAI, cancelProvider };
 }
-module.exports = { createStudioHost, studioCliEnv };
+module.exports = { createStudioHost, studioCliEnv, loadLoginShellPath };

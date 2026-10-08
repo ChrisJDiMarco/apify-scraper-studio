@@ -80,6 +80,8 @@ The [research memo](docs/research/enterprise-marketing-2026-09-27.md) explains t
 
 Screenshots show the native desktop app. The dataset explorer uses explicitly labeled QA fixtures; it is not evidence of a live scraping run.
 
+**Ask AI** in the header (⌘J) answers questions about the app on any page. It reads [the app guide](docs/app-guide.md) plus a summary of your own setup and recent runs, never keys, tokens or collected posts, and uses your Claude connection (about $0.10 a question).
+
 ## How it works
 
 ```mermaid
@@ -103,7 +105,10 @@ For example, search a product category, open the collected posts, then ask which
 
 - macOS with Node.js 22.12+ and npm. Node.js 24 also meets the locked toolchain requirements.
 - An Apify account and API token for live scraping. Actor usage may incur Apify charges.
-- [Claude Code CLI](https://code.claude.com/docs/en/setup) installed and signed in, with access to `claude-opus-5-5`. The verified CLI version was 2.1.281; it must support the app's constrained print-mode flags. Run `claude auth login` if needed.
+- Claude, reached one of two ways. **Settings → Writing & research → Automatic** (the default) picks for you:
+  - the [Claude app (Claude Code CLI)](https://code.claude.com/docs/en/setup), installed and signed in (`claude auth login`). It must support every print-mode flag the app passes; the check compares them with `claude --help`, so an outdated CLI is reported with "run `claude update`" instead of failing mid-run. Verified with 2.1.281.
+  - an Anthropic API key (from console.anthropic.com), stored in the macOS keychain. Requests go straight to the Messages API with structured output; usage is billed to the key's account.
+  - Research uses `claude-opus-5-5` and `claude-fable-5-1` by default. **Check Claude** confirms the route and each model (free through the API; a tiny request per model through the Claude app). Work that spends checks the models it needs first.
 - Codex CLI is optional. Select it explicitly in Settings to use its existing configuration; Claude failures do not trigger a provider fallback.
 
 ### Run from source
@@ -124,6 +129,10 @@ npm run dev
 5. Open **Playbooks** to choose a marketing outcome, save your **Brand context**, and collect or import the required evidence. Saving a public-page playbook prepares a recipe without starting a paid run. Review the resulting brief in **AI reports**, assign actions, and export it with its evidence. **New scraper** supports custom Actor or Task inputs.
 
 Press **⌘K** (or **Ctrl+K**) to search pages and actions. Arrow keys select a result, Enter opens it, and Escape returns focus to your previous control.
+
+## Share a setup with your team
+
+**Settings → Share your setup → Export setup…** writes one JSON file with the workspace's brand knowledge, approved products, taxonomy, reference documents and research programs. It leaves out runs, collected data and reports. A teammate chooses **Import setup…**, reviews what will change, and imports it in one step. Imported schedules arrive paused. Optionally, the file carries the Apify token for a team that shares one Apify account; anyone holding such a file can spend on that account, so share it only through internal channels. Setup files can contain internal documents: never commit them.
 
 ## Data and credentials
 
@@ -185,7 +194,7 @@ resources/       App icons and macOS entitlements
 
 ### Packaging status
 
-Packaging configuration is included; a public repository does not imply a signed or notarized release. The notarization hook runs only when `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` are configured. Automatic updates are disabled by default and require an `APIFY_STUDIO_AUTO_UPDATE_URL` feed. Use the diagnostics command before distributing a build.
+`npm run dist:mac` builds a universal app (Apple silicon and Intel). Packaging configuration is included; a public repository does not imply a signed or notarized release. The notarization hook runs only when `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` are configured. Automatic updates are disabled by default and require an `APIFY_STUDIO_AUTO_UPDATE_URL` feed. Use the diagnostics command before distributing a build.
 
 Live Apify and AI requests require your own account configuration. Recheck the integrations you will use; Google Sheets and optional Codex need separate live verification. The [production-readiness plan](PRODUCTION_READINESS_PRD.md) records intended hardening work, not a certification that every item is complete.
 

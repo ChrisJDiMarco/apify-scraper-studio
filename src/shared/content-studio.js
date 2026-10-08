@@ -160,6 +160,28 @@ function buildContentPlan(request = {}) {
 }
 function references(values, known, field) { const ids = list(values, field, 500).map((value, i) => text(value, `${field}.${i}`, 256, true)); if (new Set(ids).size !== ids.length || ids.some(id => !known.has(id))) invalid(field, 'Every reference must be a unique ID present in this source or product registry.'); return ids; }
 function phraseIn(textValue, phrase) { return textValue.toLocaleLowerCase().includes(phrase.toLocaleLowerCase()); }
+// Registry names are proper nouns, so a mention is the exact, case-sensitive name as a whole phrase: "AI visibility"
+// in prose is not the AI Visibility Toolkit. A single ordinary word ("Questions") is never treated as a mention,
+// while coined names ("AdClarity") are. Longer names win ("Enterprise SEO (core)" is not also "Enterprise SEO"), and
+// a name running straight into another capitalised word ("Keyword Gap Pro") is a different product.
+// Returns each named product or tool once, with every registry product that owns that name.
+function registryMentions(textValue, products) {
+  const owners = new Map();
+  for (const product of products) for (const raw of [product.name, ...product.tools.map(tool => tool.name)]) {
+    const name = String(raw || '').trim();
+    if (!name || !(/\s/.test(name) || /[\p{Lu}\p{N}]/u.test(name.slice(1)))) continue;
+    if (!owners.has(name)) owners.set(name, []);
+    if (!owners.get(name).includes(product.id)) owners.get(name).push(product.id);
+  }
+  let remaining = String(textValue || ''); const found = [];
+  for (const name of [...owners.keys()].sort((a, b) => b.length - a.length)) {
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])(?![ \\t]+\\p{Lu})`, 'gu');
+    let hit = false;
+    remaining = remaining.replace(pattern, (match) => { hit = true; return ' '.repeat(match.length); });
+    if (hit) found.push({ name, owners: owners.get(name) });
+  }
+  return found;
+}
 function validateContentOutput(output, context = {}) {
   object(output, 'output'); const editionId = edition(context.editionId || output.editionId); const descriptor = DELIVERABLE_BY_ID.get(context.deliverable?.id || context.deliverableId || output.deliverableId);
   if (!descriptor || descriptor.kind !== 'text') invalid('deliverable', 'Choose a written deliverable to validate.');
@@ -181,14 +203,21 @@ function validateContentOutput(output, context = {}) {
     if (!body && !entries.length) invalid(field, `${rule.heading} must contain useful text or an explicit missing-evidence explanation.`);
     const mentioned = [...new Set([...productIds, ...entries.flatMap(entry => entry.productIds)])];
     const segment = rule.segment || (rule.id === 'enterprise_ctas' ? 'enterprise' : rule.id === 'plg_ctas' ? 'self-serve' : descriptor.segment);
+    const permitted = id => !segment || (registry.get(id).segment === segment && (segment !== 'self-serve' || registry.get(id).affiliateEligible));
     const combined = [body, ...entries.map(entry => `${entry.label} ${entry.text}`)].join('\n');
-    for (const product of products) {
-      if ([product.name, ...product.tools.map(tool => tool.name)].some(name => phraseIn(combined, name)) && !mentioned.includes(product.id)) invalid(`${field}.productIds`, 'Every named product or tool must identify its approved registry product.');
+    // A product named without its ID is tagged here rather than failing the paid draft; the segment, count and
+    // product-agnostic rules below still decide whether the mention is allowed.
+    const tagged = [];
+    for (const { owners } of registryMentions(combined, products)) {
+      if (owners.some(id => mentioned.includes(id))) continue;
+      const id = owners.find(permitted) || owners[0]; mentioned.push(id); tagged.push(id);
     }
-    if (segment && mentioned.some(id => registry.get(id).segment !== segment || (segment === 'self-serve' && !registry.get(id).affiliateEligible))) invalid(`${field}.productIds`, `This section permits only ${segment === 'self-serve' ? 'affiliate-eligible self-serve' : segment} products.`);
-    if (rule.maxProducts != null && mentioned.length > rule.maxProducts) invalid(`${field}.productIds`, `${rule.heading} permits at most ${rule.maxProducts} primary product.`);
-    if (descriptor.id === 'editorial-toolkit' && ['talking', 'headlines', 'subheads', 'hooks'].includes(rule.id) && mentioned.length) invalid(`${field}.productIds`, 'This editorial copy must be product-agnostic.');
-    return { id: rule.id, heading, body, items: entries, evidenceIds, productIds };
+    const names = ids => ids.map(id => registry.get(id).name).join(', ');
+    const outside = mentioned.filter(id => !permitted(id));
+    if (outside.length) invalid(`${field}.productIds`, `${rule.heading} permits only ${segment === 'self-serve' ? 'affiliate-eligible self-serve' : segment} products; it names ${names(outside)}.`);
+    if (rule.maxProducts != null && mentioned.length > rule.maxProducts) invalid(`${field}.productIds`, `${rule.heading} permits at most ${rule.maxProducts} primary product; it names ${names(mentioned)}.`);
+    if (descriptor.id === 'editorial-toolkit' && ['talking', 'headlines', 'subheads', 'hooks'].includes(rule.id) && mentioned.length) invalid(`${field}.productIds`, `This editorial copy must be product-agnostic; it names ${names(mentioned)}.`);
+    return { id: rule.id, heading, body, items: entries, evidenceIds, productIds: [...productIds, ...tagged] };
   });
   const result = { deliverableId: descriptor.id, editionId, title, summary, sections, caveats };
   if (source.aggregateMetrics) result.aggregateMetrics = source.aggregateMetrics;
@@ -199,8 +228,10 @@ function validateContentOutput(output, context = {}) {
   const allText = JSON.stringify({ title, summary, sections, caveats });
   if (['blogshort', 'bloglong'].includes(descriptor.id) && title.length >= 60) invalid('output.title', 'Blog titles must be under 60 characters.');
   if (descriptor.id === 'sel' && title.length > 70) invalid('output.title', 'News headlines must be 70 characters or fewer.');
-  if (descriptor.segment) for (const product of products) {
-    if ([product.name, ...product.tools.map(tool => tool.name)].some(name => phraseIn(allText, name)) && (product.segment !== descriptor.segment || (descriptor.segment === 'self-serve' && !product.affiliateEligible))) invalid('output', 'A product from an ineligible segment appears in this deliverable.');
+  if (descriptor.segment) {
+    const eligible = id => registry.get(id).segment === descriptor.segment && (descriptor.segment !== 'self-serve' || registry.get(id).affiliateEligible);
+    const ineligible = registryMentions(allText, products).filter(mention => !mention.owners.some(eligible));
+    if (ineligible.length) invalid('output', `A product from an ineligible segment appears in this deliverable: ${ineligible.map(mention => mention.name).join(', ')}.`);
   }
   if (['ads', 'landingpage'].includes(descriptor.id)) {
     const used = new Set(sections.flatMap(section => [...section.productIds, ...section.items.flatMap(item => item.productIds)]));
@@ -267,17 +298,29 @@ function renderContentExport(output, options = {}) {
   const { format = 'markdown' } = options || {};
   object(output, 'output'); if (!['markdown', 'html'].includes(format)) invalid('format', 'Export as Markdown or HTML.');
   const sections = Array.isArray(output.sections) ? output.sections : []; const caveats = Array.isArray(output.caveats) ? output.caveats : [];
-  const evidenceLine = entry => (entry.evidenceIds || []).length ? `Evidence: ${(entry.evidenceIds || []).join(', ')}` : '';
+  const registry = Array.isArray(output.evidenceRegister) ? output.evidenceRegister : [];
+  // Sections cite register entries by number ("Sources: [1], [3]"); each entry keeps its record ID for tracing.
+  const sourceNumber = new Map(registry.map((record, index) => [record.id, index + 1]));
+  const cite = id => (sourceNumber.has(id) ? `[${sourceNumber.get(id)}]` : id);
+  const evidenceLine = entry => (entry.evidenceIds || []).length ? `Sources: ${entry.evidenceIds.map(cite).join(', ')}` : '';
+  // A report used as a source is itself Markdown: flatten each excerpt so its headings and lists can't become this document's sections.
+  const excerpt = value => String(value || '').replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '').replace(/^[ \t]*(?:[-*+]|\d+\.)[ \t]+/gm, '').replace(/\*\*|__/g, '').replace(/\s+/g, ' ').trim();
+  // A source document (the report a draft was built from) carries no post metadata; its first heading names it.
+  const documentTitle = record => (!record.platform && !record.author && !record.url ? (/^[ \t]{0,3}#[ \t]+(.+)$/m.exec(String(record.text || '')) || [])[1]?.trim() || '' : '');
+  const platformName = value => ({ x: 'X', twitter: 'X', linkedin: 'LinkedIn', reddit: 'Reddit' })[String(value || '').toLowerCase()] || value;
+  const day = value => (/^\d{4}-\d{2}-\d{2}T/.test(String(value || '')) ? String(value).slice(0, 10) : value);
+  const sourceMeta = record => [record.title || documentTitle(record), platformName(record.platform), record.author, day(record.publishedAt)].filter(Boolean).join(' · ') || 'Source document';
+  const sourceExcerpt = record => excerpt(documentTitle(record) ? String(record.text || '').replace(/^[ \t]{0,3}#[ \t]+.+$/m, '') : record.text);
+  const shortened = registry.some(record => record.excerptTruncated);
   const extra = [];
   if (output.aggregateMetrics) extra.push({ heading: 'Measured engagement and coverage', body: 'Counted directly from the collected evidence, not estimated by AI.', items: metricItems(validateAggregateMetrics(output.aggregateMetrics)) });
-  if (Array.isArray(output.quotes) && output.quotes.length) extra.push({ heading: 'Verified quotations', body: output.quotes.map(quote => `“${quote.text}” — ${quote.evidenceId}`).join('\n\n'), items: [] });
-  if (Array.isArray(output.journalists)) extra.push({ heading: 'Journalist research', body: output.journalists.length ? output.journalists.map(row => `${row.name} — ${row.outlet}${row.region ? ` (${row.region})` : ''}\nArticle: ${row.articleUrl}\nProposed angle: ${row.angle}\nEvidence: ${row.coverageEvidenceId}${row.email ? `\nEmail: ${row.email}` : ''}${row.xHandle ? `\nX: ${row.xHandle}` : ''}`).join('\n\n') : 'No verified journalist coverage was supplied. Research is required before outreach.', items: [] });
-  const registry = Array.isArray(output.evidenceRegister) ? output.evidenceRegister : [];
+  if (Array.isArray(output.quotes) && output.quotes.length) extra.push({ heading: 'Verified quotations', body: output.quotes.map(quote => `“${quote.text}” — ${cite(quote.evidenceId)}`).join('\n\n'), items: [] });
+  if (Array.isArray(output.journalists)) extra.push({ heading: 'Journalist research', body: output.journalists.length ? output.journalists.map(row => `${row.name} — ${row.outlet}${row.region ? ` (${row.region})` : ''}\nArticle: ${row.articleUrl}\nProposed angle: ${row.angle}\nSource: ${cite(row.coverageEvidenceId)}${row.email ? `\nEmail: ${row.email}` : ''}${row.xHandle ? `\nX: ${row.xHandle}` : ''}`).join('\n\n') : 'No verified journalist coverage was supplied. Research is required before outreach.', items: [] });
   const approvedProducts = (Array.isArray(output.approvedProducts) ? output.approvedProducts : []).map(product => ({ ...product, url: safeUrl(product.url, 'output.approvedProducts.url') }));
   const all = [...sections, ...extra];
-  const sourceText = registry.map(record => `${record.id}${record.platform ? ` — ${record.platform}` : ''}${record.author ? ` — ${record.author}` : ''}\n${record.url ? `Source: ${safeUrl(record.url, 'output.evidenceRegister.url')}\n` : ''}${record.text || ''}${record.excerptTruncated ? '\n[Excerpt shortened. Full source retained in the run source package.]' : ''}`).join('\n\n');
+  const sourceText = registry.length ? `${registry.map((record, index) => `${index + 1}. ${sourceMeta(record)}${record.url ? ` — ${safeUrl(record.url, 'output.evidenceRegister.url')}` : ''} · \`${record.id}\`${sourceExcerpt(record) ? `\n   > ${sourceExcerpt(record)}${record.excerptTruncated ? ' …' : ''}` : ''}`).join('\n')}${shortened ? '\n\nExcerpts are shortened. Full sources stay in the run source package.' : ''}` : '';
   if (format === 'markdown') return `# ${output.title}\n\n> Draft for editorial review. Source-linked output is not independent fact verification.\n\n${output.summary || ''}\n\n${all.map(section => `## ${section.heading}\n\n${section.body || ''}\n\n${(section.items || []).map((item, i) => `${i + 1}. ${item.label ? `**${item.label}** — ` : ''}${item.text}${evidenceLine(item) ? `\n   ${evidenceLine(item)}` : ''}`).join('\n')}\n\n${evidenceLine(section)}`).join('\n\n')}\n\n## Evidence register\n\n${sourceText || 'Source references are listed with each section.'}\n\n## Approved product links\n\n${approvedProducts.map(product => `- ${product.name}: ${product.url}`).join('\n') || 'No approved product links included.'}\n\n## Limitations\n\n${caveats.map(caveat => `- ${caveat}`).join('\n') || 'Review factual claims and source context before sharing.'}\n`;
   const palette = CONTENT_EDITIONS.find(entry => entry.id === output.editionId)?.colors || CONTENT_EDITIONS[0].colors;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${escapeHtml(output.title)}</title><style>*{box-sizing:border-box}body{margin:0;font:17px/1.65 system-ui,sans-serif;background:${palette.paper};color:${palette.ink}}header{background:${palette.ink};color:white;padding:64px max(24px,calc((100vw - 1080px)/2))}h1{font-size:clamp(34px,5vw,66px);line-height:1.08;max-width:950px;margin:24px 0}header small{color:${palette.accent};letter-spacing:.12em;text-transform:uppercase}main{max-width:1136px;margin:auto;padding:20px 28px 70px}section{padding:36px 0;border-bottom:1px solid #ccd4c9}h2{font-size:28px;line-height:1.2}p{white-space:pre-wrap;overflow-wrap:anywhere}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.card{background:white;border:1px solid #d8dfd4;padding:22px;border-radius:8px}.number{display:inline-flex;width:36px;height:36px;align-items:center;justify-content:center;background:${palette.accent};color:${palette.ink};border-radius:50%;font-weight:700}a{color:inherit;overflow-wrap:anywhere}.cta{display:inline-block;margin:10px 10px 10px 0;padding:12px 18px;background:${palette.accent};color:${palette.ink};border:1px solid ${palette.ink};border-radius:6px;font-weight:700;text-decoration:none}.evidence{font-size:12px;color:#526354;overflow-wrap:anywhere}.limitations{background:white;padding:24px;margin-top:32px}@media print{header{background:white;color:black;padding:20px 0}main{padding:0}.card{break-inside:avoid}}</style></head><body><header><small>Editorial draft · Review before publishing</small><h1>${escapeHtml(output.title)}</h1><p>${escapeHtml(output.summary || '')}</p></header><main>${all.map(section => `<section><h2>${escapeHtml(section.heading)}</h2><p>${escapeHtml(section.body || '')}</p>${(section.items || []).length ? `<div class="cards">${section.items.map((item, index) => `<article class="card"><span class="number">${index + 1}</span>${item.label ? `<h3>${escapeHtml(item.label)}</h3>` : ''}<p>${escapeHtml(item.text)}</p><small class="evidence">${escapeHtml(evidenceLine(item))}</small></article>`).join('')}</div>` : ''}<small class="evidence">${escapeHtml(evidenceLine(section))}</small></section>`).join('')}${approvedProducts.length ? `<section><h2>Approved product links</h2>${approvedProducts.map(product => `<a class="cta" href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">Explore ${escapeHtml(product.name)}</a>`).join('')}</section>` : ''}<section><h2>Evidence register</h2>${registry.map(record => `<article class="card"><strong>${escapeHtml(record.id)}</strong><p>${escapeHtml([record.platform, record.author, record.publishedAt].filter(Boolean).join(' · '))}</p>${record.url ? `<a href="${escapeHtml(safeUrl(record.url, 'output.evidenceRegister.url'))}" target="_blank" rel="noopener noreferrer">Open source</a>` : '<small>No public source URL supplied.</small>'}<p>${escapeHtml(record.text || '')}</p>${record.excerptTruncated ? '<small>Excerpt shortened. Full source retained in the run source package.</small>' : ''}</article>`).join('')}</section><aside class="limitations"><h2>Limitations</h2>${caveats.map(caveat => `<p>${escapeHtml(caveat)}</p>`).join('') || '<p>Review factual claims and source context before sharing.</p>'}</aside></main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${escapeHtml(output.title)}</title><style>*{box-sizing:border-box}body{margin:0;font:17px/1.65 system-ui,sans-serif;background:${palette.paper};color:${palette.ink}}header{background:${palette.ink};color:white;padding:64px max(24px,calc((100vw - 1080px)/2))}h1{font-size:clamp(34px,5vw,66px);line-height:1.08;max-width:950px;margin:24px 0}header small{color:${palette.accent};letter-spacing:.12em;text-transform:uppercase}main{max-width:1136px;margin:auto;padding:20px 28px 70px}section{padding:36px 0;border-bottom:1px solid #ccd4c9}h2{font-size:28px;line-height:1.2}p{white-space:pre-wrap;overflow-wrap:anywhere}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.card{background:white;border:1px solid #d8dfd4;padding:22px;border-radius:8px}.number{display:inline-flex;width:36px;height:36px;align-items:center;justify-content:center;background:${palette.accent};color:${palette.ink};border-radius:50%;font-weight:700}a{color:inherit;overflow-wrap:anywhere}.cta{display:inline-block;margin:10px 10px 10px 0;padding:12px 18px;background:${palette.accent};color:${palette.ink};border:1px solid ${palette.ink};border-radius:6px;font-weight:700;text-decoration:none}.evidence{font-size:12px;color:#526354;overflow-wrap:anywhere}.limitations{background:white;padding:24px;margin-top:32px}@media print{header{background:white;color:black;padding:20px 0}main{padding:0}.card{break-inside:avoid}}</style></head><body><header><small>Editorial draft · Review before publishing</small><h1>${escapeHtml(output.title)}</h1><p>${escapeHtml(output.summary || '')}</p></header><main>${all.map(section => `<section><h2>${escapeHtml(section.heading)}</h2><p>${escapeHtml(section.body || '')}</p>${(section.items || []).length ? `<div class="cards">${section.items.map((item, index) => `<article class="card"><span class="number">${index + 1}</span>${item.label ? `<h3>${escapeHtml(item.label)}</h3>` : ''}<p>${escapeHtml(item.text)}</p><small class="evidence">${escapeHtml(evidenceLine(item))}</small></article>`).join('')}</div>` : ''}<small class="evidence">${escapeHtml(evidenceLine(section))}</small></section>`).join('')}${approvedProducts.length ? `<section><h2>Approved product links</h2>${approvedProducts.map(product => `<a class="cta" href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">Explore ${escapeHtml(product.name)}</a>`).join('')}</section>` : ''}<section><h2>Evidence register</h2>${registry.map((record, index) => `<article class="card"><strong>[${index + 1}] ${escapeHtml(sourceMeta(record))}</strong> <small class="evidence">${escapeHtml(record.id)}</small>${record.url ? `<p><a href="${escapeHtml(safeUrl(record.url, 'output.evidenceRegister.url'))}" target="_blank" rel="noopener noreferrer">Open source</a></p>` : '<p><small>No public source URL supplied.</small></p>'}<p>${escapeHtml(sourceExcerpt(record))}${record.excerptTruncated ? ' …' : ''}</p></article>`).join('')}${shortened ? '<p><small>Excerpts are shortened. Full sources stay in the run source package.</small></p>' : ''}</section><aside class="limitations"><h2>Limitations</h2>${caveats.map(caveat => `<p>${escapeHtml(caveat)}</p>`).join('') || '<p>Review factual claims and source context before sharing.</p>'}</aside></main></body></html>`;
 }
 module.exports = { SEMRUSH_BRAND_2026, CONTENT_EDITIONS, CONTENT_DELIVERABLES, SEMRUSH_KNOWLEDGE_PRESET, MAX_SOURCE_CHARS, MAX_CONTEXT_CHARS, validateProductRegistry, validateBrandKnowledge, validateAggregateMetrics, normalizeSource, buildContentPlan, validateContentOutput, renderContentExport };

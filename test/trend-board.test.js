@@ -86,6 +86,16 @@ describe('trend board decisions', () => {
 });
 
 describe('trend board layout', () => {
+  it('drops a failed scouting run once a newer run of the same program finds themes', () => {
+    const failed = { id: 'old', programId: 'p1', status: 'failed', stage: 'discovery', themes: [], message: 'Claude stopped before finishing.', createdAt: '2026-09-27T20:42:00Z' };
+    const scouts = (others) => buildTrendBoard({ programs: [{ id: 'p1', name: 'Pulse' }, { id: 'p2', name: 'Other' }], researchRuns: [failed, ...others] }).scouting.map((scout) => scout.runId);
+    expect(scouts([])).toEqual(['old']);
+    // Still visible while the newer run is working, or when only another program finished.
+    expect(scouts([{ id: 'new', programId: 'p1', status: 'running', stage: 'collecting', themes: [], createdAt: '2026-10-07T22:58:00Z' }])).toEqual(['new', 'old']);
+    expect(scouts([{ id: 'p2-run', programId: 'p2', status: 'succeeded', themes: [], createdAt: '2026-10-07T22:58:00Z' }])).toEqual(['old']);
+    expect(scouts([{ id: 'new', programId: 'p1', status: 'succeeded', themes: [], createdAt: '2026-10-07T22:58:00Z' }])).toEqual([]);
+    expect(scouts([{ id: 'new', programId: 'p1', status: 'awaiting-review', discoveredThemes: [{ id: 't1', name: 'Theme' }], createdAt: '2026-10-07T22:58:00Z' }])).toEqual([]);
+  });
   it('shows scouting runs and treats runs without decisions as all potential', () => {
     const board = buildTrendBoard({
       programs: [{ id: 'p1', name: 'AI search pulse' }],

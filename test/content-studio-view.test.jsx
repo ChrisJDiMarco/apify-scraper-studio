@@ -183,14 +183,14 @@ describe('research and content studio workspace', () => {
     const handlers = props(); render(<ContentStudioView {...handlers} initialView="research" />);
     fill('Program name', 'Competitive listening'); fill('Research focus (optional)', 'AI reporting');
     fireEvent.click(screen.getByRole('checkbox', { name: /Reddit communities/ })); fill('Subreddits', 'r/SaaS\nr/marketing\nr/SaaS');
-    fireEvent.click(document.querySelector('#cs-source-options-reddit summary')); fireEvent.click(document.getElementById('cs-source-reddit-includeComments')); fireEvent.change(document.getElementById('cs-source-reddit-maxComments'), { target: { value: '3' } }); fireEvent.change(document.getElementById('cs-source-reddit-time'), { target: { value: 'month' } });
+    fireEvent.click(document.querySelector('#cs-source-options-reddit summary')); fireEvent.click(document.getElementById('cs-source-reddit-includeComments')); fireEvent.change(document.getElementById('cs-source-reddit-maxComments'), { target: { value: '3' } }); expect(document.getElementById('cs-source-reddit-time')).toBeNull(); expect(document.getElementById('cs-source-reddit-searchComments')).toBeNull();
     fill('Collection budget (USD)', '1.25'); fill('AI budget (USD)', '3.50');
     fireEvent.click(screen.getByRole('button', { name: 'Save research program' }));
     await waitFor(() => expect(handlers.api.saveResearchProgram).toHaveBeenCalledOnce());
     const payload = handlers.api.saveResearchProgram.mock.calls[0][0];
     expect(payload).toMatchObject({ name: 'Competitive listening', query: 'AI reporting', workspaceId: 'general', budgets: { collectionUsd: 1.25, aiUsd: 3.5 } });
     expect(payload.sourceGroups.find((group) => group.sourceId === 'reddit').targets).toEqual(['r/SaaS', 'r/marketing']);
-    expect(payload.sourceGroups.find((group) => group.sourceId === 'reddit').options).toEqual({ includeComments: true, maxComments: 3, time: 'month' });
+    expect(payload.sourceGroups.find((group) => group.sourceId === 'reddit').options).toEqual({ includeComments: true, maxComments: 3 });
     expect(handlers.api.startResearchRun).not.toHaveBeenCalled();
   });
 
@@ -278,6 +278,22 @@ describe('research and content studio workspace', () => {
     expect(handlers.api.saveResearchProgram.mock.calls[0][0]).toMatchObject({ schedule: { frequency: 'manual', enabled: false }, window: program.window });
   });
 
+  it('confirms a setup imported from the empty Research programs page and shows the program, not a blank form', async () => {
+    const handlers = props();
+    const onNotice = vi.fn();
+    handlers.api.openSetupFile = vi.fn(async () => ({ token: 'preview-1', fileName: 'team.json', summary: { workspace: { name: 'My brand' }, programs: [{ id: 'p1', name: 'Weekly pulse' }], changes: ['Adds 1 program.'] }, warnings: [], apifyTokenIncluded: true, apifyTokenSaved: false }));
+    handlers.api.applySetup = vi.fn(async () => ({ fileName: 'team.json', programIds: ['p1'], apifyTokenSaved: true, summary: { workspace: { name: 'My brand' } } }));
+    const { rerender } = render(<ContentStudioView {...handlers} onNotice={onNotice} initialView="research" />);
+    expect(screen.getByText('Build your listening brief')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: /Import setup/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Import this setup/ }));
+    await waitFor(() => expect(handlers.api.applySetup).toHaveBeenCalledWith({ token: 'preview-1', saveApifyToken: true }));
+    await waitFor(() => expect(onNotice).toHaveBeenCalledWith(expect.stringContaining('Imported team.json and saved the Apify token')));
+    rerender(<ContentStudioView {...handlers} onNotice={onNotice} state={{ contentStudio: fresh({ programs: [program] }) }} initialView="research" />);
+    expect(screen.queryByText('Build your listening brief')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start research' })).toBeInTheDocument();
+  });
+
   it('shows the saved next run in its time zone and pauses or resumes without losing the brief', async () => {
     const scheduledProgram = { ...program, schedule: { frequency: 'weekly', enabled: true, time: '09:00', timeZone: 'America/New_York', weekday: 1, dayOfMonth: 1, lookbackDays: 7, nextRunAt: '2026-09-28T13:00:00.000Z' } };
     const handlers = props({ state: { contentStudio: fresh({ programs: [scheduledProgram] }) } });
@@ -326,6 +342,21 @@ describe('research and content studio workspace', () => {
     expect(screen.getByRole('progressbar', { name: 'Completed outputs' })).toHaveAttribute('value', '1');
     fill('Total retry budget (USD)', '9.50'); fireEvent.click(screen.getByRole('button', { name: 'Retry unfinished outputs' }));
     await waitFor(() => expect(handlers.api.retryStudioRun).toHaveBeenCalledWith({ runId: 'c1', maxBudgetUsd: 9.5 }));
+  });
+
+  it('scrolls an opened run into view once, not every time the page is shown', () => {
+    const scrolled = vi.fn(); const original = Element.prototype.scrollIntoView; Element.prototype.scrollIntoView = scrolled;
+    try {
+      const run = { id: 'c1', workspaceId: 'general', title: 'Test campaign', status: 'partial', maxBudgetUsd: 5, costUsd: 0.12, jobs: [{ id: 'social', label: 'Social captions', status: 'failed', error: 'Provider unavailable' }] };
+      const handlers = props({ state: { contentStudio: fresh({ contentRuns: [run] }) } });
+      const { rerender } = render(<ContentStudioView {...handlers} initialView="create" />);
+      expect(scrolled).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: /Test campaign.*Partial/ }));
+      expect(screen.getByRole('region', { name: 'Run progress' })).toBeInTheDocument();
+      expect(scrolled).toHaveBeenCalledTimes(1);
+      rerender(<ContentStudioView {...handlers} state={{ contentStudio: fresh({ contentRuns: [{ ...run, costUsd: 0.2 }] }) }} initialView="create" />);
+      expect(scrolled).toHaveBeenCalledTimes(1);
+    } finally { Element.prototype.scrollIntoView = original; }
   });
 
   it('publishes to Google Drive only on an explicit action and shows the returned receipt link', async () => {

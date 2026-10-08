@@ -19,12 +19,14 @@ import { ContentStudioView } from './content-studio-view.jsx';
 import semrushWordmark from './assets/semrush-2026-logo.svg';
 import { HomeView } from './home-view.jsx';
 import { SettingsView } from './settings-view.jsx';
+import { HelpAssistant } from './help-assistant.jsx';
 import { SheetsView } from './sheets-view.jsx';
 import { Badge, Button, StatusBanner, datasetLabel, number, short, statusTone, withViewTransition } from './ui.jsx';
 
 // What disconnecting each credential stops, so the confirmation says what is at stake.
 const KEY_CONSEQUENCE = {
   APIFY_API_TOKEN: ['your Apify token', 'Scrapers and research collection stop until you reconnect it.'],
+  ANTHROPIC_API_KEY: ['the Anthropic API key', 'Research and drafts use the Claude app instead, if it is installed and signed in.'],
   OPENAI_API_KEY: ['the image generation key', 'New visuals can’t be generated until you add it again.'],
   GOOGLE_SHEETS_WEBHOOK_URL: ['the Google Sheets bridge', 'Sending rows to Sheets and pulling tabs stop until you add it again.'],
   GOOGLE_DOCS_ACCESS_TOKEN: ['Google Docs access', 'Importing Google Docs and publishing to Drive stop until you reconnect.'],
@@ -205,10 +207,10 @@ function JobTray({ jobs, busy, onCancelJob }) {
   );
 }
 
-function Header({ active, title, busy, background = [], state, onRefresh, onOpenPalette }) {
+function Header({ active, title, busy, background = [], state, onRefresh, onOpenPalette, onAskAi, askAiOpen = false }) {
   const item = NAV.find((nav) => nav.id === active);
   const working = busy || background.length > 0;
-  return <header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={14} aria-hidden="true" /><h1>{title || item?.label || 'Overview'}</h1></div><div className="topbar-right"><Button className="search-command ghost" onClick={onOpenPalette}><Search size={16} /><span>Search or jump to…</span><kbd>⌘ K</kbd></Button>{working && <span className="working-status" role="status" title={background.join('\n') || undefined}><LoaderCircle className="spin" size={14} aria-hidden="true" />{background.length === 1 && !busy ? `${background[0]}…` : background.length > 1 ? `${background.length} tasks running` : 'Working'}</span>}<Button className={`ghost icon-button ${busy ? 'is-working' : ''}`} aria-label="Refresh workspace" title="Refresh workspace" disabled={busy} onClick={onRefresh}><RefreshCw size={16} /></Button></div></header>;
+  return <header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={14} aria-hidden="true" /><h1>{title || item?.label || 'Overview'}</h1></div><div className="topbar-right">{onAskAi && <Button className="ask-ai-button" aria-expanded={askAiOpen} aria-controls="help-drawer" title="Ask AI about this app (⌘J)" onClick={onAskAi}><Sparkles size={15} aria-hidden="true" /><span>Ask AI</span><kbd>⌘ J</kbd></Button>}<Button className="search-command ghost" onClick={onOpenPalette}><Search size={16} /><span>Search or jump to…</span><kbd>⌘ K</kbd></Button>{working && <span className="working-status" role="status" title={background.join('\n') || undefined}><LoaderCircle className="spin" size={14} aria-hidden="true" />{background.length === 1 && !busy ? `${background[0]}…` : background.length > 1 ? `${background.length} tasks running` : 'Working'}</span>}<Button className={`ghost icon-button ${busy ? 'is-working' : ''}`} aria-label="Refresh workspace" title="Refresh workspace" disabled={busy} onClick={onRefresh}><RefreshCw size={16} /></Button></div></header>;
 }
 function MobileNav({ active, onNavigate, items = NAV, workspaces = [], workspaceId, busy, onWorkspaceChange }) {
   return <div className="mobile-nav">{workspaces.length > 0 && <label className="mobile-workspace-picker"><span>Workspace</span><select aria-label="Switch workspace" value={workspaceId} disabled={busy} onChange={(event) => onWorkspaceChange(event.target.value)}>{workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label>}<label htmlFor="mobile-view">Navigate</label><select id="mobile-view" value={active} onChange={(event) => onNavigate(event.target.value)}>{items.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div>;
@@ -241,6 +243,7 @@ function StudioApp({ api }) {
   const [payloadDatasetId, setPayloadDatasetId] = useState('');
   const [selectedDatasetId, setSelectedDatasetId] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [payload, setPayload] = useState(null);
   const [sheetRequest, setSheetRequest] = useState({ id: '', key: 0 });
   const [payloadError, setPayloadError] = useState('');
@@ -265,6 +268,11 @@ function StudioApp({ api }) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setPaletteOpen((open) => !open);
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j' && api.askHelp) {
+        event.preventDefault();
+        setPaletteOpen(false);
+        setHelpOpen((open) => !open);
       }
       if ((event.metaKey || event.ctrlKey) && event.key === ',') {
         event.preventDefault();
@@ -381,6 +389,12 @@ function StudioApp({ api }) {
     setActive(nextView);
   }
 
+  // Ask AI's "Open" buttons name a studio view (Research programs, Library…) or an app page (Sheets, Settings…).
+  function openHelpPage(page) {
+    if (STUDIO_NAV.some((item) => item.id === page && !item.appView)) navigateStudio(page);
+    else navigate(page);
+  }
+
   function navigateStudio(view) {
     withViewTransition(() => {
       setStudioView(view);
@@ -477,6 +491,8 @@ function StudioApp({ api }) {
         <SettingsView
           {...common}
           meta={meta}
+          setupApi={api}
+          onOpenPrograms={() => navigateStudio('research')}
           onSaveKey={(keyName, value) => runAction(() => api.saveKey(keyName, value), 'Credential saved.', keyName === 'OPENAI_API_KEY')}
           onClearKey={(keyName) => { const [name, consequence] = KEY_CONSEQUENCE[keyName] || ['this credential', '']; return window.confirm(`Disconnect ${name}? ${consequence}`) ? runAction(() => api.clearKey(keyName), 'Credential disconnected.', keyName === 'OPENAI_API_KEY') : Promise.resolve(null); }}
           onSaveSettings={(settings) => runAction(() => api.saveSettings(settings), 'Settings saved.')}
@@ -565,16 +581,17 @@ function StudioApp({ api }) {
           </nav>
           {!semrushShell && !state.keys.APIFY_API_TOKEN && <div className="sidebar-setup"><span className="small-icon"><PlugZap size={17} /></span><strong>A little setup.<br />A lot to discover.</strong><p>Connect Apify to start collecting from the web.</p><Button className="ghost" onClick={() => navigate('settings')}>Connect Apify <ArrowUpRight size={14} /></Button></div>}
         </div>
-        <div className="sidebar-bottom"><nav aria-label="Preferences">{renderNavItem(NAV.find((item) => item.id === 'settings'))}</nav><div className="sidebar-foot" role="status"><span className="local-dot" data-live={liveRuns ? '' : undefined} aria-hidden="true" /><span>{liveRuns ? `${number(liveRuns)} ${liveRuns === 1 ? 'run' : 'runs'} in progress` : 'Local workspace'}</span><span className="version">v{meta?.version || '0.1.0'}</span></div></div>
+        <div className="sidebar-bottom"><nav aria-label="Preferences">{renderNavItem(NAV.find((item) => item.id === 'settings'))}</nav><div className="sidebar-foot" role="status"><span className="local-dot" data-live={liveRuns ? '' : undefined} aria-hidden="true" /><span>{liveRuns ? `${number(liveRuns)} ${liveRuns === 1 ? 'run' : 'runs'} in progress` : 'Local workspace'}</span>{meta?.version && <span className="version">v{meta.version}</span>}</div></div>
       </aside>
       <main className="workspace">
-        <Header active={active === 'marketing-template' ? 'dashboard' : active} title={semrushShell && active === 'content-studio' ? STUDIO_NAV.find(item => item.id === studioView)?.label : semrushShell && active === 'dashboard' ? 'Collection overview' : undefined} busy={busy} background={Object.values(background)} state={state} onRefresh={() => runAction(refresh)} onOpenPalette={() => setPaletteOpen(true)} />
+        <Header active={active === 'marketing-template' ? 'dashboard' : active} title={semrushShell && active === 'content-studio' ? STUDIO_NAV.find(item => item.id === studioView)?.label : semrushShell && active === 'dashboard' ? 'Collection overview' : undefined} busy={busy} background={Object.values(background)} state={state} onAskAi={api.askHelp ? () => setHelpOpen((open) => !open) : undefined} askAiOpen={helpOpen} onRefresh={() => runAction(refresh)} onOpenPalette={() => setPaletteOpen(true)} />
         <MobileNav workspaces={hasWorkspaceSwitcher ? contentWorkspaces : []} workspaceId={contentWorkspace?.id} busy={busy} onWorkspaceChange={id => runAction(() => api.selectContentWorkspace(id))} active={semrushShell && active === 'content-studio' ? `studio:${studioView}` : active === 'marketing-template' ? 'dashboard' : active} items={semrushShell ? [...STUDIO_NAV.map(item => ({ ...item, id: item.appView || `studio:${item.id}` })), ...NAV.filter(item => !['content-studio', 'sheets'].includes(item.id)).map(item => item.id === 'dashboard' ? { ...item, label: 'Collection overview' } : item)] : NAV} onNavigate={value => value.startsWith('studio:') ? navigateStudio(value.slice(7)) : navigate(value)} />
         <div className={`content${active === 'sheets' ? ' content-fill' : active === 'chat' ? ' content-fit' : ''}`} ref={contentRef}>
           {(error || notice) && <div className="feedback" onMouseEnter={() => setNoticeHeld(true)} onMouseLeave={() => setNoticeHeld(false)}><StatusBanner error={error} notice={notice} /><Button className="ghost icon-button" aria-label="Dismiss notification" onClick={() => { setError(''); setNotice(''); }}><X size={16} /></Button></div>}
           <JobTray jobs={state.jobs || []} busy={false} onCancelJob={(jobId) => confirmCancel() && runAction(() => api.cancelJob(jobId), 'Job cancelled.')} />
           {loading ? <div className="loading-state" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><h2>Opening your workspace</h2><p>Loading your research, sheets and reports.</p></div> : <ErrorBoundary page key={`${active}:${studioView}`}>{content}</ErrorBoundary>}
         </div>
+        <HelpAssistant api={api} open={helpOpen} onClose={() => setHelpOpen(false)} page={{ id: active === 'content-studio' ? studioView : active, label: (semrushShell && active === 'content-studio' ? STUDIO_NAV.find((item) => item.id === studioView)?.label : semrushShell && active === 'dashboard' ? 'Collection overview' : NAV.find((item) => item.id === active)?.label) || '' }} onOpenPage={openHelpPage} onOpenSettings={() => navigate('settings')} />
         <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} onRun={runPaletteItem} />
       </main>
     </div>

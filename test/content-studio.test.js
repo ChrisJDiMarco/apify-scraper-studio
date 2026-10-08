@@ -120,12 +120,33 @@ describe('content studio portable contracts', () => {
     const summaryLeak = draft('affiliate', { summary: 'Use Fixture Enterprise.' });
     expect(() => validate('affiliate', summaryLeak, { productRegistry: registry })).toThrow('ineligible');
   });
-  it('rejects undisclosed products and keeps toolkit hooks product agnostic', () => {
+  it('keeps toolkit hooks product agnostic whether or not the draft tagged the product', () => {
     const output = draft('editorial-toolkit'); const hook = output.sections.find(value => value.id === 'hooks').items[0];
     hook.text = 'Try Fixture Toolkit.';
-    expect(() => validate('editorial-toolkit', output, { productRegistry: registry })).toThrow('identify');
+    expect(() => validate('editorial-toolkit', output, { productRegistry: registry })).toThrow('must be product-agnostic; it names Fixture Toolkit');
     hook.productIds = ['plg'];
     expect(() => validate('editorial-toolkit', output, { productRegistry: registry })).toThrow('product-agnostic');
+  });
+  it('reads registry names as proper nouns: no generic-word, lowercase or longer-name false positives', () => {
+    const tools = ['Visibility', 'Questions', 'Keyword Gap', 'Site Audit', 'AdClarity'].map(name => ({ name }));
+    const withTools = [{ ...product('plg', 'Fixture Toolkit', 'self-serve', true), tools }, product('ent', 'Fixture Enterprise', 'enterprise')];
+    const output = draft('enterprise'); const summary = output.sections[0];
+    summary.body = 'Questions buyers ask: why AI visibility reports moved, what a site audit backlog costs, and how Keyword Gap Pro handles large keyword sets. Fixture Enterprise covers it.';
+    summary.productIds = ['ent'];
+    expect(validate('enterprise', output, { productRegistry: withTools }).sections[0].productIds).toEqual(['ent']);
+    summary.body = 'Run Site Audit first.'; // a real mention of a self-serve tool in an Enterprise brief
+    expect(() => validate('enterprise', output, { productRegistry: withTools })).toThrow('permits only enterprise products; it names Fixture Toolkit');
+    summary.body = 'Compare it with AdClarity.'; // coined single-word names still count
+    expect(() => validate('enterprise', output, { productRegistry: withTools })).toThrow('it names Fixture Toolkit');
+  });
+  it('tags a named product the draft forgot, and accepts any owner of a shared tool name', () => {
+    const shared = ['a', 'b'].map(id => ({ ...product(id, `Toolkit ${id.toUpperCase()}`, 'self-serve', true), tools: [{ name: 'Writing Assistant' }] }));
+    const output = draft('affiliate'); output.sections[0].body = 'Draft the post in Writing Assistant.'; output.sections[0].productIds = [];
+    const validated = validate('affiliate', output, { productRegistry: shared });
+    expect(validated.sections[0].productIds).toEqual(['a']);
+    expect(validated.approvedProducts.map(entry => entry.id)).toEqual(['a']);
+    output.sections[0].productIds = ['b'];
+    expect(validate('affiliate', output, { productRegistry: shared }).sections[0].productIds).toEqual(['b']);
   });
   it('prevents multiple primary products in paid ads even across different sections', () => {
     const output = draft('ads'); output.sections[0].items[0].productIds = ['plg']; output.sections[5].productIds = ['ent'];
@@ -189,6 +210,19 @@ describe('content studio portable contracts', () => {
     expect(html).toContain('href="https://example.com/plg"');
     expect(html).toContain('href="https://example.com/post"');
     expect(html).toContain('rel="noopener noreferrer"');
+  });
+  it('cites sources by number and keeps a source report\'s Markdown out of the document structure', () => {
+    const report = { id: 'asset-report', text: '# Fixture Trends Report\n\n## Executive Summary\n\n- First finding\n- **Second** finding' };
+    const post = { id: 'post-9', text: 'A practitioner post.', platform: 'linkedin', author: 'fixture', publishedAt: '2026-10-06T08:09:14.848Z', url: 'https://example.com/post-9' };
+    const output = { title: 'Captions', summary: 'S', sections: [{ id: 'one', heading: 'LinkedIn', body: 'Body', items: [], evidenceIds: ['post-9', 'asset-report'], productIds: [] }], caveats: [], evidenceRegister: [report, post] };
+    const markdown = renderContentExport(output);
+    expect(markdown.split('\n').filter(line => /^#{1,6} /.test(line))).toEqual(['# Captions', '## LinkedIn', '## Evidence register', '## Approved product links', '## Limitations']);
+    expect(markdown).toContain('Sources: [2], [1]');
+    expect(markdown).toContain('1. Fixture Trends Report · `asset-report`\n   > Executive Summary First finding Second finding');
+    expect(markdown).toContain('2. LinkedIn · fixture · 2026-10-06 — https://example.com/post-9 · `post-9`');
+    const html = renderContentExport(output, { format: 'html' });
+    expect(html).toContain('<strong>[1] Fixture Trends Report</strong>');
+    expect(html).toContain('Sources: [2], [1]');
   });
   it('exports static responsive HTML with escaped source text and no executable model markup', () => {
     const output = draft('landingpage', { title: '<script>alert(1)</script>' });

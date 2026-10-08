@@ -81,7 +81,7 @@ describe('durable paid Actor collection', () => {
     expect(peak).toBe(3);
     const inputs = Object.fromEntries(h.calls.starts.map(call => [call.actorId, call.input]));
     expect(inputs['apidojo/twitter-scraper-lite'].searchTerms[0]).toMatch(/^from:author1 since:\d{4}-\d{2}-\d{2}$/);
-    expect(inputs['trudax/reddit-scraper-lite']).toMatchObject({ startUrls: [{ url: 'https://www.reddit.com/r/seo/new/' }], maxPostCount: 300, scrollTimeout: 90, skipComments: true });
+    expect(inputs['trudax/reddit-scraper-lite']).toMatchObject({ startUrls: [{ url: 'https://www.reddit.com/r/seo/new/' }], maxPostCount: 300, scrollTimeout: 300, skipComments: true });
     expect(inputs['harvestapi/linkedin-profile-posts']).toMatchObject({ targetUrls: ['https://www.linkedin.com/in/someone/'], maxPosts: 15 });
   });
   it('refuses automatic retry when the start response was lost and the charging outcome is unknown', async () => {
@@ -167,5 +167,27 @@ describe('dataset metadata cache and resume safety', () => {
     const h = harness();
     await expect(createApifyRunner({ token: 'fixture-only', Client: h.Client }).runRecipe({ name: 'Existing', platform: 'x', actorId: 'example/actor', input: {} }, { resumeRunId: 'missing-run' })).rejects.toThrow(/could not be found.*will not be started again/);
     expect(h.calls.starts).toHaveLength(0);
+  });
+});
+
+describe('login shell PATH for CLIs opened from Finder', () => {
+  const { loadLoginShellPath, studioCliEnv } = hostModule;
+  const fakeShell = (body) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-shell-test-')); roots.push(dir);
+    const file = path.join(dir, 'shell'); fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 }); return file;
+  };
+  it('reads the marked PATH even when rc files print around it, and puts it first', async () => {
+    const shell = fakeShell('echo "Welcome back"\nprintf "%s" "__SCRAPER_STUDIO_PATH__/Users/tester/.nvm/versions/node/v22.0.0/bin:/usr/bin__SCRAPER_STUDIO_PATH__"\necho "bye"');
+    await expect(loadLoginShellPath({ shell })).resolves.toBe('/Users/tester/.nvm/versions/node/v22.0.0/bin:/usr/bin');
+    expect(studioCliEnv().PATH.startsWith('/Users/tester/.nvm/versions/node/v22.0.0/bin:/usr/bin:')).toBe(true);
+    expect(studioCliEnv().PATH).toContain(path.join(os.homedir(), '.local', 'bin'));
+    await loadLoginShellPath({ shell: fakeShell('printf "%s" "__SCRAPER_STUDIO_PATH____SCRAPER_STUDIO_PATH__"') });
+    expect(studioCliEnv().PATH.startsWith(path.join(os.homedir(), '.local', 'bin'))).toBe(true);
+  });
+  it('gives up quietly when the shell is missing, hangs or prints no marker', async () => {
+    await expect(loadLoginShellPath({ shell: '/nonexistent/shell' })).resolves.toBe('');
+    await expect(loadLoginShellPath({ shell: fakeShell('sleep 5'), timeoutMs: 100 })).resolves.toBe('');
+    await expect(loadLoginShellPath({ shell: fakeShell('echo no marker here') })).resolves.toBe('');
+    expect(studioCliEnv().PATH.startsWith(path.join(os.homedir(), '.local', 'bin'))).toBe(true);
   });
 });

@@ -12,9 +12,10 @@
   --sheet-find-active: #ffd75e;
   --sheet-edited: #d9822b;
   --sheet-link: #1d5fc1;
-  display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
-  grid-template-columns: minmax(0, 1fr); /* the grid scrolls sideways; the page never does */
+  /* A column, not fixed grid rows: run notes come and go (none for a finished run or an import, two for an
+     older failed run), and the sheet must always take the remaining height with the tabs below it. */
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -30,6 +31,9 @@
 }
 /* The workbook fills the window: no page scroll, the grid scrolls instead. */
 .content.content-fill { padding: 0 !important; overflow: clip; display: flex; flex-direction: column; min-width: 0; }
+/* Full width, edge to edge: the page-wide `section { max-width; margin: 0 auto }` would otherwise size the
+   sheet to its (very wide) content in this flex column and push the toolbar and notes off screen. */
+.content.content-fill > .sheets-view { width: 100%; max-width: none; margin: 0; }
 .content.content-fill > .feedback, .content.content-fill > .job-tray { margin: 12px 20px 0; }
 
 /* Workbook bar */
@@ -230,6 +234,10 @@ body.sheet-resizing, body.sheet-resizing * { cursor: col-resize !important; user
 .sheets-view .sheets-toast button.sheets-toast-action:hover:not(:disabled) { background: rgb(255 255 255 / 26%); }
 
 /* First visit: no workbooks yet. */
+/* Bar, notes, toolbar, formula bar and tabs keep their height; the sheet takes the rest. min-width: 0 lets
+   the grid scroll sideways inside the stage instead of widening the page. */
+.sheets-view > * { flex: none; min-width: 0; }
+.sheets-view > .sheets-stage, .sheets-view > .sheet-skeleton { flex: 1 1 0; min-height: 0; }
 .sheets-empty-state { display: grid; place-items: center; grid-template-rows: 1fr; padding: 32px; overflow-y: auto; }
 .sheets-welcome { display: grid; justify-items: start; gap: 12px; max-width: 560px; padding: 32px 34px; background: #fff; border: 1px solid var(--sheet-line); border-radius: 18px; box-shadow: 0 10px 30px rgb(24 30 21 / 5%); }
 .sheets-welcome-icon { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 12px; color: var(--sheet-select); background: var(--sheet-select-chrome); }

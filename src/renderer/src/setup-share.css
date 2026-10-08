@@ -1,0 +1,35 @@
+/* Share your setup (Settings) and the import banner on an empty Research programs page. */
+.setup-share { --setup-ink: var(--cs-ink, var(--ink, #181e15)); --setup-muted: var(--cs-muted, var(--muted, #5f6b62)); --setup-line: var(--cs-border, var(--line, #dce2dc)); --setup-soft: var(--cs-soft, #f4f6f3); display: grid; gap: 14px; color: var(--setup-ink); }
+.setup-share-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.setup-share-action { display: grid; align-content: start; justify-items: start; gap: 10px; padding: 16px; border: 1px solid var(--setup-line); border-radius: 12px; background: #fff; }
+.setup-share-action h4 { margin: 0; font-size: 13px; font-weight: 650; }
+.setup-share-action p, .setup-share-banner p, .setup-share-result p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--setup-muted); }
+.setup-share .setup-share-check { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; line-height: 1.5; cursor: pointer; }
+.setup-share .setup-share-check input { margin-top: 3px; }
+.setup-share .setup-share-check span { display: grid; gap: 3px; }
+.setup-share .setup-share-check small { font-size: 11px; color: var(--setup-muted); }
+.setup-share-banner { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px dashed var(--cs-border-accent, #c9b1ef); border-radius: 12px; background: var(--setup-soft); }
+.setup-share-banner > div { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.setup-share-banner strong { font-size: 13px; }
+.setup-share-preview { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--cs-border-accent, #c9b1ef); border-radius: 12px; background: #fff; }
+.setup-share-preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.setup-share-preview-head strong { font-size: 13px; overflow-wrap: anywhere; }
+.setup-share-preview-head small { font-size: 11px; color: var(--setup-muted); }
+.setup-contents dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 16px; margin: 0; }
+.setup-contents dl > div { display: grid; gap: 2px; min-width: 0; }
+.setup-contents dt { font-size: 11px; color: var(--setup-muted); }
+.setup-contents dd { margin: 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.setup-programs { display: grid; gap: 6px; margin: 4px 0 0; padding: 0; list-style: none; }
+.setup-programs li { display: grid; gap: 3px; padding: 10px 12px; border-radius: 9px; background: var(--setup-soft); }
+.setup-programs strong { font-size: 12px; }
+.setup-programs strong span { font-weight: 500; color: var(--setup-muted); }
+.setup-programs small { font-size: 11px; line-height: 1.5; color: var(--setup-muted); }
+.setup-share-changes, .setup-share-warnings { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 12px; line-height: 1.55; }
+.setup-share-changes li::before { content: '• '; color: var(--setup-muted); }
+.setup-share-warnings li { display: flex; gap: 6px; align-items: flex-start; color: #845231; }
+.setup-share-warnings svg { flex: none; margin-top: 3px; }
+.setup-share-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.setup-share-result { display: grid; justify-items: start; gap: 6px; padding: 12px 14px; border: 1px solid #bfdcc9; border-radius: 10px; background: #f3faf5; }
+.setup-share-result strong { font-size: 12px; overflow-wrap: anywhere; }
+.setup-share-error { margin: 0; font-size: 12px; color: #9a3d22; overflow-wrap: anywhere; }
+@media (max-width: 820px) { .setup-share-actions { grid-template-columns: minmax(0, 1fr); } .setup-share-banner { flex-wrap: wrap; } }

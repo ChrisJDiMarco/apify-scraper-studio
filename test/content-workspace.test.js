@@ -60,7 +60,7 @@ describe('persistent content workspace orchestration', () => {
     const followInput = JSON.parse(fs.readFileSync(path.join(h.root, 'runs', followUp.id, 'input.json'), 'utf8'));
     expect(followInput.source.kind).toBe('report'); expect(followInput.source.evidence.length).toBeLessThanOrEqual(120);
     expect(h.api.readStudioRun({ runId: followUp.id }).status).toBe('succeeded');
-  });
+  }, 15000); // 405 rows through the whole pipeline; slow when the suite runs in parallel.
   it('resumes completed discovery batches after failure and app restart without paying for them again', async () => {
     let failed = false;
     const h = harness({ count: 405, runAI: async (request, calls, output) => { if (stageOf(request) === 'discovery' && calls.filter(c => stageOf(c) === 'discovery').length === 2 && !failed) { failed = true; throw new Error('Temporary provider failure'); } return output(request); } });

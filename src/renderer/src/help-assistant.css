@@ -1,0 +1,47 @@
+/* Ask AI: a right-hand panel over the app, available on every page. */
+.help-drawer { --help-ink: #181e15; --help-muted: #5f6b62; --help-line: #dfe4df; --help-accent: #7a46d1; --help-soft: #f5f1fd;
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 80; width: min(440px, 100vw); display: flex; flex-direction: column;
+  background: #fff; border-left: 1px solid var(--help-line); box-shadow: -18px 0 40px rgba(24, 30, 21, .10);
+  transform: translateX(104%); transition: transform 220ms var(--spring-settle, cubic-bezier(.2, .8, .2, 1)); color: var(--help-ink); }
+.help-drawer.open { transform: none; }
+@media (prefers-reduced-motion: reduce) { .help-drawer { transition: none; } }
+.help-head { display: flex; align-items: center; gap: 10px; padding: 16px 16px 14px 18px; border-bottom: 1px solid var(--help-line); }
+.help-head > div { flex: 1; min-width: 0; }
+.help-head h2 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.2px; }
+.help-head p { margin: 2px 0 0; font-size: 11px; color: var(--help-muted); }
+.help-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--help-soft); color: var(--help-accent); flex: none; }
+.help-drawer .help-icon { display: grid; place-items: center; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--help-muted); }
+.help-drawer .help-icon:hover:not(:disabled) { background: #f1f3f1; color: var(--help-ink); }
+.help-messages { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 14px; padding: 18px; }
+.help-welcome h3 { margin: 6px 0 6px; font-size: 16px; letter-spacing: -.2px; }
+.help-welcome p { margin: 0 0 14px; font-size: 12px; line-height: 1.6; color: var(--help-muted); }
+.help-starters { display: grid; gap: 8px; }
+.help-drawer .help-starters button { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 10px 12px; text-align: left; font-size: 12px; font-weight: 500; color: var(--help-ink); background: #fff; border: 1px solid var(--help-line); border-radius: 10px; }
+.help-drawer .help-starters button:hover:not(:disabled) { background: var(--help-soft); border-color: #cdb5f2; color: var(--help-ink); }
+.help-question { justify-self: end; max-width: 88%; padding: 10px 12px; border-radius: 12px 12px 4px 12px; background: var(--help-soft); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.help-answer { display: grid; gap: 10px; min-width: 0; }
+.help-answer .markdown-content { font-size: 12.5px; line-height: 1.7; color: var(--help-ink); }
+.help-answer .markdown-content p { color: inherit; margin: .5em 0; }
+.help-answer .markdown-content :is(h1, h2, h3) { font-size: 13px; margin: 12px 0 6px; }
+.help-pages, .help-followups { display: flex; flex-wrap: wrap; gap: 6px; }
+.help-drawer .help-pages button { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 5px 11px; font-size: 11.5px; font-weight: 600; color: #fff; background: var(--help-accent); border: 1px solid var(--help-accent); border-radius: 999px; }
+.help-drawer .help-pages button:hover:not(:disabled) { background: #6a38c0; border-color: #6a38c0; color: #fff; }
+.help-drawer .help-followups button { min-height: 28px; padding: 5px 10px; font-size: 11.5px; font-weight: 500; text-align: left; color: var(--help-ink); background: #fff; border: 1px solid var(--help-line); border-radius: 999px; }
+.help-drawer .help-followups button:hover:not(:disabled) { background: var(--help-soft); border-color: #cdb5f2; color: var(--help-ink); }
+.help-receipt { font-size: 10.5px; color: var(--help-muted); }
+.help-thinking { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--help-muted); }
+.help-error { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid #ecc8b8; border-radius: 10px; background: #fdf6f2; font-size: 12px; line-height: 1.55; color: #8a3a22; }
+.help-error p { margin: 0; overflow-wrap: anywhere; }
+.help-drawer .help-error button { justify-self: start; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 4px 10px; font-size: 11.5px; color: var(--help-ink); background: #fff; border: 1px solid var(--help-line); border-radius: 999px; }
+.help-composer { display: flex; align-items: flex-end; gap: 8px; margin: 0 16px; padding: 8px; border: 1px solid var(--help-line); border-radius: 14px; background: #fff; }
+.help-composer:focus-within { border-color: #b996ee; box-shadow: 0 0 0 3px rgba(122, 70, 209, .12); }
+.help-drawer .help-composer textarea:focus, .help-drawer .help-composer textarea:focus-visible { outline: none; box-shadow: none; }
+.help-composer textarea { flex: 1; min-height: 40px; max-height: 160px; resize: none; field-sizing: content; padding: 6px 4px; border: 0; outline: none; background: transparent; font: inherit; font-size: 12.5px; line-height: 1.5; color: var(--help-ink); }
+.help-drawer .help-composer button { display: grid; place-items: center; width: 34px; height: 34px; min-height: 34px; padding: 0; flex: none; border-radius: 10px; color: #fff; background: var(--help-accent); border: 1px solid var(--help-accent); }
+.help-drawer .help-composer button:hover:not(:disabled) { background: #6a38c0; border-color: #6a38c0; }
+.help-drawer .help-composer button:disabled { opacity: .45; }
+.help-foot { margin: 8px 18px 14px; font-size: 10.5px; color: var(--help-muted); }
+/* Header button */
+.topbar .ask-ai-button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 6px 13px; font-size: 12px; font-weight: 600; color: #3a1d6e; background: #f1e8ff; border: 1px solid #d9c3fb; border-radius: 999px; }
+.topbar .ask-ai-button:hover:not(:disabled), .topbar .ask-ai-button[aria-expanded="true"] { color: #2b1356; background: #e7d8ff; border-color: #c4a4f5; }
+.topbar .ask-ai-button kbd { padding: 1px 5px; font: inherit; font-size: 10px; color: #6b4fa0; background: rgba(255, 255, 255, .7); border-radius: 5px; }

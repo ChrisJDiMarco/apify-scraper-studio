@@ -26,7 +26,9 @@ const DEFAULT_RESEARCH_AI = Object.freeze({
   concurrency: 3,
 });
 const DEFAULT_TAGGING_BATCH_SIZES = Object.freeze({ x: 50, linkedin: 40, reddit: 50 });
-const DEFAULT_COLLECTION_SETTINGS = Object.freeze({ xMaxItemsPerHandle: 50, xHandlesPerJob: 5, linkedinPostsPerProfile: 15, linkedinProfilesPerJob: 100, redditPostsPerSub: 300, redditScrollTimeoutSecs: 90, laneConcurrency: 4 });
+// Reddit departs from n8n (one run, 90s scroll): on a live run 90s reached only 3–4 days back in busy
+// subreddits, so subreddits run in parallel groups of 6 with 300s of scrolling each.
+const DEFAULT_COLLECTION_SETTINGS = Object.freeze({ xMaxItemsPerHandle: 50, xHandlesPerJob: 5, linkedinPostsPerProfile: 15, linkedinProfilesPerJob: 100, redditPostsPerSub: 300, redditScrollTimeoutSecs: 300, redditSubsPerJob: 6, laneConcurrency: 4 });
 const DEFAULT_RESEARCH_PROGRAM = {
   targetPerPlatform: 3000, maxEvidenceItems: MAX_EVIDENCE_ITEMS, perAuthorCap: 10, lookbackDays: 7,
   discoveryBatchSize: 200, taggingBatchSize: 40, taggingBatchSizes: { ...DEFAULT_TAGGING_BATCH_SIZES }, maxThemes: 6,
@@ -112,7 +114,7 @@ function validateResearchAi(input) {
 function validateCollectionSettings(input) {
   const value = input === undefined ? {} : object(input, 'collection');
   const pick = (key, min, max) => number(value[key], `collection.${key}`, min, max, DEFAULT_COLLECTION_SETTINGS[key], true);
-  return { xMaxItemsPerHandle: pick('xMaxItemsPerHandle', 10, 1000), xHandlesPerJob: pick('xHandlesPerJob', 1, 500), linkedinPostsPerProfile: pick('linkedinPostsPerProfile', 1, 100), linkedinProfilesPerJob: pick('linkedinProfilesPerJob', 1, 1000), redditPostsPerSub: pick('redditPostsPerSub', 10, 1000), redditScrollTimeoutSecs: pick('redditScrollTimeoutSecs', 10, 600), laneConcurrency: pick('laneConcurrency', 1, 10) };
+  return { xMaxItemsPerHandle: pick('xMaxItemsPerHandle', 10, 1000), xHandlesPerJob: pick('xHandlesPerJob', 1, 500), linkedinPostsPerProfile: pick('linkedinPostsPerProfile', 1, 100), linkedinProfilesPerJob: pick('linkedinProfilesPerJob', 1, 1000), redditPostsPerSub: pick('redditPostsPerSub', 10, 1000), redditScrollTimeoutSecs: pick('redditScrollTimeoutSecs', 10, 600), redditSubsPerJob: pick('redditSubsPerJob', 1, 50), laneConcurrency: pick('laneConcurrency', 1, 10) };
 }
 function validateResearchProgram(input = {}) {
   object(input, 'program');
@@ -559,6 +561,7 @@ function modelPrice(model) {
   if (known) return known;
   if (/fable|mythos/.test(model)) return { input: 10, output: 50 };
   if (/opus/.test(model)) return { input: 5, output: 25 };
+  if (/sonnet-5/.test(model)) return { input: 2, output: 10 };
   if (/sonnet/.test(model)) return { input: 3, output: 15 };
   return { input: 1, output: 5 };
 }

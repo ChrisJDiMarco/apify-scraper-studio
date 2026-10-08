@@ -43,12 +43,15 @@ export function buildTrendBoard({ researchRuns = [], contentRuns = [], assets = 
   const contentById = new Map(list(contentRuns).map((run) => [run.id, run]));
   const cards = [];
   const scouting = [];
+  // A failed run that found no trends leaves the board once a newer run of the same program has found
+  // themes (waiting for review, or finished); it stays in the program's run history.
+  const supersededFailure = (run) => list(researchRuns).some((other) => other !== run && run.programId && other.programId === run.programId && ['awaiting-review', 'succeeded', 'partial'].includes(other.status) && String(other.createdAt || '') > String(run.createdAt || ''));
   for (const run of list(researchRuns)) {
     const discovered = list(run.discoveredThemes).length ? run.discoveredThemes : list(run.themes);
     const programName = programNames.get(run.programId);
     if (!discovered.length) {
       // Still collecting or discovering: show the run so new trends never appear from nowhere.
-      if (ACTIVE.has(run.status) || run.status === 'failed') scouting.push({ runId: run.id, programId: run.programId || '', title: programName || run.title || 'Research run', status: run.status, stage: run.stage || '', progress: run.discoveryProgress || null, message: run.message || '', error: typeof run.error === 'string' ? run.error : run.error?.message || '', createdAt: run.createdAt || '' });
+      if (ACTIVE.has(run.status) || (run.status === 'failed' && !supersededFailure(run))) scouting.push({ runId: run.id, programId: run.programId || '', title: programName || run.title || 'Research run', status: run.status, stage: run.stage || '', progress: run.discoveryProgress || null, message: run.message || '', error: typeof run.error === 'string' ? run.error : run.error?.message || '', createdAt: run.createdAt || '' });
       continue;
     }
     if (run.status === 'cancelled' && !run.reportRunIds?.length) continue;

@@ -9,6 +9,8 @@ const intel = require('../shared/research-intel');
 const { validateResearchSchedule, nextResearchScheduleAt, latestResearchScheduleAt, researchScheduleWindow } = require('../shared/research-schedule');
 // Golden Thread trend report + editorial toolkit (loaded on use so older hosts keep starting).
 const reports = () => require('../shared/research-reports');
+// Share-your-setup file format (export, preview, import); loaded on use for the same reason.
+const setupBundle = () => require('../shared/setup-bundle');
 const SEMRUSH_ENTERPRISE_PRODUCTS = ['Enterprise SEO', 'Enterprise SI (Site Intelligence)', 'Enterprise AIO'];
 const REFERENCE_DOC_KINDS = ['icp', 'positioning', 'registry', 'ai-visibility', 'other'];
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -662,6 +664,33 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     researchScheduleTimer.unref?.();
     return tick();
   }
+  // Preserve server-owned execution metadata; never trust dates or run IDs posted by the renderer
+  // or carried in a setup file. Editing program copy alone preserves the cadence.
+  function scheduleState(schedule, previous) {
+    const changed = JSON.stringify(validateResearchSchedule(previous)) !== JSON.stringify(schedule);
+    const metadata = Object.fromEntries(['lastRunAt', 'lastRunId', 'lastStatus', 'lastError', 'lastScheduledFor', 'skippedAt', 'skippedReason'].map(key => [key, previous?.[key] || '']));
+    const result = { ...schedule, ...metadata, nextRunAt: !schedule.enabled ? '' : changed || !previous?.nextRunAt ? nextResearchScheduleAt(schedule, { from: stamp() }) : previous.nextRunAt };
+    if (changed) { result.lastError = ''; result.skippedAt = ''; result.skippedReason = ''; }
+    return result;
+  }
+  // Share your setup. Preview and import share one plan, so they always agree, and import changes
+  // nothing until the whole file has passed. The target is the first workspace of the file's edition
+  // (fresh installs have one each), which stays the same across re-imports.
+  function setupPlan(input) {
+    const lib = setupBundle(); const bundle = lib.validateSetupBundle(input); const source = bundle.workspace;
+    const target = state.workspaces.find(w => w.editionId === source.editionId) || null;
+    for (const program of bundle.programs) {
+      const elsewhere = state.programs.find(row => row.id === program.id && row.workspaceId !== target?.id);
+      if (elsewhere) throw new Error(`Program “${program.name}” already belongs to “${state.workspaces.find(w => w.id === elsewhere.workspaceId)?.name || 'another workspace'}”, so it cannot be imported into “${target?.name || source.name}”. Nothing was imported.`);
+    }
+    const shared = new Set(bundle.programs.map(program => program.id));
+    const context = {
+      target: target ? { workspaceId: target.id, name: target.name, exists: true, products: (target.products || []).length, taxonomyCategories: target.taxonomy?.categories?.length || 0, referenceDocs: (target.referenceDocs || []).length } : { name: source.name, exists: false },
+      programActions: Object.fromEntries(bundle.programs.map(program => [program.id, state.programs.some(row => row.id === program.id) ? 'update' : 'add'])),
+      keptPrograms: target ? state.programs.filter(row => row.workspaceId === target.id && !shared.has(row.id)).length : 0,
+    };
+    return { bundle, target, ...lib.summarizeSetupBundle(bundle, context) };
+  }
   const api = {
     publicState, recoverInterrupted, checkDueResearchSchedules, startResearchScheduler, stopResearchScheduler,
     contentCatalog: () => ({ editions: copy(content.CONTENT_EDITIONS), deliverables: copy(content.CONTENT_DELIVERABLES) }),
@@ -718,14 +747,36 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (state.programs.some(p => p.id === payload.id && p.workspaceId !== w.id)) throw new Error('Program belongs to another workspace.');
       const existing = state.programs.find(row => row.id === payload.id);
       const p = { ...research.validateResearchProgram(payload), workspaceId: w.id, updatedAt: stamp() };
-      const previous = existing?.schedule;
-      const changed = JSON.stringify(validateResearchSchedule(previous)) !== JSON.stringify(p.schedule);
-      // Preserve server-owned execution metadata; never trust dates or run IDs
-      // posted by the renderer. Editing program copy alone preserves the cadence.
-      const metadata = Object.fromEntries(['lastRunAt', 'lastRunId', 'lastStatus', 'lastError', 'lastScheduledFor', 'skippedAt', 'skippedReason'].map(key => [key, previous?.[key] || '']));
-      p.schedule = { ...p.schedule, ...metadata, nextRunAt: !p.schedule.enabled ? '' : changed || !previous?.nextRunAt ? nextResearchScheduleAt(p.schedule, { from: stamp() }) : previous.nextRunAt };
-      if (changed) { p.schedule.lastError = ''; p.schedule.skippedAt = ''; p.schedule.skippedReason = ''; }
+      p.schedule = scheduleState(p.schedule, existing?.schedule);
       state.programs = state.programs.filter(row => row.id !== p.id); state.programs.push(p); save(); return copy(p);
+    },
+    // Share your setup: the workspace's research knowledge and programs as one portable bundle.
+    // Never includes run history, datasets, assets, themes, detections, workbooks, receipts or keys
+    // (the host attaches keys itself with setup-bundle's attachSetupSecrets).
+    exportSetup({ workspaceId, programIds, appVersion } = {}) {
+      const w = workspace(workspaceId); const limit = setupBundle().SETUP_LIMITS.programs;
+      if (programIds !== undefined && (!Array.isArray(programIds) || programIds.length > limit)) throw new Error(`Choose up to ${limit} programs to share.`);
+      const programs = programIds === undefined ? state.programs.filter(program => program.workspaceId === w.id) : [...new Set(programIds)].map(programId => owned(state.programs, programId));
+      // An unset Enterprise list means the edition default; the file carries the list in effect.
+      return setupBundle().buildSetupBundle({ workspace: { ...w, enterpriseProducts: w.enterpriseProducts ?? (w.editionId === 'semrush' ? SEMRUSH_ENTERPRISE_PRODUCTS : []) }, programs, exportedAt: stamp(), appVersion: appVersion == null ? '' : String(appVersion) });
+    },
+    previewSetup({ bundle } = {}) { const { summary, warnings } = setupPlan(bundle); return { summary, warnings }; },
+    // Replaces the target workspace's knowledge, products, taxonomy and reference documents, upserts
+    // programs by ID and selects the workspace, in one save. Secrets in the file are ignored here.
+    importSetup({ bundle } = {}) {
+      const plan = setupPlan(bundle); const source = plan.bundle.workspace; const now = stamp(); const workspaceId = plan.target?.id || id('workspace');
+      const enterprise = source.enterpriseProducts && enterpriseList(source.enterpriseProducts);
+      // Imported schedules arrive paused (cadence kept, no next run), so a tester never starts spending
+      // by accident; a re-import keeps this machine's run history for programs it already has.
+      const programs = plan.bundle.programs.map(program => ({ ...program, workspaceId, updatedAt: now, schedule: scheduleState({ ...program.schedule, enabled: false }, state.programs.find(row => row.id === program.id)?.schedule) }));
+      const w = plan.target || { id: workspaceId, name: source.name, editionId: source.editionId, createdAt: now };
+      if (!plan.target) state.workspaces.push(w);
+      Object.assign(w, { knowledge: source.knowledge, products: source.products, ...(w.editionId === 'semrush' ? { brandDefaults: copy(content.SEMRUSH_BRAND_2026) } : {}), referenceDocs: source.referenceDocs.map(doc => ({ id: id('doc'), ...doc, updatedAt: now })), updatedAt: now });
+      if (enterprise) w.enterpriseProducts = enterprise; else delete w.enterpriseProducts;
+      if (source.taxonomy) w.taxonomy = source.taxonomy; else delete w.taxonomy;
+      for (const program of programs) { const index = state.programs.findIndex(row => row.id === program.id); if (index >= 0) state.programs[index] = program; else state.programs.push(program); }
+      state.activeWorkspaceId = w.id; save();
+      return { summary: plan.summary, warnings: plan.warnings, workspaceId: w.id, programIds: programs.map(program => program.id), state: publicState() };
     },
     startResearchRun({ programId, datasetIds = [] }) {
       const program = owned(state.programs, programId); if (!Array.isArray(datasetIds) || datasetIds.length > 50) throw new Error('Choose up to 50 datasets.'); const allowed = new Set(publicState().availableDatasets.map(d => d.id)); if (datasetIds.some(key => !allowed.has(key))) throw new Error('Choose datasets from this workspace.');
@@ -807,6 +858,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       return { run: publicRun(run), program, evidence, raw, assignments, batches, themes: copy((state.themes || []).filter(t => t.workspaceId === run.workspaceId)), history: copy((state.history || []).filter(h => h.workspaceId === run.workspaceId)), detections: copy((state.detections || []).filter(d => d.workspaceId === run.workspaceId)), taxonomy: copy(w.taxonomy || null), repositoryReports, reports, runs: workspaceRuns, version: researchWorkbookVersion(run) };
     },
     waitForIdle: async () => { while (active.size) await Promise.allSettled([...active.values()]); },
+    // Runs working right now (any workspace), for the host's "quit anyway?" check.
+    activeWork: () => [...active.keys()].map(runId => [...state.researchRuns, ...state.contentRuns].find(run => run.id === runId)).filter(run => run && ['queued', 'running'].includes(run.status)).map(run => ({ runId: run.id, kind: run.type === 'research' ? 'research' : 'content', title: run.title || 'Untitled run', stage: run.stage || '' })),
   };
   function researchWorkbookVersion(run) {
     const stamp = name => { try { return fs.statSync(path.join(root, 'runs', run.id, name)).mtimeMs; } catch (_) { return 0; } };

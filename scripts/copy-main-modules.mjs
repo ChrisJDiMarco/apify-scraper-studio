@@ -9,6 +9,10 @@ const copies = [
   ['src/main/local-image-key.js', 'out/main/local-image-key.js'],
   ['src/main/google-delivery.js', 'out/main/google-delivery.js'],
   ['src/main/bridge-delivery.js', 'out/main/bridge-delivery.js'],
+  ['src/main/ai-routes.js', 'out/main/ai-routes.js'],
+  ['docs/app-guide.md', 'out/main/app-guide.md'], // Ask AI answers from this guide
+  ['src/shared/setup-bundle.js', 'out/shared/setup-bundle.js'],
+  ['src/shared/anthropic-runner.js', 'out/shared/anthropic-runner.js'],
   ['src/shared/xlsx-writer.js', 'out/shared/xlsx-writer.js'],
   ['src/main/content-workspace.js', 'out/main/content-workspace.js'],
   ['src/main/studio-owner-lock.js', 'out/main/studio-owner-lock.js'],

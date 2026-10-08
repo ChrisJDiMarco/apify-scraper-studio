@@ -1,6 +1,6 @@
 {
   "name": "apify-scraper-studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local macOS workspace for Apify research, source-linked findings, and Claude Opus 5.5 analysis.",
   "main": "./out/main/index.js",
   "author": "Chris DiMarco",
@@ -21,9 +21,10 @@
     "dist:win": "npm run build && electron-builder --win nsis",
     "start:semrush": "npm run build && electron . --studio-workspace=semrush",
     "icons:mac": "node scripts/build-mac-icon.mjs",
-    "dist:mac": "npm run icons:mac && npm run build && electron-builder --mac --arm64"
+    "dist:mac": "npm run icons:mac && npm run build && electron-builder --mac --universal"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
     "apify-client": "^2.23.4",
     "electron-updater": "^6.8.9",
     "lucide-react": "^1.22.0",

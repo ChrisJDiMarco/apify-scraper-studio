@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Image as ImageIcon, KeyRound, LoaderCircle, ShieldCheck } from 'lucide-react';
 import { readinessItems } from '../../shared/health.js';
+import { DEFAULT_PROGRAM_AI } from './research-program-fields.jsx';
+import { SetupShare } from './setup-share.jsx';
 import { Badge, Button, JsonBlock, short, statusTone } from './ui.jsx';
 
 // Where the Sheets bridge creates Google Docs and Google Sheets. Each accepts a folder link or ID; blank means My Drive.
@@ -12,7 +14,28 @@ const DRIVE_FOLDERS = [
 ];
 const driveFolders = (sheets = {}) => Object.fromEntries(DRIVE_FOLDERS.map(({ key }) => [key, sheets?.[key] || '']));
 
-export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveSettings, onTestSheetsBridge, onArchiveAndClearSheets, onImportWorkingSheets, onReplaySheetRun, onCheckAi, onCheckCodex, onTestImages, onOpenDataFolder, onOpenWorkspace, onSaveMondayBoard, onClearMondayBoard }) {
+const CLAUDE_ROUTES = [
+  ['auto', 'Automatic (recommended)', 'Uses the Claude app when it is installed, signed in and up to date; otherwise the API key below.'],
+  ['claude', 'Claude app (Claude Code)', "Uses this Mac's Claude Code sign-in and plan."],
+  ['claude-api', 'Anthropic API key', "Calls the API directly; usage is billed to the key's account."],
+];
+const ROUTE_BADGE = { auto: 'Automatic', claude: 'Claude app', 'claude-api': 'API key', codex: 'Codex selected' };
+function routeSummary(result) {
+  if (result.route === 'claude') return `Claude app ${result.version || ''}`.trim() + (result.loggedIn ? ' · signed in' : '');
+  if (result.route === 'claude-api') return 'Anthropic API key';
+  return result.version || 'Available';
+}
+function AiCheckResult({ result }) {
+  const models = Array.isArray(result.models) ? result.models : [];
+  return <div className={`settings-ai-result ${result.ok ? 'ok' : 'problem'}`} role="status">
+    <strong>{result.ok ? `Ready · using ${routeSummary(result)}` : result.route ? `Using ${routeSummary(result)}, with a problem` : 'Claude is not reachable yet'}</strong>
+    {result.provider === 'auto' && result.route === 'claude-api' && result.cli && <small>The Claude app was skipped: {result.cli.installed ? result.cli.missingFlags?.length ? `version ${result.cli.version} is too old` : result.cli.loggedIn ? 'it is unavailable' : 'it is not signed in' : 'it is not installed'}.</small>}
+    {models.length > 0 && <ul>{models.map((model) => <li key={model.id} className={model.available ? 'ok' : 'problem'}>{model.available ? '✓' : '✕'} {model.id}{model.available ? '' : ` — ${model.error}`}</li>)}</ul>}
+    {result.error && !result.ok && <p>{result.error}</p>}
+  </div>;
+}
+
+export function SettingsView({ setupApi, onOpenPrograms, state, meta, busy, onSaveKey, onClearKey, onSaveSettings, onTestSheetsBridge, onArchiveAndClearSheets, onImportWorkingSheets, onReplaySheetRun, onCheckAi, onCheckCodex, onTestImages, onOpenDataFolder, onOpenWorkspace, onSaveMondayBoard, onClearMondayBoard }) {
   const [token, setToken] = useState('');
   const [docsToken, setDocsToken] = useState('');
   const [mondayToken, setMondayToken] = useState('');
@@ -34,7 +57,8 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
     redditTab: state.settings.sheets?.redditTab || 'Reddit',
     ...driveFolders(state.settings.sheets),
   });
-  const [aiProvider, setAiProvider] = useState(state.settings.aiProvider || 'claude');
+  const [aiProvider, setAiProvider] = useState(state.settings.aiProvider || 'auto');
+  const [anthropicKey, setAnthropicKey] = useState('');
   const [aiModel, setAiModel] = useState(state.settings.aiModel || 'claude-opus-5-5');
   const [aiMaxBudgetUsd, setAiMaxBudgetUsd] = useState(state.settings.aiMaxBudgetUsd ?? 1);
   const [aiChecks, setAiChecks] = useState({});
@@ -42,11 +66,12 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
   const [savingAi, setSavingAi] = useState(false);
   const [aiError, setAiError] = useState('');
   const aiStatus = aiChecks[aiProvider] || null;
-  const aiName = aiProvider === 'claude' ? 'Claude' : 'Codex';
+  const aiName = aiProvider === 'codex' ? 'Codex' : 'Claude';
+  const savedProvider = state.settings.aiProvider || 'auto';
   const validAiSettings = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$/.test(aiModel) && Number.isFinite(Number(aiMaxBudgetUsd)) && Number(aiMaxBudgetUsd) >= 0.01 && Number(aiMaxBudgetUsd) <= 100;
 
   useEffect(() => {
-    setAiProvider(state.settings.aiProvider || 'claude');
+    setAiProvider(state.settings.aiProvider || 'auto');
     setAiModel(state.settings.aiModel || 'claude-opus-5-5');
     setAiMaxBudgetUsd(state.settings.aiMaxBudgetUsd ?? 1);
   }, [state.settings.aiProvider, state.settings.aiModel, state.settings.aiMaxBudgetUsd]);
@@ -112,7 +137,7 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
     setCheckingAi(true);
     setAiError('');
     try {
-      const result = onCheckAi ? await onCheckAi({ provider: aiProvider, model: aiModel })
+      const result = onCheckAi ? await onCheckAi({ provider: aiProvider, model: aiModel, models: [...new Set([aiModel, ...Object.values(DEFAULT_PROGRAM_AI.models)])] })
         : aiProvider === 'codex' && onCheckCodex ? await onCheckCodex()
         : { ok: false, error: 'This app version cannot check Claude. Reopen the updated app.' };
       setAiChecks((current) => ({ ...current, [aiProvider]: result }));
@@ -163,20 +188,29 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
           <Badge tone={state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'ready' : 'neutral'}>{state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'Sheets saved' : 'Sheets optional'}</Badge>
         </div>
       </div>
+      {setupApi?.openSetupFile && <section className="settings-block settings-setup" aria-labelledby="settings-setup-title"><div className="panel-head"><div><h3 id="settings-setup-title">Share your setup</h3><p>Give a teammate this workspace's research program and knowledge in one file, or load one they shared with you.</p></div></div><SetupShare api={setupApi} onOpenPrograms={onOpenPrograms} /></section>}
       {semrush && <section className="settings-block settings-sources" aria-labelledby="settings-sources-title"><div className="panel-head"><div><h3 id="settings-sources-title">Source collection</h3><p>Connect Apify to research the accounts and communities you choose.</p></div><Badge tone={state.keys.APIFY_API_TOKEN ? 'ready' : 'neutral'}>{state.keys.APIFY_API_TOKEN ? 'Credential saved' : 'Setup needed'}</Badge></div>{sourceSettings}</section>}
       <section className="settings-block" aria-labelledby="settings-ai-title">
-        <div className="panel-head"><div><h3 id="settings-ai-title">Writing & research</h3><p>Claude Opus 5.5 is the default for chat, reports, analysis, and asset drafts.</p></div><Badge>{(state.settings.aiProvider || 'claude') === 'claude' ? 'Claude selected' : 'Codex selected'}</Badge></div>
+        <div className="panel-head"><div><h3 id="settings-ai-title">Writing & research</h3><p>Claude writes the research, reports and drafts. Reach it through the Claude app on this Mac or an Anthropic API key.</p></div><Badge tone={aiChecks[savedProvider]?.ok ? 'ready' : 'neutral'}>{ROUTE_BADGE[savedProvider] || 'Claude'}</Badge></div>
+        {aiProvider !== 'codex' && <fieldset className="settings-route" disabled={busy || savingAi || checkingAi}><legend>How to reach Claude</legend>
+          {CLAUDE_ROUTES.map(([value, title, detail]) => <label className="settings-route-option" key={value}><input type="radio" name="settings-ai-route" value={value} checked={aiProvider === value} onChange={() => { setAiProvider(value); setAiError(''); }} /><span><strong>{title}</strong><small>{detail}</small></span></label>)}
+        </fieldset>}
+        {(aiProvider === 'auto' || aiProvider === 'claude-api') && <div className="settings-api-key">
+          <label htmlFor="settings-anthropic-key">Anthropic API key{state.keys.ANTHROPIC_API_KEY ? <span className="settings-key-saved"> · saved</span> : null}</label>
+          <div className="inline"><input id="settings-anthropic-key" type="password" autoComplete="off" spellCheck="false" value={anthropicKey} disabled={busy} placeholder={state.keys.ANTHROPIC_API_KEY ? 'Enter a replacement key' : 'sk-ant-…'} onChange={(event) => setAnthropicKey(event.target.value)} /><Button type="button" disabled={busy || !anthropicKey.trim()} onClick={() => { onSaveKey('ANTHROPIC_API_KEY', anthropicKey.trim()).then((saved) => { if (saved) setAnthropicKey(''); }); }}>Save key</Button>{state.keys.ANTHROPIC_API_KEY && <Button type="button" className="ghost" disabled={busy} onClick={() => onClearKey('ANTHROPIC_API_KEY')}>Clear</Button>}</div>
+          <small>{aiProvider === 'auto' ? 'Used only when the Claude app is missing, signed out or out of date. ' : ''}Stored encrypted in this Mac's keychain and sent only to Anthropic. Usage is billed to the key's account at list prices.</small>
+        </div>}
         <div className="field-grid two">
-          {aiProvider === 'claude' ? <>
-            <label>Claude model<input aria-label="Claude model" value={aiModel} disabled={busy || savingAi} spellCheck="false" onChange={(event) => setAiModel(event.target.value.trim())} /><small>Uses this exact model ID. No automatic fallback to another provider.</small></label>
-            <label>Claude budget per request (USD)<input aria-label="Claude budget per request (USD)" type="number" min="0.01" max="100" step="0.01" value={aiMaxBudgetUsd} disabled={busy || savingAi} onChange={(event) => setAiMaxBudgetUsd(event.target.value)} /><small>Passed to the CLI as a request budget. Subscription limits and billing follow your Claude account.</small></label>
-          </> : <p>Codex uses its existing CLI configuration. Claude model and budget settings are retained for when you switch back.</p>}
-          <label>{aiName} connection<div className="inline"><input aria-label={`${aiName} connection status`} readOnly value={aiStatus?.ok ? `${aiStatus.version || `${aiName} available`}${aiStatus.loggedIn === true ? ' · Signed in' : ''}` : aiStatus?.error || 'Not checked'} /><Button type="button" disabled={busy || checkingAi || savingAi} onClick={checkAi}>{checkingAi ? 'Checking…' : `Check ${aiName}`}</Button></div><small>Checks the CLI connection without generating a report. Model access is confirmed when a request runs.</small></label>
+          {aiProvider !== 'codex' ? <>
+            <label>Default Claude model<input aria-label="Claude model" value={aiModel} disabled={busy || savingAi} spellCheck="false" onChange={(event) => setAiModel(event.target.value.trim())} /><small>For chat, reports and drafts. Research programs choose a model per stage.</small></label>
+            <label>Claude budget per request (USD)<input aria-label="Claude budget per request (USD)" type="number" min="0.01" max="100" step="0.01" value={aiMaxBudgetUsd} disabled={busy || savingAi} onChange={(event) => setAiMaxBudgetUsd(event.target.value)} /><small>A ceiling for a single chat, report or draft request.</small></label>
+          </> : <p>Codex uses its existing CLI configuration. Claude settings are kept for when you switch back.</p>}
         </div>
-        {aiProvider === 'claude' && <p><small>Uses your existing Claude CLI sign-in. If needed, run <code>claude auth login</code> in Terminal. Research requests receive the selected context with file, browser, and connector tools disabled.</small></p>}
+        <div className="settings-ai-check"><Button type="button" disabled={busy || checkingAi || savingAi} onClick={checkAi}>{checkingAi ? 'Checking…' : `Check ${aiName}`}</Button><small>{aiProvider === 'codex' ? 'Checks the Codex CLI connection.' : 'Finds the route and confirms the models research uses. Through the Claude app this sends one tiny request per model (a few cents); the API check is free.'}</small></div>
+        {aiStatus && <AiCheckResult result={aiStatus} />}
         {aiError && <p className="error-line" role="alert">{aiError}</p>}
-        <div className="button-row"><Button type="button" disabled={busy || savingAi || !validAiSettings} onClick={saveAi}>{savingAi ? 'Saving…' : 'Save AI settings'}</Button><small>Save to apply these choices to new requests.</small></div>
-        <details className="settings-provider-options" open={aiProvider === 'codex' ? true : undefined}><summary>Advanced writing provider <span>Optional Codex CLI</span></summary>          <label>AI provider<select aria-label="AI provider" value={aiProvider} disabled={busy || checkingAi || savingAi} onChange={(event) => { setAiProvider(event.target.value); setAiError(''); }}><option value="claude">Anthropic Claude CLI · Default</option><option value="codex">OpenAI Codex CLI · Optional</option></select></label><p>Codex is an optional provider for written analysis. Image generation uses the separate API connection below.</p></details>
+        <div className="button-row"><Button type="button" disabled={busy || savingAi || !validAiSettings} onClick={saveAi}>{savingAi ? 'Saving…' : 'Save AI settings'}</Button><small>{aiProvider !== savedProvider ? 'Save to switch to this route for new requests.' : 'Save to apply these choices to new requests.'}</small></div>
+        <details className="settings-provider-options" open={aiProvider === 'codex' ? true : undefined}><summary>Advanced writing provider <span>Optional Codex CLI</span></summary><label className="cs-check settings-codex"><input type="checkbox" checked={aiProvider === 'codex'} disabled={busy || checkingAi || savingAi} onChange={(event) => { setAiProvider(event.target.checked ? 'codex' : 'auto'); setAiError(''); }} /><span>Use the OpenAI Codex CLI instead of Claude<small>Research programs are tuned for Claude; Codex ignores the per-stage models.</small></span></label></details>
       </section>
       <section className="settings-block settings-images" aria-labelledby="settings-images-title">
         <div className="settings-image-heading"><span className="settings-image-icon"><ImageIcon size={21} aria-hidden="true" /></span><div><h3 id="settings-images-title">Image generation</h3><p>Create original campaign visuals with OpenAI Images.</p></div><Badge tone={imagesConfigured ? 'ready' : 'neutral'}>{imagesConfigured ? 'Credential saved' : 'Setup needed'}</Badge></div>
@@ -189,7 +223,7 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
         {imageError && <p className="error-line" role="alert">{imageError}</p>}
       </section>
       <details className="settings-health"><summary>Connection diagnostics</summary><div className="readiness-grid">
-        {readinessItems(state, meta, aiChecks.codex).map((original) => original.id === 'codex' ? { id: 'ai', label: `${aiName} CLI`, tone: aiStatus?.ok ? 'ready' : aiStatus?.error ? 'warning' : 'neutral', detail: aiStatus?.ok ? aiStatus.version || `${aiName} available` : aiStatus?.error || 'Not checked yet.' } : original).map((item) => (
+        {readinessItems(state, meta, aiChecks.codex).map((original) => original.id === 'codex' ? { id: 'ai', label: aiProvider === 'codex' ? 'Codex CLI' : 'Claude', tone: aiStatus?.ok ? 'ready' : aiStatus?.error ? 'warning' : 'neutral', detail: aiStatus?.ok ? routeSummary(aiStatus) : aiStatus?.error || 'Not checked yet.' } : original).map((item) => (
           <article className="readiness-card" key={item.id}>
             <Badge tone={item.tone}>{item.label}</Badge>
             <p>{short(item.detail, 160)}</p>

@@ -11,8 +11,9 @@ describe('n8n Golden Thread collection plans', () => {
     const result = plan({ budgets: { collectionUsd: 60, aiUsd: 5 }, sourceGroups: [{ id: 'x', platform: 'x', targets: Array.from({ length: 382 }, (_, i) => `account${i}`) }, { id: 'li', platform: 'linkedin-profile', targets: Array.from({ length: 515 }, (_, i) => `https://linkedin.com/in/profile-${i}`) }, { id: 'rd', platform: 'reddit', targets: Array.from({ length: 18 }, (_, i) => `community${i}`) }] });
     expect(result.receipt.platforms.x).toMatchObject({ jobCount: 77, targetCount: 382 });
     expect(result.receipt.platforms.linkedin).toMatchObject({ jobCount: 6, targetCount: 515, plannedPosts: 7725 });
-    expect(result.receipt.platforms.reddit).toMatchObject({ jobCount: 1, targetCount: 18, plannedPosts: 4500 });
-    expect(result.receipt.worstCaseUsd).toBeCloseTo(47.22, 1);
+    // Reddit runs in parallel groups of 6 subreddits (3 × min(4,500, 6 × 300) posts), unlike n8n's single run.
+    expect(result.receipt.platforms.reddit).toMatchObject({ jobCount: 3, targetCount: 18, plannedPosts: 5400 });
+    expect(result.receipt.worstCaseUsd).toBeCloseTo(50.86, 1);
     expect(result.receipt.totalBudgetUsd).toBeLessThanOrEqual(60);
     expect(result.jobs.every((job) => job.budgetUsd >= job.worstCaseUsd)).toBe(true);
     for (const job of result.jobs) expect(() => recipeTools.validateRecipe(job.recipe)).not.toThrow();
@@ -40,17 +41,29 @@ describe('n8n Golden Thread collection plans', () => {
     expect(result.receipt.warnings.join(' ')).toMatch(/last 7 days \(from 2026-09-30\)/);
     expect(plan({ lookbackDays: 14 }).window.startDate).toBe('2026-09-23');
   });
-  it('builds LinkedIn and Reddit inputs exactly like the n8n Sources nodes', () => {
+  it('builds LinkedIn and Reddit inputs like the n8n Sources nodes, with a longer Reddit scroll', () => {
     const result = plan({ window: { startDate: '2026-09-01', endDate: '2026-09-07' }, sourceGroups: [{ platform: 'linkedin-profile', targets: ['https://www.linkedin.com/in/a?trk=x'] }, { platform: 'reddit', targets: ['marketing', 'seo'] }] });
     const [li, rd] = result.jobs;
     expect(li.recipe.input).toEqual({ targetUrls: ['https://www.linkedin.com/in/a/'], maxPosts: 15, postedLimitDate: '2026-09-01T00:00:00.000Z', scrapeReactions: false, scrapeComments: false });
     expect(li.recipe.runOptions.timeoutSecs).toBe(5400); expect(li.abortAfterSecs).toBe(5700);
-    expect(rd.recipe.input).toEqual({ maxItems: 4500, maxPostCount: 300, maxComments: 75, skipComments: true, scrollTimeout: 90, navigationTimeout: 60, includeMediaLinks: true, includeNSFW: false, skipCommunity: true, skipUserPosts: true, proxy: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] }, startUrls: [{ url: 'https://www.reddit.com/r/marketing/new/' }, { url: 'https://www.reddit.com/r/seo/new/' }], postDateLimit: '2026-09-01T00:00:00.000Z', commentDateLimit: '2026-09-01T00:00:00.000Z', ignoreStartUrls: false, debugMode: false });
+    // n8n scrolled 90s per listing, which reached only 3–4 days back in busy subreddits.
+    expect(rd.recipe.input).toEqual({ maxItems: 4500, maxPostCount: 300, maxComments: 75, skipComments: true, scrollTimeout: 300, navigationTimeout: 60, includeMediaLinks: true, includeNSFW: false, skipCommunity: true, skipUserPosts: true, proxy: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] }, startUrls: [{ url: 'https://www.reddit.com/r/marketing/new/' }, { url: 'https://www.reddit.com/r/seo/new/' }], postDateLimit: '2026-09-01T00:00:00.000Z', commentDateLimit: '2026-09-01T00:00:00.000Z', ignoreStartUrls: false, debugMode: false });
     expect(rd.recipe.runOptions.timeoutSecs).toBe(7200); expect(rd.abortAfterSecs).toBe(7500);
     // Two /new/ listings can return at most 2 × 300 posts, so the cost ceiling is far below maxItems.
     expect(rd).toMatchObject({ plannedPosts: 600, maxItems: 4500 }); expect(rd.worstCaseUsd).toBeCloseTo(2.42, 2);
     expect(result.jobs.every((j) => j.postFilter.startDate === '2026-09-01' && j.postFilter.endDate === '2026-09-07')).toBe(true);
     expect(result.receipt.warnings.join(' ')).toMatch(/enforced after retrieval/);
+  });
+  it('splits subreddits into parallel groups that each keep the platform ceiling', () => {
+    const subs = Array.from({ length: 14 }, (_, i) => `community${i}`);
+    const result = plan({ targetPerPlatform: 1000, sourceGroups: [{ platform: 'reddit', targets: subs }] });
+    expect(result.jobs.map((job) => job.recipe.input.startUrls.length)).toEqual([6, 6, 2]);
+    expect(result.jobs.flatMap((job) => job.targets)).toEqual(subs);
+    expect(result.jobs.every((job) => job.recipe.input.maxItems === 1500 && job.lane === 'reddit')).toBe(true);
+    expect(result.jobs.map((job) => job.plannedPosts)).toEqual([1500, 1500, 600]);
+    expect(plan({ sourceGroups: [{ platform: 'reddit', targets: subs }], collection: { redditSubsPerJob: 20 } }).jobs).toHaveLength(1);
+    // Topic-filtered search stays one query across every community.
+    expect(plan({ query: 'AI Overviews', topicFiltersTargets: true, sourceGroups: [{ platform: 'reddit', targets: subs }] }).jobs).toHaveLength(1);
   });
   it('keeps supported X filters and Reddit comment collection, with comments counted against maxItems', () => {
     const result = plan({ window: { startDate: '2026-09-01', endDate: '2026-09-07' }, sourceGroups: [{ platform: 'x', targets: ['account'], options: { replies: 'exclude', includeRetweets: false } }, { platform: 'reddit', targets: ['marketing'], options: { includeComments: true, maxComments: 3 } }] });

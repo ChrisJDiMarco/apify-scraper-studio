@@ -88,12 +88,16 @@ function redditJobs(group, program, window) {
     const input = { ...base, searches: [`(${program.query}) AND (${scope})`], startUrls: [], searchPosts: true, searchComments: options.searchComments === true, searchCommunities: false, searchUsers: false, searchMedia: false, sort: 'new', postDateLimit: window.startDate, ...(includeComments ? { commentDateLimit: window.startDate } : {}) };
     return [{ targets: group.targets, query: program.query, input, plannedPosts: maxItems, plannedProviderRows: maxItems, worstCaseUsd: pricing.start + maxItems * pricing.perResult }];
   }
-  const input = { ...base, startUrls: group.targets.map((name) => ({ url: `https://www.reddit.com/r/${name}/new/` })), postDateLimit: startIso, commentDateLimit: startIso, ignoreStartUrls: false, debugMode: false };
-  // maxItems stays as n8n sends it, but each /new/ listing stops at maxPostCount posts (plus maxComments
-  // per post with comments on), so a short subreddit list can never cost the full maxItems.
-  const posts = Math.min(maxItems, group.targets.length * program.collection.redditPostsPerSub);
-  const results = Math.min(maxItems, posts * (includeComments ? 1 + maxComments : 1));
-  return [{ targets: group.targets, query: '', input, plannedPosts: posts, plannedProviderRows: maxItems, worstCaseUsd: pricing.start + results * pricing.perResult }];
+  // Unlike n8n's single run, subreddits go in groups (redditSubsPerJob) that collect in parallel, so a
+  // longer scroll per listing still finishes well inside the lane timeout. Each group keeps n8n's maxItems;
+  // a /new/ listing stops at maxPostCount posts (plus maxComments per post with comments on), so a short
+  // group can never cost its full maxItems.
+  return split(group.targets, program.collection.redditSubsPerJob).map((subs) => {
+    const input = { ...base, startUrls: subs.map((name) => ({ url: `https://www.reddit.com/r/${name}/new/` })), postDateLimit: startIso, commentDateLimit: startIso, ignoreStartUrls: false, debugMode: false };
+    const posts = Math.min(maxItems, subs.length * program.collection.redditPostsPerSub);
+    const results = Math.min(maxItems, posts * (includeComments ? 1 + maxComments : 1));
+    return { targets: subs, query: '', input, plannedPosts: posts, plannedProviderRows: maxItems, worstCaseUsd: pricing.start + results * pricing.perResult };
+  });
 }
 function linkedinSearchJobs(group, program, window) {
   const queries = group.targets.length ? group.targets : [program.query];
