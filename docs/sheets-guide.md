@@ -9,11 +9,11 @@ Open it from **Sheets** in the sidebar, from **Open in Sheets** on a research ru
 | Tab | Where the data comes from |
 | --- | --- |
 | Theme Repository | Every theme discovery proposed: name, description, `matching_keywords`, matching and negative criteria, and novelty. Three columns are added: review status (approved, passed, or waiting), evidence count, and taxonomy category. |
-| Twitter · Reddit · LinkedIn | One row per collected post, newest first, in the n8n column layout (`post_url`, `post_text`, engagement counts, `prevalence_score`, Theme, Confidence, Reasoning, entities, pain point, urgency). Reddit titles and subreddits, and LinkedIn headlines and profile links, come from the raw Apify rows. |
+| Twitter · Reddit · LinkedIn | One row per post the run kept after removing duplicates and applying its date window and limits, newest first, in the n8n column layout (`post_url`, `post_text`, engagement counts, `prevalence_score`, Theme, Confidence, Reasoning, entities, pain point, urgency). Reddit titles and subreddits, and LinkedIn headlines and profile links, come from the raw Apify rows. |
 | Theme Summary Data | Per-theme post counts and engagement totals for each platform. A platform's prevalence score is the sum of its posts' `prevalence_score`. **Overall** adds the three platforms together. **Weighted** scales the top theme to 100. |
 | Post Counts Reference | Posts per theme for each platform. |
-| Trend Velocity | One row per theme per run. Count is the number of matched posts. Velocity is only filled when two runs cover comparable, back-to-back periods. Report links appear once the reports are published to Google Drive. Priority, gap and editorial columns are left blank for reviewers to fill in. |
-| Taxonomy Lookup | The app doesn't track Semrush blog coverage yet. To review this tab, import your Golden Thread workbook. |
+| Trend Velocity | One row per theme the workspace tracks, across all of its runs, newest detections first. Each run adds or updates a row for every theme it finds. Date is when the theme was first detected. Count is the number of runs that detected it, and Velocity is NEW (1 run), EMERGING (2) or ACCELERATING (3 or more). The columns from Priority Tier to Gap Rationale come from scoring the theme in the latest run that detected it, with the n8n "Calculate Trend Velocity" formula and the workspace taxonomy. Trend Report Link and Strategy Report Link open the theme's trends report and editorial toolkit once they're published to Google Drive. Visual Report Link stays blank. |
+| Taxonomy Lookup | The workspace taxonomy loaded in Brand knowledge → Research knowledge, one row per category: article count, % share, velocity, last 6 months, 6-month rate, saturation, zone, top keywords and phrases, timeline, gap analysis notes and editorial action, followed by a column of article counts for each month. New runs score theme priority against it. Until one is loaded, the tab is empty. Its **Import your Google Sheet** button brings your Golden Thread workbook into Sheets, and **Use its Taxonomy Lookup tab** in Research knowledge then loads the taxonomy from it. |
 | Batch Analysis Log | One row per discovery batch: what it read, its platform breakdown, and the candidate themes it proposed. |
 
 Theme tags and totals appear after you approve themes on the Trend board and the run continues into classification. Until then the posts are all there, and the empty tabs explain what fills them.
@@ -39,7 +39,7 @@ Edits save automatically. Edited cells get a small orange corner. On a research 
 
 ## Bring in a Google Sheet
 
-- **From a file:** in Google Sheets choose File → Download → Microsoft Excel (.xlsx), then **Import → Spreadsheet file**. Every visible tab comes in with the values the sheet showed. Dates and percentages keep their formats, and frozen columns stay frozen. CSV and TSV files come in as one tab each.
+- **From a file:** in Google Sheets choose File → Download → Microsoft Excel (.xlsx), then **Import → Spreadsheet file**. Every tab that has data comes in, hidden ones included, with the values the sheet showed. Dates and percentages keep their formats, and frozen columns stay frozen. CSV and TSV files come in as one tab each.
 - **From a link:** **Import → Pull from a Google Sheets link** reads the tabs through the Sheets bridge configured in Settings. Redeploy the bridge from [`scripts/google-sheets-webhook.gs`](../scripts/google-sheets-webhook.gs) to pull every tab in its own order; older deployments pull the Golden Thread tab names.
 - **Updating:** **Replace with a newer file…** or **Pull the latest** refreshes an imported workbook and keeps your edits. Rows are matched by `post_url` (or another unique ID or Theme column) when the sheet has one.
 
