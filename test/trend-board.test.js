@@ -6,17 +6,16 @@ import workspaceModule from '../src/main/content-workspace.js';
 import content from '../src/shared/content-studio.js';
 import mondaySync from '../src/main/monday-sync.js';
 import { buildTrendBoard, generationPlan } from '../src/shared/trend-board.js';
+import fixture from './helpers/research-ai-fixture.js';
 const { createContentWorkspace } = workspaceModule;
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 
 const items = Array.from({ length: 6 }, (_, i) => ({ id: `source-${i}`, externalId: String(i), platform: 'x', author: `person${i}`, type: 'post', text: `Reporting problem ${i}: dashboards and pricing pages take too much manual work.`, url: `https://x.com/person${i}/status/${i}`, publishedAt: '2026-09-22T12:00:00Z', raw: { likeCount: 100, replyCount: 20, retweetCount: 10, quoteCount: 3, bookmarkCount: 5, viewCount: 1000 } }));
-const tail = (prompt) => JSON.parse(prompt.slice(prompt.lastIndexOf('\n{') + 1));
 function output(request) {
   const props = request.schema.properties;
-  if (props.candidates) { const batch = tail(request.prompt); return { candidates: [{ name: 'Reporting friction', summary: 'Manual reporting work.', painPoint: 'Workflow/Resource Overload', semanticIntentSignals: ['manual reporting'], actionability: 'Reduce manual assembly.', evidenceIds: batch.items.map(item => item.id) }] }; }
-  if (props.themes) { const input = tail(request.prompt); const ids = input.candidates.map(c => c.id); return { themes: ['Reporting workflow friction', 'Pricing page confusion'].map(name => ({ name, description: `${name} described by sources.`, candidateIds: ids, existingThemeId: null, novelty: 'NEW ANGLE', matchingKeywords: ['reporting'], matchingCriteria: 'Mentions the problem.', negativeCriteria: 'Unrelated posts.', taxonomyCategory: 'Workflow' })) }; }
-  if (props.assignments) { const input = tail(request.prompt); return { assignments: input.batch.items.map(item => ({ itemId: item.id, themeId: input.themes[0].id, confidence: 0.85, reason: 'Describes the problem.', painPoint: 'Workflow/Resource Overload', urgency: 'Strategic Planning', entities: { tools: [], people: [], companies: [] } })) }; }
+  if (fixture.stageOf(request) === 'synthesis') { const ids = fixture.synthesisCandidates(request).map((c) => c.id); return { themes: ['Reporting workflow friction', 'Pricing page confusion'].map((name) => ({ name, description: `${name} described by sources.`, candidateIds: ids, novelty: 'NEW ANGLE', matchingKeywords: ['reporting'], matchingCriteria: 'Mentions the problem.', negativeCriteria: 'Unrelated posts.', taxonomyCategory: 'Workflow', contentGap: 'OPEN', gapRationale: '', recentTrend: 'DORMANT', crossPlatform: false, totalEvidence: ids.length })) }; }
+  const research = fixture.researchOutput(request); if (research) return research;
   const sectionIds = props.sections.items.properties.id.enum;
   const descriptor = content.CONTENT_DELIVERABLES.find(d => d.kind === 'text' && JSON.stringify(d.sections.map(s => s.id)) === JSON.stringify(sectionIds));
   const input = JSON.parse(request.prompt.split('UNTRUSTED_SOURCE_AND_BRAND_DATA:\n')[1]);

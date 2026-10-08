@@ -123,24 +123,34 @@ function buildResearchWorkbook(source = {}) {
     sheets.push(emptySheet('counts', 'Post counts appear after tagging', detail));
   }
 
-  // Trend Velocity: one row per theme per run it appeared in. Editorial columns are left for reviewers.
-  const runDates = new Map((source.runs || []).map((row) => [row.id, row.createdAt]));
-  const reports = new Map((source.reports || []).map((entry) => [entry.themeId, entry]));
-  const history = (source.history || []).filter((snapshot) => snapshot.matchedCount > 0 || snapshot.runId === run.id);
-  if (history.length) {
-    const sorted = [...history].sort((a, b) => String(runDates.get(b.runId) || b.period?.endDate || '').localeCompare(String(runDates.get(a.runId) || a.period?.endDate || '')));
+  // Trend Velocity — the n8n "command center": one row per tracked theme with its detection
+  // count, velocity tier, taxonomy cross-reference and priority tier, newest detections first.
+  const repository = (source.themes || []).filter((theme) => theme?.id && (theme.detectionCount || theme.scoring || theme.history));
+  const reportLinks = source.repositoryReports || {};
+  const currentReports = new Map((source.reports || []).map((entry) => [entry.themeId, entry]));
+  const linkFor = (themeId, deliverableId) => currentReports.get(themeId)?.assets?.find((asset) => asset.deliverableId === deliverableId)?.url || (reportLinks[themeId] || []).find((doc) => doc.deliverableId === deliverableId && doc.url)?.url || '';
+  const detections = source.detections || [];
+  if (repository.length) {
+    const sorted = [...repository].sort((a, b) => String(b.lastDetectedAt || b.updatedAt || '').localeCompare(String(a.lastDetectedAt || a.updatedAt || '')) || (b.scoring?.priorityScore || 0) - (a.scoring?.priorityScore || 0));
     sheets.push({ id: 'velocity', name: SHEETS.velocity.name, columns: SHEETS.velocity.columns,
-      rows: sorted.map((snapshot) => {
-        const theme = themes.get(snapshot.themeId) || {}; const report = snapshot.runId === run.id ? reports.get(snapshot.themeId) : null;
-        const link = (id) => report?.assets?.find((asset) => asset.deliverableId === id)?.url || '';
-        const growth = theme.history?.snapshot?.runId === snapshot.runId && theme.history?.growth?.comparable && typeof theme.history.growth.relativePercentChange === 'number' ? `${theme.history.growth.relativePercentChange > 0 ? '+' : ''}${theme.history.growth.relativePercentChange}%` : '';
-        const date = runDates.get(snapshot.runId) || snapshot.period?.endDate || '';
-        return [theme.name || snapshot.themeId, link('evidence-report'), link('editorial-toolkit'), '', date ? String(date).slice(0, 16).replace('T', ' ') : '', snapshot.matchedCount, growth, theme.novelty, theme.description, '', '', '', theme.taxonomyCategory, '', '', '', '', '', ''].map(cell);
+      rows: sorted.map((theme) => {
+        const scoring = theme.scoring || {}; const tax = scoring.taxonomy || {};
+        const count = new Set(detections.filter((entry) => entry.themeId === theme.id).map((entry) => entry.runId)).size || theme.detectionCount || 1;
+        const first = theme.firstDetectedAt || theme.updatedAt || '';
+        return [theme.name, linkFor(theme.id, 'evidence-report'), linkFor(theme.id, 'editorial-toolkit'), '', first ? String(first).slice(0, 16).replace('T', ' ') : '', count, scoring.velocity || (count >= 3 ? 'ACCELERATING' : count === 2 ? 'EMERGING' : 'NEW'), theme.novelty, theme.description,
+          scoring.priorityTier || '', scoring.priorityScore ?? '', scoring.gapSignal || '', tax.category || theme.taxonomyCategory || '', tax.zone || '', tax.articleCount ?? '', tax.last6Mo ?? '', tax.velocity || '', tax.editorialAction || '', scoring.gapRationale || ''].map(cell);
       }),
-      rowKeys: sorted.map((snapshot) => `${snapshot.runId}:${snapshot.themeId}`), frozenColumns: 1 });
-  } else sheets.push(emptySheet('velocity', 'Velocity builds up across runs', 'Each finished run adds a row per theme with its post count. Run the program again later to compare periods.'));
+      rowKeys: sorted.map((theme) => theme.id), frozenColumns: 1,
+      note: 'Count is how many research runs detected the theme. Velocity: NEW (1), EMERGING (2), ACCELERATING (3+). Priority uses the n8n Calculate Trend Velocity formula.' });
+  } else sheets.push(emptySheet('velocity', 'Velocity builds up across runs', 'Each run adds or updates a row per theme with its detection count and priority tier. Run the program again later to see themes accelerate.'));
 
-  sheets.push(emptySheet('taxonomy', 'Taxonomy comes from your Google Sheet', 'The app doesn’t track Semrush blog coverage yet. Import your Golden Thread workbook to see its Taxonomy Lookup tab beside this research.'));
+  const taxonomy = source.taxonomy?.categories || [];
+  if (taxonomy.length) {
+    const months = taxonomy[0].monthly?.map((month) => month.label) || [];
+    sheets.push({ id: 'taxonomy', name: SHEETS.taxonomy.name, columns: [...SHEETS.taxonomy.columns, ...months],
+      rows: taxonomy.map((entry) => [entry.category, entry.articleCount, entry.share, entry.velocity, entry.last6Mo, entry.rate6Mo, entry.saturation, entry.zone, entry.topKeywords.join(', '), entry.topPhrases.join(', '), entry.timeline, entry.gapNotes, entry.editorialAction, ...(entry.monthly || []).map((month) => month.count)].map(cell)),
+      rowKeys: taxonomy.map((entry) => entry.category), frozenColumns: 1 });
+  } else sheets.push(emptySheet('taxonomy', 'Load your taxonomy to score priority', 'Import the Golden Thread Taxonomy Lookup tab in Brand knowledge → Research knowledge. Priority tiers use its zones and editorial coverage.'));
 
   // Batch Analysis Log: what discovery read in each batch and what it proposed.
   const batches = source.batches || [];
@@ -150,8 +160,8 @@ function buildResearchWorkbook(source = {}) {
       rows: batches.map((batch) => {
         const items = (batch.evidenceIds || []).map((id) => byId.get(id)).filter(Boolean);
         const breakdown = {}; for (const platform of PLATFORMS) { const rows = items.filter((row) => row.platform === platform); if (rows.length) breakdown[PLATFORM_LABEL[platform]] = platformBreakdown(platform, rows); }
-        return [batch.candidates ? JSON.stringify({ candidates: batch.candidates.map(({ name, summary, painPoint, actionability, semanticIntentSignals, evidenceCount, platforms }) => ({ name, summary, painPoint, actionability, semanticIntentSignals, evidenceCount, platforms })) }, null, 2) : '',
-          batch.completedAt, batch.index, items.length, Object.keys(breakdown).join(', '), JSON.stringify(breakdown), batch.candidates ? 'Analyzed' : 'Not analyzed yet'].map(cell);
+        return [batch.candidates ? JSON.stringify({ candidates: batch.candidates.map(({ name, summary, painPoint, actionability, semanticIntentSignals, evidenceCount, platforms }) => ({ name, summary, primary_pain_point: painPoint, semantic_intent_signals: semanticIntentSignals, evidence_count: evidenceCount, semrush_actionability: actionability, platforms })) }, null, 2) : '',
+          batch.completedAt, batch.platformBatchNumber || batch.index, items.length, PLATFORM_LABEL[batch.platform] || Object.keys(breakdown).join(', '), JSON.stringify(breakdown), batch.candidates ? 'Analyzed' : 'Not analyzed yet'].map(cell);
       }),
       rowKeys: batches.map((batch) => batch.id) });
   } else sheets.push(emptySheet('batches', 'No discovery batches yet', 'Batches are planned once evidence is collected.'));

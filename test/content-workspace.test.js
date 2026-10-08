@@ -9,20 +9,10 @@ const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 const sourceRows = (count) => Array.from({ length: count }, (_, i) => ({ id: `source-${i}`, externalId: String(i), platform: 'x', author: `person${i}`, type: 'post', text: `Reporting problem ${i}: dashboards take too much manual work.`, url: `https://x.com/person${i}/status/${i + 1}`, publishedAt: '2026-09-20T12:00:00Z', raw: { likeCount: 100, replyCount: 20, retweetCount: 10, quoteCount: 3, bookmarkCount: 5, viewCount: 1000 } }));
 const program = (extra = {}) => ({ id: 'program-a', name: 'Weekly research', sourceGroups: [{ platform: 'x', targets: ['researcher'] }], window: { startDate: '2026-09-20', endDate: '2026-09-26' }, budgets: { collectionUsd: 1, aiUsd: 10 }, ...extra });
-function parseTail(prompt) { return JSON.parse(prompt.slice(prompt.lastIndexOf('\n{') + 1)); }
+import fixture from './helpers/research-ai-fixture.js';
+const { researchOutput, stageOf } = fixture;
 function outputFor(request) {
-  if (request.schema.properties.candidates) {
-    const batch = parseTail(request.prompt);
-    return { candidates: [{ name: 'Reporting workflow friction', summary: 'The supplied people describe manual reporting work.', painPoint: 'Workflow/Resource Overload', semanticIntentSignals: ['manual reporting'], actionability: 'Reduce manual assembly.', evidenceIds: batch.evidenceIds }] };
-  }
-  if (request.schema.properties.themes) {
-    const input = parseTail(request.prompt);
-    return { themes: [{ name: 'Reporting workflow friction', description: 'Manual dashboard work creates friction.', candidateIds: input.candidates.map(c => c.id), existingThemeId: null, novelty: 'NEW ANGLE', matchingKeywords: ['reporting'], matchingCriteria: 'Specific reporting workflow friction.', negativeCriteria: 'Generic praise.', taxonomyCategory: 'Reporting' }] };
-  }
-  if (request.schema.properties.assignments) {
-    const input = parseTail(request.prompt);
-    return { assignments: input.batch.items.map(item => ({ itemId: item.id, themeId: input.themes[0].id, confidence: 0.85, reason: 'Describes manual reporting.', painPoint: 'Workflow/Resource Overload', urgency: 'Strategic Planning', entities: { tools: [], people: [], companies: [] } })) };
-  }
+  const research = researchOutput(request); if (research) return research;
   const sectionIds = request.schema.properties.sections.items.properties.id.enum;
   const descriptor = content.CONTENT_DELIVERABLES.find(d => d.kind === 'text' && JSON.stringify(d.sections.map(s => s.id)) === JSON.stringify(sectionIds));
   const input = JSON.parse(request.prompt.split('UNTRUSTED_SOURCE_AND_BRAND_DATA:\n')[1]);
@@ -48,21 +38,32 @@ describe('persistent content workspace orchestration', () => {
     expect(run.status).toBe('awaiting-review'); expect(run.discoveryProgress.completed).toBe(run.discoveryProgress.total); expect(run.discoveryProgress.total).toBeGreaterThan(1);
     expect(run.counts.retained).toBe(405);
     expect(h.calls.filter(c => c.schema.properties.assignments)).toHaveLength(0);
+    expect(run.themes[0]).toMatchObject({ scoring: { priorityTier: expect.any(String), velocity: 'NEW', count: 1 }, match: { matched: false } });
     expect(() => h.api.continueResearchRun({ runId: run.id })).toThrow(/Approve/);
     const result = await approveAndContinue(h, run);
-    expect(result.status).toBe('succeeded'); expect(result.assignmentProgress).toEqual({ completed: 11, total: 11 });
+    expect(result.status).toBe('succeeded'); expect(result.assignmentProgress).toEqual({ completed: 9, total: 9 });
     const assigned = fs.readFileSync(path.join(h.root, 'runs', run.id, 'assignments.json'), 'utf8');
     expect(JSON.parse(assigned)).toHaveLength(405);
     expect(h.api.publicState().assets).toHaveLength(2);
     expect(h.api.publicState().assets.map(a => a.deliverableId).sort()).toEqual(['editorial-toolkit', 'evidence-report']);
-    const report = h.api.readStudioAsset({ assetId: h.api.publicState().assets[0].id });
-    expect(report.output.aggregateMetrics.cohort.itemCount).toBe(405);
+    const report = h.api.readStudioAsset({ assetId: h.api.publicState().assets.find(a => a.deliverableId === 'evidence-report').id });
+    const toolkit = h.api.readStudioAsset({ assetId: h.api.publicState().assets.find(a => a.deliverableId === 'editorial-toolkit').id });
+    expect(toolkit.markdown).toMatch(/^(⚠️ TOOLKIT CHECK[^\n]*\n+)?# TREND: /);
+    expect(toolkit.markdown).toContain('## SELF-SERVE ANGLE (PLG)');
+    expect(report.output.aggregateMetrics.twitter.postCount).toBe(405);
+    expect(report.markdown).toMatch(/Comprehensive Trends Report/);
     expect(h.calls.every(c => c.maxBudgetUsd > 0 && c.maxBudgetUsd <= 10)).toBe(true);
     expect(h.api.exportStudioRun({ runId: run.id }).assetCount).toBe(2);
+    // Follow-up content from a research report carries the report text and only the posts it cites.
+    const reportAsset = h.api.publicState().assets.find(a => a.deliverableId === 'evidence-report');
+    const followUp = h.api.createContentRun({ source: { kind: 'report', assetId: reportAsset.id }, deliverableIds: ['social'], maxBudgetUsd: 1 }); await h.api.waitForIdle();
+    const followInput = JSON.parse(fs.readFileSync(path.join(h.root, 'runs', followUp.id, 'input.json'), 'utf8'));
+    expect(followInput.source.kind).toBe('report'); expect(followInput.source.evidence.length).toBeLessThanOrEqual(120);
+    expect(h.api.readStudioRun({ runId: followUp.id }).status).toBe('succeeded');
   });
   it('resumes completed discovery batches after failure and app restart without paying for them again', async () => {
     let failed = false;
-    const h = harness({ count: 405, runAI: async (request, calls, output) => { if (request.schema.properties.candidates && calls.filter(c => c.schema.properties.candidates).length === 2 && !failed) { failed = true; throw new Error('Temporary provider failure'); } return output(request); } });
+    const h = harness({ count: 405, runAI: async (request, calls, output) => { if (stageOf(request) === 'discovery' && calls.filter(c => stageOf(c) === 'discovery').length === 2 && !failed) { failed = true; throw new Error('Temporary provider failure'); } return output(request); } });
     const run = await discover(h); expect(run.status).toBe('failed');
     const firstBatchPrompt = h.calls[0].prompt;
     const persisted = JSON.parse(fs.readFileSync(path.join(h.root, 'state.json'), 'utf8')); persisted.researchRuns[0].status = 'running'; fs.writeFileSync(path.join(h.root, 'state.json'), JSON.stringify(persisted));
@@ -90,18 +91,18 @@ describe('persistent content workspace orchestration', () => {
     expect(() => h.api.saveResearchProgram(program())).toThrow(/another workspace/);
     expect(() => h.api.startResearchRun({ programId: 'program-a', datasetIds: ['dataset-a'] })).toThrow(/selected workspace/);
   });
-  it('retries an incomplete assignment batch instead of silently dropping missing evidence', async () => {
+  it('re-asks only for skipped posts instead of failing the run or dropping evidence', async () => {
     let omitted = false;
-    const h = harness({ count: 45, runAI: async (request, calls, output) => { const result = output(request); if (request.schema.properties.assignments && !omitted) { omitted = true; result.assignments.pop(); } return result; } });
-    const run = await discover(h); const partial = await approveAndContinue(h, run);
-    expect(partial.status).toBe('failed'); expect(partial.message).toMatch(/omitted/);
-    h.api.retryStudioRun({ runId: run.id }); await h.api.waitForIdle();
-    expect(h.api.readStudioRun({ runId: run.id }).status).toBe('succeeded');
+    const h = harness({ count: 45, runAI: async (request, calls, output) => { const result = output(request); if (stageOf(request) === 'tagging' && !omitted) { omitted = true; result.assignments.pop(); } return result; } });
+    const run = await discover(h); const result = await approveAndContinue(h, run);
+    expect(result.status).toBe('succeeded');
+    const tagging = h.calls.filter(c => stageOf(c) === 'tagging');
+    expect(tagging.at(-1).prompt).toMatch(/POSTS TO ANALYZE \(1\):/);
     expect(JSON.parse(fs.readFileSync(path.join(h.root, 'runs', run.id, 'assignments.json'), 'utf8'))).toHaveLength(45);
   });
   it('retries failed report children while preserving already saved report assets', async () => {
     let failed = false;
-    const h = harness({ runAI: async (request, calls, output) => { const sectionIds = request.schema.properties.sections?.items.properties.id.enum || []; if (sectionIds.includes('plg') && !failed) { failed = true; throw new Error('Temporary strategy failure'); } return output(request); } });
+    const h = harness({ runAI: async (request, calls, output) => { if (stageOf(request) === 'toolkit' && !failed) { failed = true; throw new Error('Temporary strategy failure'); } return output(request); } });
     const run = await discover(h); const partial = await approveAndContinue(h, run);
     expect(partial.status).toBe('partial'); const before = h.api.publicState().assets;
     expect(before).toHaveLength(1);
@@ -128,7 +129,16 @@ describe('persistent content workspace orchestration', () => {
   });
   it('fails before a model call when the budget cannot cover the remaining planned steps', async () => {
     const h = harness(); const run = await discover(h, { budgets: { collectionUsd: 1, aiUsd: 0.01 } });
-    expect(run.status).toBe('failed'); expect(run.message).toMatch(/Budget is too small/); expect(h.calls).toHaveLength(0); expect(run.reservedUsd).toBe(0);
+    expect(run.status).toBe('failed'); expect(run.message).toMatch(/needs about \$/); expect(h.calls).toHaveLength(0); expect(run.reservedUsd).toBe(0);
+  });
+  it('refuses to start collecting when the AI budget is under half of what the run needs first', () => {
+    const h = harness(); const roster = { sourceGroups: [{ platform: 'x', targets: Array.from({ length: 300 }, (_, i) => `account${i}`) }] };
+    const reviewed = h.api.saveResearchProgram(program({ ...roster, budgets: { collectionUsd: 20, aiUsd: 0.5 } }));
+    expect(() => h.api.startResearchRun({ programId: reviewed.id })).toThrow(/far below the estimated \$\d+\.\d{2} to discover themes/);
+    // Unattended runs are measured against the whole estimate, not just discovery.
+    const unattended = h.api.saveResearchProgram(program({ ...roster, id: 'program-b', autoApproveThemes: true, budgets: { collectionUsd: 20, aiUsd: 6 } }));
+    expect(() => h.api.startResearchRun({ programId: unattended.id })).toThrow(/for a full unattended run/);
+    expect(h.api.publicState().researchRuns).toHaveLength(0); expect(h.calls).toHaveLength(0);
   });
   it('retains conservative spend reservations for unknown-cost failed calls', async () => {
     const h = harness({ runAI: async () => { throw new Error('Lost response after request'); } }); const run = await discover(h);

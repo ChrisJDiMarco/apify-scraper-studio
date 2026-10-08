@@ -61,7 +61,9 @@ function prepareAssets(assets) {
     const id = text(asset.id, `assets.${index}.id`, 180); if (seen.has(id)) fail('assets', 'Asset IDs must be unique.'); seen.add(id);
     const title = text(asset.title, `assets.${index}.title`); const channel = text(asset.channel, `assets.${index}.channel`, 100);
     const files = [];
-    if (asset.kind === 'text') files.push({ format: 'google-doc', name: title, mimeType: DOC_MIME, uploadMimeType: 'text/html; charset=UTF-8', buffer: Buffer.from(safeGoogleDocHtml(asset.html)) });
+    // n8n names (Priority_Trends_<Theme>_<date>, <Theme>__<date>) arrive as docName.
+    const docName = typeof asset.docName === 'string' && asset.docName.trim() && asset.docName.length <= 240 ? asset.docName.trim() : title;
+    if (asset.kind === 'text') files.push({ format: 'google-doc', name: docName, mimeType: DOC_MIME, uploadMimeType: 'text/html; charset=UTF-8', buffer: Buffer.from(safeGoogleDocHtml(asset.html)) });
     else if (asset.kind === 'image') {
       if (!Buffer.isBuffer(asset.png) || asset.png.length < 8 || asset.png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') fail(`assets.${index}.png`, 'Image delivery requires an existing PNG asset.');
       files.push({ format: 'png', name: `${title}.png`, mimeType: 'image/png', uploadMimeType: 'image/png', buffer: asset.png });

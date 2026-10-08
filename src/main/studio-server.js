@@ -8,7 +8,7 @@ const { createContentWorkspace } = require('./content-workspace');
 const { createStudioHost } = require('./studio-host');
 const { createImageProvider } = require('./image-provider');
 const { acquireStudioOwnerLock } = require('./studio-owner-lock');
-const MUTATIONS = new Set(['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun']);
+const MUTATIONS = new Set(['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus']);
 function createStudioServer({ root, webRoot, password, secureCookies = false, host: injectedHost, service: injectedService } = {}) {
   if (typeof password !== 'string' || password.length < 16) throw new Error('Set STUDIO_PASSWORD to a unique password of at least 16 characters.');
   const releaseOwner = acquireStudioOwnerLock(root);

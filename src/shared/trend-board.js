@@ -24,7 +24,13 @@ function baseCard(run, theme, programName) {
     evidenceCount: Number(theme.evidenceCount ?? list(theme.evidenceIds).length) || 0,
     platforms: list(theme.platforms),
     novelty: theme.novelty || '',
-    category: theme.taxonomyCategory || '',
+    category: theme.scoring?.taxonomy?.category && theme.scoring.taxonomy.category !== 'UNMAPPED' ? theme.scoring.taxonomy.category : theme.taxonomyCategory || '',
+    priorityTier: theme.scoring?.priorityTier || '',
+    priorityScore: Number.isFinite(theme.scoring?.priorityScore) ? theme.scoring.priorityScore : null,
+    velocity: theme.scoring?.velocity || '',
+    detectionCount: theme.scoring?.count || 1,
+    gapSignal: theme.scoring?.gapSignal || '',
+    matchedExisting: Boolean(theme.match?.matched),
     keywords: list(theme.matchingKeywords).slice(0, 6),
     programId: run.programId || '',
     programName: programName || run.title || 'Research run',
@@ -75,7 +81,8 @@ export function buildTrendBoard({ researchRuns = [], contentRuns = [], assets = 
       cards.push({ ...card, stage: 'production', activity: stuck ? 'Needs attention' : activity, needsAttention: stuck, reportRunId: report?.id || '' });
     }
   }
-  const order = (a, b) => String(b.discoveredAt).localeCompare(String(a.discoveredAt)) || b.evidenceCount - a.evidenceCount || a.name.localeCompare(b.name);
+  const tierRank = (card) => ({ 'FAST-TRACK': 0, STRONG: 1, MONITOR: 2, LOW: 3 }[card.priorityTier] ?? 4);
+  const order = (a, b) => String(b.discoveredAt).localeCompare(String(a.discoveredAt)) || tierRank(a) - tierRank(b) || b.evidenceCount - a.evidenceCount || a.name.localeCompare(b.name);
   cards.sort(order);
   const columns = Object.fromEntries([...TREND_STAGES, PASSED_STAGE].map((stage) => [stage.id, cards.filter((card) => card.stage === stage.id)]));
   return { columns, cards, scouting: scouting.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) };

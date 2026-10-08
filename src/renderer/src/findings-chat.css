@@ -79,3 +79,18 @@
 .findings-heading h2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .findings-answer { overflow-wrap: anywhere; }
 @media (max-width: 820px) { .findings-main { grid-row: 1; } .findings-sidebar { grid-row: 2; } }
+/* Chat fills the content area (page padding kept): the transcript scrolls between the fixed heading
+   and composer, and the sidebar lists scroll inside their panel. Below 820px the stacked layout stays. */
+@media (min-width: 821px) {
+  .content.content-fit { display: flex; flex-direction: column; }
+  /* width: auto margins (.content > section) would otherwise shrink flex items to fit-content. */
+  .content.content-fit > * { flex: none; width: 100%; }
+  .content.content-fit > .findings-workspace { flex: 1 1 0; min-height: 520px; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .findings-workspace > .findings-sidebar { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .findings-workspace > .findings-sidebar > * { flex: none; }
+  .findings-workspace > .findings-sidebar > .findings-dataset-list { flex: 0 1 auto; min-height: 96px; max-height: none; grid-auto-rows: max-content; align-content: start; }
+  .findings-workspace > .findings-sidebar > .findings-history { flex: 1 1 0; min-height: 80px; max-height: none; grid-auto-rows: max-content; align-content: start; }
+  .findings-workspace > .findings-main { display: flex; flex-direction: column; min-height: 0; }
+  .findings-workspace > .findings-main > * { flex: none; }
+  .findings-workspace > .findings-main > .findings-transcript { flex: 1 1 0; min-height: 0; max-height: none; }
+}

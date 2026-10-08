@@ -24,6 +24,13 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   readStudioAsset: (payload) => invoke('studio:readStudioAsset', payload),
   openStudioAsset: (payload) => invoke('studio:openStudioAsset', payload),
   importStudioSource: (payload) => invoke('studio:importStudioSource', payload),
+  saveWorkspaceTaxonomy: (payload) => invoke('studio:saveWorkspaceTaxonomy', payload),
+  saveReferenceDoc: (payload) => invoke('studio:saveReferenceDoc', payload),
+  readReferenceDoc: (payload) => invoke('studio:readReferenceDoc', payload),
+  deleteReferenceDoc: (payload) => invoke('studio:deleteReferenceDoc', payload),
+  importProductRegistry: (payload) => invoke('studio:importProductRegistry', payload),
+  estimateResearchProgram: (payload) => invoke('studio:estimateResearchProgram', payload),
+  setThemeStatus: (payload) => invoke('studio:setThemeStatus', payload),
 
   listWorkbooks: () => invoke('workbooks:list'),
   readWorkbook: (payload) => invoke('workbooks:read', payload),
@@ -32,6 +39,8 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   saveWorkbookEdits: (payload) => invoke('workbooks:save-edits', payload),
   removeWorkbook: (payload) => invoke('workbooks:remove', payload),
   renameWorkbook: (payload) => invoke('workbooks:rename', payload),
+  exportWorkbookXlsx: (payload) => invoke('workbooks:export-xlsx', payload),
+  exportWorkbookToGoogle: (payload) => invoke('workbooks:export-google', payload),
 
   saveBrandProfile: (payload) => invoke('save-brand-profile', payload),
   selectBrandProfile: (payload) => invoke('select-brand-profile', payload),

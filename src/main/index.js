@@ -23,7 +23,7 @@ const { createImageProvider } = require('./image-provider');
 const { readLocalImageKey } = require('./local-image-key');
 const { createResearchWorkspace } = require('./research-workspace');
 const { accountForUrl } = require('../shared/brand-context');
-const { DEFAULT_CLAUDE_MODEL, buildClaudeCommand, parseClaudeResult } = require('../shared/claude-runner');
+const { DEFAULT_CLAUDE_MODEL, CLAUDE_CLI_ENV, buildClaudeCommand, parseClaudeResult, modelMatches, readClaudeCost } = require('../shared/claude-runner');
 const { SOURCE_CATALOG, buildSearchRecipes } = require('../shared/source-catalog');
 const { CHAT_SCHEMA, buildFindingsContext, normalizeFindingsAnswer } = require('../shared/findings-chat');
 const workflow = require('../shared/asset-workflow.json');
@@ -1151,6 +1151,7 @@ async function replaySheetRun(sheetRunId) {
   const request = snapshot.request;
   if (!request || typeof request !== 'object') throw new Error('Sheet run snapshot is missing the saved request.');
   if (request.action === 'writeDatasetRowsBatch') return replayDatasetSheetBatch(existing, request);
+  if (request.action === 'createSpreadsheetBatch') return runWorkbookExport(startSheetRun('replay-workbook-export', request, { replayOf: validRunId, workbookName: existing.workbookName || request.title || '', rowCount: Number(request.rowCount) || 0, chunkCount: Number(request.chunkCount) || 0 }), request);
   return runSheetWebhook(`replay-${existing.kind || 'sheet'}`, request, {
     replayOf: validRunId,
     datasetId: existing.datasetId || '',
@@ -1198,6 +1199,60 @@ async function exportDatasetToSheets(payload = {}) {
     failSheetRun(sheetRun, error);
     throw error;
   }
+}
+
+// The bridge's newer actions (Google Sheets and Docs) need the current scripts/google-sheets-webhook.gs. An older
+// deployment answers "Unsupported action", which reads better as what to do about it.
+async function callBridgeAction(request) {
+  try { return await callSheetsWebhook(request); }
+  catch (error) {
+    if (!/Unsupported action/i.test(error.message || '')) throw error;
+    throw new Error('Your Google Sheets bridge is an older version. Paste the latest scripts/google-sheets-webhook.gs into Apps Script, run authorizeBridge once, then deploy a new version (see the Sheets guide).');
+  }
+}
+
+// Sheets → Export → Create Google Sheet: a new spreadsheet built through the bridge in chunks, with a sheet-run
+// receipt. A failed export replays from Settings into the same spreadsheet without writing any chunk twice.
+async function exportWorkbookToGoogleSheets(payload = {}) {
+  if (!getKey('GOOGLE_SHEETS_WEBHOOK_URL')) throw new Error('Connect the Google Sheets bridge in Settings → Google Sheets first.');
+  const { normalizeWorkbookExport, planGoogleSheetsExport, EXPORT_LIMITS } = require('./workbooks');
+  const workbook = normalizeWorkbookExport(payload, { maxCells: EXPORT_LIMITS.googleCells, tooLarge: 'This workbook is too large to create as one Google Sheet (more than 2,000,000 cells). Download it as .xlsx and import that file in Google Sheets instead.' });
+  const folderId = payload.folderId ? require('../shared/validation').parseDriveFolderId(payload.folderId, 'Folder') : (sheetSettings().sheetsExportFolderId || '');
+  const plan = planGoogleSheetsExport(workbook, { requestId: toId('sheet-export'), folderId });
+  const rowCount = workbook.sheets.reduce((sum, sheet) => sum + sheet.rows.length, 0);
+  const batchRequest = { action: 'createSpreadsheetBatch', title: workbook.name, tabs: plan.create.tabs.map((tab) => tab.name), rowCount, chunkCount: plan.appends.length + 1, folderId, create: plan.create, appends: plan.appends };
+  return runWorkbookExport(startSheetRun('workbook-export', batchRequest, { workbookName: workbook.name, rowCount, chunkCount: batchRequest.chunkCount }), batchRequest);
+}
+
+async function runWorkbookExport(sheetRun, batchRequest) {
+  try {
+    const result = await require('./workbooks').runGoogleSheetsExport(batchRequest, callBridgeAction);
+    const saved = finishSheetRun(sheetRun, result, { spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.url });
+    return { url: result.url, spreadsheetId: result.spreadsheetId, title: batchRequest.title, tabCount: result.tabCount, rowCount: batchRequest.rowCount, sheetRunId: saved.id };
+  } catch (error) {
+    failSheetRun(sheetRun, error);
+    throw error;
+  }
+}
+
+// Publishing to Google Drive goes through the bridge whenever it is connected (nothing to paste or expire);
+// otherwise through the Drive access token. Docs land in the folders set in Settings → Google Sheets.
+function googlePublishVia() {
+  return getKey('GOOGLE_SHEETS_WEBHOOK_URL') ? 'bridge' : getKey('GOOGLE_DOCS_ACCESS_TOKEN') ? 'token' : '';
+}
+
+let bridgeDelivery = null;
+async function publishCampaignVia(request, tokenDelivery) {
+  if (googlePublishVia() === 'bridge') {
+    bridgeDelivery ||= require('./bridge-delivery').createBridgeDelivery({
+      callBridge: callBridgeAction,
+      getFolders: () => { const settings = sheetSettings(); return { default: settings.docsFolderId || '', byDeliverable: { 'evidence-report': settings.trendReportsFolderId || '', 'editorial-toolkit': settings.toolkitsFolderId || '' } }; },
+    });
+    return bridgeDelivery.publishCampaign(request);
+  }
+  // Files made through the bridge are known only by their bridge request IDs; the token adapter would copy them again.
+  if (request?.previousReceipt?.via === 'bridge') throw new Error('This campaign was published through the Google Sheets bridge. Reconnect the bridge in Settings to finish or retry it.');
+  return tokenDelivery.publishCampaign(request);
 }
 
 function inferSheetPlatform(tabName, row = {}) {
@@ -1480,7 +1535,7 @@ function spawnCodex(command, args, cwd, options = {}) {
   const timeoutMs = options.timeoutMs || CODEX_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     const environment = cliEnv();
-    if (command === 'claude') for (const name of KEY_NAMES) delete environment[name];
+    if (command === 'claude') { for (const name of KEY_NAMES) delete environment[name]; Object.assign(environment, CLAUDE_CLI_ENV); }
     const child = spawn(command, args, { cwd, env: environment });
     if (options.stdin != null) { child.stdin.on('error', () => {}); child.stdin.end(options.stdin); }
     if (options.jobId) jobProcesses.set(options.jobId, child);
@@ -1510,7 +1565,7 @@ function spawnCodex(command, args, cwd, options = {}) {
       finish(() => {
         if (code === 0) resolve({ stdout, stderr });
         else if (signal === 'SIGTERM' && options.jobId && cancelledJobs.has(options.jobId)) reject(new Error('Job cancelled.'));
-        else reject(new Error(safeServiceError(stderr || `${options.providerLabel || 'AI'} stopped before finishing (exit code ${code}). Check the connection in Settings, then retry.`)));
+        else { const error = new Error(safeServiceError(stderr || `${options.providerLabel || 'AI'} stopped before finishing (exit code ${code}). Check the connection in Settings, then retry.`)); if (options.keepStdoutOnError) error.stdout = stdout; reject(error); }
       });
     });
   });
@@ -1838,17 +1893,20 @@ async function checkAiCli(payload = {}) {
   } catch (error) { return { ok: false, provider, error: safeServiceError(error) }; }
 }
 
-async function generateStructuredOutput({ schema, prompt, workspaceDir, outputPath, jobId, maxBudgetUsd }) {
+async function generateStructuredOutput({ schema, prompt, workspaceDir, outputPath, jobId, maxBudgetUsd, model, effort, timeoutMs }) {
   const settings = loadData().settings;
   const provider = settings.aiProvider || 'claude';
   if (provider === 'claude') {
-    const requestedModel = settings.aiModel || DEFAULT_CLAUDE_MODEL;
-    const invocation = buildClaudeCommand({ model: requestedModel, maxBudgetUsd: maxBudgetUsd ?? settings.aiMaxBudgetUsd ?? 1, schema, prompt });
-    const result = await spawnCodex(invocation.command, invocation.args, workspaceDir, { jobId, stdin: invocation.stdin, providerLabel: 'Claude' });
+    // Research stages pass their own model and effort (n8n ran different models per stage).
+    const requestedModel = model || settings.aiModel || DEFAULT_CLAUDE_MODEL;
+    const invocation = buildClaudeCommand({ model: requestedModel, maxBudgetUsd: maxBudgetUsd ?? settings.aiMaxBudgetUsd ?? 1, schema, prompt, effort });
+    let result;
+    try { result = await spawnCodex(invocation.command, invocation.args, workspaceDir, { jobId, stdin: invocation.stdin, providerLabel: 'Claude', ...(timeoutMs ? { timeoutMs } : {}), keepStdoutOnError: true }); }
+    catch (error) { if (error.stdout) { const costUsd = readClaudeCost(error.stdout); try { parseClaudeResult(error.stdout); } catch (detail) { detail.costUsd = costUsd; throw detail; } error.costUsd = costUsd; } throw error; }
     const parsed = parseClaudeResult(result.stdout);
-    if (requestedModel.startsWith('claude-') && !parsed.actualModels.includes(requestedModel)) throw new Error(`Claude returned an unverified or different model (${parsed.actualModels.join(', ') || 'not reported'}). No fallback answer was saved.`);
+    if (!modelMatches(requestedModel, parsed.actualModels)) throw new Error(`Claude returned an unverified or different model (${parsed.actualModels.join(', ') || 'not reported'}). No fallback answer was saved.`);
     writeJson(outputPath, parsed.output);
-    return { ...result, output: parsed.output, receipt: { provider, requestedModel, actualModel: parsed.actualModel, actualModels: parsed.actualModels, costUsd: parsed.costUsd, usage: parsed.usage, durationMs: parsed.durationMs, costBasis: 'CLI-reported list cost; subscription billing may differ' } };
+    return { ...result, output: parsed.output, receipt: { provider, requestedModel, actualModel: parsed.actualModel, actualModels: parsed.actualModels, effort: effort || '', costUsd: parsed.costUsd, usage: parsed.usage, durationMs: parsed.durationMs, costBasis: 'CLI-reported list cost; subscription billing may differ' } };
   }
   if (provider !== 'codex') throw new Error('Unknown AI provider.');
   const contextPath = path.join(path.dirname(outputPath), 'ai-input.txt');
@@ -1923,15 +1981,16 @@ const contentWorkspace = createContentWorkspace({
   // A first launch opens in the edition this build is packaged for; saved state always wins after that.
   defaultWorkspaceId: packageConfig.studioDefaultWorkspace || 'general',
   root: dataPath('content-studio'), emit: emitState,
-  runAI: args => generateStructuredOutput({ ...args, jobId: args.runId }),
+  // Each concurrent call gets its own process key so cancelling a run stops all of them.
+  runAI: args => generateStructuredOutput({ ...args, jobId: `${args.runId}::${path.basename(args.outputPath || 'call')}` }),
   collect: studioHost.collect,
   generateImage: request => imageProvider.generateImage(request),
   getDatasets: () => [...loadData().datasets, ...studioHost.getDatasets()],
   readDataset: datasetId => loadData().datasets.some(d => d.id === datasetId) ? readDatasetPayload(datasetId) : studioHost.readDataset(datasetId),
-  cancelProvider: async runId => { jobProcesses.get(runId)?.kill('SIGTERM'); await studioHost.cancelProvider(runId); },
+  cancelProvider: async runId => { for (const [key, child] of jobProcesses) if (key === runId || key.startsWith(`${runId}::`)) child.kill('SIGTERM'); await studioHost.cancelProvider(runId); },
   openFile: openPathOrThrow,
-  publishCampaign: request => googleDelivery.publishCampaign(request),
-  capabilities: () => ({ imagesConfigured: Boolean(getKey('OPENAI_API_KEY')), imageProvider: 'OpenAI', imageModel: 'gpt-image-2.5-flare', googleConfigured: Boolean(getKey('GOOGLE_DOCS_ACCESS_TOKEN')), googlePublishConfigured: Boolean(getKey('GOOGLE_DOCS_ACCESS_TOKEN')) }),
+  publishCampaign: request => publishCampaignVia(request, googleDelivery), // the Sheets bridge when connected, else the Drive token
+  capabilities: () => ({ imagesConfigured: Boolean(getKey('OPENAI_API_KEY')), imageProvider: 'OpenAI', imageModel: 'gpt-image-2.5-flare', googleConfigured: Boolean(getKey('GOOGLE_DOCS_ACCESS_TOKEN')), googlePublishConfigured: Boolean(googlePublishVia()), googlePublishVia: googlePublishVia() }),
   importSource: async (payload = {}) => {
     if (payload.url) return require('./document-import').readGoogleDocument({ url: payload.url, accessToken: getKey('GOOGLE_DOCS_ACCESS_TOKEN') });
     const result = await dialog.showOpenDialog(mainWindow, { title: 'Import a trend or research document', properties: ['openFile'], filters: [{ name: 'Research documents', extensions: ['txt', 'md', 'docx'] }] });
@@ -1940,7 +1999,7 @@ const contentWorkspace = createContentWorkspace({
     return readDocumentFile({ filePath: result.filePaths[0] });
   },
 });
-const studioMethods = ['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun'];
+const studioMethods = ['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus'];
 for (const method of studioMethods) ipcMain.handle(`studio:${method}`, (_, payload) => contentWorkspace[method](payload));
 
 // Sheets: research runs and imported spreadsheets, laid out like the Google Sheets the team reviews.
@@ -1959,6 +2018,16 @@ ipcMain.handle('workbooks:pull-google', (_, payload) => workbookStore.pullGoogle
 ipcMain.handle('workbooks:save-edits', (_, payload) => workbookStore.saveEdits(payload));
 ipcMain.handle('workbooks:remove', (_, payload) => workbookStore.remove(payload));
 ipcMain.handle('workbooks:rename', (_, payload) => workbookStore.rename(payload));
+// Exports carry the renderer's tabs with edits applied: an .xlsx through the save dialog, or a new Google Sheet.
+ipcMain.handle('workbooks:export-xlsx', async (_, payload) => {
+  const file = require('./workbooks').buildWorkbookXlsx(payload);
+  const choice = await dialog.showSaveDialog(mainWindow, { title: 'Download workbook', buttonLabel: 'Save', defaultPath: path.join(app.getPath('downloads'), file.fileName), filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }] });
+  if (choice.canceled || !choice.filePath) return null;
+  const target = /\.xlsx$/i.test(choice.filePath) ? choice.filePath : `${choice.filePath}.xlsx`;
+  fs.writeFileSync(target, file.buffer);
+  return { path: target, fileName: path.basename(target), bytes: file.buffer.length, sheetCount: file.sheetCount, rowCount: file.rowCount, truncatedCells: file.truncatedCells };
+});
+ipcMain.handle('workbooks:export-google', (_, payload) => exportWorkbookToGoogleSheets(payload));
 
 const researchWorkspace = createResearchWorkspace({ loadData, saveData, emitState, dataPath, readJson, writeJson, readDatasetPayload, toId, dialog, getWindow: () => mainWindow, shell });
 for (const [channel, method] of Object.entries({

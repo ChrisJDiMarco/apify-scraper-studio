@@ -45,8 +45,55 @@ Edits save automatically. Edited cells get a small orange corner. On a research 
 
 Imported workbooks belong to the workspace you imported them into and are stored under `workbooks/` in the app's data folder. Removing one doesn't touch the original file.
 
+## Export
+
+Workbooks stay in the app. **Export** turns them into files and Google Sheets when you need to share them. Every export includes your edits.
+
+| Choose | What you get |
+| --- | --- |
+| **Download workbook (.xlsx)** | One Excel file with every tab, saved where you choose (Downloads by default) as `<workbook name> <YYYY-MM-DD>.xlsx`. It opens in Excel, Numbers and Google Sheets (File → Import). |
+| **Download this tab (.xlsx)** | The open tab on its own, named `<workbook name> - <tab> <YYYY-MM-DD>.xlsx`. |
+| **Download this tab (.csv)** | The open tab as CSV. **Download what's shown (.csv)** appears when filters or hidden columns hide part of the tab. |
+| **Copy for Google Sheets** | The whole tab on the clipboard. Paste it into cell A1 of any Google Sheet. |
+| **Create Google Sheet…** | A new Google Sheet in your Drive with every tab, made through the Sheets bridge. Name it and choose **Create Google Sheet**, then **Open in Google Sheets**. |
+
+In .xlsx files and new Google Sheets, the header row is bold and frozen, and frozen columns stay frozen. Numbers stay numbers when they read back exactly, so `100` and `0.86` add up. Everything else stays text exactly as shown, including `007`, long IDs and dates. Nothing is ever written as a formula. A cell that starts with `=`, `+`, `-` or `@`, such as a post that begins with a mention, stays text. Excel holds up to 32,767 characters in a cell, so longer cells are cut in an .xlsx file and the confirmation says how many.
+
+**Create Google Sheet** needs the Sheets bridge (Settings → Google Sheets). The spreadsheet is created in the **Google Sheets exports folder** set there, or in My Drive when that's blank. Large tabs are sent 2,000 rows at a time. Each export leaves a receipt under Settings → Google Sheets with a link to the new sheet. If an export stops part-way, choose **Replay** on its receipt. Replay finishes the same spreadsheet and never writes a row twice. The bridge creates a new spreadsheet each time. It doesn't update a sheet that already exists.
+
+Export limits: 20 tabs, 50,000 rows and 60 columns per tab, 50,000 characters per cell, and 5,000,000 cells per .xlsx file. A Google Sheet export can have up to 2,000,000 cells. For more than that, download the .xlsx and import it into Google Sheets.
+
+## Update the Sheets bridge
+
+Create Google Sheet and publishing reports as Google Docs need the current [`scripts/google-sheets-webhook.gs`](../scripts/google-sheets-webhook.gs). An older bridge answers with "Your Google Sheets bridge is an older version". To update it:
+
+1. Open the bridge's Apps Script project and replace its code with the current file.
+2. Choose `authorizeBridge` in the function menu and click **Run**, then accept the permissions. The bridge now also creates files in Drive and uploads reports to the Drive API, so Google asks again.
+3. Choose **Deploy → Manage deployments**, click the pencil, set **Version** to **New version** and click **Deploy**. Editing the deployment keeps the web app URL that's saved in the app. A **New deployment** gets a new URL, which you'd then paste into Settings.
+
+The bridge uses three permissions. If your project pins `oauthScopes` in `appsscript.json`, list all of them:
+
+- `https://www.googleapis.com/auth/spreadsheets`
+- `https://www.googleapis.com/auth/drive`
+- `https://www.googleapis.com/auth/script.external_request`
+
+The bridge runs as the account that deployed it, so new Sheets and Docs belong to that account's Drive. Anyone who has the web app URL can use the bridge, so keep the URL private.
+
+| Action | What it does |
+| --- | --- |
+| `ping` | Checks the connection. It also returns `bridgeVersion` (3) and the actions it supports. |
+| `readTabs` | Reads named tabs, or every tab in order (`allTabs`). |
+| `writeDatasetRows` | Writes collected rows to a working tab in chunks. |
+| `archiveAndClear` | Copies the working spreadsheet to the archive folder, then clears its working tabs. |
+| `createSpreadsheet` | `{ requestId, title, folderId?, tabs: [{ name, columns, rows, frozenColumns? }] }` creates a spreadsheet with one tab per entry and a bold, frozen header. It returns `{ ok, spreadsheetId, url }`. |
+| `appendRows` | `{ requestId, spreadsheetId, tabName, rows, startRow? }` adds a chunk of rows. With `startRow`, sending a chunk twice writes the same rows. |
+| `createDoc` | `{ requestId, title, folderId?, html }` turns HTML into a native Google Doc with one Drive upload (shared drives work). It returns `{ ok, documentId, url }`. |
+| `createFile` | `{ requestId, name, folderId?, mimeType, base64 }` stores a PNG or SVG image. It returns `{ ok, fileId, url }`. |
+
+The four create actions run once for each `requestId`. The bridge remembers the result of its last 400 creates and returns it when a request is repeated. Apps Script's lock makes a retry that arrives while the first attempt is still running wait for it, so retries never make a second copy. A spreadsheet that stopped part-way is rebuilt in place on the next try.
+
 ## Limits
 
 - Formulas aren't recalculated. Imports show the last value the spreadsheet calculated.
 - Each sheet can have up to 60,000 rows and 256 columns. Each file can be up to 50 MB.
-- There's no direct write-back to Google Sheets yet. Use Copy for Google Sheets or Download (.csv).
+- Create Google Sheet always makes a new spreadsheet. Edits made later in Google Sheets don't come back to the app unless you pull or import that sheet.

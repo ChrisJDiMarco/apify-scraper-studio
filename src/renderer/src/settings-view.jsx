@@ -3,6 +3,15 @@ import { Image as ImageIcon, KeyRound, LoaderCircle, ShieldCheck } from 'lucide-
 import { readinessItems } from '../../shared/health.js';
 import { Badge, Button, JsonBlock, short, statusTone } from './ui.jsx';
 
+// Where the Sheets bridge creates Google Docs and Google Sheets. Each accepts a folder link or ID; blank means My Drive.
+const DRIVE_FOLDERS = [
+  { key: 'trendReportsFolderId', label: 'Trend reports folder', hint: 'Folder where new trend reports are created, like n8n’s ‘New Trends Output’.' },
+  { key: 'toolkitsFolderId', label: 'Editorial toolkits folder', hint: 'Folder where new editorial toolkits are created. Blank uses the default Docs folder.' },
+  { key: 'docsFolderId', label: 'Default Docs folder', hint: 'Every other published report goes here. Blank means your My Drive.' },
+  { key: 'sheetsExportFolderId', label: 'Google Sheets exports folder', hint: 'Where Sheets → Export → Create Google Sheet saves new spreadsheets. Blank means your My Drive.' },
+];
+const driveFolders = (sheets = {}) => Object.fromEntries(DRIVE_FOLDERS.map(({ key }) => [key, sheets?.[key] || '']));
+
 export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveSettings, onTestSheetsBridge, onArchiveAndClearSheets, onImportWorkingSheets, onReplaySheetRun, onCheckAi, onCheckCodex, onTestImages, onOpenDataFolder, onOpenWorkspace, onSaveMondayBoard, onClearMondayBoard }) {
   const [token, setToken] = useState('');
   const [docsToken, setDocsToken] = useState('');
@@ -23,6 +32,7 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
     twitterTab: state.settings.sheets?.twitterTab || 'Twitter',
     linkedinTab: state.settings.sheets?.linkedinTab || 'LinkedIn',
     redditTab: state.settings.sheets?.redditTab || 'Reddit',
+    ...driveFolders(state.settings.sheets),
   });
   const [aiProvider, setAiProvider] = useState(state.settings.aiProvider || 'claude');
   const [aiModel, setAiModel] = useState(state.settings.aiModel || 'claude-opus-5-5');
@@ -49,6 +59,7 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
       twitterTab: state.settings.sheets?.twitterTab || 'Twitter',
       linkedinTab: state.settings.sheets?.linkedinTab || 'LinkedIn',
       redditTab: state.settings.sheets?.redditTab || 'Reddit',
+      ...driveFolders(state.settings.sheets),
     });
   }, [
     state.settings.sheets?.workingSpreadsheetUrl,
@@ -56,6 +67,7 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
     state.settings.sheets?.twitterTab,
     state.settings.sheets?.linkedinTab,
     state.settings.sheets?.redditTab,
+    ...DRIVE_FOLDERS.map(({ key }) => state.settings.sheets?.[key]),
   ]);
 
   useEffect(() => { setImageCheck(null); }, [imagesConfigured]);
@@ -188,6 +200,7 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
       {!semrush && sourceSettings}
       <details className="settings-block"><summary>Google Docs <span>Import private research documents</span></summary>
         <p>Connect a Google OAuth access token with Docs read permission for imports and Drive file creation permission for delivery. Tokens expire; reconnect when prompted. You can also upload a DOCX file without a Google connection.</p>
+        {state.keys.GOOGLE_SHEETS_WEBHOOK_URL && <p><small>Publishing to Google Drive uses your Sheets bridge, so this token is only needed for imports.</small></p>}
         <label>Google Docs access token<div className="inline"><input aria-label="Google Docs access token" type="password" autoComplete="off" value={docsToken} placeholder={state.keys.GOOGLE_DOCS_ACCESS_TOKEN ? 'Stored securely on this device' : 'Paste an authorized access token'} onChange={event => setDocsToken(event.target.value)}/><Button disabled={busy || !docsToken} onClick={() => onSaveKey('GOOGLE_DOCS_ACCESS_TOKEN', docsToken).then(saved => { if (saved) setDocsToken(''); })}>Connect Docs</Button><Button className="ghost" disabled={busy} onClick={() => onClearKey('GOOGLE_DOCS_ACCESS_TOKEN')}>Disconnect</Button></div></label>
       </details>
       {onSaveMondayBoard && <details className="settings-block settings-monday" open={Boolean(state.monday?.connected && !state.monday?.boardId) || undefined}><summary>Monday.com <span>{state.monday?.boardName ? `Trend board syncs to ${state.monday.boardName}` : state.monday?.connected ? 'Connected · choose a board' : 'Mirror the trend board'}</span></summary>
@@ -199,7 +212,7 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
       </details>}
       <details className="settings-block"><summary>Google Sheets <span>Optional integration</span></summary>
         <div className="panel-head compact">
-          <div><h3>Google Sheets bridge</h3><p>Use an Apps Script webhook to archive, clear, import, and write shared weekly sheets.</p></div>
+          <div><h3>Google Sheets bridge</h3><p>Use an Apps Script webhook to archive, clear, import, and write shared weekly sheets, and to create Google Sheets and Docs in your Drive.</p></div>
         </div>
         <div className="field-grid two">
           <label>Apps Script webhook URL
@@ -225,6 +238,17 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
             <input value={sheetForm.redditTab} onChange={(event) => updateSheetField('redditTab', event.target.value)} />
           </label>
         </div>
+        <div className="panel-head compact">
+          <div><h3>Google Drive folders</h3><p>{state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'Publish to Google Drive creates native Google Docs through this bridge, with no access token to paste or renew.' : 'Save the webhook URL above to publish reports as Google Docs without an access token.'} Paste a folder link or ID.</p></div>
+        </div>
+        <div className="field-grid two">
+          {DRIVE_FOLDERS.map(({ key, label, hint }) => (
+            <label key={key}>{label}
+              <input aria-label={label} value={sheetForm[key]} spellCheck="false" onChange={(event) => updateSheetField(key, event.target.value)} placeholder="https://drive.google.com/drive/folders/…" />
+              <small>{hint}</small>
+            </label>
+          ))}
+        </div>
         <div className="button-row">
           <Button disabled={busy} onClick={() => onSaveSettings({ sheets: sheetForm })}>Save sheet settings</Button>
           <Button className="ghost" disabled={busy || !state.keys.GOOGLE_SHEETS_WEBHOOK_URL || !state.settings.sheets?.workingSpreadsheetId} onClick={onTestSheetsBridge}>Test bridge</Button>
@@ -244,7 +268,7 @@ export function SettingsView({ state, meta, busy, onSaveKey, onClearKey, onSaveS
             {state.sheetRuns.slice(0, 3).map((run) => (
               <article className="readiness-card" key={run.id}>
                 <Badge tone={statusTone(run.status)}>{run.kind}</Badge>
-                <p>{short(run.error || run.archiveUrl || run.tabName || run.datasetId || run.spreadsheetId || 'Sheet run saved', 160)}</p>
+                <p>{short(run.error || run.archiveUrl || run.spreadsheetUrl || run.tabName || run.datasetId || run.spreadsheetId || 'Sheet run saved', 160)}</p>
                 {run.status === 'failed' && (
                   <Button
                     className="ghost"

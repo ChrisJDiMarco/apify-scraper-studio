@@ -6,6 +6,7 @@ import workspaceModule from '../src/main/content-workspace.js';
 import content from '../src/shared/content-studio.js';
 import researchWorkbook from '../src/shared/research-workbook.js';
 import storeModule from '../src/main/workbooks.js';
+import fixture from './helpers/research-ai-fixture.js';
 const { createContentWorkspace } = workspaceModule;
 const { buildResearchWorkbook, RESEARCH_SHEETS } = researchWorkbook;
 const { createWorkbookStore, sheetFromRows } = storeModule;
@@ -22,12 +23,12 @@ const collected = [
   { id: 'run3:4', runId: 'run3', externalId: '4', platform: 'reddit', author: 'skrincher', type: 'post', text: 'SMS welcome flow made $4.48 per message Same pop-up, two welcome flows and the reporting is manual.', url: 'https://www.reddit.com/r/ecommerce/comments/4', publishedAt: '2026-09-25T12:00:00Z', raw: { title: 'SMS welcome flow made $4.48 per message', body: 'Same pop-up, two welcome flows and the reporting is manual.', communityName: 'r/ecommerce', dataType: 'post', numberOfComments: 2, upVotes: 2, upVoteRatio: 1, createdAt: '2026-09-25T12:00:00.000Z' } },
 ].map((row) => ({ ...row, metrics: row.platform === 'x' ? { likes: row.raw.likeCount, comments: row.raw.replyCount, shares: row.raw.retweetCount, views: row.raw.viewCount, quotes: row.raw.quoteCount, bookmarks: row.raw.bookmarkCount } : row.platform === 'linkedin' ? { likes: 40, comments: 9, shares: 0 } : { upvotes: 2, comments: 2, upvoteRatio: 1 } }));
 
-const tail = (prompt) => JSON.parse(prompt.slice(prompt.lastIndexOf('\n{') + 1));
 function outputFor(request) {
   const props = request.schema.properties;
-  if (props.candidates) { const batch = tail(request.prompt); return { candidates: [{ name: 'AI visibility reporting gap', summary: 'People cannot report AI visibility.', painPoint: 'Proving ROI/Attribution', semanticIntentSignals: ['reporting'], actionability: 'Publish a reporting template.', evidenceIds: batch.evidenceIds }] }; }
-  if (props.themes) { const input = tail(request.prompt); return { themes: [{ name: 'Generative Visibility Replaces Blue-Link Rankings', description: 'Practitioners measure visibility in AI answers, not rankings.', candidateIds: input.candidates.map((c) => c.id), existingThemeId: null, novelty: 'NEW ANGLE', matchingKeywords: ['GEO', 'AI Overviews'], matchingCriteria: 'Posts about optimizing for AI engines.', negativeCriteria: 'Exclude pure keyword tracking.', taxonomyCategory: 'AI Search / GEO / AIO' }] }; }
-  if (props.assignments) { const input = tail(request.prompt); return { assignments: input.batch.items.map((item, index) => ({ itemId: item.id, themeId: index === 1 ? null : input.themes[0].id, confidence: index === 1 ? 0.2 : 0.86, reason: index === 1 ? 'Off topic.' : 'Talks about AI visibility reporting.', painPoint: 'Proving ROI/Attribution', urgency: 'Strategic Planning', entities: { tools: ['Google Search Console'], people: [], companies: ['Google'] } })) }; }
+  const research = fixture.researchOutput(request, { candidateName: 'AI visibility reporting gap', offTopicEvery: 2, theme: { name: 'Generative Visibility Replaces Blue-Link Rankings', description: 'Practitioners measure visibility in AI answers, not rankings.', matchingKeywords: ['GEO', 'AI Overviews'], taxonomyCategory: 'AI Search / GEO / AIO' } });
+  if (research && fixture.stageOf(request) === 'synthesis') research.themes[0] = { ...research.themes[0], matchingCriteria: 'Posts about optimizing for AI engines.', negativeCriteria: 'Exclude pure keyword tracking.', novelty: 'NEW ANGLE' };
+  if (research && fixture.stageOf(request) === 'tagging') research.assignments = research.assignments.map((row) => ({ ...row, painPoint: 'Proving ROI/Attribution', entities: { tools: ['Google Search Console'], people: [], companies: ['Google'] } }));
+  if (research) return research;
   const sectionIds = props.sections.items.properties.id.enum;
   const descriptor = content.CONTENT_DELIVERABLES.find((d) => d.kind === 'text' && JSON.stringify(d.sections.map((s) => s.id)) === JSON.stringify(sectionIds));
   const input = JSON.parse(request.prompt.split('UNTRUSTED_SOURCE_AND_BRAND_DATA:\n')[1]);

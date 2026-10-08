@@ -5,6 +5,7 @@ const path = require('path');
 const { randomUUID } = require('crypto');
 const { buildResearchWorkbook } = require('../shared/research-workbook');
 const { readWorkbookFile } = require('./workbook-import');
+const { buildXlsx, exactNumber } = require('../shared/xlsx-writer');
 
 const MAX_EDITS_BYTES = 8 * 1024 * 1024;
 const MAX_EDIT_CHARS = 50000;
@@ -49,7 +50,7 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
   function summary(workbook) { return workbook.sheets.map((sheet) => ({ id: sheet.id, name: sheet.name, rowCount: sheet.rows.length, columnCount: sheet.columns.length })); }
 
   function list() {
-    const research = contentWorkspace.listResearchWorkbookSources().map((source) => ({ id: source.runId, kind: 'research', name: source.title, createdAt: source.createdAt, updatedAt: source.updatedAt, status: source.status, stage: source.stage, rowCount: source.evidenceCount, themeCount: source.themeCount }));
+    const research = contentWorkspace.listResearchWorkbookSources().map((source) => ({ id: source.runId, kind: 'research', programId: source.programId || '', name: source.title, createdAt: source.createdAt, updatedAt: source.updatedAt, status: source.status, stage: source.stage, rowCount: source.evidenceCount, themeCount: source.themeCount }));
     const imported = readIndex().workbooks.filter((row) => row.workspaceId === activeWorkspaceId()).map(({ id, name, source, createdAt, updatedAt, sheets }) => ({ id, kind: 'import', name, source, createdAt, updatedAt, rowCount: (sheets || []).reduce((sum, sheet) => sum + sheet.rowCount, 0), sheetCount: (sheets || []).length }));
     return [...research, ...imported].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   }
@@ -150,4 +151,118 @@ function sheetValue(value) {
   return String(value);
 }
 
-module.exports = { createWorkbookStore, sheetFromRows, GOLDEN_THREAD_TABS };
+// Exports. The renderer sends what the grid shows: each tab's header and rows with the person's edits applied.
+// Sizes are checked here, before anything is written to disk or sent to Google.
+const EXPORT_LIMITS = { sheets: 20, rows: 50000, columns: 60, cellChars: 50000, xlsxCells: 5000000, googleCells: 2000000 };
+const GOOGLE_CHUNK_ROWS = 2000;
+const GOOGLE_CHUNK_BYTES = 4 * 1024 * 1024;
+const exportName = (value, fallback = 'Workbook') => String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) || fallback;
+
+function exportCell(value, tabName) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+  if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+  if (typeof value !== 'string') fail(`“${tabName}” has a cell that isn’t text. Reopen the workbook and export again.`);
+  if (value.length > EXPORT_LIMITS.cellChars) fail(`A cell in “${tabName}” is longer than 50,000 characters. Shorten it before exporting.`);
+  return value;
+}
+
+function normalizeWorkbookExport(payload, { maxCells = EXPORT_LIMITS.xlsxCells, tooLarge = '' } = {}) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) fail('Choose a workbook to export.');
+  const { sheets } = payload;
+  if (!Array.isArray(sheets) || !sheets.length) fail('This workbook has no tabs to export.');
+  if (sheets.length > EXPORT_LIMITS.sheets) fail(`An export can include up to ${EXPORT_LIMITS.sheets} tabs. This workbook has ${sheets.length}.`);
+  let cells = 0;
+  const clean = sheets.map((sheet, index) => {
+    if (!sheet || typeof sheet !== 'object' || Array.isArray(sheet)) fail(`Tab ${index + 1} is missing its cells.`);
+    const name = exportName(sheet.name, `Sheet${index + 1}`).slice(0, 120);
+    if (!Array.isArray(sheet.columns) || !Array.isArray(sheet.rows)) fail(`“${name}” is missing its header or rows.`);
+    if (sheet.columns.length > EXPORT_LIMITS.columns) fail(`“${name}” has ${sheet.columns.length} columns. An export can include up to ${EXPORT_LIMITS.columns}.`);
+    if (sheet.rows.length > EXPORT_LIMITS.rows) fail(`“${name}” has more than 50,000 rows. Download that tab as CSV instead.`);
+    const columns = sheet.columns.map((value) => exportCell(value, name));
+    const rows = sheet.rows.map((row) => {
+      if (!Array.isArray(row)) fail(`“${name}” has a row that isn’t a list of cells.`);
+      if (row.length > EXPORT_LIMITS.columns) fail(`“${name}” has rows wider than ${EXPORT_LIMITS.columns} columns.`);
+      cells += row.length;
+      return row.map((value) => exportCell(value, name));
+    });
+    cells += columns.length;
+    if (cells > maxCells) fail(tooLarge || `This workbook has more than ${maxCells.toLocaleString('en-US')} cells. Download one tab at a time instead.`);
+    const frozenColumns = Number.isInteger(sheet.frozenColumns) && sheet.frozenColumns > 0 && sheet.frozenColumns <= 10 ? sheet.frozenColumns : 0;
+    return { name, columns, rows, ...(frozenColumns ? { frozenColumns } : {}) };
+  });
+  return { name: exportName(payload.name), sheets: clean };
+}
+
+const pad2 = (value) => String(value).padStart(2, '0');
+function exportFileName(name, date = new Date()) {
+  const base = exportName(name).replace(/[\\/:*?"<>|]+/g, ' ').replace(/^[.\s]+/, '').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Workbook';
+  return `${base} ${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}.xlsx`;
+}
+
+// Download: one .xlsx with every tab sent. Cells over Excel's 32,767-character limit are shortened and counted.
+function buildWorkbookXlsx(payload, { date = new Date() } = {}) {
+  const workbook = normalizeWorkbookExport(payload);
+  let truncatedCells = 0;
+  const buffer = buildXlsx({ title: workbook.name, sheets: workbook.sheets, modifiedAt: date, onStats: (stats) => { truncatedCells = stats.truncatedCells; } });
+  return { buffer, fileName: exportFileName(workbook.name, date), sheetCount: workbook.sheets.length, rowCount: workbook.sheets.reduce((sum, sheet) => sum + sheet.rows.length, 0), truncatedCells };
+}
+
+// Google Sheets tab names: up to 100 characters, unique ignoring case.
+function googleTabNames(names) {
+  const used = new Set();
+  return names.map((raw, index) => {
+    const base = String(raw ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100) || `Sheet${index + 1}`;
+    let name = base; let copy = 2;
+    while (used.has(name.toLowerCase())) { const suffix = ` (${copy++})`; name = `${base.slice(0, 100 - suffix.length).trim()}${suffix}`; }
+    used.add(name.toLowerCase());
+    return name;
+  });
+}
+
+function chunkRows(rows, maxRows, maxBytes) {
+  const chunks = []; let current = []; let bytes = 2;
+  for (const row of rows) {
+    const size = Buffer.byteLength(JSON.stringify(row)) + 1;
+    if (current.length && (current.length >= maxRows || bytes + size > maxBytes)) { chunks.push(current); current = []; bytes = 2; }
+    current.push(row); bytes += size;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
+// Google Sheets through the Apps Script bridge: createSpreadsheet carries every tab's header plus as many first rows
+// as fit one request; appendRows sends the rest in order, at most 2,000 rows (about 4 MB) per call. Request IDs are
+// fixed when the plan is made, so a retry or a replay never writes a chunk twice. Numbers that read back exactly are
+// sent as numbers; the bridge keeps every other value as text.
+function planGoogleSheetsExport(workbook, { requestId, folderId = '', maxRows = GOOGLE_CHUNK_ROWS, maxBytes = GOOGLE_CHUNK_BYTES } = {}) {
+  if (typeof requestId !== 'string' || !/^[A-Za-z0-9_.:-]{8,100}$/.test(requestId)) fail('A Google Sheets export needs a request ID.');
+  const names = googleTabNames(workbook.sheets.map((sheet) => sheet.name));
+  const tabs = []; const appends = []; let budget = maxBytes;
+  workbook.sheets.forEach((sheet, index) => {
+    const chunks = chunkRows(sheet.rows.map((row) => row.map((value) => exactNumber(value) ?? value)), maxRows, maxBytes);
+    const headerBytes = Buffer.byteLength(JSON.stringify([names[index], sheet.columns])) + 64;
+    const firstBytes = chunks.length ? Buffer.byteLength(JSON.stringify(chunks[0])) : 0;
+    const first = chunks.length && headerBytes + firstBytes <= budget ? chunks.shift() : [];
+    budget -= headerBytes + (first.length ? firstBytes : 0);
+    tabs.push({ name: names[index], columns: sheet.columns, rows: first, ...(sheet.frozenColumns ? { frozenColumns: sheet.frozenColumns } : {}) });
+    // startRow pins each chunk to its rows (row 1 is the header), so writing a chunk twice changes nothing.
+    let startRow = 2 + first.length;
+    chunks.forEach((rows, chunk) => { appends.push({ action: 'appendRows', requestId: `${requestId}-t${index + 1}-c${chunk + 1}`, tabName: names[index], startRow, rows }); startRow += rows.length; });
+  });
+  return { create: { action: 'createSpreadsheet', requestId: `${requestId}-create`, title: workbook.name, ...(folderId ? { folderId } : {}), tabs }, appends };
+}
+
+// Runs a plan in order. A replay of the same plan gets the same spreadsheet back (the bridge remembers every
+// requestId) and skips the chunks it already wrote.
+async function runGoogleSheetsExport(plan, callBridge) {
+  if (!plan?.create || !Array.isArray(plan.create.tabs) || !Array.isArray(plan.appends)) fail('This Google Sheets export has no saved plan to run.');
+  const created = await callBridge(plan.create);
+  const spreadsheetId = String(created?.spreadsheetId || '');
+  if (!/^[A-Za-z0-9_-]{20,200}$/.test(spreadsheetId)) fail('The Sheets bridge did not return the new spreadsheet. Redeploy scripts/google-sheets-webhook.gs (see the Sheets guide) and try again.');
+  let rowsWritten = plan.create.tabs.reduce((sum, tab) => sum + tab.rows.length, 0);
+  for (const append of plan.appends) { await callBridge({ ...append, spreadsheetId }); rowsWritten += append.rows.length; }
+  return { spreadsheetId, url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, tabCount: plan.create.tabs.length, rowsWritten, chunkCount: plan.appends.length + 1 };
+}
+
+module.exports = { createWorkbookStore, sheetFromRows, GOLDEN_THREAD_TABS, EXPORT_LIMITS, normalizeWorkbookExport, exportFileName, buildWorkbookXlsx, planGoogleSheetsExport, runGoogleSheetsExport };

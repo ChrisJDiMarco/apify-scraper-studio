@@ -46,7 +46,7 @@ describe('portable document text import', () => {
     const main = word('<w:p><w:r><w:t>Heading &amp; context</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cell one</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Cell two</w:t><w:br/><w:t>Next line</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:hyperlink r:id="link1"><w:r><w:t>Source article</w:t></w:r></w:hyperlink></w:p>');
     const rels = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="link1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/source" TargetMode="External"/></Relationships>';
     const result = await docx([['word/document.xml', main], ['word/_rels/document.xml.rels', rels]]);
-    expect(result.text).toContain('Heading & context\n'); expect(result.text).toContain('Cell one'); expect(result.text).toContain('Cell two\nNext line'); expect(result.text).toContain('Source article (https://example.com/source)');
+    expect(result.text).toContain('Heading & context\n'); expect(result.text).toContain('Cell one | Cell two Next line\n'); expect(result.text).toContain('Source article (https://example.com/source)');
     expect(result.warnings[0]).toContain('Images');
   });
   it('includes DOCX footnotes while ignoring unrelated embedded files', async () => {
@@ -66,6 +66,13 @@ describe('portable document text import', () => {
   it('recognizes only canonical Google Docs document URLs', () => {
     expect(parseGoogleDocUrl(googleUrl)).toMatchObject({ documentId: 'fixture_document_12345' });
     for (const url of ['http://docs.google.com/document/d/fixture_document_12345/edit', 'https://docs.google.com.evil.example/document/d/fixture_document_12345/edit', 'https://user:pass@docs.google.com/document/d/fixture_document_12345/edit', 'https://127.0.0.1/document/d/fixture_document_12345/edit', 'https://docs.google.com/spreadsheets/d/fixture_document_12345/edit']) expect(() => parseGoogleDocUrl(url)).toThrow();
+  });
+  it('keeps table rows on one line like the n8n registry extractor (cells | paragraphs /)', async () => {
+    const row = (...cells) => `<w:tr>${cells.map((cell) => `<w:tc>${cell.map((text) => `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>`).join('')}</w:tc>`).join('')}</w:tr>`;
+    const result = await docx([['word/document.xml', word(`<w:p><w:r><w:t>1. SEO Toolkit</w:t></w:r></w:p><w:tbl>${row(['Tool Name'], ['Core Function'], ['Key Tags'])}${row(['Site Audit'], ['Full-site crawler'], ['SEO', 'AI', 'Content'])}</w:tbl>`)]]);
+    expect(result.text).toContain('Tool Name | Core Function | Key Tags\nSite Audit | Full-site crawler | SEO / AI / Content');
+    const google = extractGoogleDocumentText({ body: { content: [{ table: { tableRows: [{ tableCells: [{ content: [paragraph('Tool Name')] }, { content: [paragraph('Core Function')] }] }, { tableCells: [{ content: [paragraph('Citations')] }, { content: [paragraph('Source tracking'), paragraph('in AI answers')] }] }] } }] } });
+    expect(google).toContain('Tool Name | Core Function\nCitations | Source tracking / in AI answers');
   });
   it('extracts all Google document tabs, nested tabs and table cells without duplicating legacy body', () => {
     const document = { body: { content: [paragraph('Do not duplicate this old body')] }, tabs: [{ tabProperties: { title: 'First tab' }, documentTab: { body: { content: [paragraph('First content'), { table: { tableRows: [{ tableCells: [{ content: [paragraph('Table evidence')] }] }] } }] } }, childTabs: [{ tabProperties: { title: 'Child tab' }, documentTab: { body: { content: [paragraph('Second content')] } } }] }] };

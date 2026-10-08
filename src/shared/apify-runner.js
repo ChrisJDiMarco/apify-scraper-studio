@@ -118,17 +118,53 @@ async function discoverApifyResource(payload = {}, options = {}) {
   };
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Poll until the provider reports a terminal status. A failed poll keeps waiting (n8n: "a failed
+// poll call just keeps waiting") up to a bounded number of consecutive errors. When the client
+// wall clock passes abortAfterMs (server timeout + margin) the run is aborted gracefully and the
+// loop waits briefly for ABORTED so whatever the dataset holds can still be fetched.
 async function waitForStartedRun(client, startedRun, options = {}) {
-  let run = startedRun;
+  let run = startedRun; let errors = 0; let abortedAt = 0;
+  const startedMs = Date.parse(run?.startedAt) || Date.now();
+  const maxErrors = Number.isInteger(options.maxPollErrors) ? options.maxPollErrors : 8;
   while (run && !TERMINAL_RUN_STATUSES.has(run.status)) {
     if (options.isCancelled?.()) {
       await client.run(run.id).abort({ gracefully: true }).catch(() => null);
       throw new Error('Job cancelled.');
     }
-    run = await client.run(run.id).get({ waitForFinish: Math.min(60, Number(options.waitSecs) || 10) }) || run;
+    if (options.abortAfterMs && !abortedAt && Date.now() - startedMs >= options.abortAfterMs) {
+      abortedAt = Date.now();
+      await client.run(run.id).abort({ gracefully: true }).catch(() => null);
+      options.onStatus?.({ ...run, status: 'ABORTING', abortedForTimeLimit: true });
+    }
+    if (abortedAt && Date.now() - abortedAt > 180000) { run = { ...run, status: 'ABORTED', abortedForTimeLimit: true }; break; }
+    const polledAt = Date.now();
+    try {
+      run = await client.run(run.id).get({ waitForFinish: Math.min(60, Number(options.waitSecs) || 10) }) || run;
+      errors = 0;
+      // waitForFinish normally holds the request open; never spin when a provider answers at once.
+      const minimumMs = Number.isFinite(options.pollIntervalMs) ? options.pollIntervalMs : 2000;
+      if (!TERMINAL_RUN_STATUSES.has(run.status) && Date.now() - polledAt < minimumMs) await sleep(minimumMs - (Date.now() - polledAt));
+    } catch (error) {
+      errors++;
+      if (errors > maxErrors) throw error;
+      await sleep(Math.min(30000, (options.pollBackoffMs ?? 1000) * errors));
+      continue;
+    }
+    if (abortedAt) run = { ...run, abortedForTimeLimit: true };
     options.onStatus?.(run);
   }
   return run;
+}
+
+async function withRetries(task, { attempts = 3, backoffMs = 1000, isCancelled } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (isCancelled?.()) throw new Error('Job cancelled.');
+    try { return await task(); } catch (error) { lastError = error; if (attempt < attempts) await sleep(backoffMs * attempt); }
+  }
+  throw lastError;
 }
 
 function createApifyRunner({ token, Client, maxRetries }) {
@@ -161,13 +197,16 @@ function createApifyRunner({ token, Client, maxRetries }) {
       // Persist the provider ID before polling or downloading any data.
       await options.onRunStarted?.(started);
       const run = shouldWait ? await waitForStartedRun(client, started, options) : started;
-      if (run?.status && run.status !== 'SUCCEEDED' && TERMINAL_RUN_STATUSES.has(run.status)) {
+      const salvaged = !!run?.status && run.status !== 'SUCCEEDED' && TERMINAL_RUN_STATUSES.has(run.status);
+      // Any terminal status still fetches what the dataset holds (n8n: a bad run degrades to
+      // fewer rows instead of killing the execution). Callers that need a clean run opt out.
+      if (salvaged && !options.salvage) {
         throw new Error(`Apify run finished with status ${run.status}.${run.statusMessage ? ` ${String(run.statusMessage).slice(0, 800)}` : ''}`);
       }
       if (!run?.defaultDatasetId) throw new Error('Apify run finished without a default dataset.');
 
       throwIfCancelled(options);
-      const rawItems = await listAllDatasetItems(client, run.defaultDatasetId, options.maxItems || 5000, 1000, options);
+      const rawItems = await withRetries(() => listAllDatasetItems(client, run.defaultDatasetId, options.maxItems || 5000, 1000, options), { attempts: options.downloadAttempts || 3, backoffMs: options.downloadBackoffMs ?? 1000, isCancelled: options.isCancelled });
       const normalizedItems = normalizeDataset(rawItems, {
         mapper: recipe.mapper,
         platform: recipe.platform,
@@ -180,12 +219,16 @@ function createApifyRunner({ token, Client, maxRetries }) {
         run,
         rawItems,
         normalizedItems,
+        salvaged,
+        statusMessage: salvaged ? String(run.statusMessage || '').slice(0, 800) : '',
       };
     },
   };
 }
 
 module.exports = {
+  TERMINAL_RUN_STATUSES,
+  waitForStartedRun,
   createApifyRunner,
   discoverApifyResource,
   listAllDatasetItems,

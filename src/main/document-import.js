@@ -39,26 +39,33 @@ function parseRelationships(xml) {
   });
   parser.write(xml).close(); return relationships;
 }
+// Table rows become one line each, cells joined with " | " and paragraphs inside a cell with " / "
+// (the n8n v6.1 registry extractor format), so tool tables survive as "Tool | Function | Tags".
 function extractWordXml(xml, relationships = new Map()) {
   const output = textCollector(); const parser = xmlParser(); const stack = []; let captureText = 0; let nodes = 0; let isWord = false;
+  const rows = []; const cells = [];
+  const append = value => { const cell = cells.at(-1); if (cell) cell.current += value; else output.append(value); };
   parser.on('opentag', node => {
     if (++nodes > 100000 || stack.length > 100) fail('file', 'The DOCX XML is too complex to import safely.');
     const word = WORD_NS.has(node.uri); if (word) isWord = true;
     const current = { name: word ? node.local : '', link: '' }; stack.push(current);
     if (!word) return;
     if (node.local === 't') captureText += 1;
-    if (node.local === 'tab') output.append('\t');
-    if (['br', 'cr'].includes(node.local)) output.append('\n');
+    if (node.local === 'tab') append(cells.length ? ' ' : '\t');
+    if (['br', 'cr'].includes(node.local)) append(cells.length ? ' ' : '\n');
+    if (node.local === 'tr') rows.push([]);
+    if (node.local === 'tc') cells.push({ parts: [], current: '' });
     if (node.local === 'hyperlink') { const id = Object.values(node.attributes).find(attribute => attribute.local === 'id')?.value; current.link = relationships.get(id) || ''; }
   });
-  parser.on('text', value => { if (captureText) output.append(value); });
-  parser.on('cdata', value => { if (captureText) output.append(value); });
+  parser.on('text', value => { if (captureText) append(value); });
+  parser.on('cdata', value => { if (captureText) append(value); });
   parser.on('closetag', () => {
     const current = stack.pop(); if (!current) return;
     if (current.name === 't') captureText -= 1;
-    if (current.name === 'hyperlink' && current.link) output.append(` (${current.link})`);
-    if (current.name === 'p' || current.name === 'tr') output.append('\n');
-    if (current.name === 'tc') output.append('\t');
+    if (current.name === 'hyperlink' && current.link) append(` (${current.link})`);
+    if (current.name === 'p') { const cell = cells.at(-1); if (cell) { const part = cell.current.replace(/\s+/g, ' ').trim(); if (part) cell.parts.push(part); cell.current = ''; } else output.append('\n'); }
+    if (current.name === 'tc') { const cell = cells.pop(); const tail = cell.current.replace(/\s+/g, ' ').trim(); if (tail) cell.parts.push(tail); rows.at(-1)?.push(cell.parts.join(' / ')); }
+    if (current.name === 'tr') { const row = rows.pop() || []; const line = row.join(' | '); const parent = cells.at(-1); if (parent) { if (line) parent.parts.push(line); } else output.append(`${line}\n`); }
   });
   parser.write(xml).close(); if (!isWord) fail('file', 'The DOCX does not contain a supported Word document body.');
   return output.text();
@@ -111,6 +118,16 @@ function parseGoogleDocUrl(value) {
   if (url.origin !== 'https://docs.google.com' || url.username || url.password || !match) fail('googleDocUrl', 'Use an HTTPS docs.google.com/document/d/... document URL.');
   return { documentId: match[1], url: `https://docs.google.com/document/d/${match[1]}/edit` };
 }
+// Paragraphs inside a Google Docs table cell, joined with " / " (nested tables become "a | b").
+function cellText(elements, depth = 0) {
+  if (depth > 15) fail('googleDoc', 'This Google document is nested too deeply to import.');
+  const parts = [];
+  for (const element of Array.isArray(elements) ? elements : []) {
+    if (element.paragraph) { const value = (element.paragraph.elements || []).map(run => (typeof run.textRun?.content === 'string' ? run.textRun.content : '')).join('').replace(/\s+/g, ' ').trim(); if (value) parts.push(value); }
+    if (element.table) for (const row of element.table.tableRows || []) parts.push((row.tableCells || []).map(cell => cellText(cell.content, depth + 1)).join(' | '));
+  }
+  return parts.join(' / ');
+}
 function extractGoogleDocumentText(document) {
   if (!document || typeof document !== 'object' || Array.isArray(document)) fail('googleDoc', 'Google Docs returned an invalid document.');
   const output = textCollector(); let visited = 0; let hasBodyText = false;
@@ -125,7 +142,7 @@ function extractGoogleDocumentText(document) {
         }
         output.append('\n');
       }
-      if (element.table) for (const row of element.table.tableRows || []) { for (const cell of row.tableCells || []) { content(cell.content, depth + 1); output.append('\t'); } output.append('\n'); }
+      if (element.table) for (const row of element.table.tableRows || []) { const line = (row.tableCells || []).map(cell => cellText(cell.content, depth + 1)).join(' | '); if (line.replace(/[|\s]/g, '')) hasBodyText = true; output.append(`${line}\n`); }
       if (element.tableOfContents) content(element.tableOfContents.content, depth + 1);
     }
   }

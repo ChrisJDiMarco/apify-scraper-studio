@@ -38,7 +38,7 @@ function validateRunOptions(value) {
   const maxTotalChargeUsd = Number(value.maxTotalChargeUsd);
   const timeoutSecs = Number(value.timeoutSecs);
   if (!Number.isFinite(maxTotalChargeUsd) || maxTotalChargeUsd <= 0 || maxTotalChargeUsd > 100) throw new Error('Run budget must be greater than $0 and no more than $100.');
-  if (!Number.isInteger(timeoutSecs) || timeoutSecs < 30 || timeoutSecs > 3600) throw new Error('Run timeout must be between 30 and 3600 seconds.');
+  if (!Number.isInteger(timeoutSecs) || timeoutSecs < 30 || timeoutSecs > 7200) throw new Error('Run timeout must be between 30 and 7200 seconds.');
   return { maxTotalChargeUsd, timeoutSecs };
 }
 

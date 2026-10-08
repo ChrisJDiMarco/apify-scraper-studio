@@ -349,6 +349,7 @@
   background: #fbfcfd;
 }
 .readiness-card p {
+  overflow-wrap: anywhere; /* folder paths and IDs have no spaces to break at */
   margin: 0;
   font-size: 12px;
   line-height: 1.4;

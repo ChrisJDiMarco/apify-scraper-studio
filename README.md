@@ -22,6 +22,8 @@ Scraping is the first step. The useful work starts when you can compare results,
 
 ## Research and Content Studio
 
+Research programs reproduce the n8n “Golden Thread” workflow: X, LinkedIn and Reddit collected in parallel with the n8n Actor inputs, 200-post discovery batches per platform, six synthesized themes matched against your tracked themes, n8n trend velocity and priority tiers (FAST-TRACK to LOW) from your Taxonomy Lookup, every post tagged, and a comprehensive trends report plus a dual-angle editorial toolkit per theme. Load the taxonomy, product registry and ICP/positioning documents in **Brand knowledge → Research knowledge**. See the [parity notes](docs/n8n-parity.md).
+
 The default starting screen now has two paths: **Research your market** and **Create from a trend**. Save bulk source programs, review discovered themes, classify every eligible batch, and create paired reports. Or import a brief and choose from twelve written channel families, the report pair, and configured image formats. General and Semrush workspaces keep separate program, knowledge and asset histories.
 
 See the [complete guide and distribution estimates](docs/content-studio-guide.md), [implementation contract](docs/PRD-content-studio.md), and [product research](docs/RESEARCH-content-studio.md). The image provider is awaiting credential setup; Google OAuth tokens require manual reconnection. The browser build is for a private single-team pilot, not a finished multi-tenant SaaS.
@@ -133,7 +135,7 @@ Saved API tokens and the Sheets webhook URL use Electron `safeStorage`. Saving a
 
 The starter [Apps Script webhook](scripts/google-sheets-webhook.gs) keeps Google authorization in Apps Script. It has no built-in request authentication or spreadsheet allowlist. Add appropriate access controls before using it with real data; do not expose it as an anonymous endpoint running with your Google permissions.
 
-Once secured and deployed as a web app, configure its URL, working spreadsheet URL, archive folder ID, and platform tab names in Settings.
+Once secured and deployed as a web app, configure its URL, working spreadsheet URL, archive folder ID, and platform tab names in Settings. Redeploy the script after updating it; the new actions need the Drive scope (run `authorizeBridge` once in the Apps Script editor).
 
 | Action | Behavior |
 | --- | --- |
@@ -141,6 +143,8 @@ Once secured and deployed as a web app, configure its URL, working spreadsheet U
 | `readTabs` | Read rows from named tabs, or every tab in workbook order with `allTabs` (used by Sheets → Pull from a Google Sheets link). |
 | `writeDatasetRows` | Write normalized rows in chunks with request IDs for deduplication. |
 | `archiveAndClear` | Copy the working spreadsheet to the archive folder, then clear configured tabs. |
+| `createSpreadsheet` / `appendRows` | Create a Google Sheet from a local workbook (Sheets → Export → Create Google Sheet), writing large tabs in chunks. |
+| `createDoc` / `createFile` | Publish trend reports and toolkits as Google Docs (and images as files) into the configured Drive folders, without a pasted access token. |
 
 Each operation writes a local receipt and request/response snapshot under `sheets/`. Transient failures are retried; failed operations can be replayed from Settings. Chunked-write idempotency depends on the webhook honoring `requestId`. Archive-and-clear changes the live spreadsheet, so check the configured destination first.
 

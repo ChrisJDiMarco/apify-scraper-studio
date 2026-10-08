@@ -8,6 +8,8 @@ const copies = [
   ['src/main/image-provider.js', 'out/main/image-provider.js'],
   ['src/main/local-image-key.js', 'out/main/local-image-key.js'],
   ['src/main/google-delivery.js', 'out/main/google-delivery.js'],
+  ['src/main/bridge-delivery.js', 'out/main/bridge-delivery.js'],
+  ['src/shared/xlsx-writer.js', 'out/shared/xlsx-writer.js'],
   ['src/main/content-workspace.js', 'out/main/content-workspace.js'],
   ['src/main/studio-owner-lock.js', 'out/main/studio-owner-lock.js'],
   ['src/main/studio-host.js', 'out/main/studio-host.js'],
@@ -20,6 +22,9 @@ const copies = [
   ['src/shared/research-program.js', 'out/shared/research-program.js'],
   ['src/shared/research-schedule.js', 'out/shared/research-schedule.js'],
   ['src/shared/research-collection.js', 'out/shared/research-collection.js'],
+  ['src/shared/research-intel.js', 'out/shared/research-intel.js'],
+  ['src/shared/research-prompts.js', 'out/shared/research-prompts.js'],
+  ['src/shared/research-reports.js', 'out/shared/research-reports.js'],
 
   ['src/main/research-workspace.js', 'out/main/research-workspace.js'],
   ['src/shared/brand-context.js', 'out/shared/brand-context.js'],

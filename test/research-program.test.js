@@ -9,7 +9,7 @@ const candidateOutput = (batch) => ({ candidates: [{ name: 'Search reporting fri
 const makeCandidates = (items) => { const batch = buildDiscoveryBatches({ runId: 'run-a', items }).batches[0]; return validateCandidates(candidateOutput(batch), { runId: 'run-a', batch }); };
 const themeOutput = (candidates, extra = {}) => ({ themes: [{ name: 'Search reporting friction', description: 'Reports require manual work.', existingThemeId: null, candidateIds: candidates.map((c) => c.id), novelty: 'NEW ANGLE', matchingKeywords: ['reporting'], matchingCriteria: 'A concrete reporting workflow problem.', negativeCriteria: 'Generic promotion.', taxonomyCategory: 'Reporting', ...extra }] });
 const assign = (item, themeId = 'theme-a', extra = {}) => ({ itemId: item.id, themeId, confidence: 0.8, reason: 'Describes the reporting problem.', painPoint: 'Workflow/Resource Overload', urgency: 'Strategic Planning', entities: { tools: [], people: [], companies: [] }, ...extra });
-const validAssignments = (items, extras = []) => { const batch = buildAssignmentBatches({ runId: 'run-a', items }).batches[0]; return validateAssignments({ assignments: items.map((item, i) => assign(item, 'theme-a', extras[i])) }, { runId: 'run-a', batch, themes: [{ id: 'theme-a' }] }); };
+const validAssignments = (items, extras = []) => { const batch = buildAssignmentBatches({ runId: 'run-a', items, byPlatform: false, batchSize: 200 }).batches[0]; return validateAssignments({ assignments: items.map((item, i) => assign(item, 'theme-a', extras[i])) }, { runId: 'run-a', batch, themes: [{ id: 'theme-a' }] }); };
 
 describe('saved enterprise research programs', () => {
   it('accepts and deduplicates large source rosters beyond the guided-search limit', () => {
@@ -17,7 +17,8 @@ describe('saved enterprise research programs', () => {
     expect(p.sourceGroups.map((s) => s.targets.length)).toEqual([382, 515]);
     expect(p.sourceGroups[1]).toMatchObject({ platform: 'linkedin', sourceId: 'linkedin-profile' });
     expect(p.sourceGroups[1].targets[0]).toBe('https://www.linkedin.com/in/person-0');
-    expect(p).toMatchObject({ targetPerPlatform: 3000, maxEvidenceItems: 10000, budgets: { collectionUsd: 5, aiUsd: 5 } });
+    expect(p).toMatchObject({ targetPerPlatform: 3000, maxEvidenceItems: 10000, lookbackDays: 7, topicFiltersTargets: false, budgets: { collectionUsd: 10, aiUsd: 25 }, taggingBatchSizes: { x: 50, linkedin: 40, reddit: 50 } });
+    expect(p.ai.models).toEqual({ discovery: 'claude-opus-5-5', synthesis: 'claude-opus-5-5', matching: 'claude-opus-5-5', tagging: 'claude-fable-5-1', reports: 'claude-fable-5-1' });
   });
   it('validates dates, enabled targets, budgets and actual booleans', () => {
     expect(() => validateResearchProgram(program({ window: { startDate: '2026-02-30' } }))).toThrow(/valid/);
@@ -69,10 +70,10 @@ describe('evidence preparation and known metrics', () => {
     expect(result.items.find((i) => i.externalId === '1').text).toBe('How do I explain lost traffic?');
     expect(new Set(result.items.map((i) => i.id)).size).toBe(3);
   });
-  it('deduplicates full content without collapsing posts that only share their first 100 characters', () => {
+  it('deduplicates like n8n: URL first, then the first 100 characters (whitespace removed) plus author', () => {
     const prefix = 'a'.repeat(100);
-    const result = prepare([row(1, { text: `${prefix} different conclusion`, author: 'same' }), row(2, { text: `${prefix} another conclusion`, author: 'same' }), row(3, { text: `${prefix} another conclusion`, author: 'same' })]);
-    expect(result.items).toHaveLength(2); expect(result.receipt.dropped.duplicate).toBe(1);
+    const result = prepare([row(1, { text: `${prefix} different conclusion`, author: 'same' }), row(2, { text: `${prefix} another conclusion`, author: 'same' }), row(3, { text: `${prefix} another conclusion`, author: 'other' }), row(4, { text: 'A separate post', url: 'https://x.com/account/status/1' })]);
+    expect(result.items.map((i) => i.externalId).sort()).toEqual(['1', '3']); expect(result.receipt.dropped.duplicate).toBe(2);
   });
   it('enforces inclusive UTC date boundaries and explicitly drops unknown dates', () => {
     const result = prepare([row(1, { publishedAt: '2026-09-19T23:59:59Z' }), row(2, { publishedAt: '2026-09-20T00:00:00Z' }), row(3, { publishedAt: '2026-09-21T23:59:59Z' }), row(4, { publishedAt: '2026-09-22T00:00:00Z' }), row(5, { publishedAt: '' })], { window: { startDate: '2026-09-20', endDate: '2026-09-21' } });
@@ -117,18 +118,25 @@ describe('complete batch traversal and validated discovery', () => {
     expect(buildDiscoveryBatches({ runId: 'run-a', items: [] })).toMatchObject({ batches: [], receipt: { batchCount: 0, plannedCount: 0 } });
     expect(() => buildDiscoveryBatches({ runId: 'other', items })).toThrow(/run/);
   });
-  it('derives evidence counts from exact known IDs and rejects invented or duplicate IDs', () => {
+  it('derives evidence counts from known IDs or short refs and drops invented or duplicate IDs', () => {
     const items = cohort(3); const batch = buildDiscoveryBatches({ runId: 'run-a', items }).batches[0];
     const output = candidateOutput(batch); const result = validateCandidates(output, { runId: 'run-a', batch });
     expect(result.candidates[0]).toMatchObject({ evidenceCount: 2, platforms: ['x'] });
-    for (const ids of [['invented'], [batch.evidenceIds[0], batch.evidenceIds[0]], []]) {
-      expect(() => validateCandidates({ candidates: [{ ...output.candidates[0], evidenceIds: ids }] }, { runId: 'run-a', batch })).toThrow(/IDs/);
-    }
+    const check = (evidenceIds) => validateCandidates({ candidates: [{ ...output.candidates[0], evidenceIds }] }, { runId: 'run-a', batch });
+    // Short refs (case-insensitive) map back to evidence IDs; a mis-copied ID is dropped, not fatal.
+    expect(check(['p1', 'P2']).candidates[0].evidenceIds).toEqual([batch.evidenceIds[0], batch.evidenceIds[1]]);
+    expect(check([batch.evidenceIds[0], batch.evidenceIds[0]]).candidates[0].evidenceCount).toBe(1);
+    const mixed = check([batch.evidenceIds[0], 'evidence-5e9d45dd5e9d45dd5e9d45dd']);
+    expect(mixed.candidates[0].evidenceIds).toEqual([batch.evidenceIds[0]]); expect(mixed.receipt).toMatchObject({ droppedRefs: 1, droppedCandidates: 0 });
+    // A candidate with no real evidence is dropped; a batch where nothing survives asks for a repair.
+    for (const ids of [['invented'], []]) expect(() => check(ids)).toThrow(/not in this batch/);
+    const kept = validateCandidates({ candidates: [output.candidates[0], { ...output.candidates[0], name: 'Unsupported idea', evidenceIds: ['p99'] }] }, { runId: 'run-a', batch });
+    expect(kept.candidates.map((c) => c.name)).toEqual([output.candidates[0].name]); expect(kept.receipt.droppedCandidates).toBe(1);
   });
   it('requires batch-local evidence even if another item belongs to the same run', () => {
     const items = cohort(201); const batch = buildDiscoveryBatches({ runId: 'run-a', items }).batches[0];
     const output = candidateOutput(batch); output.candidates[0].evidenceIds = [items[200].id];
-    expect(() => validateCandidates(output, { runId: 'run-a', batch, items })).toThrow(/IDs/);
+    expect(() => validateCandidates(output, { runId: 'run-a', batch, items })).toThrow(/not in this batch/);
   });
   it('accepts fewer than six themes, reuses stable IDs after renaming and deduplicates counts', () => {
     const { candidates } = makeCandidates(cohort(3)); const result = validateThemes(themeOutput(candidates, { existingThemeId: 'existing-theme' }), { runId: 'run-a', candidates, previousThemes: [{ id: 'existing-theme', name: 'Old verbose reporting theme' }] });
@@ -149,8 +157,20 @@ describe('classification coverage and replacement', () => {
     const items = cohort(2); const batch = buildAssignmentBatches({ runId: 'run-a', items }).batches[0]; const options = { runId: 'run-a', batch, themes: [{ id: 'theme-a' }] };
     const partial = validateAssignments({ assignments: [assign(items[0])] }, options);
     expect(partial.missingIds).toEqual([items[1].id]); expect(partial.receipt.complete).toBe(false);
-    for (const extra of [{ itemId: 'other-run-id' }, { themeId: 'fake-theme' }, { confidence: 1.1 }, { confidence: '0.9' }, { painPoint: 'Invented taxonomy' }, { urgency: 'BUY NOW' }]) expect(() => validateAssignments({ assignments: [assign(items[0], 'theme-a', extra)] }, options)).toThrow();
-    expect(() => validateAssignments({ assignments: [assign(items[0]), assign(items[0])] }, options)).toThrow(/at most once/);
+    // A bad row is skipped (its post stays missing for the focused retry); only a response with no usable row fails.
+    for (const extra of [{ itemId: 'other-run-id' }, { themeId: 'fake-theme' }, { confidence: 1.1 }, { confidence: '0.9' }, { painPoint: 'Invented taxonomy' }, { urgency: 'BUY NOW' }]) {
+      expect(() => validateAssignments({ assignments: [assign(items[0], 'theme-a', extra)] }, options)).toThrow(/No usable assignments/);
+      const result = validateAssignments({ assignments: [assign(items[0], 'theme-a', extra), assign(items[1])] }, options);
+      expect(result.assignments.map((a) => a.itemId)).toEqual([items[1].id]); expect(result.missingIds).toEqual([items[0].id]); expect(result.receipt.ignoredCount).toBe(1);
+    }
+    const repeated = validateAssignments({ assignments: [assign(items[0]), assign(items[0])] }, options);
+    expect(repeated.assignments).toHaveLength(1); expect(repeated.receipt.ignoredReasons).toEqual(['A post was returned more than once.']);
+  });
+  it('maps short record ids and Theme IDs from the tagging prompt back to evidence and theme IDs', () => {
+    const items = cohort(2); const batch = buildAssignmentBatches({ runId: 'run-a', items }).batches[0];
+    const result = validateAssignments({ assignments: [assign(items[0], 'T1', { itemId: 'p1' }), assign(items[1], 't2', { itemId: 'P2' })] }, { runId: 'run-a', batch, themes: [{ id: 'theme-a' }, { id: 'theme-b' }] });
+    expect(result.assignments.map((a) => [a.itemId, a.themeId])).toEqual([[items[0].id, 'theme-a'], [items[1].id, 'theme-b']]);
+    expect(result.receipt).toMatchObject({ complete: true, ignoredCount: 0 });
   });
   it('replaces prior positive tags with an explicit rejection, preserving other runs', () => {
     const items = cohort(1); const previous = validAssignments(items).assignments; const next = validAssignments(items, [{ confidence: 0.2 }]).assignments;
@@ -185,10 +205,30 @@ describe('honest history and editorial priority', () => {
     const items = cohort(2); const assignments = validAssignments(items).assignments;
     expect(calculateThemeHistory({ theme, runId: 'run-a', period, items, assignments, previousSnapshots: [{ ...previous, matchedCount: 0 }], cohortKey: 'same-sources-v1' }).growth).toMatchObject({ comparable: true, relativePercentChange: null, previousShare: 0 });
   });
-  it('withholds priority when editorial coverage is unknown and exposes every score component', () => {
-    expect(calculateThemePriority({ knowledge: {}, history: { recurrence: { observedRunCount: 3 } }, novelty: 'NEW TOPIC' })).toMatchObject({ score: null, tier: 'NEEDS CONTEXT', knowledgeSufficient: false });
-    const p = calculateThemePriority({ knowledge: { sufficient: true, zone: 'OPEN', recentTrend: 'DORMANT' }, history: { recurrence: { observedRunCount: 3 } }, novelty: 'NEW TOPIC' });
-    expect(p).toMatchObject({ score: 16.5, tier: 'FAST-TRACK', components: { gap: 8, recurrence: 4.5, novelty: 3, recency: 1, phrasePenalty: 0 } });
+  it('sizes the AI estimate from what each source can return', () => {
+    const sources = [{ platform: 'x', targets: ['a', 'b'] }, { platform: 'reddit', targets: ['seo', 'bigseo'] }];
+    const small = engine.estimateResearchCost(program({ sourceGroups: sources }));
+    // X: accounts × per-author cap; Reddit: subreddits × 300 posts per /new/ listing.
+    expect(small.posts).toMatchObject({ x: 20, reddit: 600, total: 620 });
+    expect(small.totalUsd).toBeCloseTo(Object.values(small.stages).reduce((sum, value) => sum + value, 0), 2);
+    const roster = engine.estimateResearchCost(program({ sourceGroups: [{ platform: 'reddit', targets: Array.from({ length: 18 }, (_, i) => `sub${i}`) }] }));
+    expect(roster.posts.reddit).toBe(3000);
+    // Topic-filtered Reddit search is not bounded per community, so it keeps the platform target.
+    expect(engine.estimateResearchCost(program({ sourceGroups: sources, query: 'AI Overviews', topicFiltersTargets: true })).posts.reddit).toBe(3000);
+    const opusTagging = engine.estimateResearchCost(program({ sourceGroups: sources, ai: { models: { tagging: 'claude-opus-5-5' } } }));
+    expect(opusTagging.stages.tagging).toBeLessThan(small.stages.tagging);
+    expect(opusTagging.stages.discovery).toBe(small.stages.discovery);
+  });
+  it('scores priority exactly like the n8n Calculate Trend Velocity node', () => {
+    const taxonomy = { categories: [{ category: 'Analytics & Measurement', zone: 'OPEN', velocity: 'DORMANT', articleCount: 69, last6Mo: 8, topKeywords: ['analytics'], topPhrases: ['google analytics'], monthly: [{ count: 2 }, { count: 0 }, { count: 0 }], editorialAction: 'Fast-track.' }, { category: 'Technical SEO', zone: 'SATURATED', velocity: 'DORMANT', articleCount: 125, last6Mo: 21, topKeywords: ['crawl'], topPhrases: ['technical seo'], monthly: [{ count: 3 }, { count: 4 }, { count: 3 }] }] };
+    // No taxonomy match → NEW_TERRITORY (5×2) + NEW (1×1.5) + NEW TOPIC (3) + UNKNOWN recency (0.5) = 15 → FAST-TRACK.
+    expect(calculateThemePriority({ theme: { name: 'Bing AI Citations Dashboard', novelty: 'NEW TOPIC' } })).toMatchObject({ score: 15, tier: 'FAST-TRACK', gapSignal: 'NEW_TERRITORY', velocity: 'NEW' });
+    // OPEN zone → HIGH_OPPORTUNITY (8) + ACCELERATING after 3 detections (4.5) + NEW ANGLE (2) + DORMANT (1) = 15.5.
+    const open = calculateThemePriority({ theme: { name: 'GA4 Attribution Collapse', novelty: 'NEW ANGLE', taxonomyCategory: 'Analytics & Measurement' }, detectionCount: 3, taxonomy });
+    expect(open).toMatchObject({ score: 15.5, tier: 'FAST-TRACK', gapSignal: 'HIGH_OPPORTUNITY', velocity: 'ACCELERATING', recentTrend: 'DORMANT', components: { gap: 8, velocity: 4.5, novelty: 2, recency: 1, phrasePenalty: 0 } });
+    // SATURATED + ACTIVE (last 3 months = 10) → LOW_OPPORTUNITY; a top-phrase overlap costs 2 more.
+    const saturated = calculateThemePriority({ theme: { name: 'Technical SEO Crawl Budget Panic', description: 'technical seo teams', novelty: 'EVERGREEN', taxonomyCategory: 'Technical SEO' }, detectionCount: 2, taxonomy });
+    expect(saturated).toMatchObject({ score: 4, tier: 'LOW', components: { gap: 2, velocity: 3, novelty: 1, recency: 0, phrasePenalty: -2 }, gapSignal: 'LOW_OPPORTUNITY', velocity: 'EMERGING', recentTrend: 'ACTIVE', phraseOverlap: ['technical seo'] });
   });
 });
 

@@ -181,7 +181,7 @@ describe('research and content studio workspace', () => {
 
   it('saves reusable research programs with bulk sources and explicit budgets', async () => {
     const handlers = props(); render(<ContentStudioView {...handlers} initialView="research" />);
-    fill('Program name', 'Competitive listening'); fill('Research topic', 'AI reporting');
+    fill('Program name', 'Competitive listening'); fill('Research focus (optional)', 'AI reporting');
     fireEvent.click(screen.getByRole('checkbox', { name: /Reddit communities/ })); fill('Subreddits', 'r/SaaS\nr/marketing\nr/SaaS');
     fireEvent.click(document.querySelector('#cs-source-options-reddit summary')); fireEvent.click(document.getElementById('cs-source-reddit-includeComments')); fireEvent.change(document.getElementById('cs-source-reddit-maxComments'), { target: { value: '3' } }); fireEvent.change(document.getElementById('cs-source-reddit-time'), { target: { value: 'month' } });
     fill('Collection budget (USD)', '1.25'); fill('AI budget (USD)', '3.50');
@@ -202,6 +202,7 @@ describe('research and content studio workspace', () => {
     const handlers = props(); render(<ContentStudioView {...handlers} initialView="research" />);
     fill('Program name', 'Recurring research');
     fireEvent.click(screen.getByRole('checkbox', { name: /Reddit communities/ })); fill('Subreddits', 'SEO');
+    fireEvent.click(screen.getByRole('radio', { name: /Custom dates/ }));
     fill('Start date', '2026-09-01'); fill('End date', '2026-09-27');
     fill('Repeat', frequency);
     expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
@@ -219,6 +220,35 @@ describe('research and content studio workspace', () => {
       window: { startDate: '2026-09-01', endDate: '2026-09-27' },
     });
     expect(handlers.api.startResearchRun).not.toHaveBeenCalled();
+  });
+
+  it('defaults to the n8n seven-day window, per-stage models and an opt-in topic filter', async () => {
+    const handlers = props(); render(<ContentStudioView {...handlers} initialView="research" />);
+    fill('Program name', 'Golden Thread');
+    expect(screen.getByRole('radio', { name: /Last few days/ })).toBeChecked();
+    expect(screen.getByLabelText('Search the last (days)')).toHaveValue(7);
+    expect(screen.queryByRole('checkbox', { name: /Also filter account and community collection/ })).not.toBeInTheDocument();
+    fill('Research focus (optional)', 'AI search visibility');
+    expect(screen.getByRole('checkbox', { name: /Also filter account and community collection/ })).not.toBeChecked();
+    expect(document.getElementById('cs-model-tagging')).toHaveValue('claude-fable-5-1');
+    expect(document.getElementById('cs-model-discovery')).toHaveValue('claude-opus-5-5');
+    fireEvent.change(document.getElementById('cs-model-tagging'), { target: { value: 'claude-opus-5-5' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Approve themes automatically/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /X accounts/ })); fill('X accounts', '@aleyda');
+    fireEvent.click(screen.getByRole('button', { name: 'Save research program' }));
+    await waitFor(() => expect(handlers.api.saveResearchProgram).toHaveBeenCalledOnce());
+    expect(handlers.api.saveResearchProgram.mock.calls[0][0]).toMatchObject({ window: { startDate: '', endDate: '' }, lookbackDays: 7, topicFiltersTargets: false, autoApproveThemes: true, ai: { models: { tagging: 'claude-opus-5-5', reports: 'claude-fable-5-1' } }, taggingBatchSizes: { x: 50, linkedin: 40, reddit: 50 } });
+  });
+
+  it('labels the rolling window and warns before a budget that cannot start a run', async () => {
+    const rolling = { ...program, window: { startDate: '', endDate: '' }, lookbackDays: 14, autoApproveThemes: true, budgets: { collectionUsd: 5, aiUsd: 5 } };
+    const estimateResearchProgram = vi.fn(async () => ({ ai: { totalUsd: 120, stages: { discovery: 20, synthesis: 2, matching: 1, tagging: 80, reports: 17 }, posts: { total: 9000 }, batches: { discovery: 45, tagging: 200 } }, collection: { worstCaseUsd: 47.22, jobCount: 84 } }));
+    const base = props(); const handlers = { ...base, api: { ...base.api, estimateResearchProgram }, state: { contentStudio: fresh({ programs: [rolling] }) } };
+    render(<ContentStudioView {...handlers} initialView="research" />);
+    expect(screen.getByText('Last 14 days')).toBeVisible();
+    expect(screen.getByText(/goes straight from discovery to tagging and reports/)).toBeVisible();
+    expect(await screen.findByText(/will not start with this AI budget \(\$5\.00\)\. It needs at least \$60\.00, half of the \$120\.00 for a full unattended run/)).toBeVisible();
+    expect(estimateResearchProgram.mock.calls[0][0]).toMatchObject({ lookbackDays: 14, sourceGroups: [{ targets: ['apify'] }] });
   });
 
   it('only enables a schedule through the explicit checkbox and preserves per-run limits', async () => {
@@ -329,6 +359,20 @@ describe('research and content studio workspace', () => {
     expect(await screen.findByRole('heading', { name: 'Source-linked draft' })).toBeVisible(); expect(container.querySelector('script')).toBeNull(); expect(container.querySelector('img')).toBeNull();
   });
 
+  it('shows saved products as summary rows, opens new ones, and opens unnamed ones on save', async () => {
+    const products = [{ id: 'seo', name: 'SEO Toolkit', url: 'https://www.semrush.com/seo/', segment: 'self-serve', affiliateEligible: true, description: 'Keyword research.', capabilities: [], tools: ['Keyword Magic Tool', 'Position Tracking'] }, { id: 'ent', name: 'Enterprise SEO', url: 'https://enterprise.semrush.com/', segment: 'enterprise', capabilities: ['Custom reporting'], tools: [] }];
+    const handlers = props({ state: { contentStudio: fresh({ workspaces: [{ ...workspace, products }, { id: 'semrush', name: 'Semrush workspace', editionId: 'semrush' }] }) } });
+    const { container } = render(<ContentStudioView {...handlers} initialView="knowledge" />);
+    const rows = () => [...container.querySelectorAll('details.cs-product-record')];
+    expect(rows().map((row) => [row.open, row.querySelector('summary').textContent])).toEqual([[false, 'SEO ToolkitSelf-serve / PLG · semrush.com · 2 toolsAffiliate'], [false, 'Enterprise SEOEnterprise · enterprise.semrush.com · 1 capability']]);
+    fireEvent.click(screen.getByRole('button', { name: 'Add product' }));
+    expect(rows()).toHaveLength(3); expect(rows()[2].open).toBe(true); expect(rows()[2].querySelector('summary')).toHaveTextContent('New product');
+    // Collapse the new row, then save: the unnamed product reopens with the error.
+    rows()[2].open = false; fireEvent(rows()[2], new Event('toggle'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save brand knowledge' }));
+    expect(await screen.findByText('Name every product, or remove unfinished records.')).toBeVisible();
+    expect(rows()[2].open).toBe(true); expect(handlers.api.saveContentWorkspace).not.toHaveBeenCalled();
+  });
   it('edits approved product facts and saves knowledge without generating anything', async () => {
     const handlers = props(); render(<ContentStudioView {...handlers} initialView="knowledge" />);
     fill('Brand voice', 'Direct, thoughtful, and practical.'); fireEvent.click(screen.getByRole('button', { name: 'Add product' }));

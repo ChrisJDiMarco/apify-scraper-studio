@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownAZ, ArrowUpAZ, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, Columns3, Download, EyeOff, FileSpreadsheet, Filter, FilterX, Link2, List, LoaderCircle, Maximize2, Minimize2, MoveHorizontal, Pencil, Redo2, Search, Sheet, Snowflake, Trash2, Undo2, Upload, WrapText, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, Columns3, Download, EyeOff, FilePlus2, FileSpreadsheet, Filter, FilterX, Link2, List, LoaderCircle, Maximize2, Minimize2, MoveHorizontal, Pencil, Redo2, Search, Sheet, Snowflake, Trash2, Undo2, Upload, WrapText, X } from 'lucide-react';
 import { SheetGrid } from './sheet-grid.jsx';
 import { cellAddress, columnKeys, columnLetter, defaultColumnWidth, distinctValues, formatStat, inferColumnType, isChipColumn, matchesFilter, parseTSV, prettyCell, selectionBounds, selectionStats, sortRowIndexes, toCSV, toHTMLTable, toTSV } from '../../shared/sheet-model.js';
 import { number } from './ui.jsx';
@@ -77,10 +77,23 @@ function FilterPanel({ column, values, current, onApply, onClose }) {
   </div>;
 }
 
-function downloadText(fileName, text, type) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+function downloadBlob(fileName, blob) {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement('a'); link.href = url; link.download = fileName; document.body.appendChild(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const downloadText = (fileName, text, type) => downloadBlob(fileName, new Blob([text], { type }));
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const today = () => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; };
+
+// An export carries every row of a tab with this workbook's edits applied, the way the grid shows it.
+export function exportSheet(sheet, sheetEdits, frozenColumns = 0) {
+  const keys = columnKeys(sheet.columns);
+  const rows = sheet.rows.map((row, rowIndex) => {
+    const edited = sheetEdits?.[sheet.rowKeys?.[rowIndex] ?? `r${rowIndex + 2}`];
+    return sheet.columns.map((_, column) => { const value = edited?.[keys[column]]; return value !== undefined ? value : String(row[column] ?? ''); });
+  });
+  return { name: sheet.name, columns: sheet.columns.map((label) => String(label ?? '')), rows, ...(frozenColumns ? { frozenColumns } : {}) };
 }
 const fileSafe = (value) => String(value || 'sheet').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'sheet';
 const relative = (iso) => { const time = Date.parse(iso || ''); if (!Number.isFinite(time)) return ''; return new Date(time).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
@@ -116,7 +129,8 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
   // Feedback lands beside the grid and leaves on its own, so the sheet never shifts under the pointer.
   const say = useCallback((message) => {
     clearTimeout(toastTimer.current); setToast(message);
-    toastTimer.current = setTimeout(() => setToast(null), message.error ? 9000 : 3200);
+    // A toast with an action (Open in Google Sheets) stays until it is used or dismissed.
+    if (!message.action) toastTimer.current = setTimeout(() => setToast(null), message.duration || (message.error ? 9000 : 3200));
   }, []);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
@@ -128,11 +142,21 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
   useEffect(() => { refreshList(); }, [refreshList, researchKey]);
   useEffect(() => { if (initialWorkbookId) setWorkbookId(initialWorkbookId); }, [initialWorkbookId, workbookRequestKey]);
 
-  // Open the requested workbook, else the last one, else the newest.
+  // Open the requested workbook; else a research run that started since the last visit (once per
+  // visit, so a new run never pulls the sheet away mid-edit); else the last one; else the newest.
+  const checkedNewRun = useRef(false);
   useEffect(() => {
     if (!workbooks?.length) return;
+    if (!checkedNewRun.current) {
+      checkedNewRun.current = true;
+      const newestRun = workbooks.filter((entry) => entry.kind === 'research').reduce((best, entry) => (!best || String(entry.createdAt || '') > String(best.createdAt || '') ? entry : best), null);
+      if (newestRun && prefs.read('newestRunSeen', '') !== newestRun.id) {
+        prefs.write('newestRunSeen', newestRun.id);
+        if (!initialWorkbookId && newestRun.id !== workbookId) { setWorkbookId(newestRun.id); return; }
+      }
+    }
     if (!workbooks.some((entry) => entry.id === workbookId)) setWorkbookId(workbooks[0].id);
-  }, [workbooks, workbookId]);
+  }, [workbooks, workbookId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const listing = workbooks?.find((entry) => entry.id === workbookId);
   const listingVersion = listing ? `${listing.updatedAt}|${listing.status || ''}|${listing.stage || ''}|${listing.rowCount}` : '';
@@ -303,6 +327,40 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
   }
   function downloadSheet(onlyShown) { downloadText(`${fileSafe(workbook.name)} - ${fileSafe(sheet.name)}.csv`, toCSV(sheetMatrix(onlyShown)), 'text/csv;charset=utf-8'); setMenu(null); }
 
+  // .xlsx and Google Sheets exports send every tab (or just this one) with edits applied and freezes kept.
+  const canXlsx = typeof api.exportWorkbookXlsx === 'function';
+  const bridgeReady = Boolean(state?.keys?.GOOGLE_SHEETS_WEBHOOK_URL) && typeof api.exportWorkbookToGoogle === 'function';
+  function exportPayload(onlyThisTab) {
+    const tabs = onlyThisTab ? [sheet] : workbook.sheets;
+    const frozenFor = (entry) => (entry.id === sheet.id ? frozenColumns : view[`${workbook.id}:${entry.id}`]?.frozen ?? prefs.read(`frozen:${workbook.id}:${entry.id}`, null) ?? entry.frozenColumns ?? 0);
+    return { name: onlyThisTab ? `${workbook.name} - ${sheet.name}` : workbook.name, sheets: tabs.map((entry) => exportSheet(entry, edits.sheets?.[entry.id], frozenFor(entry))) };
+  }
+  async function downloadXlsx(onlyThisTab) {
+    setMenu(null); if (!canXlsx || pending) return;
+    setPending('xlsx');
+    try {
+      const result = await api.exportWorkbookXlsx(exportPayload(onlyThisTab));
+      if (!result) return; // the save dialog was cancelled
+      // A host without a save dialog sends the file back to download here.
+      if (result.base64) downloadBlob(result.fileName || `${fileSafe(workbook.name)}.xlsx`, new Blob([Uint8Array.from(atob(result.base64), (char) => char.charCodeAt(0))], { type: XLSX_TYPE }));
+      const shortened = result.truncatedCells ? ` ${number(result.truncatedCells)} very long ${result.truncatedCells === 1 ? 'cell was' : 'cells were'} shortened to Excel’s 32,767-character limit.` : '';
+      say({ notice: `Saved ${result.path || result.fileName}.${shortened}`, duration: 8000 });
+    } catch (error) { say({ error: error.message || String(error) }); }
+    finally { setPending(''); }
+  }
+  async function createGoogleSheet(event) {
+    event.preventDefault();
+    const name = String(new FormData(event.currentTarget).get('name') || '').trim();
+    if (!name || pending) return;
+    setPending('google-export');
+    try {
+      const result = await api.exportWorkbookToGoogle({ ...exportPayload(false), name });
+      setMenu((current) => (current?.kind === 'google-export' ? null : current));
+      say({ notice: `Created “${result.title || name}” in Google Sheets · ${number(result.tabCount ?? workbook.sheets.length)} tabs.`, action: { label: 'Open in Google Sheets', run: () => api.openSourceUrl(result.url) } });
+    } catch (error) { say({ error: error.message || String(error) }); }
+    finally { setPending(''); }
+  }
+
   function setColumnWidth(viewColumn, width) { const key = columns[viewColumn].key; patchView((current) => ({ widths: { ...(current.widths || {}), [key]: width } })); }
   useEffect(() => { if (sheetView.widths && viewKey) prefs.write(`widths:${viewKey}`, { ...savedWidths, ...sheetView.widths }); }, [sheetView.widths]); // eslint-disable-line react-hooks/exhaustive-deps
   function autoFit(viewColumn) {
@@ -375,6 +433,8 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
       : `${cellAddress(sheetRowNumber(bounds.top), columns[bounds.left].index)}:${cellAddress(sheetRowNumber(bounds.bottom), columns[bounds.right].index)}`;
   const isLink = /^https?:\/\/\S+$/i.test(activeValue.trim());
   const statusCopy = research && workbook ? STATUS_COPY[workbook.status] : '';
+  // Runs of one program share a name, so say when this is not the latest run of its program.
+  const newerRun = listing?.kind === 'research' ? (workbooks || []).filter((entry) => entry.kind === 'research' && entry.id !== listing.id && (listing.programId ? entry.programId === listing.programId : entry.name === listing.name) && String(entry.createdAt || '') > String(listing.createdAt || '')).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0] : null;
 
   if (workbooks === null) return <section className="sheets-view" aria-busy="true"><SheetSkeleton /></section>;
 
@@ -416,11 +476,12 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
         </span>
         <button type="button" className="ghost icon-button" aria-label="Undo" title="Undo (⌘Z)" disabled={!history.undo.length} onClick={() => step('undo')}><Undo2 size={16} /></button>
         <button type="button" className="ghost icon-button" aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!history.redo.length} onClick={() => step('redo')}><Redo2 size={16} /></button>
-        <button type="button" className="ghost" aria-haspopup="menu" disabled={Boolean(pending)} onClick={(event) => setMenu({ kind: 'import', anchor: event.currentTarget.getBoundingClientRect() })}>{pending ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Upload size={15} aria-hidden="true" />}Import</button>
-        <button type="button" aria-haspopup="menu" disabled={!sheet} onClick={(event) => setMenu({ kind: 'export', anchor: event.currentTarget.getBoundingClientRect() })}><Download size={15} aria-hidden="true" />Export</button>
+        <button type="button" className="ghost" aria-haspopup="menu" disabled={Boolean(pending)} onClick={(event) => setMenu({ kind: 'import', anchor: event.currentTarget.getBoundingClientRect() })}>{['import', 'google'].includes(pending) ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Upload size={15} aria-hidden="true" />}Import</button>
+        <button type="button" aria-haspopup="menu" disabled={!sheet} onClick={(event) => setMenu({ kind: 'export', anchor: event.currentTarget.getBoundingClientRect() })}>{['xlsx', 'google-export'].includes(pending) ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}Export</button>
       </div>
     </header>
 
+    {newerRun && <div className="sheets-run-note newer"><span>{`This is the ${relative(listing.createdAt)} run. A newer run of this program started ${relative(newerRun.createdAt)}.`}</span><button type="button" className="ghost" onClick={() => chooseWorkbook(newerRun.id)}>Open the newer run<ArrowUpRight size={14} aria-hidden="true" /></button></div>}
     {statusCopy && <div className={`sheets-run-note ${workbook.status}`}><span>{statusCopy}</span><button type="button" className="ghost" onClick={() => onNavigate?.(workbook.status === 'awaiting-review' ? 'trend-board' : 'research-programs')}>{workbook.status === 'awaiting-review' ? 'Review themes' : 'Open run'}<ArrowUpRight size={14} aria-hidden="true" /></button></div>}
 
     <div className="sheets-toolbar" role="toolbar" aria-label="Sheet tools">
@@ -480,7 +541,7 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
       <div className="sheets-stats" aria-live="polite">{stats && <>{stats.numericCount > 0 && <><span>Sum <strong>{formatStat(stats.sum)}</strong></span><span>Avg <strong>{formatStat(stats.average)}</strong></span><span>Min <strong>{formatStat(stats.min)}</strong></span><span>Max <strong>{formatStat(stats.max)}</strong></span></>}<span>Count <strong>{number(stats.count)}</strong></span></>}</div>
     </footer>
 
-    {toast && <div className={`sheets-toast${toast.error ? ' error' : ''}`} role={toast.error ? 'alert' : 'status'} key={toast.error || toast.notice}><span>{toast.error || toast.notice}</span><button type="button" aria-label="Dismiss" onClick={() => setToast(null)}><X size={13} /></button></div>}
+    {toast && <div className={`sheets-toast${toast.error ? ' error' : ''}`} role={toast.error ? 'alert' : 'status'} key={toast.error || toast.notice}><span>{toast.error || toast.notice}</span>{toast.action && <button type="button" className="sheets-toast-action" onClick={() => toast.action.run()}>{toast.action.label}<ArrowUpRight size={13} aria-hidden="true" /></button>}<button type="button" aria-label="Dismiss" onClick={() => setToast(null)}><X size={13} /></button></div>}
     {menu?.kind === 'workbooks' && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Workbooks" width={360} className="sheets-workbook-menu">
       {research_runs.length > 0 && <p className="sheet-menu-label">Research runs</p>}
       {research_runs.map((entry) => <button key={entry.id} type="button" role="menuitemcheckbox" aria-checked={entry.id === workbookId} className="sheet-menu-item workbook" onClick={() => chooseWorkbook(entry.id)}><Sheet size={15} aria-hidden="true" /><span><strong>{entry.name}</strong><small>{[relative(entry.createdAt), `${number(entry.rowCount)} posts`, entry.status && entry.status !== 'succeeded' ? entry.status.replace('-', ' ') : ''].filter(Boolean).join(' · ')}</small></span>{entry.id === workbookId && <Check size={15} aria-hidden="true" />}</button>)}
@@ -495,10 +556,26 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
       <div className="sheet-menu-rule" />
       <form className="sheets-google-form" onSubmit={(event) => pullGoogle(event)}><label htmlFor="sheets-google-pull">Pull from a Google Sheets link</label><input id="sheets-google-pull" value={googleUrl} onChange={(event) => setGoogleUrl(event.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" /><button type="submit" disabled={!googleUrl.trim() || Boolean(pending)}>{pending === 'google' ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Link2 size={14} aria-hidden="true" />}Pull tabs</button><small>Uses the Sheets bridge from Settings.</small></form>
     </Popover>}
-    {menu?.kind === 'export' && sheet && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Export" width={300}>
-      <MenuItem icon={ClipboardCopy} onClick={copySheet}>Copy “{sheet.name}” for Google Sheets</MenuItem>
+    {menu?.kind === 'export' && sheet && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Export" width={330}>
+      <p className="sheet-menu-label">Download</p>
+      <MenuItem icon={FileSpreadsheet} disabled={!canXlsx || Boolean(pending)} onClick={() => downloadXlsx(false)}>Download workbook (.xlsx)</MenuItem>
+      <MenuItem icon={Download} disabled={!canXlsx || Boolean(pending)} onClick={() => downloadXlsx(true)}>Download this tab (.xlsx)</MenuItem>
       <MenuItem icon={Download} onClick={() => downloadSheet(false)}>Download this tab (.csv)</MenuItem>
       {displayRows.length !== sheet.rows.length || hidden.length ? <MenuItem icon={Filter} onClick={() => downloadSheet(true)}>Download what’s shown (.csv)</MenuItem> : null}
+      {!canXlsx && <p className="sheet-menu-help">Excel downloads are available in the desktop app.</p>}
+      <div className="sheet-menu-rule" />
+      <p className="sheet-menu-label">Google Sheets</p>
+      <MenuItem icon={ClipboardCopy} onClick={copySheet}>Copy “{sheet.name}” for Google Sheets</MenuItem>
+      <MenuItem icon={FilePlus2} disabled={!bridgeReady || Boolean(pending)} onClick={() => setMenu({ kind: 'google-export', anchor: menu.anchor })}>Create Google Sheet…</MenuItem>
+      {!bridgeReady && <p className="sheet-menu-help">Connect the Sheets bridge in Settings → Google Sheets to create a Google Sheet from this workbook.{onNavigate && <> <button type="button" className="sheet-menu-link" onClick={() => { setMenu(null); onNavigate('settings'); }}>Open Settings</button></>}</p>}
+    </Popover>}
+    {menu?.kind === 'google-export' && workbook && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Create a Google Sheet" width={340}>
+      <form className="sheets-rename sheets-google-export" onSubmit={createGoogleSheet}>
+        <label htmlFor="sheets-google-name">New Google Sheet name</label>
+        <input id="sheets-google-name" name="name" defaultValue={`${workbook.name} ${today()}`} maxLength={160} required />
+        <small>A new spreadsheet with all {number(workbook.sheets.length)} tabs and {number(workbook.sheets.reduce((sum, entry) => sum + entry.rows.length, 0))} rows, including your edits, in {state?.settings?.sheets?.sheetsExportFolderId ? 'the Google Sheets exports folder from Settings' : 'your My Drive'}.</small>
+        <div><button type="button" className="ghost" onClick={() => setMenu(null)}>Cancel</button><button type="submit" disabled={pending === 'google-export'}>{pending === 'google-export' ? <><LoaderCircle className="spin" size={14} aria-hidden="true" />Creating…</> : 'Create Google Sheet'}</button></div>
+      </form>
     </Popover>}
     {menu?.kind === 'columns' && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Columns" width={280} className="sheets-columns-menu">
       <div className="sheets-columns-head"><span>Show columns</span><button type="button" onClick={() => showColumns([])} disabled={!hidden.length}>Show all</button></div>

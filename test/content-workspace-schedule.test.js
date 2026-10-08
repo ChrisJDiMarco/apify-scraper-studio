@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import workspaceModule from '../src/main/content-workspace.js';
+import fixture from './helpers/research-ai-fixture.js';
 const { createContentWorkspace } = workspaceModule;
 const roots = [];
 afterEach(() => { vi.useRealTimers(); for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
@@ -14,8 +15,9 @@ function harness({ collect: customCollect, review = false } = {}) {
   const rows = endDate => [{ id: 'row-1', externalId: '1', platform: 'x', author: 'researcher', type: 'post', text: 'Manual reporting needs better tools.', url: 'https://x.com/researcher/status/1', publishedAt: `${endDate}T12:00:00Z`, raw: { likeCount: 100, replyCount: 20, retweetCount: 10, quoteCount: 3, bookmarkCount: 5, viewCount: 1000 } }];
   const collect = vi.fn(async request => customCollect ? customCollect(request, readState) : ({ items: rows(request.program.window.endDate || '2026-09-26'), receipt: { provider: 'fixture', paid: false, runId: request.runId, jobCount: 1 } }));
   const runAI = vi.fn(async request => {
-    const tail = JSON.parse(request.prompt.slice(request.prompt.lastIndexOf('\n{') + 1));
-    const output = request.schema.properties.candidates ? { candidates: review ? [{ name: 'Reporting friction', summary: 'Manual reporting work is slow.', painPoint: 'Workflow/Resource Overload', semanticIntentSignals: ['manual reports'], actionability: 'Simplify reporting.', evidenceIds: tail.evidenceIds }] : [] } : { themes: review ? [{ name: 'Reporting friction', description: 'Reporting takes manual work.', existingThemeId: null, candidateIds: tail.candidates.map(c => c.id), novelty: 'NEW ANGLE', matchingKeywords: ['reporting'], matchingCriteria: 'Specific manual reporting work.', negativeCriteria: 'Generic promotion.', taxonomyCategory: 'Reporting' }] : [] };
+    // Without review data discovery finds nothing, so a scheduled run finishes without themes.
+    const stage = fixture.stageOf(request);
+    const output = stage === 'discovery' && !review ? { candidates: [] } : fixture.researchOutput(request, { theme: { name: 'Reporting Friction Surge', description: 'Reporting takes manual work.' } });
     return { output, receipt: { provider: 'fixture', costUsd: 0, paid: false } };
   });
   const deps = { root, collect, runAI, clock: () => new Date(now) };
@@ -57,7 +59,8 @@ describe('durable research scheduling', () => {
   it('uses the latest due period after a long sleep, with no replay backlog', async () => {
     const h = harness(); h.api.saveResearchProgram(program()); h.setTime('2026-10-08T15:00:00Z');
     h.api.checkDueResearchSchedules(); await h.api.waitForIdle();
-    expect(h.collect).toHaveBeenCalledOnce(); expect(h.runAI).toHaveBeenCalledTimes(2);
+    // Discovery found no candidates, so synthesis is skipped (nothing to synthesize).
+    expect(h.collect).toHaveBeenCalledOnce(); expect(h.runAI).toHaveBeenCalledTimes(1);
     const saved = h.api.publicState();
     expect(saved.researchRuns[0]).toMatchObject({ status: 'succeeded', scheduledFor: '2026-10-08T13:00:00.000Z', window: { startDate: '2026-10-07', endDate: '2026-10-07' } });
     expect(saved.programs[0].schedule.nextRunAt).toBe('2026-10-09T13:00:00.000Z');

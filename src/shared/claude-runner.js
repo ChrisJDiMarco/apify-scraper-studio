@@ -12,12 +12,18 @@ const CLAUDE_SYSTEM_PROMPT = [
   'Return the requested structured output.',
 ].join(' ');
 
-function buildClaudeCommand({ model = DEFAULT_CLAUDE_MODEL, schema, prompt = '', maxBudgetUsd = DEFAULT_AI_MAX_BUDGET_USD } = {}) {
+const CLAUDE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
+// Every structured call is a one-shot prompt, so the CLI's prompt cache is never read back, yet it
+// writes each prompt to the 1-hour cache at twice the input price (seen on a live run, Oct 2026).
+const CLAUDE_CLI_ENV = { DISABLE_PROMPT_CACHING: '1' };
+
+function buildClaudeCommand({ model = DEFAULT_CLAUDE_MODEL, schema, prompt = '', maxBudgetUsd = DEFAULT_AI_MAX_BUDGET_USD, effort } = {}) {
   if (typeof model !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$/.test(model)) throw new Error('Choose a valid Claude model ID.');
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) throw new Error('Claude structured output requires a JSON schema object.');
   const budget = Number(maxBudgetUsd);
   if (typeof maxBudgetUsd === 'boolean' || !Number.isFinite(budget) || budget < 0.01 || budget > 100) throw new Error('Claude run budget must be between $0.01 and $100.');
   if (typeof prompt !== 'string') throw new Error('Claude input must be text.');
+  if (effort !== undefined && effort !== '' && !CLAUDE_EFFORT_LEVELS.includes(effort)) throw new Error(`Choose a Claude effort level: ${CLAUDE_EFFORT_LEVELS.join(', ')}.`);
   if (Buffer.byteLength(prompt, 'utf8') > MAX_CLAUDE_STDIN_BYTES) throw new Error('This research context is too large for Claude CLI. Use a smaller dataset or fewer sources.');
   const args = [
     '--print', '--model', model,
@@ -28,6 +34,7 @@ function buildClaudeCommand({ model = DEFAULT_CLAUDE_MODEL, schema, prompt = '',
     '--safe-mode', '--setting-sources', '', '--disable-slash-commands', '--no-chrome',
     '--no-session-persistence', '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
     '--max-budget-usd', String(budget),
+    ...(effort ? ['--effort', effort] : []),
     '--system-prompt', CLAUDE_SYSTEM_PROMPT,
   ];
   // Keep user content out of argv/process listings. The caller writes stdin then closes it.
@@ -57,6 +64,11 @@ function finiteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+// Cost the CLI reported for a run that ended in an error (e.g. it hit --max-budget-usd), or null.
+function readClaudeCost(stdout) {
+  try { let result = parseEnvelope(stdout); if (Array.isArray(result)) result = result.findLast((event) => event?.type === 'result'); return finiteNumber(result?.total_cost_usd); } catch (_) { return null; }
+}
+
 function parseClaudeResult(stdout) {
   let result = parseEnvelope(stdout);
   if (Array.isArray(result)) result = result.findLast((event) => event?.type === 'result');
@@ -64,6 +76,7 @@ function parseClaudeResult(stdout) {
   if (result.is_error || (result.subtype && result.subtype !== 'success')) {
     const details = Array.isArray(result.errors) ? result.errors.map((error) => typeof error === 'string' ? error : error?.message || '').filter(Boolean).join(' ') : '';
     const reason = details || (typeof result.result === 'string' ? result.result : '') || result.subtype || 'Unknown error';
+    if (/max_budget/i.test(String(result.subtype)) || /budget/i.test(reason) && /exceed|reached|limit/i.test(reason)) fail(`Claude stopped at this step's spending cap before finishing (${reason.slice(0, 300)}). Raise the run's AI budget and retry; finished steps are kept.`, 'CLAUDE_BUDGET_EXCEEDED');
     fail(`Claude could not complete this run: ${reason.slice(0, 1200)}`, 'CLAUDE_RUN_FAILED');
   }
   if (!Object.hasOwn(result, 'structured_output') || result.structured_output == null || typeof result.structured_output !== 'object') {
@@ -86,4 +99,10 @@ function parseClaudeResult(stdout) {
   };
 }
 
-module.exports = { DEFAULT_CLAUDE_MODEL, DEFAULT_AI_MAX_BUDGET_USD, MAX_CLAUDE_STDIN_BYTES, CLAUDE_SYSTEM_PROMPT, buildClaudeCommand, parseClaudeResult };
+// The CLI may report a dated snapshot of the requested alias (claude-haiku-4-5 → claude-haiku-4-5-20251001).
+function modelMatches(requested, actualModels = []) {
+  if (typeof requested !== 'string' || !requested.startsWith('claude-')) return true;
+  return actualModels.some((model) => model === requested || (typeof model === 'string' && model.startsWith(`${requested}-`) && /^\d{8}$/.test(model.slice(requested.length + 1))));
+}
+
+module.exports = { CLAUDE_EFFORT_LEVELS, CLAUDE_CLI_ENV, modelMatches, readClaudeCost, DEFAULT_CLAUDE_MODEL, DEFAULT_AI_MAX_BUDGET_USD, MAX_CLAUDE_STDIN_BYTES, CLAUDE_SYSTEM_PROMPT, buildClaudeCommand, parseClaudeResult };

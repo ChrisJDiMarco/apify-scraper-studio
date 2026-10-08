@@ -73,6 +73,18 @@ function sheetTab(value, fallback, label) {
   return stringValue(value ?? fallback, label, { max: 80 }) || fallback;
 }
 
+// Drive folders accept the folder's link or its bare ID; the ID is what gets stored.
+function parseDriveFolderId(value, label = 'Drive folder') {
+  const text = stringValue(value, label, { max: 1000 });
+  if (!text || /^[a-zA-Z0-9_-]{1,200}$/.test(text)) return text;
+  let url = null; try { url = new URL(text); } catch (_) { /* not a link */ }
+  const fromLink = url?.protocol === 'https:' && url.hostname === 'drive.google.com'
+    ? url.pathname.match(/\/folders\/([a-zA-Z0-9_-]{1,200})(?:\/|$)/)?.[1] || (/^\/(open|folderview)$/.test(url.pathname) ? url.searchParams.get('id') : '')
+    : '';
+  if (!fromLink || !/^[a-zA-Z0-9_-]{1,200}$/.test(fromLink)) throw new Error(`${label} must be a Google Drive folder link (https://drive.google.com/drive/folders/…) or a folder ID.`);
+  return fromLink;
+}
+
 function validateSheetSettings(value, current = {}) {
   const sheets = optionalRecord(value, 'Google Sheets settings');
   const workingSpreadsheetUrl = stringValue(sheets.workingSpreadsheetUrl ?? current.workingSpreadsheetUrl, 'Working spreadsheet URL', { max: 1000 });
@@ -83,7 +95,12 @@ function validateSheetSettings(value, current = {}) {
     ...current,
     workingSpreadsheetUrl,
     workingSpreadsheetId,
-    archiveFolderId: stringValue(sheets.archiveFolderId ?? current.archiveFolderId, 'Archive folder ID', { max: 240, pattern: /^[a-zA-Z0-9_-]*$/ }),
+    archiveFolderId: parseDriveFolderId(sheets.archiveFolderId ?? current.archiveFolderId, 'Archive folder'),
+    // Where the bridge creates Google Docs and Google Sheets: blank means the account's My Drive.
+    docsFolderId: parseDriveFolderId(sheets.docsFolderId ?? current.docsFolderId, 'Default Docs folder'),
+    trendReportsFolderId: parseDriveFolderId(sheets.trendReportsFolderId ?? current.trendReportsFolderId, 'Trend reports folder'),
+    toolkitsFolderId: parseDriveFolderId(sheets.toolkitsFolderId ?? current.toolkitsFolderId, 'Editorial toolkits folder'),
+    sheetsExportFolderId: parseDriveFolderId(sheets.sheetsExportFolderId ?? current.sheetsExportFolderId, 'Google Sheets exports folder'),
     twitterTab: sheetTab(sheets.twitterTab, current.twitterTab || 'Twitter', 'Twitter tab'),
     linkedinTab: sheetTab(sheets.linkedinTab, current.linkedinTab || 'LinkedIn', 'LinkedIn tab'),
     redditTab: sheetTab(sheets.redditTab, current.redditTab || 'Reddit', 'Reddit tab'),
@@ -275,6 +292,7 @@ module.exports = {
   intValue,
   isRecord,
   optionalRecord,
+  parseDriveFolderId,
   stringArray,
   stringValue,
   validateAnalysisPayload,

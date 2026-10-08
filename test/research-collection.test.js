@@ -1,81 +1,86 @@
 import { describe, expect, it } from 'vitest';
 import collection from '../src/shared/research-collection.js';
 import recipeTools from '../src/shared/recipe.js';
-const { buildCollectionPlan } = collection;
+const { buildCollectionPlan, ACTOR_PRICING } = collection;
+const now = new Date('2026-10-07T12:00:00Z');
 const program = (extra = {}) => ({ id: 'program-a', name: 'Weekly research', targetPerPlatform: 3000, sourceGroups: [{ id: 'x-accounts', platform: 'x', targets: ['account1', 'account2'] }], budgets: { collectionUsd: 5, aiUsd: 5 }, ...extra });
+const plan = (extra, options = { now }) => buildCollectionPlan(program(extra), options);
 
-describe('bounded enterprise collection plans', () => {
-  it('plans complete large rosters and explicit provider row caps beyond guided search limits', () => {
-    const result = buildCollectionPlan(program({ sourceGroups: [{ id: 'x', platform: 'x', targets: Array.from({ length: 382 }, (_, i) => `account${i}`) }, { id: 'li', platform: 'linkedin-profile', targets: Array.from({ length: 515 }, (_, i) => `https://linkedin.com/in/profile-${i}`) }, { id: 'rd', platform: 'reddit', targets: Array.from({ length: 18 }, (_, i) => `community${i}`) }] }));
-    expect(result.jobs).toHaveLength(47);
-    expect(result.receipt.platforms.x.targetCount).toBe(382);
-    expect(result.receipt.platforms.linkedin.targetCount).toBe(515);
-    expect(result.receipt.platforms.reddit.targetCount).toBe(18);
-    expect(result.jobs.every((j) => j.targets.length <= 20 && j.maxItems <= 10000 && j.budgetUsd >= 0.01)).toBe(true);
-    expect(result.receipt.totalBudgetUsd).toBe(5);
-    expect(result.receipt.platforms.x.plannedPosts).toBeGreaterThanOrEqual(4500);
-    expect(result.receipt.platforms.linkedin.plannedPosts).toBeGreaterThanOrEqual(4500);
-    expect(result.jobs.find((j) => j.sourceId === 'linkedin-profile').recipe.input.maxPosts).toBe(9);
+describe('n8n Golden Thread collection plans', () => {
+  it('plans the full Semrush roster with n8n inputs, concurrent lanes and worst-case budgets', () => {
+    const result = plan({ budgets: { collectionUsd: 60, aiUsd: 5 }, sourceGroups: [{ id: 'x', platform: 'x', targets: Array.from({ length: 382 }, (_, i) => `account${i}`) }, { id: 'li', platform: 'linkedin-profile', targets: Array.from({ length: 515 }, (_, i) => `https://linkedin.com/in/profile-${i}`) }, { id: 'rd', platform: 'reddit', targets: Array.from({ length: 18 }, (_, i) => `community${i}`) }] });
+    expect(result.receipt.platforms.x).toMatchObject({ jobCount: 77, targetCount: 382 });
+    expect(result.receipt.platforms.linkedin).toMatchObject({ jobCount: 6, targetCount: 515, plannedPosts: 7725 });
+    expect(result.receipt.platforms.reddit).toMatchObject({ jobCount: 1, targetCount: 18, plannedPosts: 4500 });
+    expect(result.receipt.worstCaseUsd).toBeCloseTo(47.22, 1);
+    expect(result.receipt.totalBudgetUsd).toBeLessThanOrEqual(60);
+    expect(result.jobs.every((job) => job.budgetUsd >= job.worstCaseUsd)).toBe(true);
+    for (const job of result.jobs) expect(() => recipeTools.validateRecipe(job.recipe)).not.toThrow();
   });
-  it('keeps Actor inputs validated and enterprise retrieval caps separate from guided searchContext', () => {
-    const plan = buildCollectionPlan(program()); const job = plan.jobs[0];
-    expect(job.maxItems).toBe(4500); expect(job.recipe.input.maxItems).toBe(4500);
-    expect(job.recipe).not.toHaveProperty('searchContext'); expect(job.recipe.researchContext.plannedProviderRows).toBe(4500);
-    expect(() => recipeTools.validateRecipe(job.recipe)).not.toThrow();
-    expect(job.recipe.input.searchTerms).toHaveLength(2);
-    expect(job.recipe.input.searchTerms[0]).toContain('from:account1');
-    expect(job.recipe.input.searchTerms[1]).toContain('from:account2');
-    expect(plan).toEqual(buildCollectionPlan(program()));
+  it('builds X terms exactly like n8n: from:<handle> since:<start>, Latest, generous per-handle ceiling', () => {
+    const result = plan({ window: { startDate: '2026-09-30' } }); const job = result.jobs[0];
+    expect(job.recipe.input).toEqual({ searchTerms: ['from:account1 since:2026-09-30', 'from:account2 since:2026-09-30'], sort: 'Latest', maxItems: 100, includeSearchTerms: true });
+    expect(job.recipe.runOptions).toEqual({ maxTotalChargeUsd: 5, timeoutSecs: 1200 });
+    expect(job.abortAfterSecs).toBe(1500);
+    expect(job.worstCaseUsd).toBeCloseTo(2 * ACTOR_PRICING['apidojo/twitter-scraper-lite'].perQuery + 100 * 0.0004, 1);
   });
-  it('splits the budget to cents and refuses a roster with insufficient per-job budget', () => {
+  it('never lets the research focus filter account or community collection unless asked', () => {
+    const focused = plan({ query: 'SEO trending topicsso', sourceGroups: [{ platform: 'x', targets: ['aleyda'] }, { platform: 'reddit', targets: ['seo'] }] });
+    const [x, reddit] = focused.jobs;
+    expect(x.recipe.input.searchTerms).toEqual(['from:aleyda since:2026-09-30']);
+    expect(reddit.recipe.input.startUrls).toEqual([{ url: 'https://www.reddit.com/r/seo/new/' }]);
+    expect(focused.receipt.warnings.join(' ')).toMatch(/guides the AI analysis only/);
+    const filtered = plan({ query: 'AI Overviews', topicFiltersTargets: true, sourceGroups: [{ platform: 'x', targets: ['aleyda'] }, { platform: 'reddit', targets: ['seo'] }] });
+    expect(filtered.jobs[0].recipe.input.searchTerms[0]).toBe('(AI Overviews) from:aleyda since:2026-09-30');
+    expect(filtered.jobs[1].recipe.input.searches[0]).toBe('(AI Overviews) AND (subreddit:seo)');
+  });
+  it('defaults to the n8n seven-day window when no start date is saved', () => {
+    const result = plan();
+    expect(result.window).toMatchObject({ startDate: '2026-09-30', endDate: '', resolvedFrom: 'lookback' });
+    expect(result.receipt.warnings.join(' ')).toMatch(/last 7 days \(from 2026-09-30\)/);
+    expect(plan({ lookbackDays: 14 }).window.startDate).toBe('2026-09-23');
+  });
+  it('builds LinkedIn and Reddit inputs exactly like the n8n Sources nodes', () => {
+    const result = plan({ window: { startDate: '2026-09-01', endDate: '2026-09-07' }, sourceGroups: [{ platform: 'linkedin-profile', targets: ['https://www.linkedin.com/in/a?trk=x'] }, { platform: 'reddit', targets: ['marketing', 'seo'] }] });
+    const [li, rd] = result.jobs;
+    expect(li.recipe.input).toEqual({ targetUrls: ['https://www.linkedin.com/in/a/'], maxPosts: 15, postedLimitDate: '2026-09-01T00:00:00.000Z', scrapeReactions: false, scrapeComments: false });
+    expect(li.recipe.runOptions.timeoutSecs).toBe(5400); expect(li.abortAfterSecs).toBe(5700);
+    expect(rd.recipe.input).toEqual({ maxItems: 4500, maxPostCount: 300, maxComments: 75, skipComments: true, scrollTimeout: 90, navigationTimeout: 60, includeMediaLinks: true, includeNSFW: false, skipCommunity: true, skipUserPosts: true, proxy: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] }, startUrls: [{ url: 'https://www.reddit.com/r/marketing/new/' }, { url: 'https://www.reddit.com/r/seo/new/' }], postDateLimit: '2026-09-01T00:00:00.000Z', commentDateLimit: '2026-09-01T00:00:00.000Z', ignoreStartUrls: false, debugMode: false });
+    expect(rd.recipe.runOptions.timeoutSecs).toBe(7200); expect(rd.abortAfterSecs).toBe(7500);
+    // Two /new/ listings can return at most 2 × 300 posts, so the cost ceiling is far below maxItems.
+    expect(rd).toMatchObject({ plannedPosts: 600, maxItems: 4500 }); expect(rd.worstCaseUsd).toBeCloseTo(2.42, 2);
+    expect(result.jobs.every((j) => j.postFilter.startDate === '2026-09-01' && j.postFilter.endDate === '2026-09-07')).toBe(true);
+    expect(result.receipt.warnings.join(' ')).toMatch(/enforced after retrieval/);
+  });
+  it('keeps supported X filters and Reddit comment collection, with comments counted against maxItems', () => {
+    const result = plan({ window: { startDate: '2026-09-01', endDate: '2026-09-07' }, sourceGroups: [{ platform: 'x', targets: ['account'], options: { replies: 'exclude', includeRetweets: false } }, { platform: 'reddit', targets: ['marketing'], options: { includeComments: true, maxComments: 3 } }] });
+    expect(result.jobs[0].recipe.input.searchTerms[0]).toBe('from:account since:2026-09-01 until:2026-09-08 -filter:replies -filter:nativeretweets');
+    expect(result.jobs[1].recipe.input).toMatchObject({ skipComments: false, maxComments: 3, maxItems: 10000 });
+    expect(result.jobs[1]).toMatchObject({ plannedPosts: 300 }); expect(result.jobs[1].worstCaseUsd).toBeCloseTo(0.02 + 300 * 4 * 0.004, 2);
+  });
+  it('splits LinkedIn jobs to stay under provider row limits when comments and reactions are on', () => {
+    const result = plan({ sourceGroups: [{ platform: 'linkedin-profile', targets: Array.from({ length: 20 }, (_, i) => `https://linkedin.com/in/p${i}`), options: { includeComments: true, maxComments: 100, includeReactions: true, maxReactions: 100 } }] });
+    expect(result.jobs.every((j) => j.maxItems <= 10000)).toBe(true);
+    expect(result.jobs.flatMap((j) => j.targets)).toHaveLength(20);
+    expect(() => plan({ sourceGroups: [{ platform: 'linkedin-profile', targets: Array.from({ length: 40 }, (_, i) => `https://linkedin.com/in/p${i}`), options: { includeComments: true, maxComments: 100, includeReactions: true, maxReactions: 100 } }] })).toThrow(/100,000/);
+  });
+  it('gives every Actor at least its minimum charge and refuses budgets that cannot start them all', () => {
     const groups = [{ platform: 'x', targets: Array.from({ length: 41 }, (_, i) => `account${i}`) }];
-    const plan = buildCollectionPlan(program({ sourceGroups: groups, budgets: { collectionUsd: 0.1, aiUsd: 1 } }));
-    expect(plan.jobs.map((j) => j.budgetUsd)).toEqual([0.04, 0.03, 0.03]);
-    expect(() => buildCollectionPlan(program({ sourceGroups: groups, budgets: { collectionUsd: 0.02, aiUsd: 1 } }))).toThrow(/at least \$0.03/);
-  });
-  it('preserves supported comments and reaction knobs with correct separate-row retrieval accounting', () => {
-    const plan = buildCollectionPlan(program({ targetPerPlatform: 100, sourceGroups: [{ platform: 'linkedin-profile', targets: ['https://linkedin.com/in/a', 'https://linkedin.com/in/b'], options: { includeComments: true, maxComments: 2, includeReactions: true, maxReactions: 3, commentsPostedLimit: 'week' } }] }));
-    const job = plan.jobs[0];
-    expect(job.recipe.input).toMatchObject({ maxPosts: 15, scrapeComments: true, maxComments: 2, scrapeReactions: true, maxReactions: 3, commentsPostedLimit: 'week' });
-    expect(job).toMatchObject({ plannedPosts: 30, plannedProviderRows: 180, maxItems: 180 });
-    expect(plan.receipt.warnings.join(' ')).toMatch(/at most 20 posts/);
-  });
-  it('further splits LinkedIn targets when comments would exceed one-job provider row limits', () => {
-    const plan = buildCollectionPlan(program({ sourceGroups: [{ platform: 'linkedin-profile', targets: Array.from({ length: 20 }, (_, i) => `https://linkedin.com/in/p${i}`), options: { includeComments: true, maxComments: 100, includeReactions: true, maxReactions: 100 } }] }));
-    expect(plan.jobs).toHaveLength(7); expect(plan.jobs.every((j) => j.maxItems <= 10000)).toBe(true);
-    expect(plan.jobs.flatMap((j) => j.targets)).toHaveLength(20);
-    expect(plan.receipt.totalPlannedProviderRows).toBe(60300);
-  });
-  it('rejects a plan over the global provider row cap before any paid work', () => {
-    expect(() => buildCollectionPlan(program({ sourceGroups: [{ platform: 'linkedin-profile', targets: Array.from({ length: 40 }, (_, i) => `https://linkedin.com/in/p${i}`), options: { includeComments: true, maxComments: 100, includeReactions: true, maxReactions: 100 } }] }))).toThrow(/100,000/);
-  });
-  it('applies program dates to supported provider inputs and carries the same final filter for all sources', () => {
-    const window = { startDate: '2026-09-01', endDate: '2026-09-07' };
-    const plan = buildCollectionPlan(program({ window, sourceGroups: [{ platform: 'x', targets: ['account'], options: { replies: 'exclude', includeRetweets: false } }, { platform: 'reddit', targets: ['marketing'], options: { includeComments: true, maxComments: 3 } }, { platform: 'linkedin-profile', targets: ['https://linkedin.com/in/a'], options: { postedLimit: 'week' } }] }));
-    const [x, rd, li] = plan.jobs;
-    expect(x.recipe.input.searchTerms[0]).toContain('since:2026-09-01 until:2026-09-08 -filter:replies -filter:nativeretweets');
-    expect(rd.recipe.input).toMatchObject({ postDateLimit: '2026-09-01', commentDateLimit: '2026-09-01', skipComments: false, maxComments: 3 });
-    expect(li.recipe.input).toMatchObject({ postedLimit: 'any', postedLimitDate: '2026-09-01' });
-    expect(plan.jobs.every((j) => j.postFilter.startDate === window.startDate && j.postFilter.endDate === window.endDate)).toBe(true);
-    expect(plan.receipt.warnings.join(' ')).toMatch(/enforced after retrieval/);
-  });
-  it('collects Reddit community listings when no keyword is provided', () => {
-    const plan = buildCollectionPlan(program({ sourceGroups: [{ platform: 'reddit', targets: ['marketing', 'seo'], options: { includeNSFW: false } }] }));
-    expect(plan.jobs[0].recipe.input).toMatchObject({ startUrls: [{ url: 'https://www.reddit.com/r/marketing/new/' }, { url: 'https://www.reddit.com/r/seo/new/' }], searches: [], searchPosts: false, maxItems: 4500 });
+    const ok = plan({ sourceGroups: groups, budgets: { collectionUsd: 0.5, aiUsd: 1 } });
+    expect(ok.jobs.every((j) => j.budgetUsd >= 0.02)).toBe(true);
+    expect(ok.receipt.warnings.join(' ')).toMatch(/below the worst-case Apify cost/);
+    expect(() => plan({ sourceGroups: groups, budgets: { collectionUsd: 0.1, aiUsd: 1 } })).toThrow(/at least \$0.18/);
   });
   it('treats LinkedIn keyword group targets as separate terms, never profile URLs', () => {
-    const plan = buildCollectionPlan(program({ sourceGroups: [{ sourceId: 'linkedin-search', targets: ['AI search', 'marketing analytics'], options: { includeComments: true, maxComments: 2 } }] }));
-    expect(plan.jobs).toHaveLength(2); expect(plan.jobs.map((j) => j.query)).toEqual(['AI search', 'marketing analytics']);
-    expect(new URL(plan.jobs[0].recipe.input.urls[0]).searchParams.get('keywords')).toBe('AI search');
-    expect(plan.jobs[0].recipe.input).toMatchObject({ limitPerSource: 2250, numComments: 2 });
+    const result = plan({ sourceGroups: [{ sourceId: 'linkedin-search', targets: ['AI search', 'marketing analytics'], options: { includeComments: true, maxComments: 2 } }] });
+    expect(result.jobs).toHaveLength(2); expect(result.jobs.map((j) => j.query)).toEqual(['AI search', 'marketing analytics']);
+    expect(new URL(result.jobs[0].recipe.input.urls[0]).searchParams.get('keywords')).toBe('AI search');
+    expect(result.jobs[0].recipe.input).toMatchObject({ limitPerSource: 2250, numComments: 2 });
   });
-  it('rejects unsupported options and impossible plans, and excludes disabled groups', () => {
-    expect(() => buildCollectionPlan(program({ sourceGroups: [{ platform: 'x', targets: ['a'], options: { comments: true } }] }))).toThrow(/does not support/);
-    const large = buildCollectionPlan(program({ targetPerPlatform: 10000 }));
-    expect(large.jobs).toHaveLength(1); expect(large.jobs[0].maxItems).toBe(10000);
-    expect(large.receipt.warnings.join(' ')).toMatch(/overfetch is capped/);
-    expect(() => buildCollectionPlan(program({ sourceGroups: [{ platform: 'x', targets: [], enabled: false }] }))).toThrow(/Enable/);
-    const plan = buildCollectionPlan(program({ sourceGroups: [{ platform: 'x', targets: ['a'] }, { platform: 'reddit', enabled: false, targets: [] }] }));
-    expect(plan.jobs).toHaveLength(1);
+  it('rejects unsupported options and excludes disabled groups', () => {
+    expect(() => plan({ sourceGroups: [{ platform: 'x', targets: ['a'], options: { comments: true } }] })).toThrow(/does not support/);
+    expect(() => plan({ sourceGroups: [{ platform: 'x', targets: [], enabled: false }] })).toThrow(/Enable/);
+    expect(plan({ sourceGroups: [{ platform: 'x', targets: ['a'] }, { platform: 'reddit', enabled: false, targets: [] }] }).jobs).toHaveLength(1);
+    expect(plan()).toEqual(plan());
   });
 });
