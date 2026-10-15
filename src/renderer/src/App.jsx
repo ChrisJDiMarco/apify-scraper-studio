@@ -21,6 +21,7 @@ import { HomeView } from './home-view.jsx';
 import { SettingsView } from './settings-view.jsx';
 import { HelpAssistant } from './help-assistant.jsx';
 import { SheetsView } from './sheets-view.jsx';
+import { SimpleMode } from './simple-mode.jsx';
 import { Badge, Button, StatusBanner, datasetLabel, number, short, statusTone, withViewTransition } from './ui.jsx';
 
 // What disconnecting each credential stops, so the confirmation says what is at stake.
@@ -247,6 +248,8 @@ function StudioApp({ api }) {
   const [selectedDatasetId, setSelectedDatasetId] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  // Simple mode is the default layout. "classicPeek" opens one classic page from Simple mode without changing the setting.
+  const [classicPeek, setClassicPeek] = useState(false);
   const [payload, setPayload] = useState(null);
   const [sheetRequest, setSheetRequest] = useState({ id: '', key: 0 });
   const [payloadError, setPayloadError] = useState('');
@@ -424,6 +427,30 @@ function StudioApp({ api }) {
     }
   }
 
+  function renderSettings() {
+    return <SettingsView
+      state={state}
+      busy={busy}
+      meta={meta}
+      setupApi={api}
+      onOpenPrograms={() => navigateStudio('research')}
+      onSaveKey={(keyName, value) => runAction(() => api.saveKey(keyName, value), 'Credential saved.', keyName === 'OPENAI_API_KEY')}
+      onClearKey={(keyName) => { const [name, consequence] = KEY_CONSEQUENCE[keyName] || ['this credential', '']; return window.confirm(`Disconnect ${name}? ${consequence}`) ? runAction(() => api.clearKey(keyName), 'Credential disconnected.', keyName === 'OPENAI_API_KEY') : Promise.resolve(null); }}
+      onSaveSettings={(settings) => runAction(() => api.saveSettings(settings), 'Settings saved.')}
+      onTestSheetsBridge={() => runAction(() => api.testSheetsBridge(), 'Sheets bridge reachable.')}
+      onArchiveAndClearSheets={(payload) => runAction(() => api.archiveAndClearSheets(payload), 'Working sheet archived and cleared.')}
+      onImportWorkingSheets={() => runBackground('sheets-import', 'Importing the working sheet', () => api.importWorkingSheets(), 'Working sheet imported.')}
+      onReplaySheetRun={(sheetRunId) => runBackground(`sheet-replay:${sheetRunId}`, 'Replaying the sheet run', () => api.replaySheetRun(sheetRunId), 'Sheet run replayed.')}
+      onTestImages={() => api.testImageProvider()}
+      onCheckAi={(request) => api.checkAi(request)}
+      onCheckCodex={() => api.checkCodex()}
+      onOpenDataFolder={() => runAction(() => api.openDataFolder(), 'Data folder opened.')}
+      onOpenWorkspace={() => runAction(() => api.openWorkspace('default'), 'Workspace opened.')}
+      onSaveMondayBoard={api.saveMondayBoard ? (payload) => runAction(() => api.saveMondayBoard(payload), (result) => `Monday.com board connected: ${result.boardName}.`) : undefined}
+      onClearMondayBoard={() => runAction(() => api.clearMondayBoard(), 'Monday.com board forgotten. Trends stay on your board here.')}
+    />;
+  }
+
   const content = useMemo(() => {
     const common = { state, busy };
     if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} onViewChange={(view) => withViewTransition(() => setStudioView(view))} shellNavigation={semrushShell} workspaceControlsInShell={hasWorkspaceSwitcher} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={(id) => runAction(() => api.deleteBrandProfile(id), '', true)} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice('Asset revealed in Finder.'))} />} />;
@@ -489,30 +516,7 @@ function StudioApp({ api }) {
         />
       );
     }
-    if (active === 'settings') {
-      return (
-        <SettingsView
-          {...common}
-          meta={meta}
-          setupApi={api}
-          onOpenPrograms={() => navigateStudio('research')}
-          onSaveKey={(keyName, value) => runAction(() => api.saveKey(keyName, value), 'Credential saved.', keyName === 'OPENAI_API_KEY')}
-          onClearKey={(keyName) => { const [name, consequence] = KEY_CONSEQUENCE[keyName] || ['this credential', '']; return window.confirm(`Disconnect ${name}? ${consequence}`) ? runAction(() => api.clearKey(keyName), 'Credential disconnected.', keyName === 'OPENAI_API_KEY') : Promise.resolve(null); }}
-          onSaveSettings={(settings) => runAction(() => api.saveSettings(settings), 'Settings saved.')}
-          onTestSheetsBridge={() => runAction(() => api.testSheetsBridge(), 'Sheets bridge reachable.')}
-          onArchiveAndClearSheets={(payload) => runAction(() => api.archiveAndClearSheets(payload), 'Working sheet archived and cleared.')}
-          onImportWorkingSheets={() => runBackground('sheets-import', 'Importing the working sheet', () => api.importWorkingSheets(), 'Working sheet imported.')}
-          onReplaySheetRun={(sheetRunId) => runBackground(`sheet-replay:${sheetRunId}`, 'Replaying the sheet run', () => api.replaySheetRun(sheetRunId), 'Sheet run replayed.')}
-          onTestImages={() => api.testImageProvider()}
-          onCheckAi={(request) => api.checkAi(request)}
-          onCheckCodex={() => api.checkCodex()}
-          onOpenDataFolder={() => runAction(() => api.openDataFolder(), 'Data folder opened.')}
-          onOpenWorkspace={() => runAction(() => api.openWorkspace('default'), 'Workspace opened.')}
-          onSaveMondayBoard={api.saveMondayBoard ? (payload) => runAction(() => api.saveMondayBoard(payload), (result) => `Monday.com board connected: ${result.boardName}.`) : undefined}
-          onClearMondayBoard={() => runAction(() => api.clearMondayBoard(), 'Monday.com board forgotten. Trends stay on your board here.')}
-        />
-      );
-    }
+    if (active === 'settings') return renderSettings();
     if (active === 'dashboard') return <HomeView state={state} busy={busy} onNavigate={navigate} />;
     return (
       <AdvancedView
@@ -572,6 +576,15 @@ function StudioApp({ api }) {
     ...(state.v5?.commandPalette || []).filter((item) => item.action === 'runMission' && item.args?.missionId),
   ];
   const studioState = state.contentStudio || {};
+  const simpleMode = (state.settings?.uiMode || 'simple') === 'simple';
+  function openClassicPage(view) {
+    setClassicPeek(true);
+    if (STUDIO_NAV.some((item) => item.id === view && !item.appView)) navigateStudio(view);
+    else navigate(view);
+  }
+  if (simpleMode && !classicPeek) {
+    return <SimpleMode api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={() => { setError(''); setNotice(''); }} action={runAction} background={Object.values(background)} renderSettings={renderSettings} onOpenClassic={openClassicPage} />;
+  }
   const liveRuns = [...(state.jobs || []), ...(studioState.researchRuns || []), ...(studioState.contentRuns || [])].filter((run) => ['queued', 'running'].includes(run.status)).length;
   return (
     <div className="app-shell" data-edition={semrushShell ? 'semrush' : 'general'}>
@@ -595,6 +608,7 @@ function StudioApp({ api }) {
           {loading ? <div className="loading-state" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><h2>Opening your workspace</h2><p>Loading your research, sheets and reports.</p></div> : <ErrorBoundary page key={`${active}:${studioView}`}>{content}</ErrorBoundary>}
         </div>
         <HelpAssistant api={api} open={helpOpen} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} onClose={() => setHelpOpen(false)} page={{ id: active === 'content-studio' ? studioView : active, label: (semrushShell && active === 'content-studio' ? STUDIO_NAV.find((item) => item.id === studioView)?.label : semrushShell && active === 'dashboard' ? 'Collection overview' : NAV.find((item) => item.id === active)?.label) || '' }} onOpenPage={openHelpPage} onOpenSettings={() => navigate('settings')} />
+        {simpleMode && classicPeek && <button type="button" className="back-to-simple" onClick={() => withViewTransition(() => setClassicPeek(false))}><ArrowUpRight size={15} aria-hidden="true" />Back to Simple mode</button>}
         <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} onRun={runPaletteItem} />
       </main>
     </div>

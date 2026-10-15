@@ -127,6 +127,8 @@ function validateSettings(value, current = {}) {
     aiMaxBudgetUsd: aiBudget(settings.aiMaxBudgetUsd ?? current.aiMaxBudgetUsd ?? 1),
     maxItems: intValue(settings.maxItems, 'Max items', { min: 1, max: 10000, fallback: current.maxItems || 1000 }),
     sheets: validateSheetSettings(settings.sheets, current.sheets || {}),
+    // simple: the guided Home / Reports / Trends / Ask AI layout (the default); classic: the full sidebar app.
+    uiMode: enumValue(settings.uiMode ?? current.uiMode ?? 'simple', 'Layout', ['simple', 'classic']),
   };
 }
 

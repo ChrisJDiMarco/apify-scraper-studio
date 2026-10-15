@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, Download, Image as ImageIcon, LoaderCircle, RefreshCw, RotateCcw, Sparkles, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, Check, Download, Image as ImageIcon, LoaderCircle, RefreshCw, RotateCcw, Sparkles, X } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import './help-assistant.css';
 
@@ -26,7 +26,9 @@ function Picture({ image, onRetry, onDownload, onEnlarge }) {
   </figure>;
 }
 
-export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSettings, imagesReady = false }) {
+// variant "page" fills Simple mode's Ask AI tab; seed ({ text, key }) asks a question sent from elsewhere;
+// onAction runs a button the answer offered (Simple mode only) and resolves to a short result line.
+export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSettings, imagesReady = false, variant = 'drawer', seed = null, onAction, starters = STARTERS }) {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
@@ -35,10 +37,14 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   const [enlarged, setEnlarged] = useState(null);
   const inputRef = useRef(null);
   const listRef = useRef(null);
+  const [actionState, setActionState] = useState({});
+  const inline = variant === 'page';
+  const seedKey = useRef(null);
+  useEffect(() => { if (seed?.text && seed.key !== seedKey.current) { seedKey.current = seed.key; ask(seed.text); } }, [seed?.key]);
   useEffect(() => { if (open) requestAnimationFrame(() => inputRef.current?.focus()); }, [open]);
   useEffect(() => { const list = listRef.current; if (list) list.scrollTop = list.scrollHeight; }, [messages, pending, error]);
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open || inline) return undefined;
     const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); if (enlarged) setEnlarged(null); else onClose(); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -62,7 +68,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
       const reply = await api.askHelp({ question: text, history, page });
       const id = messageId();
       const request = reply.image && api.createHelpImage ? { title: reply.image.title, prompt: reply.image.prompt, size: reply.image.size } : null;
-      setMessages((current) => [...current, { id, role: 'assistant', content: reply.answer, pages: reply.pages || [], followUps: reply.followUps || [], receipt: reply.receipt || null, image: request ? { ...request, status: 'creating' } : null }]);
+      setMessages((current) => [...current, { id, role: 'assistant', content: reply.answer, pages: reply.pages || [], actions: onAction ? reply.actions || [] : [], followUps: reply.followUps || [], receipt: reply.receipt || null, image: request ? { ...request, status: 'creating' } : null }]);
       if (request) drawPicture(id, request);
     } catch (failure) {
       setError(String(failure?.message || failure));
@@ -73,25 +79,34 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     catch (failure) { setError(String(failure?.message || failure)); }
   }
   const last = messages[messages.length - 1];
+  async function runAction(messageId, index, action) {
+    const key = `${messageId}:${index}`;
+    setActionState((current) => ({ ...current, [key]: { status: 'running' } }));
+    try {
+      const result = await onAction(action);
+      setActionState((current) => ({ ...current, [key]: result === false ? undefined : { status: 'done', text: typeof result === 'string' ? result : 'Done.' } }));
+    } catch (failure) { setActionState((current) => ({ ...current, [key]: { status: 'failed', text: String(failure?.message || failure) } })); }
+  }
 
-  return <aside id="help-drawer" className={`help-drawer${open ? ' open' : ''}`} aria-label="Ask AI about Scraper Studio" aria-hidden={!open} inert={!open}>
+  return <aside id={inline ? 'help-page' : 'help-drawer'} className={`help-drawer${inline ? ' help-page' : ''}${open || inline ? ' open' : ''}`} aria-label="Ask AI about Scraper Studio" aria-hidden={!open && !inline} inert={!open && !inline}>
     <header className="help-head">
       <span className="help-mark" aria-hidden="true"><Sparkles size={17} /></span>
       <div><h2>Ask AI</h2><p>Questions about the app, or ask for a picture</p></div>
       {messages.length > 0 && <button type="button" className="help-icon" onClick={() => { setMessages([]); setError(''); setNotice(''); }} aria-label="Start a new conversation" title="New conversation"><RotateCcw size={15} /></button>}
-      <button type="button" className="help-icon" onClick={onClose} aria-label="Close Ask AI" title="Close (Esc)"><X size={17} /></button>
+      {!inline && <button type="button" className="help-icon" onClick={onClose} aria-label="Close Ask AI" title="Close (Esc)"><X size={17} /></button>}
     </header>
     <div className="help-messages" ref={listRef} role="log" aria-live="polite" aria-busy={pending}>
       {!messages.length && <div className="help-welcome">
         <h3>Ask anything about Scraper Studio</h3>
         <p>How a page works, what a run will cost, why something stopped, or what to do next. Answers use the app guide and your current setup. {imagesReady ? 'Ask for a picture and it appears right here.' : 'Add an OpenAI key in Settings → Image generation to make pictures here too.'}</p>
-        <div className="help-starters">{STARTERS.filter((question) => imagesReady || !/image/i.test(question)).map((question) => <button type="button" key={question} onClick={() => ask(question)}><span>{question}</span>{/image/i.test(question) ? <ImageIcon size={14} aria-hidden="true" /> : <ArrowRight size={14} aria-hidden="true" />}</button>)}</div>
+        <div className="help-starters">{starters.filter((question) => imagesReady || !/image/i.test(question)).map((question) => <button type="button" key={question} onClick={() => ask(question)}><span>{question}</span>{/image/i.test(question) ? <ImageIcon size={14} aria-hidden="true" /> : <ArrowRight size={14} aria-hidden="true" />}</button>)}</div>
       </div>}
       {messages.map((message) => message.role === 'user'
         ? <div className="help-question" key={message.id}>{message.content}</div>
         : <article className="help-answer" key={message.id} aria-label="Answer">
           <MarkdownContent>{message.content}</MarkdownContent>
           {message.image && <Picture image={message.image} onRetry={() => drawPicture(message.id, { title: message.image.title, prompt: message.image.prompt, size: message.image.size })} onDownload={() => download(message.image)} onEnlarge={() => setEnlarged(message.image)} />}
+          {message.actions?.length > 0 && <div className="help-actions">{message.actions.map((action, index) => { const state = actionState[`${message.id}:${index}`]; return <div className="help-action" key={`${action.kind}-${index}`}>{state?.status === 'done' ? <span className="help-action-done"><Check size={13} aria-hidden="true" />{state.text}</span> : <button type="button" disabled={state?.status === 'running'} onClick={() => runAction(message.id, index, action)}>{state?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}{action.label}</button>}{state?.status === 'failed' && <small role="alert">{state.text}</small>}</div>; })}</div>}
           {message.pages.length > 0 && <div className="help-pages">{message.pages.map((link) => <button type="button" key={link.page} onClick={() => onOpenPage(link.page)}>{link.label}<ArrowRight size={13} aria-hidden="true" /></button>)}</div>}
           {message === last && message.followUps.length > 0 && !pending && <div className="help-followups">{message.followUps.map((question) => <button type="button" key={question} onClick={() => ask(question)}>{question}</button>)}</div>}
           {message.receipt && <small className="help-receipt">{[message.receipt.model, money(message.receipt.costUsd)].filter(Boolean).join(' · ')}</small>}

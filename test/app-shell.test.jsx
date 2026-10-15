@@ -8,7 +8,7 @@ import workflow from '../src/shared/asset-workflow.json';
 
 const emptyState = () => ({
   projects: [], recipes: [], datasets: [], cards: [], assets: [], runs: [], analyses: [], jobs: [],
-  keys: {}, settings: { maxItems: 1000, sheets: {} },
+  keys: {}, settings: { maxItems: 1000, sheets: {}, uiMode: 'classic' },
   v5: { missions: [], jobs: [], recipeVersions: {}, commandPalette: [], evidenceSummary: { sample: [] } },
 });
 
@@ -130,5 +130,61 @@ describe('Semrush studio shell', () => {
     expect(nav('Research programs')).toBeVisible();
     fireEvent.click(nav('Overview'));
     expect(await screen.findByRole('heading', { name: 'From a trend to a complete campaign.' })).toBeVisible();
+  });
+});
+
+describe('Simple mode', () => {
+  const trendRun = { id: 'run-1', workspaceId: 'semrush', programId: 'p1', status: 'awaiting-review', createdAt: '2026-10-10T10:00:00Z', discoveredThemes: [{ id: 't1', name: 'AI search visibility', description: 'Teams ask how to show up in AI answers.', evidenceIds: ['a', 'b'], platforms: ['reddit'] }], decisions: {} };
+  async function openSimple(overrides = {}) {
+    const workspaces = [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush', knowledge: {}, products: [] }];
+    let current = { ...emptyState(), settings: { maxItems: 1000, sheets: {} }, keys: { APIFY_API_TOKEN: true }, contentStudio: { activeWorkspaceId: 'semrush', workspaces, programs: [{ id: 'p1', workspaceId: 'semrush', name: 'Weekly listening', budgets: { collectionUsd: 5, aiUsd: 3 } }], researchRuns: [trendRun], contentRuns: [], assets: [{ id: 'asset-1', workspaceId: 'semrush', kind: 'text', title: 'Evidence report: AI search', createdAt: '2026-10-11T10:00:00Z' }], availableDatasets: [], availableReports: [], capabilities: {} }, ...overrides };
+    const api = {
+      appMeta: vi.fn(async () => ({ version: 'test' })), state: vi.fn(async () => current), onStateChanged: vi.fn(() => () => {}), readDataset: vi.fn(async () => ({ items: [] })),
+      contentCatalog: vi.fn(async () => ({ editions: [], deliverables: [] })),
+      readStudioAsset: vi.fn(async () => ({ markdown: '# Evidence report: AI search\n\nPeople want answers.' })),
+      decideResearchTheme: vi.fn(async () => true),
+      saveSettings: vi.fn(async (settings) => { current = { ...current, settings: { ...current.settings, ...settings } }; return current; }),
+      askHelp: vi.fn(async () => ({ answer: 'Sure.', pages: [], followUps: [], actions: [{ kind: 'approve-trend', label: 'Approve it', target: 'AI search visibility' }] })),
+    };
+    window.apifyStudio = api;
+    render(<App />);
+    await screen.findByRole('heading', { level: 1, name: /Good (morning|afternoon|evening)/ });
+    return api;
+  }
+
+  it('opens in Simple mode by default with Home, Reports, Trends and Ask AI', async () => {
+    await openSimple();
+    const tabs = within(screen.getByRole('navigation', { name: 'Main' }));
+    expect(tabs.getAllByRole('button').map((button) => button.textContent.replace(/\d+$/, ''))).toEqual(['Home', 'Reports', 'Trends', 'Ask AI']);
+    expect(screen.queryByRole('navigation', { name: 'Primary' })).not.toBeInTheDocument();
+    expect(screen.getByText(/trend needs/)).toBeInTheDocument();
+  });
+
+  it('reads a report and decides a trend in one tap', async () => {
+    const api = await openSimple();
+    fireEvent.click(screen.getByRole('button', { name: /Evidence report: AI search/ }));
+    expect(await screen.findByText('People want answers.')).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Trends/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Yes, use it/ }));
+    expect(api.decideResearchTheme).toHaveBeenCalledWith({ runId: 'run-1', themeId: 't1', decision: 'approved' });
+  });
+
+  it('runs an Ask AI action only when the button is clicked', async () => {
+    const api = await openSimple();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ask AI' }), { target: { value: 'Approve the AI search trend' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    const button = await screen.findByRole('button', { name: 'Approve it' });
+    expect(api.decideResearchTheme).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    await waitFor(() => expect(api.decideResearchTheme).toHaveBeenCalledWith({ runId: 'run-1', themeId: 't1', decision: 'approved' }));
+    expect(await screen.findByText(/Approved “AI search visibility”/)).toBeInTheDocument();
+  });
+
+  it('switches to the classic layout from Settings', async () => {
+    const api = await openSimple();
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(await screen.findByRole('switch', { name: 'Simple mode' }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ uiMode: 'classic' }));
+    expect(await screen.findByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
   });
 });

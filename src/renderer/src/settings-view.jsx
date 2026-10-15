@@ -35,6 +35,17 @@ function AiCheckResult({ result }) {
   </div>;
 }
 
+// Simple mode (the default) or the classic sidebar layout. Saved with the other settings, so it sticks.
+function LayoutSetting({ mode, busy, onChange }) {
+  const simple = mode === 'simple';
+  return <section className="settings-block settings-layout" aria-labelledby="settings-layout-title">
+    <div className="settings-layout-row">
+      <div><h3 id="settings-layout-title">Simple mode</h3><p>{simple ? 'On: Home, Reports, Trends and Ask AI in one clean view. Turn it off for the classic layout with every tool in the sidebar.' : 'Off: you’re using the classic layout with every tool in the sidebar. Turn it on for a cleaner view built around Home, Reports, Trends and Ask AI.'}</p></div>
+      <button type="button" role="switch" aria-checked={simple} aria-labelledby="settings-layout-title" className={`layout-switch${simple ? ' on' : ''}`} disabled={busy} onClick={() => onChange(simple ? 'classic' : 'simple')}><span aria-hidden="true" /></button>
+    </div>
+  </section>;
+}
+
 export function SettingsView({ setupApi, onOpenPrograms, state, meta, busy, onSaveKey, onClearKey, onSaveSettings, onTestSheetsBridge, onArchiveAndClearSheets, onImportWorkingSheets, onReplaySheetRun, onCheckAi, onCheckCodex, onTestImages, onOpenDataFolder, onOpenWorkspace, onSaveMondayBoard, onClearMondayBoard }) {
   const web = meta?.runtime === 'web'; // the browser studio: keys and the Claude connection live on the studio server
   const [token, setToken] = useState('');
@@ -189,6 +200,7 @@ export function SettingsView({ setupApi, onOpenPrograms, state, meta, busy, onSa
           <Badge tone={state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'ready' : 'neutral'}>{state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'Sheets saved' : 'Sheets optional'}</Badge>
         </div>
       </div>
+      <LayoutSetting mode={state.settings.uiMode || 'simple'} busy={busy} onChange={(uiMode) => onSaveSettings({ uiMode })} />
       {setupApi?.openSetupFile && <section className="settings-block settings-setup" aria-labelledby="settings-setup-title"><div className="panel-head"><div><h3 id="settings-setup-title">Share your setup</h3><p>Give a teammate this workspace's research program and knowledge in one file, or load one they shared with you.</p></div></div><SetupShare api={setupApi} web={web} onOpenPrograms={onOpenPrograms} /></section>}
       {semrush && <section className="settings-block settings-sources" aria-labelledby="settings-sources-title"><div className="panel-head"><div><h3 id="settings-sources-title">Source collection</h3><p>Connect Apify to research the accounts and communities you choose.</p></div><Badge tone={state.keys.APIFY_API_TOKEN ? 'ready' : 'neutral'}>{state.keys.APIFY_API_TOKEN ? 'Credential saved' : 'Setup needed'}</Badge></div>{sourceSettings}</section>}
       <section className="settings-block" aria-labelledby="settings-ai-title">
