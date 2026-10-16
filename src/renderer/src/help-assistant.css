@@ -67,15 +67,36 @@
 .help-drawer .help-action button:hover:not(:disabled) { background: #b07cf7; border-color: #b07cf7; color: #181e15; }
 .help-action-done { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #1f5a3c; }
 .help-action small { font-size: 11.5px; color: #8a3a22; }
-/* Simple mode: the same conversation, filling the page instead of sliding in from the side. */
-.help-drawer.help-page { position: relative; inset: auto; z-index: auto; width: 100%; max-width: 820px; height: 100%; margin: 0 auto; transform: none; transition: none; border: 1px solid var(--help-line); border-radius: 22px; box-shadow: 0 18px 50px rgba(24, 30, 21, .07); overflow: hidden; }
-.help-page .help-messages { padding: 26px 30px; gap: 18px; }
-.help-page .help-welcome h3 { font-size: 22px; letter-spacing: -.4px; }
-.help-page .help-welcome p { font-size: 14px; }
-.help-page .help-starters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.help-drawer.help-page .help-starters button { min-height: 56px; font-size: 13.5px; border-radius: 14px; }
-.help-page .help-question, .help-page .help-answer .markdown-content { font-size: 14px; }
-.help-page .help-composer { margin: 0 24px; padding: 10px; border-radius: 18px; }
-.help-page .help-composer textarea { font-size: 14px; }
-.help-page .help-foot { margin: 10px 30px 18px; }
-@media (max-width: 640px) { .help-page .help-starters { grid-template-columns: 1fr; } .help-page .help-messages { padding: 18px; } .help-page .help-composer { margin: 0 12px; } }
+/* Simple mode: the conversation fills the whole area under the tabs. One centered reading column;
+   the scrollbar stays at the window edge and the composer docks at the bottom. */
+.help-drawer.help-page { --col: 780px; position: relative; inset: auto; z-index: auto; width: 100%; max-width: none; height: 100%; margin: 0; transform: none; transition: none; border: 0; border-radius: 0; box-shadow: none; background: transparent; overflow: hidden; }
+.help-page-tools { position: absolute; top: 14px; right: 20px; z-index: 2; }
+.help-drawer.help-page .help-page-tools button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 14px; font-size: 12.5px; font-weight: 600; color: var(--help-ink); background: #fff; border: 1px solid var(--help-line); border-radius: 999px; }
+.help-drawer.help-page .help-page-tools button:hover:not(:disabled) { background: var(--help-soft); border-color: #cdb5f2; color: var(--help-ink); transform: none; box-shadow: none; }
+.help-page .help-messages { gap: 22px; padding: 40px max(24px, calc((100% - var(--col)) / 2)) 28px; }
+.help-page .help-messages:has(> .help-welcome) { align-content: center; }
+.help-page .help-welcome { display: grid; justify-items: center; width: 100%; padding: 0 0 8px; text-align: center; }
+.help-welcome-mark { display: grid; place-items: center; width: 56px; height: 56px; margin-bottom: 18px; border-radius: 18px; color: var(--help-accent); background: var(--help-soft); }
+.help-page .help-welcome h3 { margin: 0 0 10px; font-size: 30px; letter-spacing: -.8px; }
+.help-page .help-welcome p { margin: 0 0 28px; max-width: 580px; font-size: 15px; line-height: 1.6; }
+.help-page .help-starters { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.help-drawer.help-page .help-starters button { width: 100%; min-height: 60px; padding: 12px 18px; font-size: 14px; line-height: 1.35; border-radius: 16px; background: #fff; }
+.help-drawer.help-page .help-starters button span { flex: 1; min-width: 0; }
+.help-drawer.help-page .help-starters button svg { flex: none; color: var(--help-accent); }
+.help-page .help-question { max-width: 75%; padding: 12px 16px; border-radius: 18px 18px 6px 18px; font-size: 15px; }
+.help-page .help-answer .markdown-content { font-size: 15px; line-height: 1.75; }
+.help-page .help-answer .markdown-content :is(h1, h2, h3) { font-size: 16px; }
+.help-page .help-thinking { font-size: 14px; }
+.help-page .help-composer { width: min(var(--col), calc(100% - 48px)); margin: 0 auto; padding: 10px 10px 10px 16px; border-radius: 22px; box-shadow: 0 1px 2px rgba(24, 30, 21, .04), 0 10px 30px rgba(24, 30, 21, .07); }
+.help-page .help-composer textarea { font-size: 15px; }
+.help-drawer.help-page .help-composer button { width: 42px; height: 42px; min-height: 42px; border-radius: 14px; }
+.help-page .help-foot { margin: 10px auto 16px; text-align: center; }
+@media (max-width: 640px) { .help-page .help-starters { grid-template-columns: 1fr; } .help-page .help-messages { padding: 56px 16px 20px; } .help-page .help-composer { width: calc(100% - 24px); } .help-page .help-question { max-width: 90%; } }
+.help-context { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; font-size: 11px; font-weight: 600; color: var(--help-accent); }
+.help-drawer .help-receipt .help-inline-link { display: inline; min-height: 0; padding: 0; font: inherit; font-weight: 650; color: var(--help-accent); background: none; border: 0; text-decoration: underline; text-underline-offset: 2px; }
+.help-drawer .help-receipt .help-inline-link:hover:not(:disabled) { background: none; color: #5a2fa0; transform: none; box-shadow: none; }
+/* What Ask AI read before answering, and its "Show me" button. */
+.help-read { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #5a2fa0; }
+.help-show { display: flex; margin-top: 10px; }
+.help-show button { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 14px; font-size: 13px; font-weight: 650; color: #181e15; background: #f1eaff; border: 1px solid #c190ff; border-radius: 999px; }
+.help-show button:hover { background: #e6d6ff; }

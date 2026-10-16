@@ -43,7 +43,21 @@ function createHelpImages({ generateImage, dir, isConfigured = () => true, now =
     const meta = (() => { try { return JSON.parse(fs.readFileSync(file(id, 'json'), 'utf8')); } catch { return {}; } })();
     return { path: target, title: meta.title || 'Ask AI picture' };
   }
-  return { create, pngPath };
+  // Every saved picture, newest first, for Simple mode's Assets tab (metadata only; read() loads one image).
+  function list() {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { return []; }
+    return names.filter((name) => ID.test(name.replace(/\.json$/, '')) && name.endsWith('.json') && !name.endsWith('.request.json'))
+      .map((name) => { try { return JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')); } catch { return null; } })
+      .filter((meta) => meta && fs.existsSync(file(meta.id, 'png')))
+      .map(({ id, title, prompt, size, createdAt, receipt = {} }) => ({ id, title: title || 'Ask AI picture', prompt: prompt || '', size: size || HELP_IMAGE_SIZES[0], createdAt: createdAt || '', costUsd: Number.isFinite(receipt.costUsd) ? receipt.costUsd : null }))
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  }
+  function read(id) {
+    const { path: target } = pngPath(id);
+    return { id, dataUrl: `data:image/png;base64,${fs.readFileSync(target).toString('base64')}` };
+  }
+  return { create, pngPath, list, read };
 }
 
 module.exports = { createHelpImages, HELP_IMAGE_SIZES, IMAGE_ALLOWANCE_USD };

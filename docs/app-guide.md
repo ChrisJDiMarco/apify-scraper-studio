@@ -47,15 +47,40 @@ General workspace sidebar: **Content studio** (tabs for Overview, Research progr
 
 The header on every page has **Ask AI** (⌘J), **Search or jump to…** (⌘K, a command palette for pages and actions), a working indicator while tasks run, and **Refresh workspace**. ⌘, opens Settings. The sidebar footer shows how many runs are in progress, or "Local workspace", and the app version.
 
+### Simple mode
+
+Simple mode is on by default. It shows the studio as five tabs in the top bar, with Settings behind the gear on the right:
+
+- **Home** (⌘1): a greeting and an **Ask anything** box; three tiles for trends that need your OK, reports in your library, and **Find new trends** (pick a research program and **Start research**, or **Write N reports** when approved trends are waiting); **Working right now** while something runs; and **Latest reports**.
+- **Reports** (⌘2): every report, newest first, grouped Today, Yesterday, This week, This month and Earlier. Search titles, filter by type, and tap one to read it. The reader has **Copy text**, **Open file** (Mac) or **Download** (browser), **Make channel assets** and **Ask AI about this**; ← and → page through reports and Esc returns to the list. Drafts from channel asset runs live in Assets, not here.
+- **Trends** (⌘3): **Needs your OK** cards (priority, sources and platforms) with **Yes, use it** and **Skip**; a bar to **Write the reports** for approved trends; **Being written**; **Ready to read**. **Find new trends** starts research after a cost confirmation and **Full board** opens the classic trend board.
+- **Assets** (⌘4): **Report folders** of channel assets (see Channel asset kits below) and **Pictures**: every picture from channel asset runs, Create content and Ask AI, with filters. **Make channel assets** and **Make a picture** sit at the top right.
+- **Ask AI** (⌘5): the assistant as a full page (see Ask AI).
+- **Settings** (⌘,): connections, Claude, images, Google, and the **Simple mode** switch. Turning it off shows the classic layout with every tool in the sidebar; turn it back on from Settings there.
+
+The top bar shows **N jobs running** while work is in progress.
+
+### Channel asset kits (Assets)
+
+A channel asset kit is the Golden Thread "Generate All Channel Assets" n8n workflow inside the app: one report becomes every channel asset, filed the way n8n filed them in Drive.
+
+- **Start**: **Assets → Make channel assets**, or **Make channel assets** in the report reader, or ask Ask AI. Step 1 picks the source: **Your reports** (a trend's trends report and editorial toolkit count as one choice and are read together, with the posts the report cites), **Google Doc link** (a doc shared as "Anyone with the link" needs no Google connection; private docs need the Google Docs token in Settings), or **Paste text** (with an optional title, or upload a .docx, .md or .txt file). Step 2 shows every channel folder and asset, ticked; untick what you don't need. It shows the asset and picture counts, **About $X** with **Stops at $Y at most** (the run's cap, about twice the estimate so each asset can get one repair attempt; unspent budget isn't charged), the expected minutes, and the writing model. **Make N assets** starts it.
+- **What it makes** (Semrush workspace folder names and n8n file names): **Semrush Blog** (Blog — Short News Update, Blog — Long-form Article), **Semrush Newsletter** (Newsletter — Teaser + Long-form), **Semrush Paid Media** (Paid Media — Search Ads + Keywords, Paid Media — Landing Page), **Semrush PR** (PR — Journalist Outreach Research), **Semrush Social Team** (Social Team — LinkedIn + X + FB Captions, Social Team — Hero Graphic ×3), **Affiliate Program** (Affiliate — Partner Promo Pack), **Enterprise Sales Enablement** (Enterprise — Sales Enablement Brief), **Backlinko** (Backlinko — Video Script), **Exploding Topics** (Exploding Topics — Social + Email + Trend Card), **Search Engine Land / MarTech** (Search Engine Land — News Update + Video Script, Editorial Hero ×3, Social Hero ×3). That is 12 written assets and 9 pictures. The general workspace uses plain folder names and has no Search Engine Land pictures. Pictures need an OpenAI key; without one they're left out.
+- **How it runs**: writing goes through whichever way the app reaches AI (Settings → Writing & research): the Claude app on a subscription, an Anthropic API key, or Codex. On Claude it uses the report model and effort of the workspace's latest research program (Claude Fable 5.1 at high effort by default, as n8n used Fable). On Codex it uses Codex's own model and your Codex plan or OpenAI key; Codex doesn't report costs, so the dialog shows no price and the cap doesn't apply. It writes a few assets at a time, with pictures in their own lane. A draft that fails the checks gets one repair attempt. For each picture set, Claude first writes the art direction (headline, up to two facts with their sources, the visual idea), as n8n's image-prompt step did, then OpenAI draws three variations. A full kit from a trend is typically about $8–12 and 10–15 minutes.
+- **Folders**: each report gets a folder in **Report folders**; each run gets a folder inside it named like n8n's Drive folder, "Golden Thread — <trend> (<date>)". Open a folder to see its runs on the left and the open run's channel folders on the right, each file with its status (Waiting, Writing, Drawing, ready, or why it needs another try). Click a written asset to read it (Copy text, Open file or Download; ← and → page through the run). Click a picture to enlarge it.
+- **Run actions**: **Save folder** (Mac: copies the run's folder, with a channel folder each and a Source file, into Downloads and shows it in Finder) or **Download folder** (browser: a .zip); **Save to Google Drive** when Google publishing is connected (the same folder and file names in Drive); **Stop** while it runs (finished assets are kept); **Finish the rest** for assets that didn't make it (asks to confirm what it can spend; finished assets aren't made again); **Make another set** and **Read the report** at the top of the folder.
+- While a kit runs, Home shows it under **Working right now** and a trend's card on the Trends tab shows **Creating assets**.
+
 ### Ask AI
 
-**Ask AI** in the header opens a help panel on any page. Ask how something works, what a run will cost, why a run stopped, or what to do next. You can also ask it for a picture.
+**Ask AI** answers questions, does work for you after you confirm, and can take you to any control in Simple mode and point at it. In Simple mode it's the **Ask AI** tab; in the classic layout it's the header button (⌘J) that opens a panel.
 
-- It answers from this guide plus a summary of your setup: current page, workspace, product and taxonomy counts, reference document titles, which connections are saved (yes or no only), Claude route and model, up to 10 programs' settings, your last three research runs (status, message, cost, warnings), and what is running now.
-- It also sees the names of your latest trends (so "an image for my latest trend" works) and the workspace's visual direction. It never sees API keys, tokens, collected posts or report text.
-- It can't click, change settings, or start or stop runs. Answers can include **Open** buttons for the right pages and suggested follow-up questions.
-- Each question uses your Claude connection (Settings → Writing & research) and **Default Claude model** at low effort: about $0.10 a question, capped at $0.50. Each answer shows the model and cost.
-- The conversation lasts until you quit. The round-arrow button starts a new one. Esc closes the panel. If Claude isn't reachable, the error offers **Open Settings → Writing & research**.
+- **What it sees**: this guide plus a picture of your studio: which tab and report or folder you were on, your workspace, which connections are saved (yes or no only), the Claude route and model, research programs, recent research runs, what's running now, every trend waiting for your OK or approved, every report title, and every asset folder with its runs and what needs another try. It never sees API keys, tokens or collected posts.
+- **It reads when it needs to**: titles aren't contents, so for questions like "what does the AI citation report say about budgets?" or "why did the PR asset fail?" it first reads up to three reports, asset folders or runs, then answers. The answer notes what it read. Reading adds a second Claude call.
+- **It does the work**: when you ask it to do something it can do, the answer offers buttons. Nothing happens until you click, and anything that spends money asks you to confirm first. It can start research, say yes or skip to a trend or to all waiting trends, write the reports, open a report, open the Make channel assets dialog on a report (you check the cost and press Make), open an asset folder, finish the rest of an asset run, save a run's folder, stop or retry a run, and switch tabs.
+- **Show me**: when you ask where something is or how to do something, the answer can take you there: it switches tabs, opens the report, folder or dialog it needs, and rings the exact control with a note on what to do. Multi-step answers walk through each step; **Next** (or →) moves on, clicking the highlighted control does too, and **Back to chat** returns. When it isn't taking you there right away, the answer has a **Show me** button.
+- Each question uses your Claude connection (Settings → Writing & research) and the **Default Claude model** at medium effort: about $0.15, capped at $0.75 per call. Each answer shows the model and cost.
+- The conversation lasts until you quit. **New conversation** starts over. If Claude isn't reachable, the error offers **Open Settings**.
 - AI answers can be mistaken. Check important numbers on the page itself.
 
 **Pictures in Ask AI.** Ask for a picture in plain words, for example "Create a hero image for my latest trend" or "a square LinkedIn graphic about AI Overviews in lavender and mint". Claude writes a detailed prompt and OpenAI draws it; a placeholder shows while it's drawn, usually under a minute.
@@ -65,8 +90,8 @@ The header on every page has **Ask AI** (⌘J), **Search or jump to…** (⌘K, 
 - Sizes: landscape (the default, for social and hero images), square or portrait. Ask for the shape you want.
 - To change a picture, just say so ("make it bluer", "remove the text"): Ask AI rewrites the earlier prompt with your change and draws a new one.
 - Click a picture to see it full size. **Download** saves the PNG. If drawing fails, **Try again** repeats it.
-- Each picture costs a few cents of OpenAI usage on top of the answer (about $0.10 of Claude); the cost shows under the picture. The app reserves at most $1 per picture.
-- Pictures are saved in the studio's data folder. They don't appear in **Library**; use **Create content** for campaign images that belong with a report.
+- Each picture costs a few cents of OpenAI usage on top of the answer; the cost shows under the picture. The app reserves at most $1 per picture.
+- Pictures are saved in the studio's data folder and appear under **Assets → Pictures** (Made in Ask AI). They don't appear in **Library**.
 
 ## The browser studio
 
@@ -345,6 +370,8 @@ Theme columns and totals fill in only after themes are approved and tagging runs
 Create content turns a source into drafts in three steps.
 
 1. **Source brief** ("What is the story?"): **Paste a brief** (a **Source title** and **Source brief** of up to 250,000 characters), **Import document** (.txt, .md, .docx), **Use a report** (a finished report from this workspace), or **Google Doc** (needs a Google Docs token).
+
+To make every channel asset from one report at once, in folders, use **Assets → Make channel assets** in Simple mode instead (see Channel asset kits).
 2. **Choose deliverables**: filter by channel or **Images**, and tick formats. In the Semrush workspace the core formats show first (Evidence report, Editorial toolkit, Long-form article, Social captions and thread, Enterprise sales brief, Brand campaign graphic). **Explore N more formats** shows the rest: Short news update, Newsletter pack, Search ads and keywords, Affiliate partner pack, Backlinko video script, Exploding Topics pack, Search Engine Land news and video, PR research brief, Campaign landing page, SEL social data graphics and SEL editorial heroes. Image formats need an image key, and **Image directions per selected image output** (1–3) sets how many images each one makes.
 3. **Review & generate** ("Ready for a first draft?"): check the source, outputs and workspace context.
 
@@ -607,10 +634,11 @@ Ask AI first. Then send the team: what you did and expected; a screenshot of the
 ## Limits and what the app doesn't do yet
 
 - **Everything is local to each Mac.** Runs, collected posts, themes, trend history, Sheets edits and Library items stay on the Mac that made them. There is no shared history or team sync. Velocity counts only your own runs. Share setups with **Share your setup**, and share results by exporting.
-- **Google delivery is pending for testers.** Create Google Sheet, Pull from a Google Sheets link, and Publish to Google Drive need the Sheets bridge, which isn't set up for testers yet. Google Doc imports need a manually pasted token that expires.
+- **Google delivery is pending for testers.** Create Google Sheet, Pull from a Google Sheets link, Publish to Google Drive and Save to Google Drive need the Sheets bridge, which isn't set up for testers yet. Docs shared by link import without Google; private docs need a manually pasted token that expires.
 - **The build isn't notarized yet**, so macOS asks you to confirm it once (System Settings → Privacy & Security → **Open Anyway**) the first time you open it. There are no automatic updates. Install new builds by hand.
 - **Schedules run only while the app is open** and the Mac is awake.
-- **Ask AI can't act**: it can't click, change settings, start runs, or read posts and reports.
+- **Ask AI acts only through buttons you click**, and its Show me tours cover Simple mode and Settings (classic pages get Open buttons). It can't change settings or read collected posts.
+- **Channel asset pictures don't use brand reference images or logo files yet** (n8n sent its style examples and the SEL lockup to the image model). Pictures leave a clean footer for the logo instead.
 - **Collection is a sample**, not the whole platform. Spending caps, time limits, private accounts and the per-author cap all reduce coverage. Counts describe your sample, not market prevalence.
 - **Research collections don't appear in Datasets or Chat with findings.** Use Sheets.
 - **The app doesn't track blog coverage on its own.** Priority scoring uses the taxonomy you import.

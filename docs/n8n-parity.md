@@ -69,6 +69,22 @@ Studio keeps the workbook local (Sheets view) and can download it as .xlsx or cr
 | Archive clone of the data sheet, then clear tabs | Not needed: each run keeps its own evidence and workbook. "Archive and clear" remains available for the Google working sheet | ✅ By design |
 | Fully automated weekly run | Schedules + "Approve themes automatically" | ✅ Match (opt-in; review stays the default) |
 
+## Golden Thread v2 — Generate All Channel Assets
+
+The second n8n workflow (shared 2026-10-16) turns one trend document into every channel asset. In Studio it is **Assets → Make channel assets** in Simple mode (`src/shared/asset-kit.js`, `createAssetKit` in `src/main/content-workspace.js`, `src/renderer/src/simple-assets.jsx`).
+
+| n8n | Studio | Status |
+|---|---|---|
+| Form or Google Form row: a Google Doc link, or an uploaded PDF/DOCX | A report from the library, a Google Doc link (read through its share link, or the Google Docs token for private docs), pasted text, or an uploaded .docx/.md/.txt | ⚠️ No PDF upload; no Google Form trigger |
+| "Parse Trend with Claude" (Fable 5) into seven normalized fields, then each prompt gets the fields | Every prompt gets the whole report: for a trend, its editorial toolkit and comprehensive report together, plus the posts the report cites (short IDs E1…) | ➕ More context, cited sources |
+| Folder "Golden Thread — <trend> (<date>)" with 10 channel folders | Report folder → run folder with the same name → the same 10 channel folders and n8n file names; **Save folder** (Downloads), **Download folder** (.zip in the browser), **Save to Google Drive** | ✅ Match |
+| 12 channel prompts on Claude Fable 5, all at once | The same 12 deliverables (`CONTENT_DELIVERABLES`), the workspace's report model (Fable 5.1, high effort), 3 at a time, schema-checked with one repair attempt | ✅ Match, validated |
+| PR journalist table from the model's knowledge, blanks when unsure | Journalist rows only from supplied evidence that names the journalist, outlet and article; otherwise an explicit gap | ⚠️ Deliberate: no invented contacts |
+| Landing page written as HTML by Claude | Structured sections rendered into a branded HTML page | ⚠️ Template-rendered |
+| Claude writes each image prompt, then gpt-image-1 edits with reference images (style examples, the SEL lockup), 3 variations | Claude writes an art-direction brief per picture set (headline, up to two sourced facts, visual idea), then gpt-image-2.5-flare draws 3 variations; PNG plus an SVG wrapper | ⚠️ No reference images or logo files yet |
+| Figma-editable SVG | SVG that wraps the PNG | ✅ Same approach |
+| Slack message with every link | Status in Assets, Home ("Working right now") and the trend's card | ❌ No Slack |
+
 ## Models
 
 n8n: Opus 4.8 (discovery, synthesis, matching), Fable 5 (tagging, report, toolkit), Haiku 4.5 (AI-SEO classifier). Studio defaults: Claude Opus 5.5 for discovery/synthesis/matching and Claude Fable 5.1 for tagging and reports, each changeable per program with an effort level. Fable costs about 2.5× Opus 5.5 per token. Switching tagging to Opus 5.5 is the biggest single saving. The program form shows an estimate before each run.

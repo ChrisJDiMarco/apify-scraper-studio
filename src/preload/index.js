@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   askHelp: (payload) => invoke('help:ask', payload),
   createHelpImage: (payload) => invoke('help:image', payload),
   saveHelpImage: (payload) => invoke('help:save-image', payload),
+  listHelpImages: (payload) => invoke('help:images', payload),
+  readHelpImage: (payload) => invoke('help:read-image', payload),
   // Share a setup: export to a file, open one for preview, then import the previewed file.
   exportSetup: (payload) => invoke('setup:export', payload),
   openSetupFile: () => invoke('setup:open'),
@@ -39,6 +41,10 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   importProductRegistry: (payload) => invoke('studio:importProductRegistry', payload),
   estimateResearchProgram: (payload) => invoke('studio:estimateResearchProgram', payload),
   setThemeStatus: (payload) => invoke('studio:setThemeStatus', payload),
+  // Asset kits: every channel asset from one report, filed in folders per run.
+  planAssetKit: (payload) => invoke('studio:planAssetKit', payload),
+  createAssetKit: (payload) => invoke('studio:createAssetKit', payload),
+  saveAssetKitFolder: (payload) => invoke('studio:saveAssetKitFolder', payload),
 
   listWorkbooks: () => invoke('workbooks:list'),
   readWorkbook: (payload) => invoke('workbooks:read', payload),

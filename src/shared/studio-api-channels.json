@@ -25,6 +25,8 @@
     "askHelp": "help:ask",
     "createHelpImage": "help:image",
     "saveHelpImage": "help:save-image",
+    "listHelpImages": "help:images",
+    "readHelpImage": "help:read-image",
     "exportSetup": "setup:export",
     "openSetupFile": {
       "channel": "setup:open",
@@ -34,6 +36,9 @@
     "importProductRegistry": "studio:importProductRegistry",
     "estimateResearchProgram": "studio:estimateResearchProgram",
     "setThemeStatus": "studio:setThemeStatus",
+    "planAssetKit": "studio:planAssetKit",
+    "createAssetKit": "studio:createAssetKit",
+    "saveAssetKitFolder": "studio:saveAssetKitFolder",
     "listWorkbooks": {
       "channel": "workbooks:list",
       "args": []

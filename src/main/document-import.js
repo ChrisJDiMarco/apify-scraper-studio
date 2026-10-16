@@ -154,15 +154,17 @@ function extractGoogleDocumentText(document) {
   if (!hasBodyText) fail('source', 'This Google document has no readable body text. Image-only documents need transcription.');
   return output.text();
 }
-async function boundedResponseText(response) {
+async function boundedResponseBuffer(response, limit = MAX_GOOGLE_RESPONSE_BYTES) {
+  const megabytes = Math.round(limit / 1024 / 1024);
   const declared = Number(response.headers?.get('content-length'));
-  if (declared > MAX_GOOGLE_RESPONSE_BYTES) fail('googleDoc', 'The Google document response exceeds the 8 MB import limit.');
+  if (declared > limit) fail('googleDoc', `The Google document response exceeds the ${megabytes} MB import limit.`);
   if (!response.body || typeof response.body.getReader !== 'function') fail('googleDoc', 'Google Docs returned an unreadable response.');
   const reader = response.body.getReader(); const chunks = []; let bytes = 0;
-  try { while (true) { const { value, done } = await reader.read(); if (done) break; bytes += value.byteLength; if (bytes > MAX_GOOGLE_RESPONSE_BYTES) { await reader.cancel(); fail('googleDoc', 'The Google document response exceeds the 8 MB import limit.'); } chunks.push(Buffer.from(value)); } }
+  try { while (true) { const { value, done } = await reader.read(); if (done) break; bytes += value.byteLength; if (bytes > limit) { await reader.cancel(); fail('googleDoc', `The Google document response exceeds the ${megabytes} MB import limit.`); } chunks.push(Buffer.from(value)); } }
   finally { reader.releaseLock(); }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
 }
+async function boundedResponseText(response) { return (await boundedResponseBuffer(response)).toString('utf8'); }
 async function readGoogleDocument({ url, accessToken, fetchImpl = globalThis.fetch } = {}) {
   const target = parseGoogleDocUrl(url);
   if (typeof accessToken !== 'string' || !accessToken.trim() || accessToken.length > 12000 || /[\r\n]/.test(accessToken)) fail('googleDocsConnection', 'Connect Google Docs before importing a private document.');
@@ -177,4 +179,40 @@ async function readGoogleDocument({ url, accessToken, fetchImpl = globalThis.fet
   } catch (error) { if (error.field) throw error; if (controller.signal.aborted) fail('googleDoc', 'Google Docs import timed out. Try again.'); fail('googleDoc', 'Google Docs could not be reached. Check the connection and retry.'); }
   finally { clearTimeout(timer); }
 }
-module.exports = { MAX_DOCUMENT_BYTES, MAX_XML_BYTES, MAX_GOOGLE_RESPONSE_BYTES, extractDocumentText, readDocumentFile, parseGoogleDocUrl, extractGoogleDocumentText, readGoogleDocument };
+// A Google Doc shared as "Anyone with the link" exports as .docx without signing in. Only Google's own hosts are
+// followed through the export's redirects, so the server never fetches an address a person typed.
+const GOOGLE_EXPORT_HOST = /^(?:docs\.google\.com|[a-z0-9-]+\.googleusercontent\.com)$/;
+const NOT_SHARED = 'This Google Doc isn’t shared by link. In Google Docs choose Share → General access → Anyone with the link, or share it with the Google account connected in Settings.';
+function dispositionName(value) {
+  const header = String(value || '');
+  const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+  if (encoded) { try { return decodeURIComponent(encoded[1].trim().replace(/^"|"$/g, '')); } catch (_) { /* Use the plain name below. */ } }
+  const plain = /filename\s*=\s*"([^"]+)"/i.exec(header) || /filename\s*=\s*([^;]+)/i.exec(header);
+  return plain ? plain[1].trim() : '';
+}
+async function readPublicGoogleDocument({ url, fetchImpl = globalThis.fetch } = {}) {
+  const target = parseGoogleDocUrl(url);
+  if (typeof fetchImpl !== 'function') fail('googleDoc', 'This runtime cannot connect to Google Docs.');
+  const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    let next = `https://docs.google.com/document/d/${target.documentId}/export?format=docx`; let response;
+    for (let hop = 0; ; hop++) {
+      response = await fetchImpl(next, { method: 'GET', redirect: 'manual', signal: controller.signal });
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      if (hop >= 4) fail('googleDoc', 'Google Docs redirected too many times. Try again.');
+      let location; try { location = new URL(response.headers?.get('location') || '', next); } catch (_) { location = null; }
+      // A redirect anywhere else (the Google sign-in page) means the doc is private.
+      if (!location || location.protocol !== 'https:' || location.username || location.password || !GOOGLE_EXPORT_HOST.test(location.hostname)) fail('googleDocSharing', NOT_SHARED);
+      next = location.href;
+    }
+    if ([401, 403, 404].includes(response.status)) fail('googleDocSharing', NOT_SHARED);
+    if (!response.ok) fail('googleDoc', `Google Docs export failed with status ${response.status}. Try again.`);
+    if (/text\/html/i.test(response.headers?.get('content-type') || '')) fail('googleDocSharing', NOT_SHARED);
+    const buffer = await boundedResponseBuffer(response, MAX_DOCUMENT_BYTES);
+    const name = path.basename(dispositionName(response.headers?.get('content-disposition'))) || 'Google document.docx';
+    const doc = await extractDocumentText({ buffer, fileName: /\.docx$/i.test(name) ? name : `${name}.docx` });
+    return { title: doc.title, text: doc.text, kind: 'upload', format: 'google-doc', url: target.url, characters: doc.characters, warnings: ['Read through the document’s share link. Images, comments, headers and footers are not analyzed.'] };
+  } catch (error) { if (error.field) throw error; if (controller.signal.aborted) fail('googleDoc', 'Google Docs import timed out. Try again.'); fail('googleDoc', 'Google Docs could not be reached. Check the connection and retry.'); }
+  finally { clearTimeout(timer); }
+}
+module.exports = { MAX_DOCUMENT_BYTES, MAX_XML_BYTES, MAX_GOOGLE_RESPONSE_BYTES, extractDocumentText, readDocumentFile, parseGoogleDocUrl, extractGoogleDocumentText, readGoogleDocument, readPublicGoogleDocument };

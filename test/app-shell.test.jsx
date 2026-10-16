@@ -152,21 +152,35 @@ describe('Simple mode', () => {
     return api;
   }
 
-  it('opens in Simple mode by default with Home, Reports, Trends and Ask AI', async () => {
+  it('opens in Simple mode by default with Home, Reports, Trends, Assets and Ask AI', async () => {
     await openSimple();
     const tabs = within(screen.getByRole('navigation', { name: 'Main' }));
-    expect(tabs.getAllByRole('button').map((button) => button.textContent.replace(/\d+$/, ''))).toEqual(['Home', 'Reports', 'Trends', 'Ask AI']);
+    expect(tabs.getAllByRole('button').map((button) => button.textContent.replace(/\d+$/, ''))).toEqual(['Home', 'Reports', 'Trends', 'Assets', 'Ask AI']);
     expect(screen.queryByRole('navigation', { name: 'Primary' })).not.toBeInTheDocument();
     expect(screen.getByText(/trend needs/)).toBeInTheDocument();
   });
 
   it('reads a report and decides a trend in one tap', async () => {
     const api = await openSimple();
-    fireEvent.click(screen.getByRole('button', { name: /Evidence report: AI search/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Evidence report: AI search/ }));
     expect(await screen.findByText('People want answers.')).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Trends/ }));
     fireEvent.click(await screen.findByRole('button', { name: /Yes, use it/ }));
     expect(api.decideResearchTheme).toHaveBeenCalledWith({ runId: 'run-1', themeId: 't1', decision: 'approved' });
+  });
+
+  it('asks about the open report with its text, and Esc returns to the list', async () => {
+    const api = await openSimple();
+    fireEvent.click(screen.getByRole('button', { name: /^Evidence report: AI search/ }));
+    expect(await screen.findByText('People want answers.')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.click(await screen.findByRole('button', { name: /^Evidence report: AI search/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask AI about this' }));
+    await waitFor(() => expect(api.askHelp).toHaveBeenCalled());
+    const request = api.askHelp.mock.calls[0][0];
+    expect(request.question).toMatch(/next steps/);
+    expect(request.history.at(-1).content).toContain('People want answers.');
+    expect(await screen.findByText('With the report you had open')).toBeInTheDocument();
   });
 
   it('runs an Ask AI action only when the button is clicked', async () => {
@@ -178,6 +192,19 @@ describe('Simple mode', () => {
     fireEvent.click(button);
     await waitFor(() => expect(api.decideResearchTheme).toHaveBeenCalledWith({ runId: 'run-1', themeId: 't1', decision: 'approved' }));
     expect(await screen.findByText(/Approved “AI search visibility”/)).toBeInTheDocument();
+  });
+
+  it('shows Ask AI pictures and campaign visuals together in Assets', async () => {
+    const api = await openSimple({ contentStudio: { activeWorkspaceId: 'semrush', workspaces: [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush', knowledge: {}, products: [] }], programs: [], researchRuns: [], contentRuns: [], assets: [{ id: 'visual-1', workspaceId: 'semrush', kind: 'image', title: 'Campaign hero', channel: 'design', createdAt: '2026-10-08T10:00:00Z' }], availableDatasets: [], availableReports: [], capabilities: {} } });
+    api.listHelpImages = vi.fn(async () => [{ id: 'help-image-1', title: 'Sky whales', prompt: 'Whales above a city', size: '1536x1024', createdAt: '2026-10-09T10:00:00Z', costUsd: 0.2 }]);
+    api.readHelpImage = vi.fn(async () => ({ id: 'help-image-1', dataUrl: 'data:image/png;base64,AAAA' }));
+    api.readStudioAsset = vi.fn(async () => ({ imageDataUrl: 'data:image/png;base64,BBBB' }));
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Assets/ }));
+    const cards = await screen.findAllByRole('button', { name: /^Open / });
+    expect(cards.map((card) => card.getAttribute('aria-label'))).toEqual(['Open Sky whales', 'Open Campaign hero']);
+    expect(screen.getByRole('button', { name: /Made in Ask AI/ })).toBeInTheDocument();
+    fireEvent.click(cards[0]);
+    expect(await screen.findByText('Whales above a city')).toBeInTheDocument();
   });
 
   it('switches to the classic layout from Settings', async () => {

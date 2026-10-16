@@ -12,6 +12,8 @@ const copies = [
   ['src/main/ai-routes.js', 'out/main/ai-routes.js'],
   ['src/main/web-runtime.js', 'out/main/web-runtime.js'], // loaded only under STUDIO_RUNTIME=web
   ['src/main/help-images.js', 'out/main/help-images.js'],
+  ['src/main/help-assistant.js', 'out/main/help-assistant.js'],
+  ['src/shared/help-spots.json', 'out/shared/help-spots.json'],
   ['docs/app-guide.md', 'out/main/app-guide.md'], // Ask AI answers from this guide
   ['src/shared/setup-bundle.js', 'out/shared/setup-bundle.js'],
   ['src/shared/anthropic-runner.js', 'out/shared/anthropic-runner.js'],
@@ -25,6 +27,7 @@ const copies = [
   ['src/main/workbook-import.js', 'out/main/workbook-import.js'],
   ['src/shared/research-workbook.js', 'out/shared/research-workbook.js'],
   ['src/shared/content-studio.js', 'out/shared/content-studio.js'],
+  ['src/shared/asset-kit.js', 'out/shared/asset-kit.js'],
   ['src/shared/research-program.js', 'out/shared/research-program.js'],
   ['src/shared/research-schedule.js', 'out/shared/research-schedule.js'],
   ['src/shared/research-collection.js', 'out/shared/research-collection.js'],

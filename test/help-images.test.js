@@ -32,6 +32,15 @@ describe('Ask AI pictures', () => {
     expect(images.pngPath(made.id)).toEqual({ path: path.join(dir, `${made.id}.png`), title: 'AI Overviews hero' });
   });
 
+  it('lists saved pictures for the Assets tab and reads one back', async () => {
+    const { images } = setup();
+    expect(images.list()).toEqual([]);
+    const made = await images.create({ prompt: 'Whales above a city', title: 'Sky whales' });
+    expect(images.list()).toEqual([{ id: made.id, title: 'Sky whales', prompt: 'Whales above a city', size: '1536x1024', createdAt: '2026-10-08T18:00:00.000Z', costUsd: 0.0472 }]);
+    expect(images.read(made.id)).toEqual({ id: made.id, dataUrl: made.dataUrl });
+    expect(() => images.read('../secrets')).toThrow('no longer available');
+  });
+
   it('refuses empty, oversized or oddly sized requests before anything is paid for', async () => {
     const { calls, images } = setup();
     await expect(images.create({ prompt: '   ' })).rejects.toThrow('Describe the picture first.');
