@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { deflateSync } from 'node:zlib';
 import images from '../src/main/image-provider.js';
+import { jpeg } from './helpers/pictures.js';
 const { createImageProvider, validatePng, MODEL, MAX_RESPONSE_BYTES } = images;
 const digestUsage = { input_tokens: 1000, input_tokens_details: { text_tokens: 1000, image_tokens: 0 }, output_tokens: 4096, total_tokens: 5096 };
 function crc32(buffer) { let crc = -1; for (const byte of buffer) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0); } return (crc ^ -1) >>> 0; }
@@ -15,6 +16,9 @@ function response({ bytes = IMAGE, usage = digestUsage, data, ...rest } = {}) { 
 function request(variants = 3, extra = {}) { return { runId: 'fixture-run', deliverable: { id: 'brand-image', label: 'Fixture visual', kind: 'image', variants, size: '1536x1024', variantPrompts: Array.from({ length: variants }, (_, i) => `Original fixture direction ${i + 1}`) }, maxBudgetUsd: 1, onRequest: async () => {}, ...extra }; }
 async function failed(promise) { try { await promise; throw new Error('Expected fixture operation to fail'); } catch (error) { return error; } }
 function adapter(fetchImpl, extra = {}) { return createImageProvider({ getApiKey: () => 'fixture-private-key', fetchImpl, ...extra }); }
+// Brand reference images as the content workspace sends them: two style examples, then the approved logo.
+const referenceImages = () => [{ role: 'style', mime: 'image/png', data: png(64, 48) }, { role: 'style', mime: 'image/jpeg', data: jpeg(120, 80) }, { role: 'logo', mime: 'image/png', data: png(331, 60) }];
+function referenced(variants = 2, references = referenceImages(), extra = {}) { const base = request(variants, extra); return { ...base, deliverable: { ...base.deliverable, references } }; }
 
 describe('OpenAI images host adapter', () => {
   it('dispatches distinct directions sequentially after durable checkpoints and returns real validated PNGs', async () => {
@@ -120,6 +124,57 @@ describe('OpenAI images host adapter', () => {
     const fetchImpl = vi.fn(async (url, options) => { expect(url).toBe(`https://api.openai.com/v1/models/${MODEL}`); expect(options.method).toBe('GET'); expect(options.redirect).toBe('error'); return new Response(JSON.stringify({ id: MODEL, private_metadata: 'do not expose' })); });
     const result = await adapter(fetchImpl).checkAccess(); expect(result).toMatchObject({ accessible: true, requestedModel: MODEL, generationVerified: false }); expect(JSON.stringify(result)).not.toContain('do not expose'); expect(fetchImpl).toHaveBeenCalledOnce();
     await expect(adapter(async () => new Response(JSON.stringify({ id: 'wrong' }))).checkAccess()).rejects.toMatchObject({ code: 'IMAGE_ACCESS_UNVERIFIED' });
+  });
+  it('sends brand reference images to the edits endpoint as multipart image[] parts, after the same checkpoint', async () => {
+    const refs = referenceImages(); const events = []; const sent = [];
+    const usage = { input_tokens: 4300, input_tokens_details: { text_tokens: 1000, image_tokens: 3300 }, output_tokens: 4096, total_tokens: 8396 };
+    const provider = adapter(async (url, options) => {
+      expect(events.at(-1).status).toBe('dispatched');
+      expect(url).toBe('https://api.openai.com/v1/images/edits'); expect(options).toMatchObject({ method: 'POST', redirect: 'error' });
+      expect(options.headers).toEqual({ Authorization: 'Bearer fixture-private-key', Accept: 'application/json' }); // fetch writes the multipart boundary itself
+      expect(options.body).toBeInstanceOf(FormData);
+      const fields = Object.fromEntries(['model', 'prompt', 'n', 'size', 'quality', 'output_format', 'background', 'moderation'].map(name => [name, options.body.get(name)]));
+      expect(fields).toEqual({ model: MODEL, prompt: `Original fixture direction ${sent.length + 1}`, n: '1', size: '1536x1024', quality: 'medium', output_format: 'png', background: 'opaque', moderation: null });
+      sent.push(await Promise.all(options.body.getAll('image[]').map(async part => ({ name: part.name, type: part.type, bytes: Buffer.from(await part.arrayBuffer()) }))));
+      return response({ usage });
+    });
+    const result = await provider.generateImage(referenced(2, refs, { onRequest: async receipt => { events.push(receipt); } }));
+    expect(sent).toHaveLength(2);
+    for (const parts of sent) {
+      expect(parts.map(part => [part.name, part.type])).toEqual([['reference-1.png', 'image/png'], ['reference-2.jpg', 'image/jpeg'], ['reference-3.png', 'image/png']]);
+      parts.forEach((part, index) => expect(part.bytes.equals(refs[index].data)).toBe(true));
+    }
+    const listed = refs.map(ref => ({ role: ref.role, mime: ref.mime, bytes: ref.data.length, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }));
+    for (const receipt of [...events, ...result.map(image => image.receipt)]) expect(receipt).toMatchObject({ endpoint: 'images/edits', referencesHash: expect.stringMatching(/^[a-f0-9]{64}$/), references: listed });
+    expect(result.map(image => image.receipt.costUsd)).toEqual([0.15428, 0.15428]); // reference images are billed as image input
+    const receipts = JSON.stringify(result.map(image => image.receipt)); for (const ref of refs) expect(receipts).not.toContain(ref.data.toString('base64'));
+    expect(receipts).not.toContain('fixture-private-key');
+  });
+  it('checks every reference image before any paid call', async () => {
+    const fetchImpl = vi.fn(async () => response()); const provider = adapter(fetchImpl); const good = referenceImages()[0];
+    for (const references of [[{ ...good, role: 'hero' }], [{ ...good, mime: 'image/gif' }], [{ ...good, mime: 'image/jpeg' }], [{ ...good, data: good.data.toString('base64') }], [{ ...good, data: Buffer.concat([good.data, Buffer.alloc(20 * 1024 * 1024)]) }], Array.from({ length: 17 }, () => good), 'one picture']) {
+      await expect(provider.generateImage(referenced(1, references))).rejects.toMatchObject({ beforeDispatch: true, code: 'IMAGE_INPUT_INVALID', field: 'deliverable.references' });
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it('resumes a picture set with reference images only when the same images, in the same roles, are sent', async () => {
+    const refs = referenceImages();
+    const firstFetch = vi.fn(async () => (firstFetch.mock.calls.length === 2 ? new Response('', { status: 403 }) : response()));
+    const saved = (await failed(adapter(firstFetch).generateImage(referenced(3, refs)))).partialImages;
+    expect(saved).toHaveLength(1); expect(saved[0].receipt).toMatchObject({ status: 'succeeded', endpoint: 'images/edits' });
+    const resumedFetch = vi.fn(async url => { expect(url).toBe('https://api.openai.com/v1/images/edits'); return response(); });
+    expect(await adapter(resumedFetch).generateImage(referenced(3, refs, { completedVariants: saved }))).toHaveLength(3); expect(resumedFetch).toHaveBeenCalledTimes(2);
+    const never = vi.fn(); const swapped = refs.map((ref, index) => (index === 2 ? { ...ref, data: png(331, 61) } : ref)); const relabelled = refs.map(ref => ({ ...ref, role: 'style' }));
+    for (const payload of [referenced(3, swapped, { completedVariants: saved }), referenced(3, relabelled, { completedVariants: saved }), request(3, { completedVariants: saved })]) {
+      await expect(adapter(never).generateImage(payload)).rejects.toMatchObject({ beforeDispatch: true, field: 'completedVariants' });
+    }
+    expect(never).not.toHaveBeenCalled();
+  });
+  it('gives a picture with reference images the longer edits timeout, still without retrying', async () => {
+    const fetchImpl = vi.fn(async (_url, options) => new Promise((_resolve, reject) => { options.signal.addEventListener('abort', () => reject(new Error('transport detail'))); }));
+    const error = await failed(adapter(fetchImpl, { timeoutMs: 600000, editTimeoutMs: 10 }).generateImage(referenced(1)));
+    expect(error.code).toBe('IMAGE_TIMEOUT'); expect(error.attemptReceipts[0]).toMatchObject({ status: 'unknown', endpoint: 'images/edits' }); expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(() => adapter(fetchImpl, { editTimeoutMs: 0 })).toThrow('Choose an image timeout');
   });
   it('treats credential failures as pre-dispatch and prevents same-job concurrency', async () => {
     const never = vi.fn(); const missing = createImageProvider({ getApiKey: () => { throw new Error('fixture-private-key'); }, fetchImpl: never }); const error = await failed(missing.generateImage(request(1))); expect(error).toMatchObject({ beforeDispatch: true, code: 'IMAGE_AUTH_REQUIRED' }); expect(error.message).not.toContain('fixture-private-key'); expect(never).not.toHaveBeenCalled();

@@ -45,6 +45,11 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   planAssetKit: (payload) => invoke('studio:planAssetKit', payload),
   createAssetKit: (payload) => invoke('studio:createAssetKit', payload),
   saveAssetKitFolder: (payload) => invoke('studio:saveAssetKitFolder', payload),
+  // Brand reference images: style examples and an approved logo per picture set, sent with kit pictures.
+  addBrandImage: (payload) => invoke('studio:addBrandImage', payload),
+  readBrandImage: (payload) => invoke('studio:readBrandImage', payload),
+  setBrandImageRole: (payload) => invoke('studio:setBrandImageRole', payload),
+  removeBrandImage: (payload) => invoke('studio:removeBrandImage', payload),
 
   listWorkbooks: () => invoke('workbooks:list'),
   readWorkbook: (payload) => invoke('workbooks:read', payload),

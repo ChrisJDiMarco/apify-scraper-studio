@@ -58,6 +58,7 @@
     { "id": "kit-dialog.paste", "tab": "assets", "item": "kit-source", "where": "Make channel assets dialog, step 1", "what": "Paste text, or upload a .docx, .md or .txt file" },
     { "id": "kit-dialog.plan", "tab": "assets", "item": "kit-review", "where": "Make channel assets dialog, step 2", "what": "The channel folders and assets that will be made; untick any you don't need (item: report title)" },
     { "id": "kit-dialog.estimate", "tab": "assets", "item": "kit-review", "where": "Make channel assets dialog, step 2", "what": "What it will cost, its cap, and how long it takes (item: report title)" },
+    { "id": "kit-dialog.references", "tab": "assets", "item": "kit-review", "where": "Make channel assets dialog, step 2", "what": "Which picture sets send brand reference images, with a link to Settings (item: report title)" },
     { "id": "kit-dialog.make", "tab": "assets", "item": "kit-review", "where": "Make channel assets dialog, step 2", "what": "Make N assets: starts the run (item: report title)" },
 
     { "id": "ask.box", "tab": "ask", "where": "Ask AI", "what": "The question box" },
@@ -69,6 +70,7 @@
     { "id": "settings.anthropic-key", "tab": "settings", "selector": "#settings-anthropic-key", "where": "Settings, Writing & research", "what": "The Anthropic API key field" },
     { "id": "settings.images", "tab": "settings", "selector": ".settings-images", "where": "Settings", "what": "Image generation: turn pictures on with an OpenAI key" },
     { "id": "settings.image-key", "tab": "settings", "selector": "#settings-image-key", "where": "Settings, Image generation", "what": "The OpenAI API key field" },
+    { "id": "settings.brand-images", "tab": "settings", "where": "Settings", "what": "Brand reference images: style examples and an approved logo per picture set, sent with channel asset pictures" },
     { "id": "settings.google-docs", "tab": "settings", "open": true, "where": "Settings", "what": "Google Docs: a token for private docs (docs shared by link need none)" },
     { "id": "settings.google-sheets", "tab": "settings", "open": true, "where": "Settings", "what": "Google Sheets: the bridge and Google Drive folders for publishing" },
     { "id": "settings.diagnostics", "tab": "settings", "open": true, "where": "Settings", "what": "Connection diagnostics: check Claude, Apify and the other connections" }

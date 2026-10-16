@@ -5,6 +5,7 @@ import path from 'node:path';
 import workspaceModule from '../src/main/content-workspace.js';
 import content from '../src/shared/content-studio.js';
 import kit from '../src/shared/asset-kit.js';
+import { jpeg, picture } from './helpers/pictures.js';
 const { createContentWorkspace } = workspaceModule;
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
@@ -173,5 +174,114 @@ describe('asset kit names', () => {
     expect(kit.cleanTitle('TREND: Branded AI Overviews Click Collapse')).toBe('Branded AI Overviews Click Collapse');
     expect(kit.cleanTitle('Branded AI Overviews Click Collapse — Comprehensive Trends Report')).toBe('Branded AI Overviews Click Collapse');
     expect(() => kit.validateImageBrief({ ...BRIEF, headline: 'Too short' }, { evidenceIds: ['E1'] })).toThrow('3–16 words');
+  });
+});
+
+// n8n sent its picture prompts to the edits endpoint with the brand's style examples and the exact logo.
+describe('brand reference images in kit pictures', () => {
+  const brief = kit.validateImageBrief(BRIEF, { evidenceIds: ['E1'] });
+  const set = id => ({ id, label: 'Fixture pictures', kind: 'image', size: '1536x1024', variants: 3 });
+  const roles = (...list) => list.map(role => ({ role }));
+  const input = { editionId: 'semrush', source: { id: 'brief', kind: 'text', title: TREND, text: 'Body.', evidence: [{ id: 'E1', text: POST.text, url: POST.url }] }, brandKnowledge: content.SEMRUSH_KNOWLEDGE_PRESET };
+  const failOnce = id => { let fail = true; return vi.fn(async ({ deliverable }) => { if (deliverable.id === id && fail) { fail = false; throw Object.assign(new Error('Fixture image outage'), { beforeDispatch: true }); } return deliverable.variantPrompts.map((_, i) => ({ title: `${deliverable.label} · ${i + 1}`, png: Buffer.from(png), receipt: { provider: 'fixture', costUsd: 0.04 } })); }); };
+
+  it('keeps the exact prompt and the omit-logos rule when a picture set has no reference images', () => {
+    const plain = kit.kitImageDeliverable(set('brand-image'), brief, { editionId: 'semrush' });
+    expect(kit.kitImageDeliverable(set('brand-image'), brief, { editionId: 'semrush', references: [] })).toEqual(plain); expect(plain.references).toBeUndefined();
+    for (const prompt of plain.variantPrompts) { expect(prompt).toContain('Draw no logos or brand marks; leave a clean footer where an approved logo can be added later.'); expect(prompt).not.toMatch(/REFERENCE IMAGES|STYLE EXAMPLES|LOGO:/); }
+    expect(kit.imageBriefRequest(set('sel-image'), input).prompt).toContain('fixed brand rules and sees nothing else, so it can only show the words and facts you give it.');
+  });
+  it('numbers style examples and the logo as attached: a visual family never copied, and the logo merged exactly in the footer', () => {
+    const editorial = kit.kitImageDeliverable(set('sel-image'), brief, { editionId: 'semrush', references: roles('style', 'style', 'style', 'style', 'style', 'logo') });
+    expect(editorial.variantPrompts).toHaveLength(3);
+    for (const prompt of editorial.variantPrompts) {
+      expect(prompt).toContain('REFERENCE IMAGES, attached in this order: images 1–5 are approved Search Engine Land style examples; image 6 is the approved Search Engine Land logo.');
+      expect(prompt).toContain('use them as one visual family for palette, typography, texture and finish, never as layouts to copy. Do not reuse any example’s composition, headline, words, numbers, people or subject');
+      expect(prompt).toContain('LOGO: merge the approved logo from image 6 into a clean footer area exactly as supplied, with identical letterforms, spacing, proportions and colors. Never redraw, restyle, recolor, crop, stretch, distort or replace it.');
+      expect(prompt).toContain('lower right preferred, opposite the searchengineland.com label. Render no other logos or brand marks, including any in the style examples.');
+      expect(prompt).toContain('Apart from the approved logo, render only the quoted text below and the footer label, spelled exactly; add no other words, numbers or claims, and copy no text from the reference images.');
+      expect(prompt).not.toContain('Draw no logos');
+    }
+    const art = kit.imageBriefRequest(set('sel-image'), input, { references: roles('style', 'style', 'style', 'style', 'style', 'logo') }).prompt;
+    expect(art).toContain('fixed brand rules, 5 approved style examples and the approved logo. It sees nothing else'); expect(art).toContain('never the layout or the story'); expect(art).toContain('never ask for another logo or wordmark');
+  });
+  it('still draws no logo with style examples alone, and places a logo sent alone', () => {
+    const campaign = kit.kitImageDeliverable(set('brand-image'), brief, { editionId: 'semrush', references: roles('style', 'style') });
+    expect(campaign.prompt).toContain('images 1–2 are approved Semrush style examples.'); expect(campaign.prompt).toContain('Draw no logos or brand marks, including any in the style examples; leave a clean footer where an approved logo can be added later.'); expect(campaign.prompt).not.toContain('LOGO:');
+    expect(kit.imageBriefRequest(set('brand-image'), input, { references: roles('style', 'style') }).prompt).toContain('There is no approved logo, so the footer stays clean');
+    const logoOnly = kit.kitImageDeliverable(set('brand-image'), brief, { editionId: 'general', references: roles('logo') });
+    expect(logoOnly.prompt).toContain('REFERENCE IMAGES, attached in this order: image 1 is the approved logo.'); expect(logoOnly.prompt).toContain('LOGO: merge the approved logo from image 1'); expect(logoOnly.prompt).not.toContain('STYLE EXAMPLES');
+  });
+  it('prices the image input each reference image adds to every picture', () => {
+    const plan = content.buildContentPlan({ ...input, deliverableIds: ['sel-image'], imageVariants: 3 }); const ai = { model: 'claude-fable-5-1', effort: 'high', concurrency: 3 };
+    expect(kit.estimateKit({ plan, ai, references: { 'sel-image': 6 } }).items[0].usd - kit.estimateKit({ plan, ai }).items[0].usd).toBeCloseTo(3 * 6 * kit.KIT_REFERENCE_USD, 1);
+  });
+  it('keeps up to six reference images per picture set, checking what each file really is', () => {
+    const h = harness(); const add = (family, role, data, name = 'example.png') => h.api.addBrandImage({ workspaceId: 'semrush', family, role, name, data });
+    const first = add('sel-editorial', 'style', picture(1200, 630, 1), 'sel-style-example-01-link-building-agency.png').image;
+    expect(first).toMatchObject({ family: 'sel-editorial', role: 'style', name: 'sel-style-example-01-link-building-agency.png', mime: 'image/png', extension: 'png', width: 1200, height: 630 });
+    const stored = path.join(h.root, 'brand-images', 'semrush', `${first.id}.png`); expect(fs.readFileSync(stored).equals(picture(1200, 630, 1))).toBe(true);
+    expect(h.api.readBrandImage({ workspaceId: 'semrush', imageId: first.id }).dataUrl).toBe(`data:image/png;base64,${picture(1200, 630, 1).toString('base64')}`);
+    const view = () => h.api.publicState().workspaces.find(w => w.id === 'semrush').brandImageSets;
+    expect(view().map(entry => [entry.id, entry.label, entry.images.length])).toEqual([['campaign', 'Semrush campaign graphics', 0], ['sel-editorial', 'Search Engine Land editorial heroes', 1], ['sel-social', 'Search Engine Land social graphics', 0]]);
+    const logo = add('sel-editorial', 'logo', jpeg(331, 60), 'search-engine-land-logo-2026.jpg').image; expect(logo).toMatchObject({ role: 'logo', mime: 'image/jpeg', extension: 'jpg', width: 331, height: 60 });
+    expect(() => add('sel-editorial', 'logo', picture(331, 60, 9))).toThrow('already have an approved logo');
+    expect(() => add('sel-editorial', 'style', picture(1200, 630, 1))).toThrow('That picture is already in this set.');
+    expect(() => add('sel-editorial', 'style', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'))).toThrow('Choose a PNG, JPEG or WebP picture.');
+    expect(() => add('sel-editorial', 'hero', picture(64, 64, 3))).toThrow('style example or the approved logo');
+    expect(() => add('sel-elsewhere', 'style', picture(64, 64, 3))).toThrow('Choose a picture set from this workspace.');
+    for (let shade = 2; shade <= 5; shade++) add('sel-editorial', 'style', picture(1200, 630, shade));
+    expect(() => add('sel-editorial', 'style', picture(1200, 630, 6))).toThrow('hold up to 6 reference images');
+    expect(() => h.api.setBrandImageRole({ workspaceId: 'semrush', imageId: first.id, role: 'logo' })).toThrow('already has an approved logo');
+    h.api.setBrandImageRole({ workspaceId: 'semrush', imageId: logo.id, role: 'style' }); expect(h.api.setBrandImageRole({ workspaceId: 'semrush', imageId: first.id, role: 'logo' }).image.role).toBe('logo');
+    expect(h.api.removeBrandImage({ workspaceId: 'semrush', imageId: first.id })).toEqual({ removed: first.id }); expect(fs.existsSync(stored)).toBe(false);
+    expect(view().find(entry => entry.id === 'sel-editorial').images).toHaveLength(5);
+    expect(() => h.api.readBrandImage({ workspaceId: 'semrush', imageId: first.id })).toThrow('no longer in this workspace');
+    h.api.selectContentWorkspace('general');
+    expect(() => h.api.addBrandImage({ workspaceId: 'general', family: 'sel-editorial', role: 'style', data: picture() })).toThrow('Choose a picture set from this workspace.');
+    expect(h.api.publicState().workspaces.find(w => w.id === 'general').brandImageSets.map(entry => entry.id)).toEqual(['campaign']);
+  });
+  it('sends each picture set its reference images, style examples first and the logo last, and keeps them for a retry', async () => {
+    const h = harness({ generateImage: failOnce('sel-image') }); const source = { kind: 'report', assetId: 'asset-toolkit' };
+    const add = (family, role, data) => h.api.addBrandImage({ workspaceId: 'semrush', family, role, name: `${family}-${role}.png`, data }).image;
+    const before = h.api.planAssetKit({ source }).folders.flatMap(folder => folder.items).find(item => item.id === 'sel-image').usd;
+    const logo = picture(331, 60, 7); const styles = [picture(1200, 630, 1), picture(1200, 630, 2)];
+    add('sel-editorial', 'logo', logo); add('sel-editorial', 'style', styles[0]); add('sel-editorial', 'style', styles[1]); add('campaign', 'style', picture(1536, 1024, 3));
+    const items = h.api.planAssetKit({ source }).folders.flatMap(folder => folder.items).filter(item => item.kind === 'image');
+    expect(items.map(item => [item.id, item.references])).toEqual([['brand-image', { style: 1, logo: 0 }], ['sel-image', { style: 2, logo: 1 }], ['sel-social-image', { style: 0, logo: 0 }]]);
+    expect(items.find(item => item.id === 'sel-image').usd - before).toBeCloseTo(3 * 3 * kit.KIT_REFERENCE_USD, 1);
+    const run = await made(h, { source, deliverableIds: ['brand-image', 'sel-image', 'sel-social-image'] });
+    expect(run.status).toBe('partial'); expect(run.kit.references).toEqual({ 'brand-image': { style: 1, logo: 0 }, 'sel-image': { style: 2, logo: 1 } });
+    const sent = id => h.generateImage.mock.calls.map(([request]) => request.deliverable).filter(deliverable => deliverable.id === id);
+    const [editorial] = sent('sel-image');
+    expect(editorial.references.map(ref => [ref.role, ref.mime])).toEqual([['style', 'image/png'], ['style', 'image/png'], ['logo', 'image/png']]);
+    expect(editorial.references.map(ref => Buffer.from(ref.data))).toEqual([...styles, logo]);
+    for (const prompt of editorial.variantPrompts) expect(prompt).toContain('images 1–2 are approved Search Engine Land style examples; image 3 is the approved Search Engine Land logo.');
+    expect(sent('brand-image')[0].references).toHaveLength(1); expect(sent('brand-image')[0].prompt).toContain('Draw no logos or brand marks, including any in the style examples');
+    expect(sent('sel-social-image')[0].references).toBeUndefined(); expect(sent('sel-social-image')[0].prompt).toContain('Draw no logos or brand marks; leave a clean footer');
+    expect(h.calls.find(request => callKey(request) === 'brief-sel-image').prompt).toContain('fixed brand rules, 2 approved style examples and the approved logo.');
+    expect(h.calls.find(request => callKey(request) === 'brief-sel-social-image').prompt).toContain('fixed brand rules and sees nothing else');
+    // Settings change after the run started; the retry still sends the pictures it started with.
+    for (const image of h.api.publicState().workspaces.find(w => w.id === 'semrush').brandImages) h.api.removeBrandImage({ workspaceId: 'semrush', imageId: image.id });
+    h.api.retryStudioRun({ runId: run.id }); await h.api.waitForIdle();
+    expect(h.api.readStudioRun({ runId: run.id }).status).toBe('succeeded');
+    const retried = sent('sel-image')[1];
+    expect(retried.variantPrompts).toEqual(editorial.variantPrompts); expect(retried.references.map(ref => Buffer.from(ref.data))).toEqual([...styles, logo]);
+  });
+  it('stops a picture set before any spend when a reference image saved with its run is damaged', async () => {
+    const h = harness({ generateImage: failOnce('sel-image') }); h.api.addBrandImage({ workspaceId: 'semrush', family: 'sel-editorial', role: 'logo', name: 'logo.png', data: picture(331, 60, 7) });
+    const run = await made(h, { source: { kind: 'report', assetId: 'asset-toolkit' }, deliverableIds: ['sel-image'] }); expect(run.status).toBe('failed');
+    fs.writeFileSync(path.join(h.root, 'runs', run.id, 'reference-sel-image-1.png'), picture(331, 60, 8));
+    h.api.retryStudioRun({ runId: run.id }); await h.api.waitForIdle();
+    expect(h.api.readStudioRun({ runId: run.id }).jobs[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('A reference image saved with this run is missing or damaged') });
+    expect(h.generateImage).toHaveBeenCalledTimes(1);
+  });
+  it('draws a run made before Settings kept reference images without them, so its saved pictures still match', async () => {
+    const h = harness({ generateImage: failOnce('sel-image') }); h.api.addBrandImage({ workspaceId: 'semrush', family: 'sel-editorial', role: 'logo', name: 'logo.png', data: picture(331, 60, 7) });
+    const run = await made(h, { source: { kind: 'report', assetId: 'asset-toolkit' }, deliverableIds: ['sel-image'] });
+    fs.rmSync(path.join(h.root, 'runs', run.id, 'brand-references.json'));
+    h.api.retryStudioRun({ runId: run.id }); await h.api.waitForIdle();
+    const [, retried] = h.generateImage.mock.calls.map(([request]) => request.deliverable);
+    expect(retried.references).toBeUndefined(); expect(retried.prompt).toContain('Draw no logos or brand marks; leave a clean footer');
   });
 });

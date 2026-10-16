@@ -3,6 +3,17 @@ const { createHash, randomUUID } = require('node:crypto');
 const { inflateSync } = require('node:zlib');
 const MODEL = 'gpt-image-2.5-flare';
 const ENDPOINT = 'https://api.openai.com/v1/images/generations';
+// With brand reference images a picture goes to the edits endpoint instead, the images attached as multipart image[]
+// parts in order, as the Golden Thread n8n workflow sent its style examples and logo.
+const EDITS_ENDPOINT = 'https://api.openai.com/v1/images/edits';
+const MAX_REFERENCES = 16; // the most images one edits request takes
+const MAX_REFERENCE_BYTES = 20 * 1024 * 1024;
+const MAX_REFERENCE_TOTAL_BYTES = 64 * 1024 * 1024;
+const REFERENCE_TYPES = {
+  'image/png': { extension: 'png', matches: bytes => bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a' },
+  'image/jpeg': { extension: 'jpg', matches: bytes => bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff },
+  'image/webp': { extension: 'webp', matches: bytes => bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP' },
+};
 const MIN_DISPATCH_ALLOWANCE_USD = 0.25; // Local dispatch policy, not a quoted image price or hard charge cap.
 const MAX_PNG_BYTES = 20 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
@@ -75,6 +86,26 @@ async function readJson(response, limit = MAX_RESPONSE_BYTES) {
   finally { reader.releaseLock(); }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch (_) { throw problem('IMAGE_RESPONSE_INVALID', 'image', 'The provider returned an unreadable image response.'); }
 }
+// Reference images checked before any paid call: each a real PNG, JPEG or WebP, marked a style example or logo.
+function validReferences(value) {
+  const bad = () => invalid('deliverable.references', `Send up to ${MAX_REFERENCES} reference images, each a PNG, JPEG or WebP under 20 MB and marked as a style example or logo.`);
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > MAX_REFERENCES) bad();
+  let total = 0;
+  return value.map(reference => {
+    const type = REFERENCE_TYPES[reference?.mime]; const data = reference?.data instanceof Uint8Array ? Buffer.from(reference.data) : null;
+    if (!['style', 'logo'].includes(reference?.role) || !type || !data || data.length < 16 || data.length > MAX_REFERENCE_BYTES || !type.matches(data)) bad();
+    total += data.length; if (total > MAX_REFERENCE_TOTAL_BYTES) bad();
+    return { role: reference.role, mime: reference.mime, extension: type.extension, bytes: data.length, sha256: digest(data), data };
+  });
+}
+// The edits request: the same picture settings as a generation (moderation is a generations-only setting).
+function editForm(prompt, size, quality, references) {
+  const form = new FormData();
+  for (const [name, value] of Object.entries({ model: MODEL, prompt, n: '1', size, quality, output_format: 'png', background: 'opaque' })) form.append(name, value);
+  references.forEach((reference, index) => form.append('image[]', new Blob([reference.data], { type: reference.mime }), `reference-${index + 1}.${reference.extension}`));
+  return form;
+}
 function decodeImage(body, dimensions) {
   if (!body || typeof body !== 'object' || !Array.isArray(body.data) || body.data.length !== 1 || (body.output_format && body.output_format !== 'png')) throw problem('IMAGE_RESPONSE_INVALID', 'image', 'The provider did not return exactly one PNG for this creative direction.');
   const encoded = body.data[0]?.b64_json;
@@ -82,9 +113,11 @@ function decodeImage(body, dimensions) {
   const png = Buffer.from(encoded, 'base64'); if (png.toString('base64') !== encoded) throw problem('IMAGE_RESPONSE_INVALID', 'image', 'The provider returned noncanonical image bytes.');
   validatePng(png, dimensions); return png;
 }
-function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutMs = 180000, quality = 'medium' } = {}) {
+// A picture with reference images takes longer; n8n gave those requests 300 seconds. A timeout leaves the spend
+// unknown and blocks an automatic repeat, so the wait is generous.
+function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutMs = 180000, editTimeoutMs = 300000, quality = 'medium' } = {}) {
   if (typeof getApiKey !== 'function' || typeof fetchImpl !== 'function') invalid('imageConnection', 'Image generation needs a host credential provider and HTTP client.');
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600000) invalid('timeoutMs', 'Choose an image timeout from 1 to 600,000 milliseconds.');
+  for (const [field, value] of [['timeoutMs', timeoutMs], ['editTimeoutMs', editTimeoutMs]]) if (!Number.isInteger(value) || value < 1 || value > 600000) invalid(field, 'Choose an image timeout from 1 to 600,000 milliseconds.');
   if (!['low', 'medium', 'high'].includes(quality)) invalid('quality', 'Choose low, medium, or high image quality.');
   const active = new Set();
   async function key() {
@@ -92,10 +125,10 @@ function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutM
     if (typeof value !== 'string' || !value || value.length > 12000 || /[^\x21-\x7e]/.test(value)) throw problem('IMAGE_AUTH_REQUIRED', 'imageConnection', 'Connect an OpenAI API key for images in Settings.');
     return value;
   }
-  async function request(url, options, { signal, isCancelled = () => false, receipt } = {}) {
+  async function request(url, options, { signal, isCancelled = () => false, receipt, waitMs = timeoutMs } = {}) {
     const controller = new AbortController(); let timedOut = false; let cancelled = false;
     function cancel() { cancelled = true; controller.abort(); }
-    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, waitMs);
     const poll = setInterval(() => { try { if (isCancelled()) cancel(); } catch (_) { cancel(); } }, 50);
     if (signal?.aborted) cancel(); else signal?.addEventListener('abort', cancel, { once: true });
     try {
@@ -132,10 +165,12 @@ function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutM
     const prompts = deliverable.variantPrompts;
     if (!Array.isArray(prompts) || prompts.length !== deliverable.variants || prompts.some(prompt => typeof prompt !== 'string' || !prompt.trim() || prompt.length > 32000)) invalid('deliverable.variantPrompts', 'Each image direction needs a prompt of 1–32,000 characters. Shorten the source brief rather than silently truncating it.');
     if (!Array.isArray(completedVariants) || completedVariants.length > deliverable.variants) invalid('completedVariants', 'Provide only saved completed variants for this image job.');
+    const references = validReferences(deliverable.references);
+    const referencesHash = references.length ? digest(JSON.stringify(references.map(reference => [reference.role, reference.sha256]))) : null;
     const images = new Map(); const attemptReceipts = [];
     for (const image of completedVariants) {
       const index = image?.variantIndex; const receipt = image?.receipt;
-      if (!Number.isInteger(index) || index < 0 || index >= deliverable.variants || images.has(index) || receipt?.status !== 'succeeded' || receipt.variantIndex !== index || receipt.promptHash !== digest(prompts[index]) || receipt.requestedModel !== MODEL || receipt.size !== deliverable.size || receipt.quality !== quality || receipt.runId !== runId) invalid('completedVariants', 'A saved image does not match this run, prompt, model, size, or quality.');
+      if (!Number.isInteger(index) || index < 0 || index >= deliverable.variants || images.has(index) || receipt?.status !== 'succeeded' || receipt.variantIndex !== index || receipt.promptHash !== digest(prompts[index]) || (receipt.referencesHash ?? null) !== referencesHash || receipt.requestedModel !== MODEL || receipt.size !== deliverable.size || receipt.quality !== quality || receipt.runId !== runId) invalid('completedVariants', 'A saved image does not match this run, prompt, reference images, model, size, or quality.');
       validatePng(image.png, dimensions); images.set(index, { variantIndex: index, title: String(image.title || deliverable.label || 'Generated image').slice(0, 300), png: Buffer.from(image.png), receipt: copy(receipt) });
     }
     const remainingCount = deliverable.variants - images.size;
@@ -150,13 +185,16 @@ function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutM
         if (unknownSpend) throw problem('IMAGE_USAGE_UNKNOWN', 'maxBudgetUsd', 'An image completed without usable billing data. Its allowance remains reserved; review or increase the allowance before generating more variants.');
         if (remaining + 1e-10 < MIN_DISPATCH_ALLOWANCE_USD) throw problem('IMAGE_ALLOWANCE_EXHAUSTED', 'maxBudgetUsd', 'The image dispatch allowance is exhausted. Completed variants are preserved; increase the allowance to continue.');
         const credential = await key();
-        const receipt = { provider: 'openai', attemptId: randomUUID(), runId, variantIndex, requestedModel: MODEL, model: MODEL, returnedModel: null, promptHash: digest(prompts[variantIndex]), size: deliverable.size, quality, status: 'dispatched', allowanceUsd: Number((remaining / (deliverable.variants - images.size)).toFixed(12)), budgetKind: 'dispatch-allowance', budgetNotice: BUDGET_NOTICE, requestId: null, startedAt: stamp(), billable: null, usage: null, costUsd: null, estimatedCostUsd: null, costBasis: 'unknown', pricingAsOf: '2026-09-27', pricingUsdPerMillion: { textInput: 5, imageInput: 8, imageOutput: 30 } };
+        const receipt = { provider: 'openai', attemptId: randomUUID(), runId, variantIndex, requestedModel: MODEL, model: MODEL, returnedModel: null, promptHash: digest(prompts[variantIndex]), size: deliverable.size, quality, status: 'dispatched', allowanceUsd: Number((remaining / (deliverable.variants - images.size)).toFixed(12)), budgetKind: 'dispatch-allowance', budgetNotice: BUDGET_NOTICE, requestId: null, startedAt: stamp(), billable: null, usage: null, costUsd: null, estimatedCostUsd: null, costBasis: 'unknown', pricingAsOf: '2026-09-27', pricingUsdPerMillion: { textInput: 5, imageInput: 8, imageOutput: 30 }, ...(references.length ? { endpoint: 'images/edits', referencesHash, references: references.map(({ role, mime, bytes, sha256 }) => ({ role, mime, bytes, sha256 })) } : {}) };
         attemptReceipts.push(receipt); let dispatched = false;
         try {
           try { await onRequest(copy(receipt)); } catch (_) { throw problem('IMAGE_CHECKPOINT_FAILED', 'imageCheckpoint', 'The image request checkpoint could not be saved. No new request was sent.'); }
           if (signal?.aborted || isCancelled()) throw problem('IMAGE_CANCELLED', 'image', 'Image generation was cancelled before the request was sent.');
+          const call = references.length
+            ? { url: EDITS_ENDPOINT, waitMs: editTimeoutMs, options: { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json' }, body: editForm(prompts[variantIndex], deliverable.size, quality, references) } }
+            : { url: ENDPOINT, waitMs: timeoutMs, options: { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: MODEL, prompt: prompts[variantIndex], n: 1, size: deliverable.size, quality, output_format: 'png', background: 'opaque', moderation: 'auto' }) } };
           dispatched = true;
-          const body = await request(ENDPOINT, { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: MODEL, prompt: prompts[variantIndex], n: 1, size: deliverable.size, quality, output_format: 'png', background: 'opaque', moderation: 'auto' }) }, { signal, isCancelled, receipt });
+          const body = await request(call.url, call.options, { signal, isCancelled, receipt, waitMs: call.waitMs });
           receipt.usage = normalizedUsage(body?.usage); receipt.costUsd = usageCost(receipt.usage); receipt.estimatedCostUsd = receipt.costUsd; receipt.costBasis = receipt.costUsd == null ? 'unknown' : 'usage-estimate'; receipt.billable = true;
           if (body?.model != null && ![MODEL, `${MODEL}-2026-09-08`].includes(body.model)) throw problem('IMAGE_MODEL_MISMATCH', 'image', 'The provider returned an unexpected image model.');
           receipt.returnedModel = body?.model || null;

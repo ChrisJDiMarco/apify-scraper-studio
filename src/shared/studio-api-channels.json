@@ -39,6 +39,10 @@
     "planAssetKit": "studio:planAssetKit",
     "createAssetKit": "studio:createAssetKit",
     "saveAssetKitFolder": "studio:saveAssetKitFolder",
+    "addBrandImage": "studio:addBrandImage",
+    "readBrandImage": "studio:readBrandImage",
+    "setBrandImageRole": "studio:setBrandImageRole",
+    "removeBrandImage": "studio:removeBrandImage",
     "listWorkbooks": {
       "channel": "workbooks:list",
       "args": []

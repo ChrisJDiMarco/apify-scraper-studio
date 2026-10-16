@@ -269,6 +269,11 @@ button.back-to-simple:hover:not(:disabled) { background: #b07cf7; transform: tra
 .simple-settings .settings-view button.ghost:hover:not(:disabled) { background: var(--s-bg); }
 .simple-settings .settings-view :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { border-radius: 12px; }
 .simple-settings .settings-layout { border-color: var(--s-accent); background: linear-gradient(135deg, var(--s-soft) 0%, var(--s-card) 60%); }
+.simple-settings .brand-set { background: var(--s-bg); border-color: var(--s-line); border-radius: 16px; }
+.simple-settings .brand-set-images li { border-color: var(--s-line); border-radius: 12px; }
+.simple-settings .settings-view .brand-image-remove { width: 36px; min-height: 36px; height: 36px; padding: 0; }
+.simple-settings .brand-set-head h4 { font-size: 14px; }
+.simple-settings .brand-set-head p, .simple-settings .brand-set-actions > small, .simple-settings .brand-set-images small { font-size: 12px; }
 @media (max-width: 640px) { .simple-pager { grid-template-columns: 1fr; } }
 
 /* Sliding tab pill: the tabs themselves stay transparent and sit above it. */

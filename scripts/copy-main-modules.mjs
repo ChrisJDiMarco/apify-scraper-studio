@@ -28,6 +28,7 @@ const copies = [
   ['src/shared/research-workbook.js', 'out/shared/research-workbook.js'],
   ['src/shared/content-studio.js', 'out/shared/content-studio.js'],
   ['src/shared/asset-kit.js', 'out/shared/asset-kit.js'],
+  ['src/shared/brand-images.js', 'out/shared/brand-images.js'],
   ['src/shared/research-program.js', 'out/shared/research-program.js'],
   ['src/shared/research-schedule.js', 'out/shared/research-schedule.js'],
   ['src/shared/research-collection.js', 'out/shared/research-collection.js'],

@@ -13,6 +13,8 @@ const reports = () => require('../shared/research-reports');
 const setupBundle = () => require('../shared/setup-bundle');
 // Asset kits: every channel asset from one report, as the n8n "Generate All Channel Assets" workflow made them.
 const kit = () => require('../shared/asset-kit');
+// Brand reference images: the style examples and approved logos kit pictures send to the image model.
+const brandImages = () => require('../shared/brand-images');
 const SEMRUSH_ENTERPRISE_PRODUCTS = ['Enterprise SEO', 'Enterprise SI (Site Intelligence)', 'Enterprise AIO'];
 const REFERENCE_DOC_KINDS = ['icp', 'positioning', 'registry', 'ai-visibility', 'other'];
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -87,7 +89,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const scoped = list => copy(list.filter(row => row.workspaceId === state.activeWorkspaceId));
     const datasets = getDatasets().filter(d => (state.datasetOwners[d.id] || d.workspaceId || 'general') === state.activeWorkspaceId).map(d => ({ id: d.id, name: d.name, platform: d.platform, itemCount: d.itemCount, createdAt: d.createdAt }));
     // Reference documents can be long; state carries their metadata and readReferenceDoc returns the text.
-    const activeView = w => ({ ...w, referenceDocs: (w.referenceDocs || []).map(({ text, ...doc }) => ({ ...doc, characters: String(text || '').length })) });
+    // Brand reference images arrive grouped by picture set; readBrandImage returns a picture's bytes.
+    const activeView = w => ({ ...w, referenceDocs: (w.referenceDocs || []).map(({ text, ...doc }) => ({ ...doc, characters: String(text || '').length })), brandImageSets: brandImages().brandImageFamilies(w.editionId).map(family => ({ ...family, images: (w.brandImages || []).filter(image => image.family === family.id) })) });
     return { activeWorkspaceId: state.activeWorkspaceId, workspaces: copy(state.workspaces.map(w => w.id === state.activeWorkspaceId ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() } };
   }
   function updateScheduledRun(run) {
@@ -248,7 +251,57 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const input = { editionId: w.editionId, source: picked.source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds, imageVariants: 3 };
     const plan = content.buildContentPlan(input);
     const ai = kit().kitAi(state.programs.filter(program => program.workspaceId === w.id));
-    return { w, picked, input, plan, ai, imagesReady, offered, estimate: kit().estimateKit({ plan, ai }) };
+    const references = kitReferenceCounts(w);
+    return { w, picked, input, plan, ai, imagesReady, offered, references, estimate: kit().estimateKit({ plan, ai, references }) };
+  }
+  // ---------- Brand reference images (Settings → Brand reference images) ----------
+  // Up to six per picture set and workspace, kept as files beside the studio state.
+  const sha256 = data => createHash('sha256').update(data).digest('hex');
+  function brandImageFile(workspaceId, image) {
+    if (!['png', 'jpg', 'webp'].includes(image.extension)) throw new Error('That reference image record is damaged. Remove it and add the picture again.');
+    const dir = path.join(root, 'brand-images', safeId(workspaceId)); fs.mkdirSync(dir, { recursive: true });
+    return path.join(dir, `${safeId(image.id)}.${image.extension}`);
+  }
+  function brandImageRecord(w, imageId) {
+    const image = (w.brandImages || []).find(entry => entry.id === safeId(imageId));
+    if (!image) throw new Error('That reference image is no longer in this workspace.');
+    return image;
+  }
+  // How many reference images each picture deliverable would send now, e.g. { 'sel-image': 6 }.
+  function kitReferenceCounts(w) {
+    return Object.fromEntries(brandImages().brandImageFamilies(w.editionId).map(family => [family.deliverableId, (w.brandImages || []).filter(image => image.family === family.id).length]));
+  }
+  // A kit run keeps the reference images it started with. Each picture set's style examples and logo are linked into
+  // the run folder (a hard link takes no extra space; a copy where links don't work), so a retry sends the same
+  // pictures and its saved variants still match, whatever changes in Settings later.
+  function snapshotKitReferences(run, w, deliverables) {
+    const sets = {};
+    for (const deliverable of deliverables.filter(d => d.kind === 'image')) {
+      const family = brandImages().familyForDeliverable(deliverable.id);
+      const chosen = family ? brandImages().orderedReferences((w.brandImages || []).filter(image => image.family === family.id)) : [];
+      if (!chosen.length) continue;
+      sets[deliverable.id] = chosen.map((image, index) => {
+        const source = brandImageFile(w.id, image); const name = `reference-${safeId(deliverable.id)}-${index + 1}.${image.extension}`; const target = file(run.id, name);
+        if (!fs.existsSync(source)) throw new Error(`The reference image “${image.name}” is missing from the studio’s data folder. Remove it in Settings → Brand reference images and add it again.`);
+        fs.rmSync(target, { force: true });
+        try { fs.linkSync(source, target); } catch (_) { fs.copyFileSync(source, target); }
+        if (sha256(fs.readFileSync(target)) !== image.sha256) throw new Error(`The reference image “${image.name}” changed on disk. Remove it in Settings → Brand reference images and add it again.`);
+        return { role: image.role, name: image.name, mime: image.mime, extension: image.extension, bytes: image.bytes, width: image.width, height: image.height, sha256: image.sha256, file: name };
+      });
+    }
+    write(file(run.id, 'brand-references.json'), { takenAt: stamp(), sets });
+    return Object.fromEntries(Object.entries(sets).map(([deliverableId, images]) => [deliverableId, brandImages().referenceSummary(images)]));
+  }
+  // The reference images a kit picture set started with; none for runs made before Settings kept them.
+  function kitReferences(run, deliverableId) {
+    const snapshot = file(run.id, 'brand-references.json'); if (!fs.existsSync(snapshot)) return [];
+    const damaged = () => new Error('A reference image saved with this run is missing or damaged, so its pictures were not drawn. Make a new set of channel assets to use the reference images in Settings.');
+    return (read(snapshot).sets?.[deliverableId] || []).map(ref => {
+      if (!/^reference-[a-zA-Z0-9_-]+-\d+\.(?:png|jpg|webp)$/.test(String(ref?.file)) || !brandImages().BRAND_IMAGE_ROLES.includes(ref.role)) throw damaged();
+      let data; try { data = fs.readFileSync(file(run.id, ref.file)); } catch (_) { throw damaged(); }
+      if (sha256(data) !== ref.sha256) throw damaged();
+      return { ...ref, data };
+    });
   }
   function saveTextAsset(run, deliverable, output) {
     const asset = { id: id('asset'), workspaceId: run.workspaceId, runId: run.id, deliverableId: deliverable.id, title: output.title, kind: 'text', channel: deliverable.channel, format: deliverable.extension || 'markdown', createdAt: stamp(), reviewStatus: 'draft' };
@@ -435,16 +488,19 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     run.message = run.kit ? (run.status === 'succeeded' ? `All ${run.jobs.length} assets are ready.` : 'Some assets need another try. Finished ones are saved.') : run.status === 'succeeded' ? 'Drafts ready to review and export.' : 'Some outputs need attention. Completed assets are saved.';
   }
   // A kit picture set: Claude writes the art direction from the whole report once (saved, so a retry reuses it
-  // and never pays twice), then only that brief goes to the image model.
+  // and never pays twice), then only that brief goes to the image model, with the set's brand reference images.
   async function kitPicture(run, job, deliverable, input) {
+    const references = kitReferences(run, job.id);
     const briefPath = file(run.id, `${safeId(job.id)}.brief.json`);
     let brief = fs.existsSync(briefPath) ? read(briefPath) : null;
     if (!brief) {
-      const request = kit().imageBriefRequest(deliverable, input);
+      const request = kit().imageBriefRequest(deliverable, input, { references });
       brief = await aiValidated(run, `brief-${job.id}`, kit().IMAGE_BRIEF_SCHEMA, request.prompt, raw => kit().validateImageBrief(raw, request), { model: run.ai.model, effort: kit().BRIEF_EFFORT, estimateUsd: kit().kitBriefEstimate(deliverable, run.ai), message: `Planning ${job.label}` });
       write(briefPath, brief); save();
     }
-    return kit().kitImageDeliverable(deliverable, brief, { editionId: input.editionId, label: job.label });
+    const picture = kit().kitImageDeliverable(deliverable, brief, { editionId: input.editionId, label: job.label, references });
+    // The pictures themselves, in the order the prompt numbers them.
+    return references.length ? { ...picture, references: references.map(ref => ({ role: ref.role, mime: ref.mime, data: ref.data })) } : picture;
   }
   // ---------- Research pipeline (n8n Golden Thread phases 2–5) ----------
   const STAGE_OUTPUT_TOKENS = { discovery: 3500, synthesis: 6000, matching: 2500, report: 8000, toolkit: 5000 };
@@ -804,6 +860,42 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     },
     readReferenceDoc({ workspaceId, docId } = {}) { const w = workspace(workspaceId); const doc = (w.referenceDocs || []).find(entry => entry.id === safeId(docId)); if (!doc) throw new Error('Reference document not found.'); return copy(doc); },
     deleteReferenceDoc({ workspaceId, docId } = {}) { const w = workspace(workspaceId); w.referenceDocs = (w.referenceDocs || []).filter(entry => entry.id !== safeId(docId)); w.updatedAt = stamp(); save(); return publicState(); },
+    // Brand reference images (Settings): style examples and one approved logo per picture set. The host reads the
+    // picked file; this checks what the bytes really are and keeps a copy in the studio's data folder.
+    addBrandImage({ workspaceId, family, role, name, data } = {}) {
+      const w = workspace(workspaceId); const set = brandImages().brandImageFamily(family, w.editionId);
+      if (!brandImages().BRAND_IMAGE_ROLES.includes(role)) throw new Error('Mark the picture as a style example or the approved logo.');
+      if (!(data instanceof Uint8Array)) throw new Error('Choose a PNG, JPEG or WebP picture.');
+      const info = brandImages().checkBrandImage(data);
+      const siblings = (w.brandImages || []).filter(image => image.family === set.id);
+      if (siblings.length >= set.max) throw new Error(`${set.label} hold up to ${set.max} reference images. Remove one first.`);
+      if (role === 'logo' && siblings.some(image => image.role === 'logo')) throw new Error(`${set.label} already have an approved logo. Remove it first, or add this picture as a style example.`);
+      const digest = sha256(data);
+      if (siblings.some(image => image.sha256 === digest)) throw new Error('That picture is already in this set.');
+      const label = path.basename(String(name || '')).replace(/[\u0000-\u001f\u007f]+/g, '').trim().slice(0, 120) || `Reference.${info.extension}`;
+      const image = { id: id('brand-image'), family: set.id, role, name: label, mime: info.mime, extension: info.extension, bytes: data.length, width: info.width, height: info.height, sha256: digest, addedAt: stamp() };
+      writeBytes(brandImageFile(w.id, image), Buffer.from(data));
+      w.brandImages = [...(w.brandImages || []), image]; w.updatedAt = stamp(); save();
+      return { image: copy(image) };
+    },
+    readBrandImage({ workspaceId, imageId } = {}) {
+      const w = workspace(workspaceId); const image = brandImageRecord(w, imageId);
+      let data; try { data = fs.readFileSync(brandImageFile(w.id, image)); } catch (_) { throw new Error(`The reference image “${image.name}” is missing from the studio’s data folder. Remove it and add it again.`); }
+      return { id: image.id, name: image.name, mime: image.mime, dataUrl: `data:${image.mime};base64,${data.toString('base64')}` };
+    },
+    setBrandImageRole({ workspaceId, imageId, role } = {}) {
+      const w = workspace(workspaceId); const image = brandImageRecord(w, imageId);
+      if (!brandImages().BRAND_IMAGE_ROLES.includes(role)) throw new Error('Mark the picture as a style example or the approved logo.');
+      if (role === 'logo' && (w.brandImages || []).some(entry => entry.family === image.family && entry.role === 'logo' && entry.id !== image.id)) throw new Error('This set already has an approved logo. Mark that one as a style example first.');
+      image.role = role; w.updatedAt = stamp(); save();
+      return { image: copy(image) };
+    },
+    removeBrandImage({ workspaceId, imageId } = {}) {
+      const w = workspace(workspaceId); const image = brandImageRecord(w, imageId);
+      w.brandImages = (w.brandImages || []).filter(entry => entry.id !== image.id); w.updatedAt = stamp(); save();
+      fs.rmSync(brandImageFile(w.id, image), { force: true }); // runs that started with it keep their own link
+      return { removed: image.id };
+    },
     // Parses the "Product & Solution Registry" doc text into structured products (used to check
     // the toolkit's Enterprise / self-serve angles) and keeps the text for the toolkit prompt.
     importProductRegistry({ workspaceId, text, title = 'Product & Solution Registry', enterpriseProducts } = {}) {
@@ -887,15 +979,17 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     createContentRun(payload) { const run = newContentRun(payload); return launch(run, () => performContent(run)); },
     // Asset kits: what a kit from this source would make and cost, before anything is spent.
     planAssetKit(payload = {}) {
-      const { w, picked, input, plan, ai, imagesReady, offered, estimate } = kitPlan(payload);
+      const { w, picked, input, plan, ai, imagesReady, offered, references, estimate } = kitPlan(payload);
       const chosen = new Set(plan.deliverables.map(d => d.id));
       // Every offered asset is priced, so ticking one back on shows what it adds.
-      const priced = new Map(kit().estimateKit({ plan: content.buildContentPlan({ ...input, deliverableIds: offered.filter(id => imagesReady || content.CONTENT_DELIVERABLES.find(d => d.id === id).kind !== 'image') }), ai }).items.map(item => [item.id, item.usd]));
+      const priced = new Map(kit().estimateKit({ plan: content.buildContentPlan({ ...input, deliverableIds: offered.filter(id => imagesReady || content.CONTENT_DELIVERABLES.find(d => d.id === id).kind !== 'image') }), ai, references }).items.map(item => [item.id, item.usd]));
       const text = plan.deliverables.filter(d => d.kind !== 'image').length; const sets = plan.deliverables.length - text;
+      // What each picture set would send the image model now: { style, logo } from Settings → Brand reference images.
+      const referencesFor = id => { const family = brandImages().familyForDeliverable(id); return brandImages().referenceSummary((w.brandImages || []).filter(image => image.family === family?.id)); };
       return {
         title: picked.source.title, sourceKey: picked.key, sourceKind: picked.kind, characters: picked.source.text.length, evidenceCount: (picked.source.evidence || []).length,
         earlierRuns: state.contentRuns.filter(run => run.workspaceId === w.id && run.kit?.sourceKey === picked.key).length,
-        folders: kit().kitFolders(w.editionId).map(folder => ({ id: folder.id, name: folder.name, items: folder.deliverableIds.map(id => { const kind = content.CONTENT_DELIVERABLES.find(d => d.id === id).kind; return { id, label: kit().kitFileLabel(id, w.editionId), kind, ...(kind === 'image' ? { pictures: 3 } : {}), selected: chosen.has(id), available: kind !== 'image' || imagesReady, usd: priced.get(id) ?? null }; }) })),
+        folders: kit().kitFolders(w.editionId).map(folder => ({ id: folder.id, name: folder.name, items: folder.deliverableIds.map(id => { const kind = content.CONTENT_DELIVERABLES.find(d => d.id === id).kind; return { id, label: kit().kitFileLabel(id, w.editionId), kind, ...(kind === 'image' ? { pictures: 3, references: referencesFor(id) } : {}), selected: chosen.has(id), available: kind !== 'image' || imagesReady, usd: priced.get(id) ?? null }; }) })),
         // On Codex the writing uses the person's Codex plan or OpenAI key, and nothing reports what it cost.
         route: capabilities().aiProvider === 'codex' ? 'codex' : 'claude', estimate, imagesReady, warnings: plan.warnings,
         // About 3 minutes per written asset at the report model's effort, a few at a time; pictures run alongside.
@@ -908,6 +1002,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         kit: { version: 1, sourceKey: picked.key, sourceKind: picked.kind, sourceTitle: picked.source.title, folderName: kit().kitRunFolderName({ title: picked.source.title, editionId: w.editionId, createdAt }), concurrency: ai.concurrency, estimateUsd: estimate.totalUsd, ...(picked.reportAssetId ? { reportAssetId: picked.reportAssetId } : {}), ...(picked.themeId ? { themeId: picked.themeId } : {}), ...(picked.url ? { sourceUrl: picked.url } : {}) },
         ai: { model: ai.model, effort: ai.effort, ...(capabilities().aiProvider === 'codex' ? { route: 'codex' } : {}) }, status: 'queued', stage: 'content', createdAt, maxBudgetUsd: budget(payload.maxBudgetUsd ?? estimate.capUsd), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, progress: { completed: 0, total: plan.deliverables.length },
         jobs: plan.deliverables.map(d => ({ id: d.id, label: kit().kitFileLabel(d.id, w.editionId), kind: d.kind, folder: kit().kitFolderFor(d.id, w.editionId).name, status: 'queued' })) };
+      try { const references = snapshotKitReferences(run, w, plan.deliverables); if (Object.keys(references).length) run.kit.references = references; }
+      catch (error) { fs.rmSync(path.join(root, 'runs', run.id), { recursive: true, force: true }); throw error; }
       write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save();
       return launch(run, () => performContent(run));
     },

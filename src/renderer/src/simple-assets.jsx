@@ -14,6 +14,13 @@ const sentence = (value) => String(value || '').replace(/^./, (letter) => letter
 const newest = (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 const modelName = (model) => String(model || '').replace(/^claude-/, 'Claude ').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
 const SOURCE_LABEL = { trend: 'From a trends report', report: 'From a report', 'google-doc': 'From a Google Doc', file: 'From a document', text: 'From pasted text' };
+// What each picture set sends the image model besides its prompt (Settings → Brand reference images).
+const referenceTitle = (references) => (references?.style || references?.logo ? `Sends ${[references.style ? plural(references.style, 'style example') : '', references.logo ? 'the approved logo' : ''].filter(Boolean).join(' and ')}` : 'No brand reference images yet');
+function referenceHint(items) {
+  const sets = items.filter((item) => item.kind === 'image');
+  const using = sets.filter((item) => item.references?.style || item.references?.logo).length; const logos = sets.filter((item) => item.references?.logo).length;
+  return using ? `Brand reference images: ${using} of ${plural(sets.length, 'picture set')}${logos ? `, ${logos} with the approved logo` : ''}.` : 'No brand reference images yet, so pictures follow the brand colors and leave the footer clean.';
+}
 const MAX_SOURCE_CHARS = 250000;
 
 function runSummary(run) {
@@ -390,11 +397,12 @@ function KitCreator({ api, sources, preset, imagesReady, action, busy, onClose, 
             <div className="simple-source-card"><span className="simple-doc-icon"><FileText size={18} aria-hidden="true" /></span><span><strong>{plan.title}</strong><small>{[SOURCE_LABEL[plan.sourceKind], plural(plan.characters, 'character'), plan.evidenceCount ? plural(plan.evidenceCount, 'cited source') : '', plan.earlierRuns ? `${plural(plan.earlierRuns, 'earlier run')} in its folder` : ''].filter(Boolean).join(' · ')}</small></span>{!fixed && <button type="button" className="simple-quiet" disabled={starting} onClick={() => { setStep('source'); setPlan(null); setChosen(null); }}>Change</button>}</div>
             <div className="simple-kit-plan" data-spot="kit-dialog.plan">{plan.folders.map((folder) => <div className="simple-kit-plan-folder" key={folder.id}>
               <span className="simple-kit-plan-name"><Folder size={15} aria-hidden="true" />{folder.name}</span>
-              <span className="simple-kit-plan-items">{folder.items.map((item) => <button type="button" key={item.id} className="simple-check-chip" role="checkbox" aria-checked={item.selected} disabled={!item.available || starting || planning} title={item.available ? undefined : 'Turn on pictures in Settings to include these'} onClick={() => toggle(item.id)}>
-                <span className="simple-check" aria-hidden="true">{item.selected && <Check size={12} />}</span>{item.kind === 'image' ? <ImageIcon size={13} aria-hidden="true" /> : null}{sentence(item.label.replace(/^[^—]+—\s*/, ''))}{item.kind === 'image' ? ` ×${item.pictures}` : ''}
-              </button>)}</span>
+              <span className="simple-kit-plan-items">{folder.items.map((item) => { const name = `${sentence(item.label.replace(/^[^—]+—\s*/, ''))}${item.kind === 'image' ? ` ×${item.pictures}` : ''}`; return <button type="button" key={item.id} className="simple-check-chip" role="checkbox" aria-checked={item.selected} aria-label={name} disabled={!item.available || starting || planning} title={!item.available ? 'Turn on pictures in Settings to include these' : item.kind === 'image' ? referenceTitle(item.references) : undefined} onClick={() => toggle(item.id)}>
+                <span className="simple-check" aria-hidden="true">{item.selected && <Check size={12} />}</span>{item.kind === 'image' ? <ImageIcon size={13} aria-hidden="true" /> : null}{name}
+              </button>; })}</span>
             </div>)}</div>
             {!plan.imagesReady && <p className="simple-hint">Pictures are off. <button type="button" className="simple-link" onClick={onSettings}>Turn them on in Settings</button> to add the hero graphics.</p>}
+            {plan.imagesReady && pictures > 0 && <p className="simple-hint" data-spot="kit-dialog.references">{referenceHint(selected)} <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>{selected.some((item) => item.references?.style || item.references?.logo) ? 'Change them in Settings' : 'Add style examples and logos in Settings'}</button></p>}
             <div className="simple-kit-estimate" data-spot="kit-dialog.estimate">
               <div><strong>{plural(selected.length, 'asset')}</strong><small>{[plural(plan.folders.filter((folder) => folder.items.some((item) => item.selected)).length, 'folder'), pictures ? plural(pictures, 'picture') : ''].filter(Boolean).join(' · ')}</small></div>
               {plan.route === 'codex'

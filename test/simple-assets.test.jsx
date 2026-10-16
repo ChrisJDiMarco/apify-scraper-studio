@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/renderer/src/App.jsx';
 import { HelpAssistant } from '../src/renderer/src/help-assistant.jsx';
@@ -76,11 +76,33 @@ describe('Assets: report folders of channel assets', () => {
     const review = await screen.findByRole('dialog', { name: 'Check what will be made' });
     expect(within(review).getByText('About $9.40')).toBeInTheDocument();
     expect(within(review).getByText('Stops at $25.00 at most')).toBeInTheDocument();
+    expect(within(review).getByText(/No brand reference images yet, so pictures follow the brand colors/)).toBeInTheDocument();
     fireEvent.click(within(review).getByRole('checkbox', { name: /Search Ads \+ Keywords/ }));
     await waitFor(() => expect(api.planAssetKit).toHaveBeenLastCalledWith({ source: { kind: 'report', assetId: 'asset-report' }, deliverableIds: ['blogshort', 'brand-image'] }));
     fireEvent.click(within(review).getByRole('button', { name: /Make \d+ assets/ }));
     await waitFor(() => expect(api.createAssetKit).toHaveBeenCalledWith({ source: { kind: 'report', assetId: 'asset-report' }, deliverableIds: ['blogshort', 'brand-image'], maxBudgetUsd: 25 }));
     expect(await screen.findByRole('region', { name: `Golden Thread — ${TREND} (2026-10-16)` })).toBeInTheDocument();
+  });
+
+  it('says which picture sets send brand reference images, and links to them in Settings', async () => {
+    const api = await openSimple();
+    const withReferences = { ...plan, folders: plan.folders.map(folder => ({ ...folder, items: folder.items.map(item => (item.kind === 'image' ? { ...item, references: { style: 2, logo: 1 } } : item)) })) };
+    api.planAssetKit.mockResolvedValue(withReferences);
+    Object.assign(api, { addBrandImage: vi.fn(), readBrandImage: vi.fn(async () => ({ dataUrl: 'data:image/png;base64,AAAA' })), setBrandImageRole: vi.fn(), removeBrandImage: vi.fn() });
+    tab('Assets');
+    fireEvent.click(await screen.findByRole('button', { name: 'Make channel assets' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Which report should the assets come from?' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: new RegExp(TREND) }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /Next: check what’s made/ }));
+    const review = await screen.findByRole('dialog', { name: 'Check what will be made' });
+    expect(await within(review).findByText(/Brand reference images: 1 of 1 picture set, 1 with the approved logo\./)).toBeInTheDocument();
+    expect(within(review).getByRole('checkbox', { name: /Hero Graphic/ })).toHaveAttribute('title', 'Sends 2 style examples and the approved logo');
+    fireEvent.click(within(review).getByRole('button', { name: 'Change them in Settings' }));
+    // The workspace's picture sets arrive with the next state push, as they do from the main process.
+    const current = await api.state(); const push = api.onStateChanged.mock.calls.at(-1)[0];
+    act(() => push({ ...current, contentStudio: { ...current.contentStudio, workspaces: current.contentStudio.workspaces.map(row => ({ ...row, brandImageSets: [{ id: 'sel-editorial', deliverableId: 'sel-image', label: 'Search Engine Land editorial heroes', hint: '', max: 6, images: [] }] })) } }));
+    expect(await screen.findByRole('heading', { name: 'Brand reference images' })).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'Search Engine Land editorial heroes' })).toBeInTheDocument();
   });
 
   it('opens the asset dialog on the report being read', async () => {

@@ -8,6 +8,7 @@ export const FILE_PICKERS = {
   importWorkbook: () => '.xlsx,.csv,.tsv',
   pickImportFile: () => '.csv,.json,.jsonl,.ndjson',
   openSetupFile: () => '.json',
+  addBrandImage: () => '.png,.jpg,.jpeg,.webp',
 };
 
 export class SignedOut extends Error {}

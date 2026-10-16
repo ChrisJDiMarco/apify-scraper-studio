@@ -2066,7 +2066,7 @@ const contentWorkspace = createContentWorkspace({
     return readDocumentFile({ filePath: result.filePaths[0] });
   },
 });
-const studioMethods = ['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit'];
+const studioMethods = ['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit', 'readBrandImage', 'setBrandImageRole', 'removeBrandImage'];
 // Work that spends checks first that Claude can use every model it will need.
 const researchModels = (ai) => Object.values({ ...DEFAULT_RESEARCH_AI.models, ...(ai?.models || {}) });
 const contentModel = () => [loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL];
@@ -2086,6 +2086,16 @@ for (const method of studioMethods) ipcMain.handle(`studio:${method}`, async (_,
   const result = await contentWorkspace[method](payload);
   if (method === 'exportStudioRun') return forBrowser(result, result?.path);
   return method === 'openStudioAsset' ? forBrowser(result) : result; // the file itself downloads through the shell
+});
+
+// Brand reference images (Settings): one picture per pick, read here and kept in the studio's data folder. In the
+// browser studio the picked file arrives as an upload first.
+ipcMain.handle('studio:addBrandImage', async (_, payload = {}) => {
+  const result = await dialog.showOpenDialog(mainWindow, { title: payload?.role === 'logo' ? 'Add the approved logo' : 'Add a style example', buttonLabel: 'Add', properties: ['openFile'], filters: [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+  if (result.canceled || !result.filePaths.length) return { cancelled: true };
+  const filePath = result.filePaths[0];
+  if (fs.statSync(filePath).size > require('../shared/brand-images').MAX_BRAND_IMAGE_BYTES) throw new Error('Choose a picture under 10 MB.');
+  return contentWorkspace.addBrandImage({ workspaceId: payload?.workspaceId, family: payload?.family, role: payload?.role, name: path.basename(filePath), data: fs.readFileSync(filePath) });
 });
 
 // A channel asset kit's folder: the browser downloads it as a .zip; the Mac app copies it into Downloads and shows it.
@@ -2211,7 +2221,7 @@ function helpContext(page) {
     assetFolders: [...folders.values()].slice(0, 15).map((runs) => ({ title: runs[0].kit.sourceTitle, from: runs[0].kit.sourceKind, runs: runs.slice(0, 3).map((run) => ({ folder: run.kit.folderName, status: run.status, ready: `${done(run)} of ${(run.jobs || []).length}`, costUsd: helpMoney(run.costUsd), started: run.createdAt, ...(['queued', 'running'].includes(run.status) ? {} : { needsAnotherTry: (run.jobs || []).filter((job) => job.status !== 'succeeded').map((job) => job.label).slice(0, 15) }) })) })),
     channelAssets: { model: kitAi.model, effort: kitAi.effort, writesAtOnce: kitAi.concurrency, pictures: Boolean(getKey('OPENAI_API_KEY')) },
     counts: { scrapers: (data.recipes || []).length, datasets: (data.datasets || []).length, libraryAssets: (studio.assets || []).length, pictures: (studio.assets || []).filter((asset) => asset.kind === 'image').length },
-    pictures: { available: Boolean(getKey('OPENAI_API_KEY')), visualDirection: require('../shared/content-studio').brandImageDirection(workspace.editionId) },
+    pictures: { available: Boolean(getKey('OPENAI_API_KEY')), visualDirection: require('../shared/content-studio').brandImageDirection(workspace.editionId), brandReferenceImages: (workspace.brandImageSets || []).map((set) => ({ set: set.label, styleExamples: (set.images || []).filter((image) => image.role === 'style').length, approvedLogo: (set.images || []).some((image) => image.role === 'logo') })) },
     latestTrends: (() => { const run = researchRuns.find((row) => helpThemes(row).length); return run ? helpThemes(run).slice(0, 6).map((theme) => ({ name: String(theme.name || '').slice(0, 120), summary: String(theme.summary || theme.description || '').slice(0, 300) })) : []; })(),
   };
 }
