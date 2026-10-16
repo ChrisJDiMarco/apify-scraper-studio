@@ -96,7 +96,9 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
   const empty = !board.cards.length && !board.scouting.length;
   const stages = showPassed ? [...TREND_STAGES, PASSED_STAGE] : TREND_STAGES;
 
+  // Connecting Monday.com happens in Settings, so without Settings (an editor) only a connected board's Sync shows.
   const mondayControl = !api.syncTrendBoardToMonday ? null
+    : (!monday?.connected || !monday.boardId) && !onSettings ? null
     : !monday?.connected ? <Button type="button" className="cs-quiet" onClick={onSettings}><SquareKanban size={14} aria-hidden="true" />Connect Monday.com</Button>
     : !monday.boardId ? <Button type="button" className="cs-quiet" onClick={onSettings}><SquareKanban size={14} aria-hidden="true" />Choose a Monday board</Button>
     : <Button type="button" className="cs-quiet" disabled={disabled || !board.cards.length} onClick={syncMonday} title={monday.lastSyncedAt ? `Last synced ${formatDate(monday.lastSyncedAt)}` : 'Not synced yet'}><SquareKanban size={14} aria-hidden="true" />Sync to {monday.boardName || 'Monday.com'}</Button>;

@@ -144,6 +144,8 @@ describe('Simple mode', () => {
       readStudioAsset: vi.fn(async () => ({ markdown: '# Evidence report: AI search\n\nPeople want answers.' })),
       decideResearchTheme: vi.fn(async () => true),
       saveSettings: vi.fn(async (settings) => { current = { ...current, settings: { ...current.settings, ...settings } }; return current; }),
+      // The desktop main process mirrors the person's layout into settings.uiMode, as this mock does.
+      setViewPrefs: vi.fn(async (prefs) => { current = { ...current, settings: { ...current.settings, ...prefs } }; return { viewer: null }; }),
       askHelp: vi.fn(async () => ({ answer: 'Sure.', pages: [], followUps: [], actions: [{ kind: 'approve-trend', label: 'Approve it', target: 'AI search visibility' }] })),
     };
     window.apifyStudio = api;
@@ -207,11 +209,11 @@ describe('Simple mode', () => {
     expect(await screen.findByText('Whales above a city')).toBeInTheDocument();
   });
 
-  it('switches to the classic layout from Settings', async () => {
+  it('switches to the Advanced layout from the sidebar', async () => {
     const api = await openSimple();
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    fireEvent.click(await screen.findByRole('switch', { name: 'Simple mode' }));
-    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ uiMode: 'classic' }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Layout' })).getByRole('radio', { name: 'Advanced' }));
+    await waitFor(() => expect(api.setViewPrefs).toHaveBeenCalledWith({ uiMode: 'classic' }));
+    expect(api.saveSettings).not.toHaveBeenCalled();
     expect(await screen.findByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
   });
 });

@@ -19,6 +19,15 @@ const copies = [
   ['src/shared/anthropic-runner.js', 'out/shared/anthropic-runner.js'],
   ['src/shared/xlsx-writer.js', 'out/shared/xlsx-writer.js'],
   ['src/main/content-workspace.js', 'out/main/content-workspace.js'],
+  ['src/main/markdown-html.js', 'out/main/markdown-html.js'], // reports edited in the studio
+  // Roles and access: the policy (data + logic), the team store, the gate, the channel owner's view and analytics.
+  ['src/shared/roles.json', 'out/shared/roles.json'],
+  ['src/main/roles.js', 'out/main/roles.js'],
+  ['src/main/team-store.js', 'out/main/team-store.js'],
+  ['src/main/access.js', 'out/main/access.js'],
+  ['src/main/channel-view.js', 'out/main/channel-view.js'],
+  ['src/main/team-analytics.js', 'out/main/team-analytics.js'],
+  ['src/shared/studio-api-channels.json', 'out/shared/studio-api-channels.json'],
   ['src/main/studio-owner-lock.js', 'out/main/studio-owner-lock.js'],
   ['src/main/studio-host.js', 'out/main/studio-host.js'],
   ['src/main/document-import.js', 'out/main/document-import.js'],

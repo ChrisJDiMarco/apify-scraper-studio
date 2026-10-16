@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, ArrowUp, BookOpen, Check, Download, FileText, Image as ImageIcon, LoaderCircle, MousePointerClick, RefreshCw, RotateCcw, Sparkles, X } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
+import { PREVIEW_TITLE, useViewer, writeProps } from './viewer.js';
 import './help-assistant.css';
 
 // "Ask AI" in the header: questions about the app, answered from the app guide and the person's own setup,
@@ -30,7 +31,11 @@ function Picture({ image, onRetry, onDownload, onEnlarge, onOpenAssets }) {
 // with optional background (a report being read) that travels with the conversation but isn't shown as a bubble;
 // onAction runs a button the answer offered (Simple mode only) and resolves to a short result line; onShow starts a
 // "Show me" tour of the steps an answer offers (Simple mode only), right away when the answer asks for it.
+// page.layout ('simple' or 'classic') tells Ask AI which layout the person is in. onOpenSettings is passed only to people
+// who may open Settings, so the "Open Settings" button on an error never shows an editor a door they can't use;
+// copy.noPictures replaces the Settings hint when pictures are off for someone else to turn on.
 export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSettings, imagesReady = false, variant = 'drawer', seed = null, onAction, onShow, starters = STARTERS, copy = {}, onOpenAssets }) {
+  const viewer = useViewer(); // an admin previewing another role sees Ask AI as they would, but can't send
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
@@ -66,6 +71,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     catch (failure) { updateImage(id, { status: 'failed', error: String(failure?.message || failure) }); }
   }
   async function ask(question = draft, context = '') {
+    if (viewer.preview) { setNotice(PREVIEW_TITLE); return; }
     const text = String(question).trim();
     if (!text || pending) return;
     // Earlier picture prompts travel with the conversation so "make it bluer" can revise them.
@@ -111,8 +117,8 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
       {!messages.length && <div className="help-welcome">
         {inline && <span className="help-welcome-mark" aria-hidden="true"><Sparkles size={24} /></span>}
         <h3>{copy.title || 'Ask anything about Scraper Studio'}</h3>
-        <p>{copy.intro || 'How a page works, what a run will cost, why something stopped, or what to do next. Answers use the app guide and your current setup.'} {imagesReady ? 'Ask for a picture and it appears right here.' : 'Add an OpenAI key in Settings → Image generation to make pictures here too.'}</p>
-        <div className="help-starters">{starters.filter((question) => imagesReady || !/image/i.test(question)).map((question) => <button type="button" key={question} onClick={() => ask(question)}><span>{question}</span>{/image/i.test(question) ? <ImageIcon size={14} aria-hidden="true" /> : <ArrowRight size={14} aria-hidden="true" />}</button>)}</div>
+        <p>{copy.intro || 'How a page works, what a run will cost, why something stopped, or what to do next. Answers use the app guide and your current setup.'} {imagesReady ? 'Ask for a picture and it appears right here.' : copy.noPictures || 'Add an OpenAI key in Settings → Image generation to make pictures here too.'}</p>
+        <div className="help-starters">{starters.filter((question) => imagesReady || !/image/i.test(question)).map((question) => <button type="button" key={question} {...writeProps(viewer)} onClick={() => ask(question)}><span>{question}</span>{/image/i.test(question) ? <ImageIcon size={14} aria-hidden="true" /> : <ArrowRight size={14} aria-hidden="true" />}</button>)}</div>
       </div>}
       {messages.map((message) => message.role === 'user'
         ? <div className="help-question" key={message.id}>{message.context && <small className="help-context"><FileText size={12} aria-hidden="true" />With the report you had open</small>}{message.content}</div>
@@ -132,7 +138,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     </div>
     <form className="help-composer" data-spot="ask.box" onSubmit={(event) => { event.preventDefault(); ask(); }}>
       <textarea ref={inputRef} rows={2} value={draft} aria-label="Question about Scraper Studio" placeholder={copy.placeholder || (imagesReady ? 'Ask how something works, or describe a picture…' : 'Ask how something works…')} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); ask(); } }} />
-      <button type="submit" disabled={!draft.trim() || pending} aria-label="Send question"><ArrowUp size={16} /></button>
+      <button type="submit" {...writeProps(viewer, !draft.trim() || pending)} aria-label="Send question"><ArrowUp size={16} /></button>
     </form>
     <p className="help-foot">Answers use your Claude connection, about $0.15 each (a little more when it reads a report).{imagesReady ? ' Pictures use OpenAI and cost a few cents each.' : ''} AI can be mistaken.</p>
     {enlarged && <div className="help-lightbox" role="dialog" aria-modal="true" aria-label={enlarged.title} onClick={() => setEnlarged(null)}>

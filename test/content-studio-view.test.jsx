@@ -324,6 +324,21 @@ describe('research and content studio workspace', () => {
     await waitFor(() => expect(handlers.api.startResearchRun).toHaveBeenCalledWith({ programId: 'p1', datasetIds: ['d1'] }));
   });
 
+  it('asks before a second search while one of the program’s runs is still going, then sends again', async () => {
+    // The server refuses while any run of the program is going, even when a newer one has finished.
+    const running = { id: 'r-live', workspaceId: 'general', programId: 'p1', status: 'running', title: 'Weekly pulse', createdAt: '2026-10-15T14:30:00.000Z', createdBy: { id: 'member-riley', name: 'Riley' } };
+    const finished = { id: 'r-done', workspaceId: 'general', programId: 'p1', status: 'succeeded', title: 'Weekly pulse', createdAt: '2026-10-16T09:00:00.000Z', createdBy: { id: 'local', name: 'Chris' } };
+    const handlers = props({ state: { contentStudio: fresh({ programs: [program], researchRuns: [finished, running] }) } });
+    render(<ContentStudioView {...handlers} initialView="research" />);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Start research' }));
+    expect(confirm.mock.calls[0][0]).toMatch(/^Riley started a search with this program at .+\. It’s still running\. Start another\?$/);
+    expect(handlers.api.startResearchRun).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Start research' }));
+    await waitFor(() => expect(handlers.api.startResearchRun).toHaveBeenCalledWith({ programId: 'p1', datasetIds: [], again: true }));
+    confirm.mockRestore();
+  });
+
   it('preserves theme identity and evidence when approving editorial changes before continuation', async () => {
     const run = { id: 'r1', workspaceId: 'general', programId: 'p1', status: 'awaiting-review', title: 'Weekly pulse', themes: [{ id: 't1', name: 'Manual reporting', description: 'Repeated reporting friction.', evidenceIds: ['e1'], evidenceCount: 1 }], counts: { retained: 12 }, discoveryProgress: { completed: 2, total: 2 } };
     const handlers = props({ state: { contentStudio: fresh({ programs: [program], researchRuns: [run] }) } });

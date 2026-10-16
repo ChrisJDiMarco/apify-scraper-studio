@@ -1,0 +1,82 @@
+/* People & roles: channel coverage first, then everyone with their role, channel and sign-in link. */
+.people-page { max-width: 980px; }
+.people-section { display: grid; gap: 12px; }
+.people-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.studio-frame .people-section-note { font-size: 13px; color: var(--s-muted); }
+
+/* First run and the Mac note share one calm card. */
+.people-first-run, .people-mac-note { display: flex; align-items: center; gap: 20px; padding: 24px 26px; background: linear-gradient(135deg, var(--s-soft) 0%, var(--s-card) 75%); border: 1px solid color-mix(in srgb, var(--s-accent) 45%, var(--s-line)); border-radius: var(--s-radius); }
+.people-first-run > div, .people-mac-note > div { flex: 1; display: grid; gap: 12px; min-width: 0; }
+.studio-frame :is(.people-first-run, .people-mac-note) h2 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -.3px; color: var(--s-ink); }
+.studio-frame .people-mac-note p { margin: 0; max-width: 620px; font-size: 14.5px; line-height: 1.55; color: var(--s-muted); }
+.people-mac-icon { display: grid; place-items: center; flex: none; width: 48px; height: 48px; color: var(--s-soft-ink); background: var(--s-card); border-radius: 14px; box-shadow: 0 1px 3px rgba(24, 30, 21, .08); }
+.people-steps { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; padding: 0; list-style: none; }
+.people-steps li { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--s-ink); }
+.people-steps li > span { display: grid; place-items: center; width: 24px; height: 24px; font-size: 12.5px; font-weight: 700; background: var(--s-accent); border-radius: 50%; }
+.people-steps li + li::before { content: '→'; margin-right: 10px; color: var(--s-muted); }
+
+/* Channel coverage. */
+.people-coverage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.people-coverage li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 10px 12px 10px 16px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-row); }
+.people-coverage li.is-open { border-style: dashed; border-color: var(--s-line-strong); }
+.people-coverage-name { display: grid; gap: 2px; min-width: 0; }
+.people-coverage-name strong { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-frame .people-coverage-name small { font-size: 12.5px; color: var(--s-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.people-coverage li.is-open .people-coverage-name small { color: var(--s-warn-ink); }
+.people-coverage-actions { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+
+/* People list. */
+.people-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.people-row { background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-row); }
+.people-row.is-disabled { background: color-mix(in srgb, var(--s-bg) 55%, var(--s-card)); }
+/* Fixed outer columns, so roles and statuses line up from row to row. */
+.people-row-main { display: grid; grid-template-columns: 38px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.5fr) 136px; align-items: center; gap: 14px; min-height: 68px; padding: 12px 12px 12px 16px; }
+.people-avatar { display: grid; place-items: center; width: 38px; height: 38px; font-size: 13px; font-weight: 700; color: var(--s-ink); background: var(--s-bg); border-radius: 50%; }
+.people-avatar.role-admin { color: #fff; background: var(--s-ink); }
+.people-avatar.role-editor { color: var(--s-soft-ink); background: var(--s-soft); }
+.people-avatar.role-channel { color: var(--s-mint-ink); background: var(--s-mint); }
+.people-who { display: grid; gap: 2px; min-width: 0; }
+.people-who strong { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-frame .people-who small { font-size: 12.5px; color: var(--s-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.people-role { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.people-channel { font-size: 13px; font-weight: 550; color: var(--s-ink); }
+.people-status { display: grid; gap: 2px; min-width: 0; }
+.studio-frame .people-status small { font-size: 12.5px; line-height: 1.4; color: var(--s-muted); }
+.people-row-actions { display: flex; justify-content: flex-end; }
+.people-server { padding: 4px 10px; font-size: 12px; font-weight: 600; color: var(--s-muted); background: var(--s-bg); border-radius: 999px; white-space: nowrap; }
+.people-added { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; font-size: 14px; color: var(--s-mint-ink); background: var(--s-mint); border-radius: var(--s-radius-row); }
+.people-added > span { flex: 1; min-width: 200px; color: var(--s-ink); }
+
+/* The new sign-in link, ready to copy and paste. */
+.people-link-panel { display: grid; gap: 10px; margin: 0 12px 12px; padding: 16px; background: var(--s-soft); border: 1px solid color-mix(in srgb, var(--s-accent) 45%, var(--s-line)); border-radius: 14px; }
+.studio-frame .people-link-panel h3 { margin: 0; font-size: 15px; font-weight: 650; color: var(--s-ink); }
+.studio-frame .people-link-panel h3:focus { outline: none; }
+.people-link-row { display: flex; gap: 8px; }
+.studio-frame .people-link-row input { flex: 1; min-width: 0; min-height: 38px; padding: 0 12px; font: inherit; font-size: 13.5px; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 10px; }
+.studio-frame .people-link-message { margin: 0; padding: 12px 14px; font-size: 14px; line-height: 1.55; color: var(--s-ink); background: var(--s-card); border-radius: 10px; overflow-wrap: anywhere; }
+.people-link-actions { display: flex; align-items: center; gap: 10px; }
+
+/* Add or edit a person. */
+.people-sheet-form { display: contents; }
+.people-roles { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.studio-frame .people-roles legend { margin-bottom: 6px; padding: 0; font-size: 13px; font-weight: 650; color: var(--s-ink); }
+.people-role-cards { display: grid; gap: 8px; }
+.people-role-card { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 14px; cursor: pointer; transition: border-color 150ms ease, background-color 150ms ease; }
+.people-role-card:hover { border-color: var(--s-line-strong); }
+.people-role-card.checked { background: var(--s-soft); border-color: var(--s-accent); }
+.people-role-card:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.people-role-card:has(input:focus-visible) { outline: 2px solid var(--s-focus); outline-offset: 2px; }
+.studio-frame .people-role-card input { flex: none; width: 18px; height: 18px; min-height: 18px; margin: 2px 0 0; padding: 0; accent-color: var(--s-ink); }
+.people-role-card > span { display: grid; gap: 2px; }
+.people-role-card strong { font-size: 14.5px; font-weight: 650; color: var(--s-ink); }
+.studio-frame .people-role-card small { font-size: 13px; line-height: 1.45; color: var(--s-muted); }
+.studio-frame .people-sheet .studio-field em { font-style: normal; font-weight: 500; color: var(--s-muted); }
+
+@media (max-width: 860px) {
+  .people-coverage { grid-template-columns: 1fr; }
+  .people-row-main { grid-template-columns: 38px minmax(0, 1fr) auto; }
+  .people-role, .people-status { grid-column: 2 / -1; }
+  .people-row-actions { grid-column: 3; grid-row: 1; }
+  .people-first-run, .people-mac-note { flex-direction: column; align-items: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) { .people-role-card { transition: none; } }

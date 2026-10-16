@@ -30,6 +30,11 @@ const { spawn } = require('child_process');
 const { ApifyClient } = require('apify-client');
 const { createContentWorkspace } = require('./content-workspace');
 const { acquireStudioOwnerLock } = require('./studio-owner-lock');
+// Roles and access (docs/roles-and-access.md): the team store, the policy and the gate every handler passes.
+const { createTeamStore } = require('./team-store');
+const roles = require('./roles');
+const { createAccess } = require('./access');
+const API_METHODS = require('../shared/studio-api-channels.json').methods;
 const { createStudioHost, studioCliEnv, loadLoginShellPath } = require('./studio-host');
 // A packaged app opened from Finder lacks the shell's PATH; read it now so the first Claude check finds CLIs installed
 // outside the default locations. A dev run started from Terminal already has it.
@@ -341,8 +346,13 @@ function emit(channel, payload) {
   }
 }
 
+// The state broadcast. The base state is built once. The Mac app's window gets it projected for its one viewer, so a
+// View as preview survives every push. The browser studio broadcasts the base, and studio-server writes each live-update
+// stream through the people provider's view(), which projects it per person; nothing goes to a browser unprojected.
 function emitState() {
-  emit('state-changed', publicState());
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const base = publicState();
+  emit('state-changed', WEB_RUNTIME ? base : access.project(base, access.currentViewer()));
 }
 
 function configureAutoUpdates() {
@@ -1585,8 +1595,10 @@ async function runRecipe(recipeId) {
 function spawnCodex(command, args, cwd, options = {}) {
   const timeoutMs = options.timeoutMs || CODEX_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
+    // No saved key reaches any AI CLI (studioCliEnv also drops every STUDIO_* setting); see studio-host.js.
     const environment = cliEnv();
-    if (command === 'claude') { for (const name of KEY_NAMES) delete environment[name]; Object.assign(environment, CLAUDE_CLI_ENV); }
+    for (const name of KEY_NAMES) delete environment[name];
+    if (command === 'claude') Object.assign(environment, CLAUDE_CLI_ENV);
     const child = spawn(command, args, { cwd, env: environment });
     if (options.stdin != null) { child.stdin.on('error', () => {}); child.stdin.end(options.stdin); }
     if (options.jobId) jobProcesses.set(options.jobId, child);
@@ -2038,10 +2050,18 @@ let releaseStudioOwner;
 try { releaseStudioOwner = acquireStudioOwnerLock(dataPath('content-studio')); }
 catch (error) { dialog.showErrorBox('Workspace already in use', error.message); app.exit(1); }
 app.once('quit', () => releaseStudioOwner?.());
+// The team (people, roles, sign-in links, trend answers, activity and preferences) is content-studio/team.json, inside the
+// folder the owner lock protects. On the web STUDIO_ADMIN_EMAILS names admins that People can't change (company sign-in).
+const ADMIN_EMAILS = WEB_RUNTIME ? String(process.env.STUDIO_ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean) : [];
+let teamStore;
+try { teamStore = createTeamStore({ root: dataPath('content-studio'), adminEmails: ADMIN_EMAILS }); }
+catch (error) { dialog.showErrorBox('Team data could not be read', error.message); app.exit(1); throw error; }
 const studioHost = createStudioHost({ root: dataPath('content-studio'), getApifyToken: () => getKey('APIFY_API_TOKEN'), model: () => loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL });
 const contentWorkspace = createContentWorkspace({
   // A first launch opens in the edition this build is packaged for; saved state always wins after that.
   defaultWorkspaceId: packageConfig.studioDefaultWorkspace || 'general',
+  // Who started a run, decided a trend or edited a report: the person making this call (read once at each method's entry).
+  actor: () => access.actorForCall(),
   root: dataPath('content-studio'), emit: emitState,
   // Each concurrent call gets its own process key so cancelling a run stops all of them.
   runAI: args => generateStructuredOutput({ ...args, jobId: `${args.runId}::${path.basename(args.outputPath || 'call')}` }),
@@ -2066,7 +2086,43 @@ const contentWorkspace = createContentWorkspace({
     return readDocumentFile({ filePath: result.filePaths[0] });
   },
 });
-const studioMethods = ['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit', 'readBrandImage', 'setBrandImageRole', 'removeBrandImage'];
+
+// ── Access ────────────────────────────────────────────────────────────────────────────────────────
+// Who is calling and what they may do (src/main/access.js, policy in src/shared/roles.json). On the Mac the one person is
+// an admin, and View as lives in this process; on the web each browser request carries its identity and session.
+const access = createAccess({ teamStore, roles, workspace: contentWorkspace, web: WEB_RUNTIME, currentCall: WEB_RUNTIME ? require('./web-runtime').currentCall : () => null });
+const OWNER_IDENTITY = Object.freeze({ id: 'owner', name: 'Studio admin', email: '', role: 'admin', channelId: null, via: 'password', disabled: false, memberSince: null });
+// The browser studio's sign-in, for studio-server.js: the admin password, a trusted SSO email or a personal sign-in link
+// becomes an identity, and each live-update stream is written as that person's projection of the state.
+if (WEB_RUNTIME) require('./web-runtime').provide('people', {
+  ownerIdentity: () => OWNER_IDENTITY,
+  fromProxyEmail: (email) => { const identity = teamStore.fromProxyEmail(email); if (identity?.role) teamStore.touch(identity.id); return identity; },
+  // A replaced or turned-off link, or a removed member, ends every session that used it.
+  fromLinkSession: (entry) => { const member = teamStore.memberById(entry?.memberId); if (!member?.link || member.link.id !== entry.linkId) return null; teamStore.touch(member.id); return teamStore.identityFor(member, 'link'); },
+  linkLogin: (token) => { const found = teamStore.memberByLinkToken(token); return found ? { memberId: found.member.id, linkId: found.linkId } : null; },
+  view: (base, identity, session) => JSON.stringify(access.project(base, access.viewerFor(identity, session))),
+  logEvent: (event) => teamStore.logEvent(event),
+});
+// The gate. Every handler below is registered through handle(), so every IPC/RPC call is checked against the caller's
+// role before it runs (deny by default), a channel owner's payload is rebuilt from an allowlist, and what they get back
+// is projected. It stays synchronous and never touches `event`: synchronous handlers (app-meta, state, save-key…) still
+// return plain values, and the tests' harnesses call handlers with no event at all.
+const METHOD_FOR = Object.fromEntries(Object.entries(API_METHODS).map(([method, entry]) => [typeof entry === 'string' ? entry : entry.channel, method]));
+function gated(channel, fn) {
+  const method = METHOD_FOR[channel] || channel;
+  return (event, payload) => {
+    const viewer = access.currentViewer();
+    const scoped = access.check(method, payload, viewer);
+    let out;
+    try { out = fn(event, scoped); } catch (error) { throw access.rewriteError(error, viewer); }
+    return out && typeof out.then === 'function'
+      ? out.then((result) => access.after(method, result, viewer, scoped), (error) => { throw access.rewriteError(error, viewer); })
+      : access.after(method, out, viewer, scoped);
+  };
+}
+const handle = (channel, fn) => ipcMain.handle(channel, gated(channel, fn));
+
+const studioMethods = ['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit', 'readBrandImage', 'setBrandImageRole', 'removeBrandImage', 'editStudioAsset', 'restoreStudioAsset'];
 // Work that spends checks first that Claude can use every model it will need.
 const researchModels = (ai) => Object.values({ ...DEFAULT_RESEARCH_AI.models, ...(ai?.models || {}) });
 const contentModel = () => [loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL];
@@ -2081,7 +2137,9 @@ const STUDIO_PREFLIGHT = {
   createContentRun: contentModel,
   createAssetKit: () => [contentWorkspace.assetKitAi().model],
 };
-for (const method of studioMethods) ipcMain.handle(`studio:${method}`, async (_, payload) => {
+for (const method of studioMethods) handle(`studio:${method}`, async (_, payload) => {
+  // A program already searching is caught before the model check, which can cost a few cents on the Claude app.
+  if (method === 'startResearchRun') contentWorkspace.checkResearchIdle(payload || {});
   if (STUDIO_PREFLIGHT[method]) await aiRoutes.preflight(STUDIO_PREFLIGHT[method](payload));
   const result = await contentWorkspace[method](payload);
   if (method === 'exportStudioRun') return forBrowser(result, result?.path);
@@ -2090,7 +2148,7 @@ for (const method of studioMethods) ipcMain.handle(`studio:${method}`, async (_,
 
 // Brand reference images (Settings): one picture per pick, read here and kept in the studio's data folder. In the
 // browser studio the picked file arrives as an upload first.
-ipcMain.handle('studio:addBrandImage', async (_, payload = {}) => {
+handle('studio:addBrandImage', async (_, payload = {}) => {
   const result = await dialog.showOpenDialog(mainWindow, { title: payload?.role === 'logo' ? 'Add the approved logo' : 'Add a style example', buttonLabel: 'Add', properties: ['openFile'], filters: [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
   if (result.canceled || !result.filePaths.length) return { cancelled: true };
   const filePath = result.filePaths[0];
@@ -2099,9 +2157,11 @@ ipcMain.handle('studio:addBrandImage', async (_, payload = {}) => {
 });
 
 // A channel asset kit's folder: the browser downloads it as a .zip; the Mac app copies it into Downloads and shows it.
-ipcMain.handle('studio:saveAssetKitFolder', async (_, payload = {}) => {
-  if (WEB_RUNTIME) { const result = contentWorkspace.exportAssetKit({ runId: payload?.runId }); return forBrowser(result, result.path); }
-  const result = contentWorkspace.exportAssetKit({ runId: payload?.runId }, { into: app.getPath('downloads') });
+// A channel owner's folder holds only their own channel, taken from who they are, never from the request.
+handle('studio:saveAssetKitFolder', async (_, payload = {}) => {
+  const viewer = access.currentViewer(); const channels = viewer.role === 'channel' ? [viewer.channelId] : undefined;
+  if (WEB_RUNTIME) { const result = contentWorkspace.exportAssetKit({ runId: payload?.runId }, { channels }); return forBrowser(result, result.path); }
+  const result = contentWorkspace.exportAssetKit({ runId: payload?.runId }, { into: app.getPath('downloads'), channels });
   shell.showItemInFolder(result.path);
   return { folderName: result.folderName, assetCount: result.assetCount, path: result.path, savedTo: 'downloads' };
 });
@@ -2111,19 +2171,19 @@ const workbookStore = require('./workbooks').createWorkbookStore({
   root: dataPath('workbooks'), contentWorkspace, activeWorkspaceId: () => contentWorkspace.activeWorkspaceId(),
   readGoogleTabs: ({ spreadsheetUrl, tabs }) => callSheetsWebhook({ ...buildSheetReadRequest({ ...sheetSettings(), workingSpreadsheetUrl: spreadsheetUrl, workingSpreadsheetId: '' }, { tabs }), allTabs: true }),
 });
-ipcMain.handle('workbooks:list', () => workbookStore.list());
-ipcMain.handle('workbooks:read', (_, payload) => workbookStore.read(payload));
-ipcMain.handle('workbooks:import', async (_, payload = {}) => {
+handle('workbooks:list', () => workbookStore.list());
+handle('workbooks:read', (_, payload) => workbookStore.read(payload));
+handle('workbooks:import', async (_, payload = {}) => {
   const result = await dialog.showOpenDialog(mainWindow, { title: 'Import a spreadsheet', buttonLabel: 'Import', properties: ['openFile'], filters: [{ name: 'Spreadsheets', extensions: ['xlsx', 'csv', 'tsv'] }] });
   if (result.canceled || !result.filePaths.length) return null;
   return workbookStore.importFile({ filePath: result.filePaths[0], workbookId: payload.workbookId });
 });
-ipcMain.handle('workbooks:pull-google', (_, payload) => workbookStore.pullGoogleSheet(payload));
-ipcMain.handle('workbooks:save-edits', (_, payload) => workbookStore.saveEdits(payload));
-ipcMain.handle('workbooks:remove', (_, payload) => workbookStore.remove(payload));
-ipcMain.handle('workbooks:rename', (_, payload) => workbookStore.rename(payload));
+handle('workbooks:pull-google', (_, payload) => workbookStore.pullGoogleSheet(payload));
+handle('workbooks:save-edits', (_, payload) => workbookStore.saveEdits(payload));
+handle('workbooks:remove', (_, payload) => workbookStore.remove(payload));
+handle('workbooks:rename', (_, payload) => workbookStore.rename(payload));
 // Exports carry the renderer's tabs with edits applied: an .xlsx through the save dialog, or a new Google Sheet.
-ipcMain.handle('workbooks:export-xlsx', async (_, payload) => {
+handle('workbooks:export-xlsx', async (_, payload) => {
   const file = require('./workbooks').buildWorkbookXlsx(payload);
   const choice = await dialog.showSaveDialog(mainWindow, { title: 'Download workbook', buttonLabel: 'Save', defaultPath: path.join(app.getPath('downloads'), file.fileName), filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }] });
   if (choice.canceled || !choice.filePath) return null;
@@ -2131,7 +2191,7 @@ ipcMain.handle('workbooks:export-xlsx', async (_, payload) => {
   fs.writeFileSync(target, file.buffer);
   return forBrowser({ path: target, fileName: path.basename(target), bytes: file.buffer.length, sheetCount: file.sheetCount, rowCount: file.rowCount, truncatedCells: file.truncatedCells });
 });
-ipcMain.handle('workbooks:export-google', (_, payload) => exportWorkbookToGoogleSheets(payload));
+handle('workbooks:export-google', (_, payload) => exportWorkbookToGoogleSheets(payload));
 
 const researchWorkspace = createResearchWorkspace({ loadData, saveData, emitState, dataPath, readJson, writeJson, readDatasetPayload, toId, dialog, getWindow: () => mainWindow, shell: WEB_RUNTIME ? { ...shell, showItemInFolder: () => {} } : shell });
 for (const [channel, method] of Object.entries({
@@ -2139,40 +2199,42 @@ for (const [channel, method] of Object.entries({
   'pick-import-file': 'pickImportFile', 'preview-import-dataset': 'previewImportDataset', 'import-dataset': 'importDataset',
   'compare-datasets': 'compareDatasets', 'save-monitor': 'saveMonitor', 'read-research-review': 'readResearchReview',
   'save-research-review': 'saveResearchReview', 'export-research-review': 'exportResearchReview',
-})) ipcMain.handle(channel, async (_, payload) => { const result = await researchWorkspace[method](payload); return method === 'exportResearchReview' ? forBrowser(result, result?.folder) : result; });
+})) handle(channel, async (_, payload) => { const result = await researchWorkspace[method](payload); return method === 'exportResearchReview' ? forBrowser(result, result?.folder) : result; });
 
-ipcMain.handle('app-meta', () => ({
+handle('app-meta', () => ({
   name: APP_NAME,
   version: packageConfig.version,
   runtime: WEB_RUNTIME ? 'web' : 'desktop',
   dataRoot: WEB_RUNTIME ? '' : dataRoot(), // a server path means nothing to someone in a browser
 }));
 
-ipcMain.handle('state', () => publicState());
-ipcMain.handle('list-missions', () => publicV5State().missions);
-ipcMain.handle('save-mission', (_, payload) => saveMission(payload));
-ipcMain.handle('run-mission', (_, missionId) => runMission(missionId));
-ipcMain.handle('run-action-graph', (_, payload) => runActionGraph(payload));
-ipcMain.handle('pause-mission', (_, missionId) => pauseMission(missionId));
-ipcMain.handle('schedule-mission', (_, payload) => scheduleMission(payload));
-ipcMain.handle('discover-apify-resource', (_, payload) => discoverApifyResource(payload));
-ipcMain.handle('test-recipe', (_, payload) => testRecipe(payload));
-ipcMain.handle('save-recipe-version', (_, payload) => saveRecipeVersion(payload));
-ipcMain.handle('get-job', (_, jobId) => getJob(jobId));
-ipcMain.handle('retry-job', (_, jobId) => retryJob(jobId));
-ipcMain.handle('read-job-log', (_, jobId) => readJobLog(jobId));
-ipcMain.handle('search-evidence', (_, payload) => searchEvidenceRecords(payload));
-ipcMain.handle('read-evidence', (_, evidenceId) => readEvidenceRecord(evidenceId));
-ipcMain.handle('export-mission-bundle', (_, missionId) => exportMissionBundle(missionId));
-ipcMain.handle('export-asset-pack', (_, payload) => exportAssetPack(payload));
-ipcMain.handle('refresh-apify-actors', () => refreshApifyActors());
-ipcMain.handle('search-sources', (_, payload) => searchSources(payload));
-ipcMain.handle('preview-search-sources', (_, payload) => {
+// Each person's own view of the state: everything for admins and editors, their channel for a channel owner, nothing for
+// someone without a role (src/main/roles.js projectState).
+handle('state', () => access.project(publicState(), access.currentViewer()));
+handle('list-missions', () => publicV5State().missions);
+handle('save-mission', (_, payload) => saveMission(payload));
+handle('run-mission', (_, missionId) => runMission(missionId));
+handle('run-action-graph', (_, payload) => runActionGraph(payload));
+handle('pause-mission', (_, missionId) => pauseMission(missionId));
+handle('schedule-mission', (_, payload) => scheduleMission(payload));
+handle('discover-apify-resource', (_, payload) => discoverApifyResource(payload));
+handle('test-recipe', (_, payload) => testRecipe(payload));
+handle('save-recipe-version', (_, payload) => saveRecipeVersion(payload));
+handle('get-job', (_, jobId) => getJob(jobId));
+handle('retry-job', (_, jobId) => retryJob(jobId));
+handle('read-job-log', (_, jobId) => readJobLog(jobId));
+handle('search-evidence', (_, payload) => searchEvidenceRecords(payload));
+handle('read-evidence', (_, evidenceId) => readEvidenceRecord(evidenceId));
+handle('export-mission-bundle', (_, missionId) => exportMissionBundle(missionId));
+handle('export-asset-pack', (_, payload) => exportAssetPack(payload));
+handle('refresh-apify-actors', () => refreshApifyActors());
+handle('search-sources', (_, payload) => searchSources(payload));
+handle('preview-search-sources', (_, payload) => {
   try { return { valid: true, plan: buildSearchRecipes(payload) }; }
   catch (error) { return { valid: false, error: { field: error.field || 'request', message: safeServiceError(error) } }; }
 });
-ipcMain.handle('ask-findings', (_, payload) => askFindings(payload));
-ipcMain.handle('check-ai', (_, payload) => checkAi(payload));
+handle('ask-findings', (_, payload) => askFindings(payload));
+handle('check-ai', (_, payload) => checkAi(payload));
 
 // ── Ask AI ────────────────────────────────────────────────────────────────────────────────────────
 // Ask AI (src/main/help-assistant.js) answers from docs/app-guide.md plus a picture of this person's own studio:
@@ -2190,7 +2252,8 @@ function appGuide() {
 }
 const helpMoney = (value) => (Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) / 100 : null);
 const helpThemes = (run) => (run.discoveredThemes?.length ? run.discoveredThemes : run.themes || []);
-function helpContext(page) {
+// `role` is the asker's effective role; `layout` comes from the page they asked from (Simple unless it says classic).
+function helpContext(page, role = 'admin') {
   const data = loadData(); const studio = contentWorkspace.publicState();
   const workspace = (studio.workspaces || []).find((row) => row.id === studio.activeWorkspaceId) || {};
   const sources = (program) => Object.fromEntries(['x', 'linkedin', 'reddit'].map((platform) => [platform, (program.sourceGroups || []).filter((group) => group.enabled && group.platform.startsWith(platform)).reduce((sum, group) => sum + (group.targets || []).length, 0)]));
@@ -2204,7 +2267,8 @@ function helpContext(page) {
   return {
     appVersion: app.getVersion(),
     edition: WEB_RUNTIME ? 'browser studio (shared, on a server)' : 'Mac app',
-    layout: data.settings.uiMode === 'classic' ? 'classic' : 'simple',
+    role: role === 'editor' ? 'editor' : 'admin',
+    layout: view.layout === 'classic' ? 'classic' : 'simple',
     currentPage: view.id ? { id: String(view.id).slice(0, 40), name: String(view.label || '').slice(0, 80), ...(view.tab ? { tab: String(view.tab).slice(0, 20) } : {}), ...(view.report ? { openReport: String(view.report).slice(0, 160) } : {}), ...(view.folder ? { openFolder: String(view.folder).slice(0, 160) } : {}) } : null,
     workspace: { name: workspace.name || '', edition: workspace.editionId || '', approvedProducts: (workspace.products || []).length, taxonomyCategories: workspace.taxonomy?.categories?.length || 0, referenceDocuments: (workspace.referenceDocs || []).map((doc) => doc.title).slice(0, 20) },
     connections: { apifyToken: Boolean(getKey('APIFY_API_TOKEN')), anthropicApiKey: Boolean(getKey('ANTHROPIC_API_KEY')), googleSheetsBridge: Boolean(getKey('GOOGLE_SHEETS_WEBHOOK_URL')), googleDocsToken: Boolean(getKey('GOOGLE_DOCS_ACCESS_TOKEN')), googleDrivePublishing: Boolean(studio.capabilities?.googlePublishConfigured), imageKey: Boolean(getKey('OPENAI_API_KEY')) },
@@ -2251,23 +2315,27 @@ function helpLookup({ kind, target }) {
   }
   return { kind, target, found: false };
 }
-ipcMain.handle('help:ask', async (_, payload = {}) => {
+handle('help:ask', async (_, payload = {}) => {
+  const role = access.currentViewer().role; // read at entry: an editor's answer never points at admin-only places
   const settings = loadData().settings;
-  const dir = dataPath('help'); fs.mkdirSync(dir, { recursive: true });
-  return helpAssistant.askHelp(payload, {
-    guide: appGuide(), context: helpContext, readLookup: helpLookup, imagesOn: Boolean(getKey('OPENAI_API_KEY')), imageSizes: HELP_IMAGE_SIZES,
-    // Medium effort reads the guide and live context carefully; a question that needs a lookup makes a second call.
-    generate: ({ schema, prompt, round }) => generateStructuredOutput({ schema, prompt, workspaceDir: dir, outputPath: path.join(dir, round ? 'last-answer-read.json' : 'last-answer.json'), jobId: `help-${randomUUID()}`, maxBudgetUsd: 0.75, model: settings.aiModel || DEFAULT_CLAUDE_MODEL, effort: 'medium', timeoutMs: 180000 }),
-  });
+  // Each question gets its own folder, removed afterwards, so two people's answers (and Codex's files) never cross.
+  const dir = dataPath('help', 'calls', randomUUID()); fs.mkdirSync(dir, { recursive: true });
+  try {
+    return await helpAssistant.askHelp(payload, {
+      guide: appGuide(), context: (page) => helpContext(page, role), readLookup: helpLookup, imagesOn: Boolean(getKey('OPENAI_API_KEY')), imageSizes: HELP_IMAGE_SIZES, role,
+      // Medium effort reads the guide and live context carefully; a question that needs a lookup makes a second call.
+      generate: ({ schema, prompt, round }) => generateStructuredOutput({ schema, prompt, workspaceDir: dir, outputPath: path.join(dir, round ? 'answer-read.json' : 'answer.json'), jobId: `help-${randomUUID()}`, maxBudgetUsd: 0.75, model: settings.aiModel || DEFAULT_CLAUDE_MODEL, effort: 'medium', timeoutMs: 180000 }),
+    });
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 // Pictures from the Ask AI drawer (help-images.js), through the same image provider as Create content.
 let helpImageStore = null;
 const helpImages = () => (helpImageStore ||= require('./help-images').createHelpImages({ generateImage: (request) => imageProvider.generateImage(request), dir: dataPath('help', 'images'), isConfigured: () => Boolean(getKey('OPENAI_API_KEY')) }));
-ipcMain.handle('help:image', (_, payload = {}) => helpImages().create({ prompt: payload.prompt, size: payload.size, title: payload.title }));
-ipcMain.handle('help:images', () => helpImages().list());
-ipcMain.handle('help:read-image', (_, payload = {}) => helpImages().read(payload.id));
-ipcMain.handle('help:save-image', async (_, payload = {}) => {
+handle('help:image', (_, payload = {}) => helpImages().create({ prompt: payload.prompt, size: payload.size, title: payload.title }));
+handle('help:images', () => helpImages().list());
+handle('help:read-image', (_, payload = {}) => helpImages().read(payload.id));
+handle('help:save-image', async (_, payload = {}) => {
   const { path: source, title } = helpImages().pngPath(payload.id);
   const fileName = `${title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Ask AI picture'}.png`;
   const choice = await dialog.showSaveDialog(mainWindow, { title: 'Save picture', buttonLabel: 'Save', defaultPath: path.join(app.getPath('downloads'), fileName), filters: [{ name: 'PNG image', extensions: ['png'] }] });
@@ -2277,6 +2345,98 @@ ipcMain.handle('help:save-image', async (_, payload = {}) => {
   return forBrowser({ fileName: path.basename(target), path: target });
 });
 
+// ── Team: people and roles, sign-in links, View as, preferences, trend answers, analytics ─────────────────────
+const { readyTrends } = require('./channel-view');
+const { buildTrendAnalytics } = require('./team-analytics');
+const objectPayload = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+const refuse = (message, status, code) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
+// STUDIO_LINK_DAYS: how long a new sign-in link works (0 = until it's replaced or turned off); 30 when unset or invalid.
+function linkDays() { const raw = String(process.env.STUDIO_LINK_DAYS ?? '').trim(); const days = raw === '' ? 30 : Number(raw); return Number.isFinite(days) && days >= 0 ? days : 30; }
+// Company sign-in (a trusted proxy header) or the admin password with personal sign-in links. Links only exist without SSO.
+// The server keeps the admin password out of process.env (scripts/studio-web.cjs), so it tells the web runtime it has one.
+function signInSettings() {
+  const sso = WEB_RUNTIME && Boolean(String(process.env.STUDIO_TRUSTED_EMAIL_HEADER || '').trim());
+  const password = WEB_RUNTIME && (Boolean(process.env.STUDIO_PASSWORD) || require('./web-runtime').settings?.passwordSignIn === true);
+  return { web: WEB_RUNTIME, sso, links: WEB_RUNTIME && !sso && password, linkDays: linkDays() };
+}
+const memberView = (member) => ({ id: member.id, name: member.name, email: member.email || '', role: member.role, channelId: member.channelId ?? null, disabled: Boolean(member.disabled), createdAt: member.createdAt || '', lastSeenAt: member.lastSeenAt || '', serverAdmin: Boolean(member.serverAdmin), link: member.link ? { createdAt: member.link.createdAt || '', expiresAt: member.link.expiresAt ?? null, lastUsedAt: member.link.lastUsedAt || '' } : null });
+function teamChannels() {
+  const members = teamStore.listMembers();
+  return roles.channelsFor(contentWorkspace.activeEditionId()).map((channel) => ({ ...channel, owners: members.filter((member) => member.role === 'channel' && member.channelId === channel.id && !member.disabled).map(({ id, name }) => ({ id, name })) }));
+}
+// The page's own address for a sign-in link: the request's Origin (already checked by studio-server), else STUDIO_PUBLIC_ORIGIN.
+function linkOrigin() {
+  const origin = String(require('./web-runtime').currentCall()?.origin || process.env.STUDIO_PUBLIC_ORIGIN || '').trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/[^/\s?#]+$/i.test(origin)) throw refuse('Open the studio in your browser to make a sign-in link.', 400);
+  return origin;
+}
+handle('team:list', () => ({ members: teamStore.listMembers().map(memberView), channels: teamChannels(), signIn: signInSettings() }));
+// Handlers that change people report what changed under `activity`; the gate logs it and removes it from the result.
+handle('team:save-member', (_, payload = {}) => {
+  const input = objectPayload(payload);
+  const fields = Object.fromEntries(['id', 'name', 'email', 'role', 'channelId', 'disabled'].filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+  const before = fields.id ? teamStore.memberById(fields.id) : null;
+  const member = teamStore.saveMember(fields, access.identityForCall());
+  emitState(); // their role, the admin list and channel coverage change for everyone at once
+  const action = !before ? 'added' : member.disabled !== before.disabled ? (member.disabled ? 'disabled' : 'enabled') : 'changed';
+  return { member: memberView(member), activity: { memberId: member.id, name: member.name, action, role: member.role, channelId: member.channelId ?? null } };
+});
+handle('team:remove-member', (_, payload = {}) => {
+  const removed = teamStore.removeMember(String(objectPayload(payload).id || ''), access.identityForCall());
+  emitState();
+  return { ok: true, activity: { memberId: removed.id, name: removed.name, action: 'removed', role: removed.role, channelId: removed.channelId ?? null } };
+});
+// A new link replaces the old one: every browser that used the old link is signed out (its live updates end at this
+// broadcast). The token appears only in this answer; team.json keeps its hash.
+handle('team:sign-in-link', (_, payload = {}) => {
+  if (!WEB_RUNTIME) throw refuse(roles.COPY.linksWebOnly, 400, 'linksWebOnly');
+  if (!signInSettings().links) throw refuse('This studio signs in through your company login, so people don’t need sign-in links.', 400);
+  const origin = linkOrigin();
+  const { token, link, member } = teamStore.issueLink(String(objectPayload(payload).id || ''), access.identityForCall(), { days: linkDays() });
+  emitState();
+  return { url: `${origin}/#signin=${token}`, expiresAt: link.expiresAt ?? null, activity: { memberId: member.id, name: member.name } };
+});
+handle('team:revoke-link', (_, payload = {}) => { teamStore.revokeLink(String(objectPayload(payload).id || ''), access.identityForCall()); emitState(); return { ok: true }; });
+// View as: an admin's read-only preview, held on this session (the browser session, or this Mac app until it quits),
+// never in team.json. Admin ends it.
+handle('team:view-as', (_, payload = {}) => {
+  const input = objectPayload(payload); const session = access.sessionForCall();
+  if (!session) throw refuse('Sign in to use the studio.', 403, 'forbidden');
+  if (!input.role || input.role === 'admin') session.viewAs = null;
+  else if (input.role === 'editor') session.viewAs = { role: 'editor' };
+  else if (input.role === 'channel' && roles.isChannelId(input.channelId)) session.viewAs = { role: 'channel', channelId: input.channelId };
+  else throw refuse('Choose Admin, Editor or a channel to preview.', 400);
+  emitState();
+  return { viewer: access.viewerFor(access.identityForCall(), session) };
+});
+// Layout and the welcome card, per person. On the Mac the layout is also kept in Settings, which the rest of the app reads.
+handle('team:prefs', (_, payload = {}) => {
+  const input = objectPayload(payload); const identity = access.identityForCall();
+  const patch = { ...(input.uiMode !== undefined ? { uiMode: input.uiMode } : {}), ...(input.welcomedAt !== undefined ? { welcomedAt: input.welcomedAt } : {}) };
+  const prefs = teamStore.setPrefs(identity.id, patch);
+  if (!WEB_RUNTIME && patch.uiMode !== undefined && prefs.uiMode && loadData().settings.uiMode !== prefs.uiMode) { loadData().settings.uiMode = prefs.uiMode; saveData(); }
+  emitState();
+  return { viewer: access.currentViewer() };
+});
+// "Yes, I'm using this trend" / "Not for us" for one channel. Only a trend whose brief is ready can be answered; its name
+// is taken from the studio, not the request. A channel owner's channel is their own (the gate sets it); an admin may
+// correct any channel's answer, and the change is logged.
+handle('team:adoption', (_, payload = {}) => {
+  const input = objectPayload(payload); const viewer = access.currentViewer(); const space = contentWorkspace.activeWorkspace();
+  const trend = typeof input.themeId === 'string' ? readyTrends(contentWorkspace.trendSource()).find((row) => row.themeId === input.themeId) : null;
+  if (!space || !trend) throw refuse('That trend’s brief isn’t ready yet, so it can’t be answered.', 404);
+  const adoption = teamStore.setAdoption({ workspaceId: space.id, themeId: trend.themeId, channelId: input.channelId, status: input.status, link: input.link, note: input.note, trendName: trend.name }, access.identityForCall());
+  emitState();
+  return {
+    adoption: adoption ? { themeId: adoption.themeId, channelId: adoption.channelId, status: adoption.status, link: adoption.link || '', note: adoption.note || '', at: adoption.at || adoption.updatedAt || null, byName: adoption.by?.name || '', byMe: adoption.by?.id === viewer.id } : null,
+    activity: { themeId: trend.themeId, trendName: trend.name, channelId: input.channelId, status: input.status, link: adoption?.link || '' },
+  };
+});
+handle('team:analytics', (_, payload = {}) => {
+  const input = objectPayload(payload); const space = contentWorkspace.activeWorkspace(); const workspaceId = space?.id || '';
+  return buildTrendAnalytics({ contentStudio: contentWorkspace.publicState(), adoptions: teamStore.adoptionsFor(workspaceId), activity: teamStore.activityFor(workspaceId, 5000), members: teamStore.listMembers(), editionId: space?.editionId, workspace: space, now: new Date(), days: Number(input.days) || 90, includeAll: input.includeAll === true });
+});
+
 // ── Share a setup ──────────────────────────────────────────────────────────────────────────────────
 // Export writes one JSON file, optionally carrying the team's shared Apify token. Import previews first;
 // the parsed file stays here in the main process until the person confirms, so a key never sits in the page.
@@ -2284,7 +2444,7 @@ const MAX_SETUP_FILE_BYTES = 26 * 1024 * 1024;
 const SETUP_PREVIEW_TTL_MS = 30 * 60 * 1000;
 const pendingSetups = new Map(); // preview token → { bundle, fileName, expires }
 const setupFilters = [{ name: 'Scraper Studio setup', extensions: ['json'] }];
-ipcMain.handle('setup:export', async (_, { includeApifyToken = false } = {}) => {
+handle('setup:export', async (_, { includeApifyToken = false } = {}) => {
   const { attachSetupSecrets, summarizeSetupBundle } = require('../shared/setup-bundle');
   let bundle = contentWorkspace.exportSetup({ appVersion: app.getVersion() });
   if (includeApifyToken) {
@@ -2299,7 +2459,7 @@ ipcMain.handle('setup:export', async (_, { includeApifyToken = false } = {}) => 
   if (bundle.secrets) fs.chmodSync(filePath, 0o600); // `mode` applies only to a new file; an overwritten one keeps its old permissions
   return forBrowser({ fileName: path.basename(filePath), path: filePath, summary: summarizeSetupBundle(bundle).summary, includesApifyToken: Boolean(bundle.secrets?.APIFY_API_TOKEN) });
 });
-ipcMain.handle('setup:open', async () => {
+handle('setup:open', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { title: 'Import setup', properties: ['openFile'], filters: setupFilters });
   if (canceled || !filePaths?.[0]) return { cancelled: true };
   const filePath = filePaths[0];
@@ -2313,7 +2473,7 @@ ipcMain.handle('setup:open', async () => {
   pendingSetups.set(token, { bundle, fileName: path.basename(filePath), expires: Date.now() + SETUP_PREVIEW_TTL_MS });
   return { token, fileName: path.basename(filePath), summary, warnings, apifyTokenIncluded: Boolean(bundle.secrets?.APIFY_API_TOKEN), apifyTokenSaved: Boolean(getKey('APIFY_API_TOKEN')) };
 });
-ipcMain.handle('setup:apply', async (_, { token, saveApifyToken = false } = {}) => {
+handle('setup:apply', async (_, { token, saveApifyToken = false } = {}) => {
   const pending = pendingSetups.get(String(token || ''));
   if (!pending || pending.expires < Date.now()) throw new Error('This preview has expired. Choose Import setup… and open the file again.');
   const apifyToken = saveApifyToken ? pending.bundle.secrets?.APIFY_API_TOKEN : '';
@@ -2329,14 +2489,14 @@ ipcMain.handle('setup:apply', async (_, { token, saveApifyToken = false } = {}) 
   emitState();
   return { fileName: pending.fileName, summary: result.summary, warnings: result.warnings, workspaceId: result.workspaceId, programIds: result.programIds, apifyTokenSaved: Boolean(getKey('APIFY_API_TOKEN')) };
 });
-ipcMain.handle('open-source-url', (_, value) => { const url = new URL(String(value)); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('Unsupported source link.'); return shell.openExternal(url.href); });
-ipcMain.handle('check-codex', () => checkCodexCli());
-ipcMain.handle('test-image-provider', () => imageProvider.checkAccess());
-ipcMain.handle('plan-intent', (_, payload) => planIntentCommand(payload));
-ipcMain.handle('run-intent', (_, payload) => runIntent(payload));
-ipcMain.handle('run-intent-action', (_, payload) => runIntentAction(payload));
+handle('open-source-url', (_, value) => { const url = new URL(String(value)); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('Unsupported source link.'); return shell.openExternal(url.href); });
+handle('check-codex', () => checkCodexCli());
+handle('test-image-provider', () => imageProvider.checkAccess());
+handle('plan-intent', (_, payload) => planIntentCommand(payload));
+handle('run-intent', (_, payload) => runIntent(payload));
+handle('run-intent-action', (_, payload) => runIntentAction(payload));
 
-ipcMain.handle('save-key', (_, { keyName, value }) => {
+handle('save-key', (_, { keyName, value }) => {
   const validKey = validateKeyName(keyName, KEY_NAMES);
   const validValue = validateKeyValue(validKey, value);
   const config = loadConfig();
@@ -2346,7 +2506,7 @@ ipcMain.handle('save-key', (_, { keyName, value }) => {
   return publicState().keys;
 });
 
-ipcMain.handle('clear-key', (_, keyName) => {
+handle('clear-key', (_, keyName) => {
   const validKey = validateKeyName(keyName, KEY_NAMES);
   const config = loadConfig();
   delete config.keys[validKey];
@@ -2355,7 +2515,7 @@ ipcMain.handle('clear-key', (_, keyName) => {
   return publicState().keys;
 });
 
-ipcMain.handle('save-settings', (_, settings) => {
+handle('save-settings', (_, settings) => {
   const data = loadData();
   data.settings = validateSettings(settings, data.settings);
   saveData(); aiRoutes.invalidate();
@@ -2363,7 +2523,7 @@ ipcMain.handle('save-settings', (_, settings) => {
   return publicState();
 });
 
-ipcMain.handle('save-recipe', (_, payload) => {
+handle('save-recipe', (_, payload) => {
   const data = loadData();
   const recipe = validateRecipe(payload, data.recipes.find((item) => item.id === payload?.id));
   upsertById(data.recipes, recipe);
@@ -2372,7 +2532,7 @@ ipcMain.handle('save-recipe', (_, payload) => {
   return publicRecipe(recipe);
 });
 
-ipcMain.handle('delete-recipe', (_, recipeId) => {
+handle('delete-recipe', (_, recipeId) => {
   const validRecipeId = validateId(recipeId, 'Recipe ID');
   const data = loadData();
   data.recipes = data.recipes.filter((recipe) => recipe.id !== validRecipeId);
@@ -2381,37 +2541,37 @@ ipcMain.handle('delete-recipe', (_, recipeId) => {
   return publicState();
 });
 
-ipcMain.handle('save-card', (_, payload) => saveCard(payload));
-ipcMain.handle('move-card', (_, payload) => moveCard(payload));
-ipcMain.handle('save-asset', (_, payload) => saveAsset(payload));
-ipcMain.handle('generate-assets', (_, payload) => generateAssets(payload));
-ipcMain.handle('run-recipe', (_, recipeId) => runRecipe(validateId(recipeId, 'Recipe ID')));
-ipcMain.handle('read-dataset', (_, datasetId) => readDatasetPayload(validateId(datasetId, 'Dataset ID')));
-ipcMain.handle('export-dataset', (_, payload) => exportDataset(payload));
-ipcMain.handle('test-sheets-bridge', () => testSheetsBridge());
-ipcMain.handle('save-monday-board', (_, payload) => saveMondayBoard(payload));
-ipcMain.handle('clear-monday-board', () => { const config = loadConfig(); delete config.monday; saveConfig(); emitState(); return publicState(); });
-ipcMain.handle('sync-trend-board-to-monday', (_, payload) => syncTrendBoardToMonday(payload));
-ipcMain.handle('archive-and-clear-sheets', (_, payload) => archiveAndClearSheets(payload));
-ipcMain.handle('import-working-sheets', () => importWorkingSheets());
-ipcMain.handle('export-dataset-to-sheets', (_, payload) => exportDatasetToSheets(payload));
-ipcMain.handle('replay-sheet-run', (_, sheetRunId) => replaySheetRun(sheetRunId));
-ipcMain.handle('read-analysis', (_, analysisId) => readAnalysisOutput(validateId(analysisId, 'Analysis ID')));
-ipcMain.handle('analyze-dataset', (_, payload) => analyzeDataset(payload));
-ipcMain.handle('open-data-folder', () => openPathOrThrow(dataRoot()));
-ipcMain.handle('open-assets-folder', () => openPathOrThrow(dataPath('assets')));
-ipcMain.handle('open-analysis-output', (_, analysisId) => openPathOrThrow(localAnalysisPath(validateId(analysisId, 'Analysis ID'))));
-ipcMain.handle('reveal-analysis-output', (_, analysisId) => {
+handle('save-card', (_, payload) => saveCard(payload));
+handle('move-card', (_, payload) => moveCard(payload));
+handle('save-asset', (_, payload) => saveAsset(payload));
+handle('generate-assets', (_, payload) => generateAssets(payload));
+handle('run-recipe', (_, recipeId) => runRecipe(validateId(recipeId, 'Recipe ID')));
+handle('read-dataset', (_, datasetId) => readDatasetPayload(validateId(datasetId, 'Dataset ID')));
+handle('export-dataset', (_, payload) => exportDataset(payload));
+handle('test-sheets-bridge', () => testSheetsBridge());
+handle('save-monday-board', (_, payload) => saveMondayBoard(payload));
+handle('clear-monday-board', () => { const config = loadConfig(); delete config.monday; saveConfig(); emitState(); return publicState(); });
+handle('sync-trend-board-to-monday', (_, payload) => syncTrendBoardToMonday(payload));
+handle('archive-and-clear-sheets', (_, payload) => archiveAndClearSheets(payload));
+handle('import-working-sheets', () => importWorkingSheets());
+handle('export-dataset-to-sheets', (_, payload) => exportDatasetToSheets(payload));
+handle('replay-sheet-run', (_, sheetRunId) => replaySheetRun(sheetRunId));
+handle('read-analysis', (_, analysisId) => readAnalysisOutput(validateId(analysisId, 'Analysis ID')));
+handle('analyze-dataset', (_, payload) => analyzeDataset(payload));
+handle('open-data-folder', () => openPathOrThrow(dataRoot()));
+handle('open-assets-folder', () => openPathOrThrow(dataPath('assets')));
+handle('open-analysis-output', (_, analysisId) => openPathOrThrow(localAnalysisPath(validateId(analysisId, 'Analysis ID'))));
+handle('reveal-analysis-output', (_, analysisId) => {
   shell.showItemInFolder(localAnalysisPath(validateId(analysisId, 'Analysis ID')));
   return true;
 });
-ipcMain.handle('open-asset', (_, assetId) => openPathOrThrow(localAssetPath(validateId(assetId, 'Asset ID'))));
-ipcMain.handle('reveal-asset', (_, assetId) => {
+handle('open-asset', (_, assetId) => openPathOrThrow(localAssetPath(validateId(assetId, 'Asset ID'))));
+handle('reveal-asset', (_, assetId) => {
   shell.showItemInFolder(localAssetPath(validateId(assetId, 'Asset ID')));
   return true;
 });
-ipcMain.handle('open-workspace', (_, projectId = 'default') => openPathOrThrow(ensureWorkspace(dataPath('workspaces'), validateId(projectId, 'Project ID'))));
-ipcMain.handle('cancel-job', async (_, jobId) => {
+handle('open-workspace', (_, projectId = 'default') => openPathOrThrow(ensureWorkspace(dataPath('workspaces'), validateId(projectId, 'Project ID'))));
+handle('cancel-job', async (_, jobId) => {
   const validJobId = validateId(jobId, 'Job ID');
   const child = jobProcesses.get(validJobId);
   const apifyRun = apifyRunControllers.get(validJobId);

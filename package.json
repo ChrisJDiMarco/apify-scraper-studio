@@ -1,6 +1,6 @@
 {
   "name": "apify-scraper-studio",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local macOS workspace for Apify research, source-linked findings, and Claude Opus 5.5 analysis.",
   "main": "./out/main/index.js",
   "author": "Chris DiMarco",

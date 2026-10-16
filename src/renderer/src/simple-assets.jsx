@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, CircleStop, Clapperboard, ClipboardCopy, CloudUpload, Download, ExternalLink, FileText, Folder, FolderOpen, Image as ImageIcon, LayoutTemplate, Link2, LoaderCircle, RefreshCw, Search, Sparkles, TriangleAlert, Upload, Wand2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CircleStop, Clapperboard, ClipboardCopy, CloudUpload, Download, ExternalLink, FileText, Folder, FolderOpen, Image as ImageIcon, LayoutTemplate, Link2, LoaderCircle, PenLine, RefreshCw, Search, Sparkles, TriangleAlert, Upload, Wand2, X } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
+import { AssetEditor, canEditAsset, useUnsavedGuard } from './asset-editor.jsx';
+import { formatDay, useCan, useViewer, writeProps } from './viewer.js';
 import { formatDate, number, withViewTransition } from './ui.jsx';
 
 // Assets in Simple mode. Channel assets made from a report (the n8n "Generate All Channel Assets" workflow) live in
 // folders: one per report, one inside it per run, one per channel team inside that, as n8n filed them in Drive.
-// Every picture, from those runs, Create content and Ask AI, is in the gallery below.
+// Every picture, from those runs, Create content and Ask AI, is in the gallery below. Buttons follow the person's
+// role (useCan): an editor makes and edits but never sees Settings, and nobody sees a button the server would refuse.
 const ACTIVE = new Set(['queued', 'running']);
 const list = (value) => (Array.isArray(value) ? value : []);
 const money = (value) => (Number.isFinite(Number(value)) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value)) : '');
@@ -42,7 +45,13 @@ function jobLine(job, asset, live = true) {
   return /^output\./.test(String(job.error || '')) ? 'Didn’t pass its checks after a second try' : brief(job.error) || 'Needs another try';
 }
 
-export function SimpleAssets({ api, web, kitRuns, assets, studioImages, sources, request, onRequestDone, cache, onCache, action, busy, imagesReady, googleReady, onDraft, onAsk, onSettings, onOpenReport, onViewChange }) {
+export function SimpleAssets({ api, web, kitRuns, assets, studioImages, sources, request, onRequestDone, cache, onCache, action, busy, imagesReady, googleReady, askAdmin = 'an admin', onDraft, onAsk, onSettings, onOpenReport, onViewChange }) {
+  const can = useCan();
+  const viewer = useViewer();
+  const canMake = can('createAssetKit');
+  const canPicture = can('createHelpImage') && Boolean(onDraft);
+  // Without Settings, the way to pictures is a person: say who.
+  const picturesOff = `Pictures are off for your team. ${askAdmin} can turn them on.`;
   const [place, setPlace] = useState({ folder: '', runId: '' });
   const [creating, setCreating] = useState(null);
   const [reading, setReading] = useState(null); // a written asset open in the viewer
@@ -109,7 +118,7 @@ export function SimpleAssets({ api, web, kitRuns, assets, studioImages, sources,
     else await action(() => api.openStudioAsset({ assetId: item.id }), web ? 'Download started.' : '');
   }
   const counts = { all: items.length, studio: items.filter((item) => item.source === 'studio').length, help: items.filter((item) => item.source === 'help').length, video: items.filter((item) => item.kind === 'video').length };
-  const newPicture = () => (imagesReady ? onDraft('Create a picture of ') : onSettings());
+  const newPicture = () => (imagesReady ? onDraft('Create a picture of ') : onSettings?.());
   const go = (next) => withViewTransition(() => setPlace(next));
   // Written assets open in order of the run's folders, so ← and → page through the set.
   function openFile(asset, run) { setReading({ asset, run }); }
@@ -129,7 +138,7 @@ export function SimpleAssets({ api, web, kitRuns, assets, studioImages, sources,
   function created(run) { setCreating(null); if (run?.kit?.sourceKey) go({ folder: run.kit.sourceKey, runId: run.id }); }
 
   const overlays = <>
-    {creating && <KitCreator key={creating.key} api={api} sources={sources} preset={creating} imagesReady={imagesReady} action={action} busy={busy} onClose={() => setCreating(null)} onCreated={created} onSettings={onSettings} />}
+    {creating && canMake && <KitCreator key={creating.key} api={api} sources={sources} preset={creating} imagesReady={imagesReady} action={action} busy={busy} picturesOff={picturesOff} onClose={() => setCreating(null)} onCreated={created} onSettings={onSettings} />}
     {reading && <KitFileViewer api={api} web={web} busy={busy} action={action} file={reading} folder={kitFolderOf.get(`${reading.run.id}:${reading.asset.deliverableId}`)} label={list(reading.run.jobs).find((job) => job.id === reading.asset.deliverableId)?.label} onClose={() => setReading(null)} onMove={moveFile} />}
     {open && <div className="simple-lightbox" role="dialog" aria-modal="true" aria-label={open.title} onClick={() => setOpen(null)}>
       <div className="simple-lightbox-card" onClick={(event) => event.stopPropagation()}>
@@ -141,7 +150,7 @@ export function SimpleAssets({ api, web, kitRuns, assets, studioImages, sources,
           {open.prompt && <p className="simple-prompt">{open.prompt}</p>}
           <div className="simple-lightbox-actions">
             <button type="button" className="simple-primary" disabled={busy} onClick={() => download(open)}>{saved === open.key ? <Check size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}{saved === open.key ? 'Saved' : open.source === 'help' || web ? 'Download' : 'Open file'}</button>
-            {open.kind === 'image' && imagesReady && <button type="button" className="simple-quiet" onClick={() => { setOpen(null); onAsk(`Make a variation of the picture “${open.title}”.`, open.prompt ? `EARLIER PICTURE PROMPT (data): ${open.prompt}` : ''); }}><Wand2 size={15} aria-hidden="true" />Make a variation</button>}
+            {open.kind === 'image' && imagesReady && can('askHelp') && onAsk && <button type="button" className="simple-quiet" {...writeProps(viewer)} onClick={() => { setOpen(null); onAsk(`Make a variation of the picture “${open.title}”.`, open.prompt ? `EARLIER PICTURE PROMPT (data): ${open.prompt}` : ''); }}><Wand2 size={15} aria-hidden="true" />Make a variation</button>}
           </div>
         </aside>
       </div>
@@ -149,13 +158,13 @@ export function SimpleAssets({ api, web, kitRuns, assets, studioImages, sources,
   </>;
 
   if (folder) return <>
-    <KitFolderView folder={folder} runId={place.runId} assets={assets} cache={cache} web={web} busy={busy} action={action} api={api} googleReady={googleReady} onRun={(runId) => go({ folder: folder.key, runId })} onBack={() => go({ folder: '', runId: '' })} onOpenFile={openFile} onOpenPicture={openPicture} onAgain={() => startAgain(folder)} onOpenReport={onOpenReport} />
+    <KitFolderView folder={folder} runId={place.runId} assets={assets} cache={cache} web={web} busy={busy} action={action} api={api} googleReady={googleReady} canMake={canMake} onRun={(runId) => go({ folder: folder.key, runId })} onBack={() => go({ folder: '', runId: '' })} onOpenFile={openFile} onOpenPicture={openPicture} onAgain={() => startAgain(folder)} onOpenReport={onOpenReport} />
     {overlays}
   </>;
   return <>
     <div className="simple-page">
       <div className="simple-page-head"><div><h1>Assets</h1><p>Every channel asset made from your reports, and every picture, newest first.</p></div>
-        <div className="simple-head-actions"><button type="button" data-spot="assets.make-picture" className="simple-quiet" onClick={newPicture}><Wand2 size={15} aria-hidden="true" />{imagesReady ? 'Make a picture' : 'Turn on pictures'}</button><button type="button" data-spot="assets.make-kit" className="simple-primary" disabled={busy} onClick={() => setCreating({ key: Date.now() })}><Sparkles size={15} aria-hidden="true" />Make channel assets</button></div></div>
+        <div className="simple-head-actions">{(imagesReady ? canPicture : Boolean(onSettings)) && <button type="button" data-spot="assets.make-picture" className="simple-quiet" onClick={newPicture}><Wand2 size={15} aria-hidden="true" />{imagesReady ? 'Make a picture' : 'Turn on pictures'}</button>}{canMake && <button type="button" data-spot="assets.make-kit" className="simple-primary" disabled={busy} onClick={() => setCreating({ key: Date.now() })}><Sparkles size={15} aria-hidden="true" />Make channel assets</button>}</div></div>
 
       <section className="simple-section" aria-labelledby="simple-kit-folders" data-spot="assets.folders">
         <div className="simple-section-head"><h2 id="simple-kit-folders">Report folders</h2>{folders.length > 0 && <small className="simple-section-note">One folder per report · a folder inside for each run</small>}</div>
@@ -169,7 +178,7 @@ export function SimpleAssets({ api, web, kitRuns, assets, studioImages, sources,
           : <div className="simple-kit-intro">
             <span className="simple-kit-intro-art" aria-hidden="true"><Folder size={26} /><Folder size={26} /><Folder size={26} /></span>
             <div><strong>Turn one report into every channel asset</strong><p>Blog posts, the newsletter pack, search ads and a landing page, PR research, social captions and hero graphics, the affiliate pack, the enterprise brief, and the Backlinko, Exploding Topics and Search Engine Land pieces. Each run gets its own folder, split by channel team.</p></div>
-            <button type="button" className="simple-primary" disabled={busy} onClick={() => setCreating({ key: Date.now() })}>Choose a report<ArrowRight size={15} aria-hidden="true" /></button>
+            {canMake && <button type="button" className="simple-primary" disabled={busy} onClick={() => setCreating({ key: Date.now() })}>Choose a report<ArrowRight size={15} aria-hidden="true" /></button>}
           </div>}
       </section>
 
@@ -177,7 +186,7 @@ export function SimpleAssets({ api, web, kitRuns, assets, studioImages, sources,
         <div className="simple-section-head"><h2 id="simple-pictures">Pictures</h2></div>
         {helpImages !== null && items.length > 0 && <div className="simple-filters is-tight" role="group" aria-label="Asset type" data-spot="assets.picture-types">{[['all', 'All'], ['studio', 'Campaign visuals'], ['help', 'Made in Ask AI'], ...(hasVideo ? [['video', 'Videos']] : [])].filter(([value]) => value === 'all' || counts[value]).map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}<span>{number(counts[value])}</span></button>)}</div>}
         {helpImages === null ? <div className="simple-asset-grid" aria-busy="true">{[0, 1, 2].map((n) => <div className="simple-asset skeleton" key={n}><span className="simple-asset-frame" /></div>)}</div>
-          : !items.length ? <div className="simple-empty"><ImageIcon size={22} aria-hidden="true" /><p>{imagesReady ? 'No pictures yet. Ask AI can make one for any trend or report, and channel asset runs draw hero graphics too.' : 'Add an OpenAI key in Settings and pictures can be made for your trends, reports and channel assets.'}</p><button type="button" className="simple-quiet" onClick={newPicture}>{imagesReady ? 'Make your first picture' : 'Open Settings'}</button></div>
+          : !items.length ? <div className="simple-empty"><ImageIcon size={22} aria-hidden="true" /><p>{imagesReady ? 'No pictures yet. Ask AI can make one for any trend or report, and channel asset runs draw hero graphics too.' : onSettings ? 'Add an OpenAI key in Settings and pictures can be made for your trends, reports and channel assets.' : picturesOff}</p>{(imagesReady ? canPicture : Boolean(onSettings)) && <button type="button" className="simple-quiet" onClick={newPicture}>{imagesReady ? 'Make your first picture' : 'Open Settings'}</button>}</div>
           : <div className="simple-asset-grid">{shown.map((item) => <button type="button" className="simple-asset" key={item.key} onClick={() => setOpen(item)} aria-label={`Open ${item.title}`}>
             <span className="simple-asset-frame">{item.kind === 'video' ? <span className="simple-asset-placeholder"><Clapperboard size={26} aria-hidden="true" /></span> : cache[item.key] ? <img src={cache[item.key]} alt="" loading="lazy" /> : <span className="simple-asset-placeholder shimmer" />}</span>
             <span className="simple-asset-copy"><strong>{item.title}</strong><small>{[item.label, formatDate(item.createdAt)].filter(Boolean).join(' · ')}</small></span>
@@ -189,13 +198,13 @@ export function SimpleAssets({ api, web, kitRuns, assets, studioImages, sources,
 }
 
 // One report's folder: a sub-folder per run on the left, the open run's channel folders on the right.
-function KitFolderView({ folder, runId, assets, cache, web, busy, action, api, googleReady, onRun, onBack, onOpenFile, onOpenPicture, onAgain, onOpenReport }) {
+function KitFolderView({ folder, runId, assets, cache, web, busy, action, api, googleReady, canMake = true, onRun, onBack, onOpenFile, onOpenPicture, onAgain, onOpenReport }) {
   const run = folder.runs.find((entry) => entry.id === runId) || folder.runs[0];
   useEffect(() => { document.querySelector('.simple-main')?.scrollTo?.({ top: 0 }); }, [folder.key]);
   return <div className="simple-page simple-kit-page">
     <button type="button" className="simple-back" onClick={onBack}><ArrowLeft size={15} aria-hidden="true" />All assets</button>
     <div className="simple-page-head"><div><h1>{folder.title}</h1><p>{[SOURCE_LABEL[folder.kind] || 'From a report', plural(folder.runs.length, 'run'), plural(folder.files.length, 'file')].join(' · ')}</p></div>
-      <div className="simple-head-actions">{folder.latest.kit.reportAssetId && ['trend', 'report'].includes(folder.kind) && <button type="button" data-spot="kit.report" className="simple-quiet" onClick={() => onOpenReport(folder.latest.kit.reportAssetId)}><FileText size={15} aria-hidden="true" />Read the report</button>}<button type="button" data-spot="kit.again" className="simple-primary" disabled={busy} onClick={onAgain}><Sparkles size={15} aria-hidden="true" />Make another set</button></div></div>
+      <div className="simple-head-actions">{folder.latest.kit.reportAssetId && ['trend', 'report'].includes(folder.kind) && <button type="button" data-spot="kit.report" className="simple-quiet" onClick={() => onOpenReport(folder.latest.kit.reportAssetId)}><FileText size={15} aria-hidden="true" />Read the report</button>}{canMake && <button type="button" data-spot="kit.again" className="simple-primary" disabled={busy} onClick={onAgain}><Sparkles size={15} aria-hidden="true" />Make another set</button>}</div></div>
     <div className="simple-kit-layout">
       <div className="simple-kit-runs" role="group" aria-label="Runs in this folder" data-spot="kit.runs">{folder.runs.map((entry) => <button type="button" key={entry.id} aria-current={entry.id === run.id ? 'true' : undefined} onClick={() => onRun(entry.id)}>
         <span className="simple-kit-run-glyph">{ACTIVE.has(entry.status) ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : entry.id === run.id ? <FolderOpen size={17} aria-hidden="true" /> : <Folder size={17} aria-hidden="true" />}</span>
@@ -208,6 +217,8 @@ function KitFolderView({ folder, runId, assets, cache, web, busy, action, api, g
 
 // One run's folder, laid out as n8n left it in Drive: a folder per channel team with that team's files.
 function KitRun({ run, assets, cache, web, busy, action, api, googleReady, onOpenFile, onOpenPicture }) {
+  const can = useCan();
+  const viewer = useViewer();
   const jobs = list(run.jobs); const total = jobs.length; const done = jobs.filter((job) => job.status === 'succeeded').length; const unfinished = total - done;
   const live = ACTIVE.has(run.status);
   const channels = jobs.reduce((all, job) => { const name = job.folder || 'Other'; (all[name] ||= []).push(job); return all; }, {});
@@ -227,10 +238,10 @@ function KitRun({ run, assets, cache, web, busy, action, api, googleReady, onOpe
     {live && <div className="simple-kit-progress" role="progressbar" aria-label="Assets ready" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}><span style={{ width: `${Math.max(4, Math.round((done / Math.max(1, total)) * 100))}%` }} /></div>}
     <div className="simple-kit-run-actions">
       <button type="button" data-spot="kit.save" className="simple-primary" disabled={busy || !assets.length} onClick={() => action(() => api.saveAssetKitFolder({ runId: run.id }), web ? 'Download started.' : 'Saved to your Downloads folder.')}><Download size={15} aria-hidden="true" />{web ? 'Download folder' : 'Save folder'}</button>
-      {googleReady && <button type="button" data-spot="kit.drive" className="simple-quiet" disabled={busy || !assets.length || live} title={live ? 'Available when the run finishes' : undefined} onClick={() => action(() => api.publishStudioRun({ runId: run.id }), 'Saved to Google Drive.')}><CloudUpload size={15} aria-hidden="true" />Save to Google Drive</button>}
+      {googleReady && can('publishStudioRun') && <button type="button" data-spot="kit.drive" className="simple-quiet" title={live ? 'Available when the run finishes' : undefined} {...writeProps(viewer, busy || !assets.length || live)} onClick={() => action(() => api.publishStudioRun({ runId: run.id }), 'Saved to Google Drive.')}><CloudUpload size={15} aria-hidden="true" />Save to Google Drive</button>}
       {delivered && <a className="simple-quiet" href={delivered} target="_blank" rel="noreferrer"><ExternalLink size={15} aria-hidden="true" />Open in Drive</a>}
-      {live && <button type="button" data-spot="kit.stop" className="simple-quiet" disabled={busy} onClick={stop}><CircleStop size={15} aria-hidden="true" />Stop</button>}
-      {!live && unfinished > 0 && <button type="button" data-spot="kit.finish" className="simple-quiet" disabled={busy} onClick={finish}><RefreshCw size={15} aria-hidden="true" />Finish the rest</button>}
+      {live && can('cancelStudioRun') && <button type="button" data-spot="kit.stop" className="simple-quiet" {...writeProps(viewer, busy)} onClick={stop}><CircleStop size={15} aria-hidden="true" />Stop</button>}
+      {!live && unfinished > 0 && can('retryStudioRun') && <button type="button" data-spot="kit.finish" className="simple-quiet" {...writeProps(viewer, busy)} onClick={finish}><RefreshCw size={15} aria-hidden="true" />Finish the rest</button>}
     </div>
     {list(run.warnings).length > 0 && <p className="simple-kit-note">{run.warnings[0]}</p>}
     <div className="simple-kit-channels" data-spot="kit.channels">{Object.entries(channels).map(([name, rows]) => <section className="simple-kit-channel" key={name} aria-label={name}>
@@ -264,37 +275,61 @@ function KitFile({ job, run, live, assets, cache, onOpenFile, onOpenPicture }) {
   </button></li>;
 }
 
-// A written asset, read in place: copy it, open the file, or page through the run with ← and →.
+// A written asset, read in place: copy it, open the file, page through the run with ← and →, or (admins and editors)
+// edit it. An edit is saved beside the original, so the folder, its download and later sets use the new text.
 function KitFileViewer({ api, web, busy, action, file, folder, label, onClose, onMove }) {
   const { asset } = file;
+  const can = useCan();
+  const viewer = useViewer();
+  const guard = useUnsavedGuard();
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const body = useRef(null);
+  useEffect(() => { setEditing(false); }, [asset.id]);
   useEffect(() => {
     let cancelled = false; setPayload(null); setError(''); setCopied(false); body.current?.scrollTo?.({ top: 0 });
     Promise.resolve().then(() => api.readStudioAsset({ assetId: asset.id })).then((result) => { if (!cancelled) setPayload(result); }).catch((failure) => { if (!cancelled) setError(failure?.message || 'This file could not be opened.'); });
     return () => { cancelled = true; };
-  }, [asset.id]);
+  }, [asset.id, reloadKey]);
+  // Closing asks first when there are unsaved edits; while editing, Esc and the arrows belong to the editor.
+  const close = () => { if (guard.confirmLeave()) onClose(); };
   useEffect(() => {
+    if (editing) return undefined;
     const onKey = (event) => { if (event.target.closest?.('input, textarea, select') || event.metaKey || event.ctrlKey || event.altKey) return; if (event.key === 'Escape') onClose(); if (event.key === 'ArrowLeft') onMove(-1); if (event.key === 'ArrowRight') onMove(1); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [asset.id]);
+  }, [asset.id, editing]);
   const markdown = typeof payload?.markdown === 'string' ? payload.markdown : '';
+  const editedRow = payload?.edited || asset.edited;
+  const edited = editedRow?.at ? { at: editedRow.at, byName: editedRow.byName || editedRow.by?.name || '' } : null;
+  // The editor starts from the version whose text it shows (what was loaded), so a save made by someone else since is
+  // refused instead of overwritten.
+  const loadedEdit = payload?.edited?.at ? { at: payload.edited.at, byName: payload.edited.byName || payload.edited.by?.name || '' } : null;
+  const canEdit = Boolean(api.editStudioAsset && can('editStudioAsset') && canEditAsset(asset));
   async function copy() { try { await navigator.clipboard.writeText(markdown); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { setCopied(false); } }
-  return <div className="simple-lightbox" role="dialog" aria-modal="true" aria-label={label || asset.title} onClick={onClose}>
-    <div className="simple-kit-viewer" onClick={(event) => event.stopPropagation()}>
+  function saved(result) {
+    setEditing(false);
+    if (result?.restored) { setReloadKey((value) => value + 1); return; }
+    const row = result?.asset?.edited;
+    setPayload((current) => ({ ...(current || {}), markdown: result?.markdown ?? markdown, edited: row?.at ? { at: row.at, byName: row.byName || row.by?.name || '' } : current?.edited || null }));
+  }
+  return <div className="simple-lightbox" role="dialog" aria-modal="true" aria-label={label || asset.title} onClick={close}>
+    <div className={`simple-kit-viewer${editing ? ' is-editing' : ''}`} onClick={(event) => event.stopPropagation()}>
       <header className="simple-kit-viewer-bar">
-        <span><small>{[folder, label].filter(Boolean).join(' · ')}</small><strong>{asset.title}</strong></span>
-        <div className="simple-reader-tools">
+        <span><small>{[folder, label, edited ? `Edited by ${edited.byName || 'someone'}${edited.at ? ` · ${formatDay(edited.at)}` : ''}` : ''].filter(Boolean).join(' · ')}</small><strong>{asset.title}</strong></span>
+        {!editing && <div className="simple-reader-tools">
+          {canEdit && <button type="button" {...writeProps(viewer, !markdown)} onClick={() => setEditing(true)}><PenLine size={15} aria-hidden="true" />Edit</button>}
           <button type="button" disabled={!markdown} onClick={copy}>{copied ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}{copied ? 'Copied' : 'Copy text'}</button>
           <button type="button" disabled={busy} onClick={() => action(() => api.openStudioAsset({ assetId: asset.id }), web ? 'Download started.' : '')}>{web ? <Download size={15} aria-hidden="true" /> : <ExternalLink size={15} aria-hidden="true" />}{web ? 'Download' : asset.deliverableId === 'landingpage' ? 'Open the page' : 'Open file'}</button>
-        </div>
-        <button type="button" className="simple-lightbox-close" aria-label="Close" onClick={onClose}><X size={18} /></button>
+        </div>}
+        <button type="button" className="simple-lightbox-close" aria-label="Close" onClick={close}><X size={18} /></button>
       </header>
       <div className="simple-kit-viewer-body" ref={body}>
-        <article className="simple-doc">{error ? <p className="simple-error" role="alert">{error}</p> : !payload ? <div className="simple-doc-skeleton" role="status" aria-label="Opening the file"><span /><span /><span /><span /><span /></div> : markdown ? <MarkdownContent>{markdown}</MarkdownContent> : <p className="simple-error">This file has no readable text. Try Open file.</p>}</article>
+        {editing ? <AssetEditor api={api} asset={asset} markdown={markdown} edited={loadedEdit} action={action} web={web} onSaved={saved} onCancel={() => setEditing(false)} />
+          : <article className="simple-doc">{error ? <p className="simple-error" role="alert">{error}</p> : !payload ? <div className="simple-doc-skeleton" role="status" aria-label="Opening the file"><span /><span /><span /><span /><span /></div> : markdown ? <MarkdownContent>{markdown}</MarkdownContent> : <p className="simple-error">This file has no readable text. Try Open file.</p>}</article>}
       </div>
     </div>
   </div>;
@@ -302,7 +337,8 @@ function KitFileViewer({ api, web, busy, action, file, folder, label, onClose, o
 
 // Make channel assets: pick the report (one in the library, a Google Doc link, or pasted text), check what will be
 // made and what it can cost, then start. Nothing is spent until "Make" is pressed.
-function KitCreator({ api, sources, preset, imagesReady, action, busy, onClose, onCreated, onSettings }) {
+function KitCreator({ api, sources, preset, imagesReady, action, busy, picturesOff = '', onClose, onCreated, onSettings }) {
+  const viewer = useViewer();
   const fixed = preset?.source || null;
   const [step, setStep] = useState(fixed ? 'review' : 'source');
   const [mode, setMode] = useState(preset?.mode || 'report');
@@ -397,12 +433,12 @@ function KitCreator({ api, sources, preset, imagesReady, action, busy, onClose, 
             <div className="simple-source-card"><span className="simple-doc-icon"><FileText size={18} aria-hidden="true" /></span><span><strong>{plan.title}</strong><small>{[SOURCE_LABEL[plan.sourceKind], plural(plan.characters, 'character'), plan.evidenceCount ? plural(plan.evidenceCount, 'cited source') : '', plan.earlierRuns ? `${plural(plan.earlierRuns, 'earlier run')} in its folder` : ''].filter(Boolean).join(' · ')}</small></span>{!fixed && <button type="button" className="simple-quiet" disabled={starting} onClick={() => { setStep('source'); setPlan(null); setChosen(null); }}>Change</button>}</div>
             <div className="simple-kit-plan" data-spot="kit-dialog.plan">{plan.folders.map((folder) => <div className="simple-kit-plan-folder" key={folder.id}>
               <span className="simple-kit-plan-name"><Folder size={15} aria-hidden="true" />{folder.name}</span>
-              <span className="simple-kit-plan-items">{folder.items.map((item) => { const name = `${sentence(item.label.replace(/^[^—]+—\s*/, ''))}${item.kind === 'image' ? ` ×${item.pictures}` : ''}`; return <button type="button" key={item.id} className="simple-check-chip" role="checkbox" aria-checked={item.selected} aria-label={name} disabled={!item.available || starting || planning} title={!item.available ? 'Turn on pictures in Settings to include these' : item.kind === 'image' ? referenceTitle(item.references) : undefined} onClick={() => toggle(item.id)}>
+              <span className="simple-kit-plan-items">{folder.items.map((item) => { const name = `${sentence(item.label.replace(/^[^—]+—\s*/, ''))}${item.kind === 'image' ? ` ×${item.pictures}` : ''}`; return <button type="button" key={item.id} className="simple-check-chip" role="checkbox" aria-checked={item.selected} aria-label={name} disabled={!item.available || starting || planning} title={!item.available ? (onSettings ? 'Turn on pictures in Settings to include these' : picturesOff) : item.kind === 'image' ? referenceTitle(item.references) : undefined} onClick={() => toggle(item.id)}>
                 <span className="simple-check" aria-hidden="true">{item.selected && <Check size={12} />}</span>{item.kind === 'image' ? <ImageIcon size={13} aria-hidden="true" /> : null}{name}
               </button>; })}</span>
             </div>)}</div>
-            {!plan.imagesReady && <p className="simple-hint">Pictures are off. <button type="button" className="simple-link" onClick={onSettings}>Turn them on in Settings</button> to add the hero graphics.</p>}
-            {plan.imagesReady && pictures > 0 && <p className="simple-hint" data-spot="kit-dialog.references">{referenceHint(selected)} <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>{selected.some((item) => item.references?.style || item.references?.logo) ? 'Change them in Settings' : 'Add style examples and logos in Settings'}</button></p>}
+            {!plan.imagesReady && (onSettings ? <p className="simple-hint">Pictures are off. <button type="button" className="simple-link" onClick={onSettings}>Turn them on in Settings</button> to add the hero graphics.</p> : <p className="simple-hint">{picturesOff} Only the written drafts are made until then.</p>)}
+            {plan.imagesReady && pictures > 0 && <p className="simple-hint" data-spot="kit-dialog.references">{referenceHint(selected)}{onSettings && <> <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>{selected.some((item) => item.references?.style || item.references?.logo) ? 'Change them in Settings' : 'Add style examples and logos in Settings'}</button></>}</p>}
             <div className="simple-kit-estimate" data-spot="kit-dialog.estimate">
               <div><strong>{plural(selected.length, 'asset')}</strong><small>{[plural(plan.folders.filter((folder) => folder.items.some((item) => item.selected)).length, 'folder'), pictures ? plural(pictures, 'picture') : ''].filter(Boolean).join(' · ')}</small></div>
               {plan.route === 'codex'
@@ -417,7 +453,7 @@ function KitCreator({ api, sources, preset, imagesReady, action, busy, onClose, 
         {step === 'review' && !fixed ? <button type="button" className="simple-quiet" disabled={starting} onClick={() => { setStep('source'); setPlan(null); setChosen(null); setProblem(''); }}><ArrowLeft size={15} aria-hidden="true" />Back</button> : <button type="button" className="simple-quiet" disabled={starting} onClick={onClose}>Cancel</button>}
         {step === 'source'
           ? <button type="button" className="simple-primary" disabled={!source || text.length > MAX_SOURCE_CHARS} onClick={() => { setProblem(''); setStep('review'); }}>Next: check what’s made<ArrowRight size={15} aria-hidden="true" /></button>
-          : <button type="button" data-spot="kit-dialog.make" className="simple-primary" disabled={!plan || planning || starting || busy || !selected.length || Boolean(problem)} onClick={start}>{starting ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}{starting ? 'Starting…' : `Make ${plural(selected.length, 'asset')}`}</button>}
+          : <button type="button" data-spot="kit-dialog.make" className="simple-primary" {...writeProps(viewer, !plan || planning || starting || busy || !selected.length || Boolean(problem))} onClick={start}>{starting ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}{starting ? 'Starting…' : `Make ${plural(selected.length, 'asset')}`}</button>}
       </footer>
     </div>
   </div>;

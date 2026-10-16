@@ -3,6 +3,7 @@ import { ArrowDownAZ, ArrowUpAZ, ArrowUpRight, Check, ChevronDown, ChevronLeft, 
 import { SheetGrid } from './sheet-grid.jsx';
 import { cellAddress, columnKeys, columnLetter, defaultColumnWidth, distinctValues, formatStat, inferColumnType, isChipColumn, matchesFilter, parseTSV, prettyCell, selectionBounds, selectionStats, sortRowIndexes, toCSV, toHTMLTable, toTSV } from '../../shared/sheet-model.js';
 import { number } from './ui.jsx';
+import { adminNames, useCan, useViewer, writeProps } from './viewer.js';
 import './sheets.css';
 
 const TAB_TINT = { x: 'x', twitter: 'x', linkedin: 'linkedin', reddit: 'reddit' };
@@ -50,7 +51,7 @@ function Popover({ anchor, onClose, children, className = '', label, width = 240
   return <div ref={ref} className={`sheet-popover ${className}`} role="menu" aria-label={label} style={{ width, left: position?.left ?? anchor.left, top: position?.top ?? anchor.bottom + 6, visibility: position ? 'visible' : 'hidden' }} onKeyDown={onKeyDown}>{children}</div>;
 }
 
-const MenuItem = ({ icon: Icon, children, onClick, disabled, danger, hint }) => <button type="button" role="menuitem" className={`sheet-menu-item${danger ? ' danger' : ''}`} disabled={disabled} onClick={onClick}>{Icon ? <Icon size={15} aria-hidden="true" /> : <span className="sheet-menu-gap" />}<span>{children}</span>{hint && <kbd>{hint}</kbd>}</button>;
+const MenuItem = ({ icon: Icon, children, onClick, disabled, danger, hint, title }) => <button type="button" role="menuitem" className={`sheet-menu-item${danger ? ' danger' : ''}`} disabled={disabled} title={title} onClick={onClick}>{Icon ? <Icon size={15} aria-hidden="true" /> : <span className="sheet-menu-gap" />}<span>{children}</span>{hint && <kbd>{hint}</kbd>}</button>;
 
 function FilterPanel({ column, values, current, onApply, onClose }) {
   const [query, setQuery] = useState('');
@@ -99,6 +100,8 @@ const fileSafe = (value) => String(value || 'sheet').replace(/[\\/:*?"<>|]+/g, '
 const relative = (iso) => { const time = Date.parse(iso || ''); if (!Number.isFinite(time)) return ''; return new Date(time).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
 
 export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, onNavigate }) {
+  const can = useCan(); // workbook changes and the Settings link follow the person's role
+  const viewer = useViewer(); // in a preview, the previewed role's workbook changes show, turned off
   const [workbooks, setWorkbooks] = useState(null);
   const [listError, setListError] = useState('');
   const [workbookId, setWorkbookId] = useState(initialWorkbookId || prefs.read('lastWorkbook', ''));
@@ -362,7 +365,7 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
   }
 
   function setColumnWidth(viewColumn, width) { const key = columns[viewColumn].key; patchView((current) => ({ widths: { ...(current.widths || {}), [key]: width } })); }
-  useEffect(() => { if (sheetView.widths && viewKey) prefs.write(`widths:${viewKey}`, { ...savedWidths, ...sheetView.widths }); }, [sheetView.widths]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (sheetView.widths && viewKey) prefs.write(`widths:${viewKey}`, { ...remembered.widths, ...sheetView.widths }); }, [sheetView.widths]); // eslint-disable-line react-hooks/exhaustive-deps
   function autoFit(viewColumn) {
     const column = columns[viewColumn]; const values = displayRows.slice(0, 400).map((rowIndex) => rawCell(rowIndex, column.index));
     const longest = Math.max(String(column.label).length * 7.6 + 40, ...values.map((value) => Math.min(String(value ?? '').split('\n')[0].length, 90) * 7.1 + 26));
@@ -547,7 +550,7 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
       {research_runs.map((entry) => <button key={entry.id} type="button" role="menuitemcheckbox" aria-checked={entry.id === workbookId} className="sheet-menu-item workbook" onClick={() => chooseWorkbook(entry.id)}><Sheet size={15} aria-hidden="true" /><span><strong>{entry.name}</strong><small>{[relative(entry.createdAt), `${number(entry.rowCount)} posts`, entry.status && entry.status !== 'succeeded' ? entry.status.replace('-', ' ') : ''].filter(Boolean).join(' · ')}</small></span>{entry.id === workbookId && <Check size={15} aria-hidden="true" />}</button>)}
       {imported.length > 0 && <p className="sheet-menu-label">Imported</p>}
       {imported.map((entry) => <button key={entry.id} type="button" role="menuitemcheckbox" aria-checked={entry.id === workbookId} className="sheet-menu-item workbook" onClick={() => chooseWorkbook(entry.id)}><FileSpreadsheet size={15} aria-hidden="true" /><span><strong>{entry.name}</strong><small>{[entry.source?.kind === 'google-sheets' ? 'Google Sheets' : entry.source?.fileName, `${entry.sheetCount} tabs`, `${number(entry.rowCount)} rows`].filter(Boolean).join(' · ')}</small></span>{entry.id === workbookId && <Check size={15} aria-hidden="true" />}</button>)}
-      {workbook?.kind === 'import' && <><div className="sheet-menu-rule" /><MenuItem icon={Pencil} onClick={(event) => setMenu({ kind: 'rename', anchor: menu.anchor })}>Rename this workbook</MenuItem>{workbook.source?.kind === 'google-sheets' ? <MenuItem icon={Link2} onClick={() => { setGoogleUrl(workbook.source.spreadsheetUrl); pullGoogle(null, workbook.id); }}>Pull the latest from Google Sheets</MenuItem> : <MenuItem icon={Upload} onClick={() => importFile(workbook.id)}>Replace with a newer file…</MenuItem>}<MenuItem icon={Trash2} danger onClick={removeWorkbook}>Remove from Sheets</MenuItem></>}
+      {workbook?.kind === 'import' && (can('renameWorkbook') || can('removeWorkbook') || can('importWorkbook') || can('pullGoogleSheet')) && <><div className="sheet-menu-rule" />{can('renameWorkbook') && <MenuItem icon={Pencil} {...writeProps(viewer)} onClick={(event) => setMenu({ kind: 'rename', anchor: menu.anchor })}>Rename this workbook</MenuItem>}{workbook.source?.kind === 'google-sheets' ? can('pullGoogleSheet') && <MenuItem icon={Link2} {...writeProps(viewer)} onClick={() => { setGoogleUrl(workbook.source.spreadsheetUrl); pullGoogle(null, workbook.id); }}>Pull the latest from Google Sheets</MenuItem> : can('importWorkbook') && <MenuItem icon={Upload} {...writeProps(viewer)} onClick={() => importFile(workbook.id)}>Replace with a newer file…</MenuItem>}{can('removeWorkbook') && <MenuItem icon={Trash2} danger {...writeProps(viewer)} onClick={removeWorkbook}>Remove from Sheets</MenuItem>}</>}
     </Popover>}
     {menu?.kind === 'rename' && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Rename workbook" width={320}><form className="sheets-rename" onSubmit={renameWorkbook}><label htmlFor="sheets-rename">Workbook name</label><input id="sheets-rename" name="name" defaultValue={workbook?.name} maxLength={160} /><div><button type="button" className="ghost" onClick={() => setMenu(null)}>Cancel</button><button type="submit">Rename</button></div></form></Popover>}
     {menu?.kind === 'import' && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Import" width={340}>
@@ -567,7 +570,7 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
       <p className="sheet-menu-label">Google Sheets</p>
       <MenuItem icon={ClipboardCopy} onClick={copySheet}>Copy “{sheet.name}” for Google Sheets</MenuItem>
       <MenuItem icon={FilePlus2} disabled={!bridgeReady || Boolean(pending)} onClick={() => setMenu({ kind: 'google-export', anchor: menu.anchor })}>Create Google Sheet…</MenuItem>
-      {!bridgeReady && <p className="sheet-menu-help">Connect the Sheets bridge in Settings → Google Sheets to create a Google Sheet from this workbook.{onNavigate && <> <button type="button" className="sheet-menu-link" onClick={() => { setMenu(null); onNavigate('settings'); }}>Open Settings</button></>}</p>}
+      {!bridgeReady && (can('saveSettings') ? <p className="sheet-menu-help">Connect the Sheets bridge in Settings → Google Sheets to create a Google Sheet from this workbook.{onNavigate && <> <button type="button" className="sheet-menu-link" onClick={() => { setMenu(null); onNavigate('settings'); }}>Open Settings</button></>}</p> : <p className="sheet-menu-help">The Sheets bridge isn’t connected, so Google Sheets can’t be created yet. Ask {adminNames(state, 'an admin')} to connect it.</p>)}
     </Popover>}
     {menu?.kind === 'google-export' && workbook && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Create a Google Sheet" width={340}>
       <form className="sheets-rename sheets-google-export" onSubmit={createGoogleSheet}>

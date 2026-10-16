@@ -50,6 +50,19 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   readBrandImage: (payload) => invoke('studio:readBrandImage', payload),
   setBrandImageRole: (payload) => invoke('studio:setBrandImageRole', payload),
   removeBrandImage: (payload) => invoke('studio:removeBrandImage', payload),
+  // Reports edited in the studio: save an edit (baseEditedAt guards against overwriting someone else's), or restore.
+  editStudioAsset: (payload) => invoke('studio:editStudioAsset', payload),
+  restoreStudioAsset: (payload) => invoke('studio:restoreStudioAsset', payload),
+  // People and roles, View as, per-person layout, channel answers and analytics (docs/roles-and-access.md).
+  getTeam: () => invoke('team:list'),
+  saveMember: (payload) => invoke('team:save-member', payload),
+  removeMember: (payload) => invoke('team:remove-member', payload),
+  createSignInLink: (payload) => invoke('team:sign-in-link', payload),
+  revokeSignInLink: (payload) => invoke('team:revoke-link', payload),
+  setViewAs: (payload) => invoke('team:view-as', payload),
+  setViewPrefs: (payload) => invoke('team:prefs', payload),
+  setTrendAdoption: (payload) => invoke('team:adoption', payload),
+  getTrendAnalytics: (payload) => invoke('team:analytics', payload),
 
   listWorkbooks: () => invoke('workbooks:list'),
   readWorkbook: (payload) => invoke('workbooks:read', payload),

@@ -1,0 +1,65 @@
+{
+  "//": "Who may call what. src/main/roles.js is the only reader of the policy; the renderer gets viewer.allowed, nav, modes and hiddenPages in state and may import this file for labels and copy only. Every method in studio-api-channels.json sits in exactly one methodRoles group (test/roles.test.js); a method missing here is admin-only. A composite method is classified at least as high as anything it can run.",
+  "roles": [
+    { "id": "admin", "label": "Admin", "description": "Everything, including settings, people and analytics." },
+    { "id": "editor", "label": "Editor", "description": "Finds trends, writes and edits reports, makes assets for any channel." },
+    { "id": "channel", "label": "Channel owner", "description": "Sees new trends and their channel’s assets, and says which trends they used." }
+  ],
+  "methodRoles": [
+    {
+      "roles": ["admin", "editor", "channel"],
+      "methods": ["appMeta", "state", "contentCatalog", "openSourceUrl", "planAssetKit", "createAssetKit", "saveAssetKitFolder", "readStudioAsset", "openStudioAsset", "cancelStudioRun", "retryStudioRun", "setViewPrefs"]
+    },
+    {
+      "roles": ["admin", "channel"],
+      "methods": ["setTrendAdoption"]
+    },
+    {
+      "roles": ["admin", "editor"],
+      "methods": ["publishStudioRun", "startResearchRun", "approveResearchThemes", "decideResearchTheme", "continueResearchRun", "createContentRun", "exportStudioRun", "importStudioSource", "readReferenceDoc", "askHelp", "createHelpImage", "saveHelpImage", "listHelpImages", "readHelpImage", "estimateResearchProgram", "setThemeStatus", "editStudioAsset", "restoreStudioAsset", "readStudioRun", "listWorkbooks", "readWorkbook", "importWorkbook", "pullGoogleSheet", "saveWorkbookEdits", "renameWorkbook", "removeWorkbook", "exportWorkbookXlsx", "exportWorkbookToGoogle", "saveBrandProfile", "selectBrandProfile", "pickImportFile", "previewImportDataset", "importDataset", "compareDatasets", "saveMonitor", "readResearchReview", "saveResearchReview", "exportResearchReview", "refreshApifyActors", "searchSources", "previewSearchSources", "askFindings", "listMissions", "saveMission", "runMission", "runActionGraph", "pauseMission", "discoverApifyResource", "testRecipe", "saveRecipeVersion", "getJob", "retryJob", "readJobLog", "searchEvidence", "readEvidence", "exportMissionBundle", "planIntent", "runIntent", "runIntentAction", "saveRecipe", "runRecipe", "readDataset", "exportDataset", "syncTrendBoardToMonday", "exportDatasetToSheets", "readAnalysis", "analyzeDataset", "openAnalysisOutput", "revealAnalysisOutput", "openAsset", "revealAsset", "cancelJob", "generateAssets", "saveCard", "moveCard", "saveAsset", "exportAssetPack"]
+    },
+    {
+      "roles": ["admin"],
+      "methods": ["saveResearchProgram", "scheduleMission", "selectContentWorkspace", "saveContentWorkspace", "saveWorkspaceTaxonomy", "saveReferenceDoc", "deleteReferenceDoc", "addBrandImage", "readBrandImage", "setBrandImageRole", "removeBrandImage", "exportSetup", "openSetupFile", "applySetup", "importProductRegistry", "deleteBrandProfile", "checkAi", "checkCodex", "testImageProvider", "saveKey", "clearKey", "saveSettings", "deleteRecipe", "testSheetsBridge", "saveMondayBoard", "clearMondayBoard", "archiveAndClearSheets", "importWorkingSheets", "replaySheetRun", "openDataFolder", "openAssetsFolder", "openWorkspace", "getTeam", "saveMember", "removeMember", "createSignInLink", "revokeSignInLink", "getTrendAnalytics", "setViewAs"]
+    }
+  ],
+  "noRoleMethods": ["appMeta", "state"],
+  "identityMethods": ["appMeta", "state", "setViewAs", "setViewPrefs"],
+  "readMethods": ["appMeta", "state", "contentCatalog", "openSourceUrl", "planAssetKit", "saveAssetKitFolder", "readStudioAsset", "openStudioAsset", "readStudioRun", "readReferenceDoc", "listHelpImages", "readHelpImage", "listWorkbooks", "readWorkbook", "readResearchReview", "listMissions", "getJob", "readJobLog", "searchEvidence", "readEvidence", "readDataset", "readAnalysis", "estimateResearchProgram", "openAsset", "revealAsset", "openAnalysisOutput", "revealAnalysisOutput"],
+  "simpleNav": {
+    "admin": { "main": ["home", "reports", "trends", "assets", "ask"], "admin": ["analytics", "people"], "bottom": ["settings"] },
+    "editor": { "main": ["home", "reports", "trends", "assets", "ask"], "admin": [], "bottom": [] },
+    "channel": { "main": ["trends", "assets"], "admin": [], "bottom": [] }
+  },
+  "hiddenPages": {
+    "admin": [],
+    "editor": ["settings", "knowledge", "analytics", "people"],
+    "channel": []
+  },
+  "viewModes": {
+    "admin": ["simple", "classic"],
+    "editor": ["simple", "classic"],
+    "channel": ["simple"]
+  },
+  "copy": {
+    "forbidden": "Only editors and admins can do that. Ask an admin if you need it.",
+    "adminOnly": "Only an admin can do that.",
+    "outOfScope": "That belongs to another channel.",
+    "sharedSet": "This set was made with other channels. Ask an editor.",
+    "preview": "You’re previewing as {who}. Switch back to Admin to make changes.",
+    "alreadyMaking": "Your {channel} assets for this trend are already being made.",
+    "linkInvalid": "This sign-in link doesn’t work anymore. Ask your studio admin for a new one.",
+    "editConflict": "{name} saved this report at {time}, after you opened it. Copy your text, reopen the report and try again.",
+    "researchRunning": "{name} started a search with this program at {time}. It’s still running.",
+    "selfChange": "You can’t change your own access. Ask another admin.",
+    "lastAdmin": "The studio needs at least one admin.",
+    "serverAdmin": "This person is an admin in the server settings.",
+    "paused": "Your access to this studio is paused.",
+    "linksWebOnly": "Sign-in links are for the web version.",
+    "badLink": "That doesn’t look like a web link.",
+    "askPictures": "Pictures aren’t set up for your team. Ask {admin} to turn them on.",
+    "askDrive": "Google Drive isn’t connected. Ask {admin} to connect it.",
+    "askConnection": "The studio’s AI or data connection needs attention. Ask {admin}.",
+    "askBudget": "This needs an admin to finish. Ask {admin}."
+  }
+}

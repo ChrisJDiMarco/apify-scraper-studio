@@ -112,9 +112,3 @@ button.shell-new-workspace:hover:not(:disabled) { background: transparent; color
 .app-shell[data-edition="general"] .shell-workspace-picker { border-color: var(--line); }
 .app-shell[data-edition="general"] .shell-workspace-picker .workspace-avatar { color: #217a58; background: #e8f3ed; }
 .shell-workspace-picker select { cursor: pointer; }
-.mobile-workspace-picker { display: flex; align-items: center; gap: 15px; flex: 1 0 100%; min-width: 0; }
-.mobile-workspace-picker select { min-width: 0; }
-@media (max-width: 650px) {
-  .app-shell[data-edition="semrush"] { grid-template-columns: 1fr; }
-  .mobile-nav { flex-wrap: wrap; }
-}

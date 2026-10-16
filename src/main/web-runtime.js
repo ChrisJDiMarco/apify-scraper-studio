@@ -11,19 +11,23 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const calls = new AsyncLocalStorage(); // the RPC call a dialog or shell request belongs to
+const calls = new AsyncLocalStorage(); // the RPC call a dialog, shell request or access check belongs to
 const handlers = new Map();
+const provisions = new Map(); // what the main process offers the server, e.g. 'people' (sign-in and per-person state)
 const broadcasts = new EventEmitter(); broadcasts.setMaxListeners(0);
-const settings = { dataDir: '', secretKey: '', transferDir: '' };
+const settings = { dataDir: '', secretKey: '', transferDir: '', passwordSignIn: false };
 const MIN_SECRET_LENGTH = 32;
 const CIPHER_TAG = Buffer.from('sw1');
 
-function configure({ dataDir, secretKey, transferDir } = {}) {
+// passwordSignIn: the admin password is set (scripts/studio-web.cjs reads it from STUDIO_SECRETS_FD or the environment
+// and keeps it out of process.env), so People can make personal sign-in links.
+function configure({ dataDir, secretKey, transferDir, passwordSignIn = false } = {}) {
   if (!dataDir) throw new Error('Set STUDIO_DATA_DIR to the folder that holds the studio data.');
   if (typeof secretKey !== 'string' || secretKey.length < MIN_SECRET_LENGTH) throw new Error(`Set STUDIO_SECRET_KEY to a random value of at least ${MIN_SECRET_LENGTH} characters; it encrypts saved keys.`);
-  settings.dataDir = path.resolve(dataDir); settings.secretKey = secretKey; settings.transferDir = path.resolve(transferDir || path.join(settings.dataDir, 'web-transfers'));
+  settings.dataDir = path.resolve(dataDir); settings.secretKey = secretKey; settings.transferDir = path.resolve(transferDir || path.join(settings.dataDir, 'web-transfers')); settings.passwordSignIn = Boolean(passwordSignIn);
   fs.mkdirSync(settings.dataDir, { recursive: true }); fs.mkdirSync(settings.transferDir, { recursive: true, mode: 0o700 });
-  return { ...settings };
+  const { secretKey: _secret, ...visible } = settings;
+  return { ...visible };
 }
 
 // ── app ──────────────────────────────────────────────────────────────────────────────────────────
@@ -155,10 +159,12 @@ const electron = { app, BrowserWindow, Menu, ipcMain, safeStorage, dialog, shell
 const autoUpdater = { on: () => {}, setFeedURL: () => {}, checkForUpdates: () => Promise.resolve(null), autoDownload: false, autoInstallOnAppQuit: false };
 
 // Runs one main-process handler for a browser request. Returns what the browser must do afterwards:
-// downloads (saved or opened files) and links to open.
-async function invoke(channel, payload, { uploads = [], saveDir = '' } = {}) {
+// downloads (saved or opened files) and links to open. `user` is the signed-in identity, `session` the live
+// session object (View as lives there) and `origin` the page's address. Each call starts a fresh store and sets
+// `user` itself, so a call made from inside another call's background work never inherits someone's identity.
+async function invoke(channel, payload, { uploads = [], saveDir = '', user = null, session = null, origin = '' } = {}) {
   const handler = handlers.get(channel); if (!handler) throw new Error('Unknown studio action.');
-  const call = { uploads, saveDir, saves: [], files: [], opens: [] };
+  const call = { uploads, saveDir, user, session, origin, saves: [], files: [], opens: [] };
   const result = await calls.run(call, () => handler({ sender: null, senderFrame: null }, payload));
   const saved = call.saves.filter((file) => fs.existsSync(file));
   return { result, files: [...new Set([...saved, ...call.files])], opens: call.opens };
@@ -166,6 +172,11 @@ async function invoke(channel, payload, { uploads = [], saveDir = '' } = {}) {
 
 module.exports = {
   configure, electron, autoUpdater, invoke, settings,
+  // The browser request the running code belongs to ({ user, session, origin, … }), or null outside one.
+  // Background work a call starts keeps its store, so read it at the entry of a handler, not in continuations.
+  currentCall: () => calls.getStore() || null,
+  provide: (name, value) => { provisions.set(String(name), value); },
+  provided: (name) => provisions.get(String(name)) || null,
   channels: () => [...handlers.keys()],
   onBroadcast: (channel, listener) => { broadcasts.on(channel, listener); return () => broadcasts.off(channel, listener); },
   shutdown: () => app.emit('quit'),

@@ -60,6 +60,28 @@ describe('web runtime stands in for Electron on the server', () => {
     expect((await runtime.invoke('fixture:link', 'https://example.com/post', {})).opens).toEqual(['https://example.com/post']);
   });
 
+  it('tells handlers which signed-in call they serve, without letting one call inherit another’s person', async () => {
+    const seen = {};
+    ipcMain.handle('fixture:who', async (_, label) => {
+      const call = runtime.currentCall(); seen[label] = { user: call.user?.id ?? null, viewAs: call.session?.viewAs ?? null, origin: call.origin };
+      if (label === 'outer') { call.session.viewAs = { role: 'editor' }; await runtime.invoke('fixture:who', 'inner'); } // e.g. work an admin's call starts
+      return label;
+    });
+    const session = { viewAs: null };
+    expect(runtime.currentCall()).toBeNull();
+    expect((await runtime.invoke('fixture:who', 'outer', { user: { id: 'member-pat' }, session, origin: 'https://studio.example.com' })).result).toBe('outer');
+    expect(seen.outer).toEqual({ user: 'member-pat', viewAs: null, origin: 'https://studio.example.com' });
+    expect(seen.inner).toEqual({ user: null, viewAs: null, origin: '' });
+    expect(session.viewAs).toEqual({ role: 'editor' }); // the live session object, so View as outlives the call
+    expect(runtime.currentCall()).toBeNull();
+  });
+
+  it('keeps what the main process provides to the server', () => {
+    expect(runtime.provided('fixture-people')).toBeNull();
+    const people = { ownerIdentity: () => ({ id: 'owner' }) }; runtime.provide('fixture-people', people);
+    expect(runtime.provided('fixture-people')).toBe(people);
+  });
+
   it('broadcasts what the main process sends to its window', () => {
     const received = []; const stop = runtime.onBroadcast('state-changed', (state) => received.push(state));
     const window = new runtime.electron.BrowserWindow(); window.webContents.send('state-changed', { version: 1 });

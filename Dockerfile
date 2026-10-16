@@ -1,6 +1,7 @@
 # Browser studio: the Mac app's screens and main process, served from one container.
 # Build:  docker build -t scraper-studio .
-# Run:    see docs/web-deploy.md (needs a /data volume, STUDIO_SECRET_KEY and a sign-in method)
+# Run:    see docs/web-deploy.md (needs a /data volume, a sign-in method, and STUDIO_SECRET_KEY and STUDIO_PASSWORD piped in:
+#         docker run -i -e STUDIO_SECRETS_FD=0 … scraper-studio < secrets.env, never -e, so the AI can't read them)
 
 FROM node:24-bookworm-slim AS build
 WORKDIR /app

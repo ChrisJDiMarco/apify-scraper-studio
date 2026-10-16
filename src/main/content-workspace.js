@@ -15,6 +15,18 @@ const setupBundle = () => require('../shared/setup-bundle');
 const kit = () => require('../shared/asset-kit');
 // Brand reference images: the style examples and approved logos kit pictures send to the image model.
 const brandImages = () => require('../shared/brand-images');
+// Reports edited in the studio: Markdown → safe HTML for the edited copy's page.
+const { markdownToHtml, splitTitle } = require('./markdown-html');
+// Refusals people read (copy lives in the roles policy data so every screen and doc says the same thing).
+const { copy: COPY } = require('../shared/roles.json');
+const say = (key, vars = {}) => COPY[key].replace(/\{(\w+)\}/g, (_, name) => (vars[name] == null ? '' : String(vars[name])));
+const refusal = (key, vars, status) => Object.assign(new Error(say(key, vars)), { status, code: key });
+// "Oct 14, 10:42 AM EDT": the zone is named because a server's clock may not be the reader's.
+const when = value => { const date = new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : 'an earlier time'; };
+// Who did something, when no person did: schedules, automatic approval and records from before attribution.
+const SYSTEM = Object.freeze({ id: 'system', name: 'Automatic' });
+const REPORT_DELIVERABLES = ['evidence-report', 'editorial-toolkit'];
+const MAX_EDIT_CHARS = 250000;
 const SEMRUSH_ENTERPRISE_PRODUCTS = ['Enterprise SEO', 'Enterprise SI (Site Intelligence)', 'Enterprise AIO'];
 const REFERENCE_DOC_KINDS = ['icp', 'positioning', 'registry', 'ai-visibility', 'other'];
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -29,9 +41,13 @@ const LEGACY_SEMRUSH_BRAND_FIELDS = Object.freeze({
   positioning: 'Explain the practitioner problem and the relevant approved product fit. Treat this as editorial direction, not proof of product features, measured outcomes or corporate positioning claims.',
   editorialRules: 'Enterprise and self-serve products stay separate. Affiliate material uses only explicitly approved self-serve products. Comprehensive evidence reports quote X and LinkedIn sources directly; Reddit is summarized with links. Editorial toolkits contain both enterprise and self-serve angles, five product-agnostic headlines/subheads/hooks each, two Enterprise CTAs and three PLG CTAs. Search Engine Land copy is attributed journalism, not product advertising. PR research excludes Search Engine Land, MarTech, Backlinko, Exploding Topics and Search Engine Roundtable under the supplied workspace policy; no guessed contacts or prior articles.',
 });
-function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general' } = {}) {
+// actor() names the person calling a public method ({ id, name }). It is read once, synchronously, at the start of each
+// public method and passed down: the host's call context also follows background work a call starts, so reading it inside
+// a run would credit later automatic steps to whoever started the run.
+function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM } = {}) {
   if (!root || typeof runAI !== 'function') throw new Error('Studio storage and AI host are required.');
   const stamp = () => new Date(clock()).toISOString();
+  const who = () => { let value = null; try { value = actor(); } catch (_) { value = null; } return { id: String(value?.id || SYSTEM.id).slice(0, 320), name: String(value?.name || SYSTEM.name).slice(0, 120) }; };
   fs.mkdirSync(root, { recursive: true });
   const stateFile = path.join(root, 'state.json');
   const fresh = () => ({ version: 1, activeWorkspaceId: ['general', 'semrush'].includes(defaultWorkspaceId) ? defaultWorkspaceId : 'general', workspaces: ['general', 'semrush'].map(editionId => ({ id: editionId, name: editionId === 'semrush' ? 'Semrush workspace' : 'Your workspace', editionId, knowledge: content.validateBrandKnowledge(editionId === 'semrush' ? content.SEMRUSH_KNOWLEDGE_PRESET : {}, { editionId }), products: [], ...(editionId === 'semrush' ? { brandDefaults: copy(content.SEMRUSH_BRAND_2026) } : {}), createdAt: stamp(), updatedAt: stamp() })), programs: [], researchRuns: [], contentRuns: [], themes: [], history: [], detections: [], assets: [], exports: [], datasetOwners: {} });
@@ -83,7 +99,18 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   function workspace(workspaceId = state.activeWorkspaceId, enforce = true) { safeId(workspaceId); const result = state.workspaces.find(w => w.id === workspaceId); if (!result || (enforce && workspaceId !== state.activeWorkspaceId)) throw new Error('Select the workspace that owns this record.'); return result; }
   function owned(list, recordId) { safeId(recordId); const item = list.find(row => row.id === recordId); if (!item || item.workspaceId !== state.activeWorkspaceId) throw new Error('Record not found in the selected workspace.'); return item; }
   function runRecord(runId) { return owned([...state.contentRuns, ...state.researchRuns], runId); }
-  function assetResult(asset) { const output = asset.kind === 'text' ? read(file(asset.runId, `${asset.id}.json`)) : undefined; const original = output ? read(file(asset.runId, 'input.json')).source : null; return { asset: copy(asset), ...(output ? { output, markdown: content.renderContentExport(output), evidence: content.normalizeSource(original).evidence, aggregateMetrics: original.aggregateMetrics } : { imageDataUrl: `data:image/png;base64,${fs.readFileSync(file(asset.runId, `${asset.id}.png`)).toString('base64')}` }) }; }
+  // A report edited in the studio keeps its generated files and adds <id>.edited.md and <id>.edited.html. Everything that
+  // reads a report's text or page goes through assetFile or assetResult, so drafts, kits, exports, Drive and Ask AI all
+  // use the edit; the original .json stays the data (evidence register, theme) behind it.
+  function editedFile(asset, extension) { return file(asset.runId, `${safeId(asset.id)}.edited.${extension}`); }
+  function assetFile(asset, extension) { return asset.edited && ['md', 'html'].includes(extension) && fs.existsSync(editedFile(asset, extension)) ? editedFile(asset, extension) : file(asset.runId, `${asset.id}.${extension}`); }
+  const editedOf = asset => (asset.edited?.at ? { at: asset.edited.at, byName: asset.edited.by?.name || '' } : null);
+  function assetResult(asset) {
+    if (asset.kind !== 'text') return { asset: copy(asset), imageDataUrl: `data:image/png;base64,${fs.readFileSync(file(asset.runId, `${asset.id}.png`)).toString('base64')}` };
+    const output = read(file(asset.runId, `${asset.id}.json`)); const original = read(file(asset.runId, 'input.json')).source;
+    const generated = content.renderContentExport(output); const edits = assetFile(asset, 'md') === editedFile(asset, 'md');
+    return { asset: copy(asset), output, markdown: edits ? fs.readFileSync(editedFile(asset, 'md'), 'utf8') : generated, ...(edits ? { originalMarkdown: generated } : {}), edited: edits ? editedOf(asset) : null, evidence: content.normalizeSource(original).evidence, aggregateMetrics: original.aggregateMetrics };
+  }
   function publicRun(run) { const value = copy(run); if (run.type === 'research') { value.ownCostUsd = run.costUsd; value.costUsd += (run.reportRunIds || []).reduce((sum, entry) => sum + (state.contentRuns.find(child => child.id === entry.runId)?.costUsd || 0), 0); } return value; }
   function publicState() {
     const scoped = list => copy(list.filter(row => row.workspaceId === state.activeWorkspaceId));
@@ -187,8 +214,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     }
     return { kind: 'report', id: asset.id, title: asset.title, text: result.markdown, evidence: content.normalizeSource(original).evidence, aggregateMetrics: original.aggregateMetrics };
   }
-  function newContentRun(payload, internalWorkspace) {
+  // `by` is who started the run; a research run's report runs inherit the research run's.
+  function newContentRun(payload, internalWorkspace, by = null) {
     const w = internalWorkspace || workspace(payload.workspaceId); const source = sourceFromReport(payload.source || {});
+    const createdBy = by ? { createdBy: { id: by.id, name: by.name } } : {};
     if (source.kind === 'research-theme') {
       // Research reports skip the generic content plan: the Golden Thread report builders own
       // their prompts, schemas and validation, and the toolkit is generated from the report.
@@ -196,12 +225,12 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const docs = w.referenceDocs || [];
       const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), referenceDocs: copy(docs), enterpriseProducts: copy(w.enterpriseProducts || (w.editionId === 'semrush' ? SEMRUSH_ENTERPRISE_PRODUCTS : [])), deliverableIds: deliverables.map(d => d.id), research: true };
       const warnings = [...(!w.products?.length ? ['No product registry is loaded, so the toolkit’s Enterprise and self-serve angles will state the gap instead of naming products.'] : []), ...(!docs.some(doc => doc.kind === 'registry') && w.products?.length ? ['The toolkit uses the structured registry; add the registry document for the model’s full tool descriptions.'] : [])];
-      const run = { id: id('content'), workspaceId: w.id, type: 'content', title: source.title || 'Research report', sourceAssetId: undefined, researchRunId: payload.researchRunId, themeId: payload.themeId, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings, ai: payload.ai || null, jobs: deliverables.map(d => ({ id: d.id, label: w.editionId === 'semrush' && d.id === 'evidence-report' ? 'Comprehensive trends report' : d.id === 'editorial-toolkit' ? 'Editorial toolkit brief' : d.label, kind: 'text', status: 'queued' })) };
+      const run = { id: id('content'), workspaceId: w.id, type: 'content', title: source.title || 'Research report', sourceAssetId: undefined, researchRunId: payload.researchRunId, themeId: payload.themeId, ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings, ai: payload.ai || null, jobs: deliverables.map(d => ({ id: d.id, label: w.editionId === 'semrush' && d.id === 'evidence-report' ? 'Comprehensive trends report' : d.id === 'editorial-toolkit' ? 'Editorial toolkit brief' : d.label, kind: 'text', status: 'queued' })) };
       delete run.sourceAssetId;
       write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save(); return run;
     }
     const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds: payload.deliverableIds, imageVariants: payload.imageVariants };
-    const plan = content.buildContentPlan(input); const run = { id: id('content'), workspaceId: w.id, type: 'content', title: source.title || 'Content campaign', ...(source.kind === 'report' && source.id ? { sourceAssetId: source.id } : {}), status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, jobs: plan.deliverables.map(d => ({ id: d.id, label: d.label, kind: d.kind, status: 'queued' })) };
+    const plan = content.buildContentPlan(input); const run = { id: id('content'), workspaceId: w.id, type: 'content', title: source.title || 'Content campaign', ...(source.kind === 'report' && source.id ? { sourceAssetId: source.id } : {}), ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, jobs: plan.deliverables.map(d => ({ id: d.id, label: d.label, kind: d.kind, status: 'queued' })) };
     write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save(); return run;
   }
   // ---------- Asset kits (n8n Golden Thread v2: every channel asset from one report) ----------
@@ -224,10 +253,12 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         const parts = state.assets.filter(row => row.runId === asset.runId && ['editorial-toolkit', 'evidence-report'].includes(row.deliverableId)).sort((a, b) => (a.deliverableId === 'editorial-toolkit' ? -1 : 0) - (b.deliverableId === 'editorial-toolkit' ? -1 : 0)).map(row => ({ asset: row, result: assetResult(row) }));
         const report = parts.find(part => part.asset.deliverableId === 'evidence-report') || parts[0];
         const title = kit().cleanTitle(parts.find(part => part.result.output.theme?.name)?.result.output.theme.name || parent?.title || asset.title) || 'Trend';
-        return { source: { id: 'trend-brief', kind: 'report', title, text: [`# ${title}`, ...parts.map(part => part.result.markdown)].join('\n\n---\n\n'), evidence: shortEvidence(report.result.output.evidenceRegister) }, key: `theme:${parent?.themeId || asset.runId}`, kind: 'trend', reportAssetId: report.asset.id, ...(parent?.themeId ? { themeId: parent.themeId } : {}) };
+        // The newest edit of either part is the one the plan mentions ("Uses Riley's edited brief").
+        const edited = parts.map(part => part.result.edited).filter(Boolean).sort((a, b) => String(b.at).localeCompare(String(a.at)))[0] || null;
+        return { source: { id: 'trend-brief', kind: 'report', title, text: [`# ${title}`, ...parts.map(part => part.result.markdown)].join('\n\n---\n\n'), evidence: shortEvidence(report.result.output.evidenceRegister) }, key: `theme:${parent?.themeId || asset.runId}`, kind: 'trend', reportAssetId: report.asset.id, ...(parent?.themeId ? { themeId: parent.themeId } : {}), edited };
       }
       const result = assetResult(asset);
-      return { source: { id: 'report-brief', kind: 'report', title: kit().cleanTitle(asset.title) || 'Report', text: result.markdown, evidence: shortEvidence(result.evidence) }, key: `report:${asset.id}`, kind: 'report', reportAssetId: asset.id };
+      return { source: { id: 'report-brief', kind: 'report', title: kit().cleanTitle(asset.title) || 'Report', text: result.markdown, evidence: shortEvidence(result.evidence) }, key: `report:${asset.id}`, kind: 'report', reportAssetId: asset.id, edited: result.edited };
     }
     const text = typeof input.text === 'string' ? input.text.trim() : '';
     if (!text) throw new Error('Paste the report text, read a Google Doc, or choose a report.');
@@ -239,7 +270,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   }
   function kitPlan(payload = {}) {
     const w = workspace(payload.workspaceId); const picked = kitSource(payload.source);
-    const imagesReady = Boolean(generateImage) && Boolean(publicState().capabilities.imagesConfigured);
+    const imagesReady = picturesReady();
     const offered = kit().kitDeliverableIds(w.editionId); const kindOf = id => content.CONTENT_DELIVERABLES.find(d => d.id === id).kind;
     let deliverableIds = offered.filter(id => imagesReady || kindOf(id) !== 'image');
     if (payload.deliverableIds != null) {
@@ -254,6 +285,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const references = kitReferenceCounts(w);
     return { w, picked, input, plan, ai, imagesReady, offered, references, estimate: kit().estimateKit({ plan, ai, references }) };
   }
+  // Pictures need an image provider on this host and a key in Settings (publicState's capabilities, without building it).
+  function picturesReady() { const extra = capabilities(); return Boolean(generateImage) && Boolean(extra.imagesConfigured ?? true); }
   // ---------- Brand reference images (Settings → Brand reference images) ----------
   // Up to six per picture set and workspace, kept as files beside the studio state.
   const sha256 = data => createHash('sha256').update(data).digest('hex');
@@ -600,7 +633,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     recordDetections(run, themes);
     run.themes = themes; run.discoveredThemes = copy(themes); run.decisions = {}; run.stage = 'theme-review';
     if (program.autoApproveThemes) {
-      run.decisions = Object.fromEntries(themes.map(theme => [theme.id, 'approved'])); run.approvedAt = stamp(); run.autoApproved = true; run.message = 'Themes approved automatically; tagging every post.'; save();
+      run.decisions = Object.fromEntries(themes.map(theme => [theme.id, 'approved'])); run.approvedAt = stamp(); run.autoApproved = true;
+      run.decisionsBy = Object.fromEntries(themes.map(theme => [theme.id, { ...SYSTEM, at: run.approvedAt }])); run.message = 'Themes approved automatically; tagging every post.'; save();
       return performClassification(run);
     }
     run.status = 'awaiting-review'; run.message = 'Review and approve themes before classifying evidence and generating reports.'; save();
@@ -663,7 +697,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const estimate = reportEstimate(reportSettings, selection);
       const allocation = Math.floor(Math.min(run.maxBudgetUsd - run.reservedUsd, Math.max(estimate * 2.5, (run.maxBudgetUsd - run.reservedUsd) / remainingThemes)) * 100) / 100;
       if (allocation < Math.min(estimate, 1)) throw new Error(`Not enough AI budget remains for the paired reports (about $${estimate.toFixed(2)} each). Increase the run budget before retrying.`);
-      const reportRun = newContentRun({ source, maxBudgetUsd: allocation, researchRunId: run.id, themeId: theme.id, ai: { model: reportSettings.model, effort: reportSettings.effort } }, w);
+      const reportRun = newContentRun({ source, maxBudgetUsd: allocation, researchRunId: run.id, themeId: theme.id, ai: { model: reportSettings.model, effort: reportSettings.effort } }, w, run.createdBy || null);
       run.reportRunIds.push({ themeId: theme.id, runId: reportRun.id }); run.reservedUsd += allocation; save(); await launchAndWait(reportRun, () => performContent(reportRun)); check(run);
       // Unused report budget returns to the research run.
       run.reservedUsd -= Math.max(0, allocation - reportRun.reservedUsd); save();
@@ -704,20 +738,31 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     run.status = run.jobs.every(j => j.status === 'succeeded') ? 'succeeded' : run.jobs.some(j => j.status === 'succeeded') ? 'partial' : 'failed';
     run.message = run.status === 'succeeded' ? 'Trends report and editorial toolkit ready to review.' : 'Some outputs need attention. Completed reports are saved.';
   }
+  // A file Drive was sent never changes (both delivery routes refuse a changed asset under the same id), so an edited
+  // report or draft is delivered as its own file next to the original, under an id stamped with the edit's time. Each
+  // later edit is another new file; Restore goes back to the original's id, which Drive already has.
+  function deliveryId(asset) {
+    const at = Date.parse(asset.edited?.at || '');
+    return asset.kind === 'text' && Number.isFinite(at) && assetFile(asset, 'html') === editedFile(asset, 'html') ? `${asset.id}-edited-${at}` : asset.id;
+  }
+  const docLink = entry => entry?.files?.find(f => /docs\.google\.com/.test(f.url || ''))?.url || '';
+  // The Google Doc of the version of a report Drive has now: the edited copy when that was delivered, else the original.
+  function deliveredDoc(receipt, asset) { const rows = receipt?.assets || []; return docLink(rows.find(row => row.assetId === deliveryId(asset))) || docLink(rows.find(row => row.assetId === asset.id)); }
   // n8n names: trend report "Priority_Trends_<Theme>_<yyyy-MM-dd_HH-mm>", toolkit "<Theme>__<yyyy-MM-dd_HH-mm>".
   function docStamp(value) { const date = new Date(value); const pad = number => String(number).padStart(2, '0'); return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}_${pad(date.getUTCHours())}-${pad(date.getUTCMinutes())}`; }
   function deliveryAsset(asset, html, run) {
+    const id = deliveryId(asset); const edited = id !== asset.id ? ' (edited)' : '';
     if (run?.kit) {
       // A kit lands in Drive as n8n left it: the run folder, then a folder per channel team, then n8n's file names.
       const editionId = state.workspaces.find(w => w.id === run.workspaceId)?.editionId || 'general';
       const name = kit().kitFileName({ deliverableId: asset.deliverableId, editionId, title: run.kit.sourceTitle, createdAt: run.createdAt, variant: Number.isInteger(asset.variantIndex) ? asset.variantIndex + 1 : 0 });
-      return { id: asset.id, title: asset.kind === 'image' ? name : asset.title, channel: kit().kitFolderFor(asset.deliverableId, editionId).name, kind: asset.kind, deliverableId: asset.deliverableId, docName: name,
-        ...(asset.kind === 'image' ? { png: fs.readFileSync(file(asset.runId, `${asset.id}.png`)), svg: fs.readFileSync(file(asset.runId, `${asset.id}.svg`), 'utf8') } : { html: html ?? fs.readFileSync(file(asset.runId, `${asset.id}.html`), 'utf8') }) };
+      return { id, title: asset.kind === 'image' ? name : `${asset.title}${edited}`, channel: kit().kitFolderFor(asset.deliverableId, editionId).name, kind: asset.kind, deliverableId: asset.deliverableId, docName: `${name}${edited}`,
+        ...(asset.kind === 'image' ? { png: fs.readFileSync(file(asset.runId, `${asset.id}.png`)), svg: fs.readFileSync(file(asset.runId, `${asset.id}.svg`), 'utf8') } : { html: html ?? fs.readFileSync(assetFile(asset, 'html'), 'utf8') }) };
     }
     const theme = asset.deliverableId === 'evidence-report' || asset.deliverableId === 'editorial-toolkit' ? (read(file(asset.runId, `${asset.id}.json`)).theme?.name || asset.title.replace(/^TREND:\s*/i, '').replace(/\s+—\s+Comprehensive Trends Report$/, '')) : '';
-    const docName = asset.deliverableId === 'evidence-report' && theme ? `Priority_Trends_${theme}_${docStamp(asset.createdAt)}` : asset.deliverableId === 'editorial-toolkit' && theme ? `${theme}__${docStamp(asset.createdAt)}` : undefined;
-    return { id: asset.id, title: asset.title, channel: asset.channel, kind: asset.kind, deliverableId: asset.deliverableId, ...(docName ? { docName } : {}),
-      ...(asset.kind === 'image' ? { png: fs.readFileSync(file(asset.runId, `${asset.id}.png`)), svg: fs.readFileSync(file(asset.runId, `${asset.id}.svg`), 'utf8') } : { html: html ?? fs.readFileSync(file(asset.runId, `${asset.id}.html`), 'utf8') }) };
+    const docName = asset.deliverableId === 'evidence-report' && theme ? `Priority_Trends_${theme}_${docStamp(asset.createdAt)}${edited}` : asset.deliverableId === 'editorial-toolkit' && theme ? `${theme}__${docStamp(asset.createdAt)}${edited}` : undefined;
+    return { id, title: `${asset.title}${edited}`, channel: asset.channel, kind: asset.kind, deliverableId: asset.deliverableId, ...(docName ? { docName } : {}),
+      ...(asset.kind === 'image' ? { png: fs.readFileSync(file(asset.runId, `${asset.id}.png`)), svg: fs.readFileSync(file(asset.runId, `${asset.id}.svg`), 'utf8') } : { html: html ?? fs.readFileSync(assetFile(asset, 'html'), 'utf8') }) };
   }
   async function publishRun(run) {
     if (publishing.has(run.id)) throw new Error('This run is already being delivered to Google Drive.');
@@ -731,10 +776,15 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const toolkits = assets.filter(asset => asset.deliverableId === 'editorial-toolkit');
       let receipt = await deliver(assets.filter(asset => asset.deliverableId !== 'editorial-toolkit').map(asset => deliveryAsset(asset, undefined, run)));
       if (toolkits.length) {
-        const docUrl = assetId => receipt.assets?.find(entry => entry.assetId === assetId)?.files?.find(f => /docs\.google\.com/.test(f.url || ''))?.url || '';
+        // A toolkit links the first trends doc Drive got for its report and keeps that link, so a later edit of the report
+        // (delivered as a new file) never changes a toolkit Drive already has.
+        const firstDoc = sibling => (receipt.assets || []).filter(entry => entry.assetId === sibling.id || String(entry.assetId).startsWith(`${sibling.id}-edited-`)).map(docLink).find(Boolean) || '';
         receipt = await deliver(toolkits.map(asset => {
           const sibling = state.assets.find(row => row.runId === asset.runId && row.deliverableId === 'evidence-report');
-          const url = sibling ? docUrl(sibling.id) : ''; const output = read(file(asset.runId, `${asset.id}.json`));
+          const url = sibling ? firstDoc(sibling) : '';
+          // An edited toolkit keeps its edited page; the link to the trends doc goes at the end instead of being rendered in.
+          if (assetFile(asset, 'html') === editedFile(asset, 'html')) return deliveryAsset(asset, url ? withTrendsLink(fs.readFileSync(editedFile(asset, 'html'), 'utf8'), url) : undefined);
+          const output = read(file(asset.runId, `${asset.id}.json`));
           return deliveryAsset(asset, url ? content.renderContentExport({ ...output, trendsDocUrl: url }, { format: 'html' }) : undefined);
         }));
       }
@@ -742,8 +792,14 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     } catch (error) { run.deliveryMessage = safeError(error); save(); throw error; }
     finally { publishing.delete(run.id); }
   }
+  function withTrendsLink(html, url) {
+    const safe = url.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+    const paragraph = `<p><a href="${safe}">Full evidence, quotes, and source links.</a></p>`; // the toolkit's own wording
+    return html.includes('</main>') ? html.replace(/<\/main>(?![\s\S]*<\/main>)/, `${paragraph}</main>`) : html.replace(/<\/body>/, `${paragraph}</body>`);
+  }
   async function launchAndWait(run, fn) { launch(run, fn); await active.get(run.id); }
-  function startResearchRun(program, datasetIds = [], scheduledFor = '') {
+  // `by` is the person who started it; schedules start as the system.
+  function startResearchRun(program, datasetIds = [], scheduledFor = '', by = SYSTEM) {
     const snapshot = copy(program);
     const recurring = program.schedule && program.schedule.frequency !== 'manual';
     // A saved window wins; schedules search their rolling window; otherwise the n8n default:
@@ -757,7 +813,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const required = validated.autoApproveThemes ? estimate.totalUsd : beforeReview;
     if (!datasetIds.length && required > 0 && validated.budgets.aiUsd < required * 0.5) throw new Error(`This program’s AI budget ($${validated.budgets.aiUsd.toFixed(2)}) is far below the estimated $${required.toFixed(2)} ${validated.autoApproveThemes ? 'for a full unattended run' : 'to discover themes'} from about ${estimate.posts.total.toLocaleString('en-US')} posts with the selected models. Raise the AI budget or choose lighter models, then start again.`);
     const warnings = validated.budgets.aiUsd < estimate.totalUsd ? [`The AI budget ($${validated.budgets.aiUsd.toFixed(2)}) is below the estimate of $${estimate.totalUsd.toFixed(2)}; the run stops when it is used up and can resume with a higher budget.`] : [];
-    const run = { id: id('research'), workspaceId: program.workspaceId, type: 'research', title: program.name, programId: program.id, status: 'queued', stage: 'collecting', createdAt: stamp(), maxBudgetUsd: program.budgets.aiUsd, reservedUsd: 0, costUsd: 0, receipts: [], themes: [], window, ai: copy(validated.ai), estimate, warnings, ...(scheduledFor ? { scheduledFor } : {}) };
+    const run = { id: id('research'), workspaceId: program.workspaceId, type: 'research', title: program.name, programId: program.id, createdBy: { id: by.id, name: by.name }, status: 'queued', stage: 'collecting', createdAt: stamp(), maxBudgetUsd: program.budgets.aiUsd, reservedUsd: 0, costUsd: 0, receipts: [], themes: [], window, ai: copy(validated.ai), estimate, warnings, ...(scheduledFor ? { scheduledFor } : {}) };
     write(file(run.id, 'input.json'), { program: { ...validated, workspaceId: program.workspaceId }, datasetIds: [...new Set(datasetIds)] });
     if (scheduledFor) {
       // The occurrence and the queued run are committed together before launch can
@@ -955,29 +1011,47 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       state.activeWorkspaceId = w.id; save();
       return { summary: plan.summary, warnings: plan.warnings, workspaceId: w.id, programIds: programs.map(program => program.id), state: publicState() };
     },
-    startResearchRun({ programId, datasetIds = [] }) {
+    // A program's run that is still queued, running or waiting for review isn't started twice by accident: the person is
+    // told who started it and when, and the screen asks before sending again: true. Schedules keep their own rule.
+    startResearchRun({ programId, datasetIds = [], again = false } = {}) {
+      const by = who();
       const program = owned(state.programs, programId); if (!Array.isArray(datasetIds) || datasetIds.length > 50) throw new Error('Choose up to 50 datasets.'); const allowed = new Set(publicState().availableDatasets.map(d => d.id)); if (datasetIds.some(key => !allowed.has(key))) throw new Error('Choose datasets from this workspace.');
-      return startResearchRun(program, datasetIds);
+      api.checkResearchIdle({ programId, again });
+      return startResearchRun(program, datasetIds, '', by);
+    },
+    // The duplicate check alone, so the host can run it before its model check.
+    checkResearchIdle({ programId, again = false } = {}) {
+      if (again === true) return;
+      const program = owned(state.programs, programId);
+      const pending = state.researchRuns.find(run => run.programId === program.id && run.workspaceId === program.workspaceId && (active.has(run.id) || ['queued', 'running', 'awaiting-review'].includes(run.status)));
+      if (pending) throw refusal('researchRunning', { name: pending.createdBy?.name || 'Someone', time: when(pending.createdAt) }, 409);
     },
     approveResearchThemes({ runId, themes }) {
-      const run = runRecord(runId); if (run.type !== 'research' || run.status !== 'awaiting-review') throw new Error('This run is not awaiting theme review.');
+      const by = who(); const run = runRecord(runId); if (run.type !== 'research' || run.status !== 'awaiting-review') throw new Error('This run is not awaiting theme review.');
       if (!Array.isArray(themes) || !themes.length || themes.length > 6) throw new Error('Select one to six discovered themes.');
       const discovered = run.discoveredThemes || run.themes; // re-approval must still see themes passed over last time
       const selected = [...new Set(themes.map(t => typeof t === 'string' ? t : t.id))].map(key => { const t = discovered.find(row => row.id === key); if (!t) throw new Error('Only discovered themes can be approved.'); const edit = themes.find(row => row && typeof row === 'object' && row.id === key); if (!edit) return t; const name = String(edit.name ?? t.name).trim(); const description = String(edit.description ?? t.description).trim(); if (!name || name.length > 160 || !description || description.length > 5000) throw new Error('Theme name and description must be concise and non-empty.'); return { ...t, name, description }; });
-      run.discoveredThemes ||= copy(run.themes); run.decisions = Object.fromEntries(discovered.map(t => [t.id, selected.some(row => row.id === t.id) ? 'approved' : 'passed']));
+      run.discoveredThemes ||= copy(run.themes); const before = run.decisions || {};
+      run.decisions = Object.fromEntries(discovered.map(t => [t.id, selected.some(row => row.id === t.id) ? 'approved' : 'passed']));
+      // Only decisions this approval changed are credited to this person; earlier ones keep who made them.
+      const at = stamp(); run.decisionsBy = { ...(run.decisionsBy || {}) };
+      for (const [themeId, decision] of Object.entries(run.decisions)) if (before[themeId] !== decision) run.decisionsBy[themeId] = { ...by, at };
       // Reviewer edits become the tracked name; the discovered wording stays as an alias.
       for (const theme of selected) { const repo = state.themes.find(row => row.workspaceId === run.workspaceId && row.id === theme.id); const original = discovered.find(row => row.id === theme.id); if (repo && original && (original.name !== theme.name || original.description !== theme.description)) Object.assign(repo, { name: theme.name, description: theme.description, aliases: [...new Set([...(repo.aliases || []), ...(original.name !== theme.name ? [original.name] : [])])].slice(-50), updatedAt: stamp() }); }
       run.themes = selected; run.approvedAt = stamp(); save(); return copy(run);
     },
     // Trend board: OK or pass one discovered theme at a time. Nothing is spent until the run continues.
     decideResearchTheme({ runId, themeId, decision }) {
-      const run = runRecord(runId); if (run.type !== 'research' || run.status !== 'awaiting-review') throw new Error('This trend is no longer waiting for a decision.');
+      const by = who(); const run = runRecord(runId); if (run.type !== 'research' || run.status !== 'awaiting-review') throw new Error('This trend is no longer waiting for a decision.');
       if (!['approved', 'passed', 'pending'].includes(decision)) throw new Error('Choose approve, pass, or undo.');
       if (!(run.discoveredThemes || run.themes).some(t => t.id === themeId)) throw new Error('Only discovered trends can be decided.');
-      run.decisions = { ...(run.decisions || {}) }; if (decision === 'pending') delete run.decisions[themeId]; else run.decisions[themeId] = decision; run.decidedAt = stamp(); save(); return publicRun(run);
+      run.decisions = { ...(run.decisions || {}) }; run.decisionsBy = { ...(run.decisionsBy || {}) }; run.decidedAt = stamp();
+      // Undo forgets who decided, so analytics show the trend as waiting again.
+      if (decision === 'pending') { delete run.decisions[themeId]; delete run.decisionsBy[themeId]; } else { run.decisions[themeId] = decision; run.decisionsBy[themeId] = { ...by, at: run.decidedAt }; }
+      save(); return publicRun(run);
     },
     continueResearchRun({ runId }) { const run = runRecord(runId); if (!run.approvedAt || run.type !== 'research') throw new Error('Approve the research themes first.'); return launch(run, () => performClassification(run)); },
-    createContentRun(payload) { const run = newContentRun(payload); return launch(run, () => performContent(run)); },
+    createContentRun(payload) { const by = who(); const run = newContentRun(payload, null, by); return launch(run, () => performContent(run)); },
     // Asset kits: what a kit from this source would make and cost, before anything is spent.
     planAssetKit(payload = {}) {
       const { w, picked, input, plan, ai, imagesReady, offered, references, estimate } = kitPlan(payload);
@@ -992,14 +1066,22 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         earlierRuns: state.contentRuns.filter(run => run.workspaceId === w.id && run.kit?.sourceKey === picked.key).length,
         folders: kit().kitFolders(w.editionId).map(folder => ({ id: folder.id, name: folder.name, items: folder.deliverableIds.map(id => { const kind = content.CONTENT_DELIVERABLES.find(d => d.id === id).kind; return { id, label: kit().kitFileLabel(id, w.editionId), kind, ...(kind === 'image' ? { pictures: 3, references: referencesFor(id) } : {}), selected: chosen.has(id), available: kind !== 'image' || imagesReady, usd: priced.get(id) ?? null }; }) })),
         // On Codex the writing uses the person's Codex plan or OpenAI key, and nothing reports what it cost.
-        route: capabilities().aiProvider === 'codex' ? 'codex' : 'claude', estimate, imagesReady, warnings: plan.warnings,
+        route: capabilities().aiProvider === 'codex' ? 'codex' : 'claude', estimate, imagesReady, warnings: plan.warnings, edited: picked.edited || null,
         // About 3 minutes per written asset at the report model's effort, a few at a time; pictures run alongside.
         minutes: Math.max(5, Math.round(Math.max(Math.ceil(text / ai.concurrency) * 3, Math.ceil(sets / 2) * 4))),
       };
     },
+    // onlyIfIdle (set by the server for channel owners): refuse while a set from the same source that makes any of the
+    // same files is queued or running, so a double tap or two owners of one channel don't pay twice. The check and the
+    // new run happen in one synchronous step, so two calls can't both pass it.
     createAssetKit(payload = {}) {
-      const { w, picked, input, plan, ai, estimate } = kitPlan(payload); const createdAt = stamp();
-      const run = { id: id('content'), workspaceId: w.id, type: 'content', title: picked.source.title, ...(picked.reportAssetId ? { sourceAssetId: picked.reportAssetId } : {}),
+      const by = who(); const { w, picked, input, plan, ai, estimate } = kitPlan(payload); const createdAt = stamp();
+      if (payload.onlyIfIdle === true) {
+        const wanted = new Set(plan.deliverables.map(d => d.id));
+        const busy = state.contentRuns.find(run => run.workspaceId === w.id && run.kit?.sourceKey === picked.key && (active.has(run.id) || ['queued', 'running'].includes(run.status)) && (run.jobs || []).some(job => wanted.has(job.id)));
+        if (busy) throw refusal('alreadyMaking', { channel: kit().kitFolderFor((busy.jobs || []).find(job => wanted.has(job.id)).id, w.editionId).name }, 409);
+      }
+      const run = { id: id('content'), workspaceId: w.id, type: 'content', title: picked.source.title, ...(picked.reportAssetId ? { sourceAssetId: picked.reportAssetId } : {}), createdBy: by,
         kit: { version: 1, sourceKey: picked.key, sourceKind: picked.kind, sourceTitle: picked.source.title, folderName: kit().kitRunFolderName({ title: picked.source.title, editionId: w.editionId, createdAt }), concurrency: ai.concurrency, estimateUsd: estimate.totalUsd, ...(picked.reportAssetId ? { reportAssetId: picked.reportAssetId } : {}), ...(picked.themeId ? { themeId: picked.themeId } : {}), ...(picked.url ? { sourceUrl: picked.url } : {}) },
         ai: { model: ai.model, effort: ai.effort, ...(capabilities().aiProvider === 'codex' ? { route: 'codex' } : {}) }, status: 'queued', stage: 'content', createdAt, maxBudgetUsd: budget(payload.maxBudgetUsd ?? estimate.capUsd), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, progress: { completed: 0, total: plan.deliverables.length },
         jobs: plan.deliverables.map(d => ({ id: d.id, label: kit().kitFileLabel(d.id, w.editionId), kind: d.kind, folder: kit().kitFolderFor(d.id, w.editionId).name, status: 'queued' })) };
@@ -1010,11 +1092,17 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     },
     // A kit run as the folder n8n left in Drive: "<run folder>/<channel folder>/<n8n file name>", plus the source.
     // The Mac app writes it straight into a folder it names (Downloads); the browser studio zips an export copy.
-    exportAssetKit({ runId } = {}, { into } = {}) {
+    // `channels` (the server sets it from a channel owner's own channel) keeps only those channels' folders; the source
+    // text goes along only for a trend's set, whose brief everyone with access to the set may read.
+    exportAssetKit({ runId } = {}, { into, channels } = {}) {
       const run = runRecord(runId); if (!run.kit) throw new Error('Only channel asset sets download as folders.');
-      const assets = state.assets.filter(asset => asset.workspaceId === run.workspaceId && asset.runId === run.id);
-      if (!assets.length) throw new Error('Nothing is ready to download yet.');
       const editionId = state.workspaces.find(w => w.id === run.workspaceId)?.editionId || 'general';
+      let assets = state.assets.filter(asset => asset.workspaceId === run.workspaceId && asset.runId === run.id);
+      if (Array.isArray(channels)) {
+        assets = assets.filter(asset => channels.includes(kit().kitFolderFor(asset.deliverableId, editionId).id));
+        if (!assets.length) throw new Error('Nothing for your channel is ready yet.');
+      }
+      if (!assets.length) throw new Error('Nothing is ready to download yet.');
       const exportId = into ? '' : id('export'); const name = kit().safeFileName(run.kit.folderName);
       let top = into ? path.join(into, name) : path.join(root, 'exports', exportId, name);
       if (into) for (let copyNumber = 2; fs.existsSync(top); copyNumber++) top = path.join(into, `${name} (${copyNumber})`);
@@ -1022,19 +1110,54 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         const dir = path.join(top, kit().safeFileName(kit().kitFolderFor(asset.deliverableId, editionId).name)); fs.mkdirSync(dir, { recursive: true });
         const base = path.join(dir, kit().safeFileName(kit().kitFileName({ deliverableId: asset.deliverableId, editionId, title: run.kit.sourceTitle, createdAt: run.createdAt, variant: Number.isInteger(asset.variantIndex) ? asset.variantIndex + 1 : 0 })));
         // Pictures as PNG plus an SVG wrapper for Figma, the landing page as a web page, everything else as Markdown and HTML.
-        for (const extension of asset.kind === 'image' ? ['png', 'svg'] : asset.deliverableId === 'landingpage' ? ['html', 'md'] : ['md', 'html']) fs.copyFileSync(file(asset.runId, `${asset.id}.${extension}`), `${base}.${extension}`);
+        for (const extension of asset.kind === 'image' ? ['png', 'svg'] : asset.deliverableId === 'landingpage' ? ['html', 'md'] : ['md', 'html']) fs.copyFileSync(assetFile(asset, extension), `${base}.${extension}`);
       }
-      fs.writeFileSync(path.join(top, `${kit().safeFileName(`Source — ${run.kit.sourceTitle}`)}.md`), read(file(run.id, 'input.json')).source.text);
+      // The source the set was made from. A channel owner's export leaves it out unless it is the team's trend brief, so a
+      // pasted text or private document never reaches them; everyone else's folder keeps it.
+      if (run.kit.themeId || !Array.isArray(channels)) fs.writeFileSync(path.join(top, `${kit().safeFileName(`Source — ${run.kit.sourceTitle}`)}.md`), read(file(run.id, 'input.json')).source.text);
       const result = { ...(exportId ? { id: exportId } : {}), workspaceId: run.workspaceId, runId: run.id, path: top, folderName: run.kit.folderName, assetCount: assets.length, createdAt: stamp() };
       if (!into) { state.exports.push(result); save(); }
       return result;
     },
     assetKitAi: () => kit().kitAi(state.programs.filter(program => program.workspaceId === state.activeWorkspaceId)),
     async cancelStudioRun({ runId }) { const run = runRecord(runId); if (!active.has(run.id) && run.status !== 'awaiting-review') return copy(run); stopped.add(run.id); await cancelProvider(run.id); for (const child of run.reportRunIds || []) { stopped.add(child.runId); await cancelProvider(child.runId); } run.status = 'cancelled'; run.message = 'Cancelled. Completed outputs are retained.'; updateScheduledRun(run); save(); return copy(run); },
-    retryStudioRun({ runId, maxBudgetUsd }) { const run = runRecord(runId); if (active.has(run.id)) throw new Error('This run is still active.'); if (run.status === 'succeeded') return copy(run); if (maxBudgetUsd != null) { const next = budget(maxBudgetUsd); if (next < run.reservedUsd) throw new Error('Budget cannot be below already reserved spend.'); run.maxBudgetUsd = next; } return launch(run, () => run.type === 'content' ? performContent(run) : run.approvedAt ? performClassification(run) : performDiscovery(run)); },
+    retryStudioRun({ runId, maxBudgetUsd }) {
+      const run = runRecord(runId); if (active.has(run.id)) throw new Error('This run is still active.'); if (run.status === 'succeeded') return copy(run);
+      if (maxBudgetUsd != null) { const next = budget(maxBudgetUsd); if (next < run.reservedUsd) throw new Error('Budget cannot be below already reserved spend.'); run.maxBudgetUsd = next; }
+      // The files about to be tried again wait as queued (files already made stay), so no screen reads them as failed while
+      // the retry runs; a channel whose own files are settled in a shared set is told it's finished (channel-view.js).
+      if (run.type === 'content') for (const job of run.jobs || []) if (job.status !== 'succeeded') { job.status = 'queued'; delete job.error; }
+      return launch(run, () => run.type === 'content' ? performContent(run) : run.approvedAt ? performClassification(run) : performDiscovery(run));
+    },
     readStudioRun({ runId }) { return publicRun(runRecord(runId)); },
     readStudioAsset({ assetId }) { return assetResult(owned(state.assets, assetId)); },
-    async openStudioAsset({ assetId }) { const asset = owned(state.assets, assetId); const target = file(asset.runId, `${asset.id}.${asset.kind === 'image' ? 'png' : 'html'}`); if (openFile) await openFile(target); return { path: target }; },
+    // Edits a written report or draft in place (D5): the edited Markdown and its page sit beside the generated files, and
+    // everything made from the report afterwards uses them. baseEditedAt is the edit the person opened ('' for the
+    // generated text); if someone saved or restored since, nothing is written and they're told who and when.
+    editStudioAsset({ assetId, markdown, baseEditedAt } = {}) {
+      const by = who(); const asset = owned(state.assets, assetId);
+      if (asset.kind !== 'text' || asset.deliverableId === 'landingpage') throw new Error('Pictures and landing pages can’t be edited here.');
+      if (typeof markdown !== 'string' || !markdown.trim()) throw new Error('Write the report before saving, or restore the original.');
+      if (markdown.length > MAX_EDIT_CHARS) throw new Error('Keep the report under 250,000 characters.');
+      if ((asset.edited?.at || '') !== (typeof baseEditedAt === 'string' ? baseEditedAt : '')) { const last = asset.edited || asset.restored || {}; throw refusal('editConflict', { name: last.by?.name || 'Someone', time: when(last.at) }, 409); }
+      let editionId = state.workspaces.find(w => w.id === asset.workspaceId)?.editionId || 'general';
+      try { editionId = read(file(asset.runId, 'input.json')).editionId || editionId; } catch (_) { /* The workspace's edition will do. */ }
+      const { title, body } = splitTitle(markdown);
+      writeBytes(editedFile(asset, 'md'), markdown);
+      writeBytes(editedFile(asset, 'html'), content.wrapHtml(title || asset.title, markdownToHtml(body), editionId));
+      asset.edited = { at: stamp(), by }; delete asset.restored; save();
+      return { asset: copy(asset) };
+    },
+    // Back to the generated text. Drafts already made from the edit keep it.
+    restoreStudioAsset({ assetId } = {}) {
+      const by = who(); const asset = owned(state.assets, assetId);
+      if (asset.kind !== 'text') throw new Error('Only written reports and drafts have an original to restore.');
+      if (!asset.edited) return { asset: copy(asset) };
+      delete asset.edited; asset.restored = { at: stamp(), by }; save();
+      for (const extension of ['md', 'html']) fs.rmSync(editedFile(asset, extension), { force: true });
+      return { asset: copy(asset) };
+    },
+    async openStudioAsset({ assetId }) { const asset = owned(state.assets, assetId); const target = asset.kind === 'image' ? file(asset.runId, `${asset.id}.png`) : assetFile(asset, 'html'); if (openFile) await openFile(target); return { path: target }; },
     async importStudioSource(payload) { if (!importSource) throw new Error('Document import is unavailable on this host. Paste source text instead.'); const source = await importSource(payload); if (!source) return null; content.normalizeSource({ ...source, kind: 'upload' }); return source; },
     async publishStudioRun({ runId }) {
       const run = runRecord(runId);
@@ -1044,12 +1167,38 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     exportStudioRun({ runId }) {
       const run = runRecord(runId); const ids = new Set([run.id, ...(run.reportRunIds || []).map(r => r.runId)]); const assets = state.assets.filter(a => a.workspaceId === run.workspaceId && ids.has(a.runId)); if (!assets.length) throw new Error('Generate at least one asset before exporting.');
       const exportId = id('export'); const dir = path.join(root, 'exports', exportId); fs.mkdirSync(dir, { recursive: true });
-      for (const asset of assets) { const channel = asset.channel.replace(/[^a-zA-Z0-9_-]/g, '-'); const dest = path.join(dir, channel); fs.mkdirSync(dest, { recursive: true }); for (const extension of asset.kind === 'image' ? ['png', 'svg'] : ['md', 'html', 'json']) fs.copyFileSync(file(asset.runId, `${asset.id}.${extension}`), path.join(dest, `${asset.deliverableId}-${asset.id}.${extension}`)); }
+      for (const asset of assets) { const channel = asset.channel.replace(/[^a-zA-Z0-9_-]/g, '-'); const dest = path.join(dir, channel); fs.mkdirSync(dest, { recursive: true }); for (const extension of asset.kind === 'image' ? ['png', 'svg'] : ['md', 'html', 'json']) fs.copyFileSync(assetFile(asset, extension), path.join(dest, `${asset.deliverableId}-${asset.id}.${extension}`)); }
       write(path.join(dir, 'manifest.json'), { exportedAt: stamp(), workspaceId: run.workspaceId, run: copy(run), assets, notice: 'Drafts require editorial review. SVG files embed raster images; they are not editable vectors.' });
       for (const childId of ids) fs.copyFileSync(file(childId, 'input.json'), path.join(dir, `${childId}-source.json`));
       const result = { id: exportId, workspaceId: run.workspaceId, runId, path: dir, assetCount: assets.length, createdAt: stamp() }; state.exports.push(result); save(); return result;
     },
     activeWorkspaceId: () => state.activeWorkspaceId,
+    // ---------- Reads for the access gate (src/main/access.js), all in the active workspace ----------
+    findAsset(assetId) {
+      if (typeof assetId !== 'string' || !/^[a-zA-Z0-9_-]{1,180}$/.test(assetId)) return null;
+      const asset = state.assets.find(row => row.id === assetId && row.workspaceId === state.activeWorkspaceId); if (!asset) return null;
+      const run = [...state.contentRuns, ...state.researchRuns].find(row => row.id === asset.runId);
+      return { asset: copy(asset), run: run ? copy(run) : null };
+    },
+    findRun(runId) {
+      if (typeof runId !== 'string' || !/^[a-zA-Z0-9_-]{1,180}$/.test(runId)) return null;
+      const run = [...state.contentRuns, ...state.researchRuns].find(row => row.id === runId && row.workspaceId === state.activeWorkspaceId);
+      return run ? copy(run) : null;
+    },
+    activeEditionId: () => state.workspaces.find(w => w.id === state.activeWorkspaceId)?.editionId || 'general',
+    activeWorkspace() { const w = state.workspaces.find(row => row.id === state.activeWorkspaceId); return w ? { id: w.id, name: w.name, editionId: w.editionId } : null; },
+    workspaceById(workspaceId) { const w = state.workspaces.find(row => row.id === workspaceId); return w ? { id: w.id, name: w.name, editionId: w.editionId } : null; },
+    // A trend's brief: the comprehensive report or editorial toolkit of a finished report run made for a trend.
+    isTrendReport(asset) {
+      const record = asset && state.assets.find(row => row.id === asset.id && row.workspaceId === state.activeWorkspaceId);
+      if (!record || record.kind !== 'text' || !REPORT_DELIVERABLES.includes(record.deliverableId)) return false;
+      const run = state.contentRuns.find(row => row.id === record.runId);
+      return Boolean(run && !run.kit && run.status === 'succeeded' && run.themeId);
+    },
+    kitRunsFor: sourceKey => copy(state.contentRuns.filter(run => run.workspaceId === state.activeWorkspaceId && run.kit && run.kit.sourceKey === sourceKey)),
+    // What channel-view's readyTrends reads, for the active workspace, without publicState()'s deep copy: callers only read.
+    trendSource() { const mine = row => row.workspaceId === state.activeWorkspaceId; return { activeWorkspaceId: state.activeWorkspaceId, researchRuns: state.researchRuns.filter(mine), contentRuns: state.contentRuns.filter(mine), assets: state.assets.filter(mine), themes: state.themes.filter(mine) }; },
+    picturesReady,
     // Sheets: every research run with saved evidence opens as a workbook. Reading never starts or changes a run.
     listResearchWorkbookSources() {
       return state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId && fs.existsSync(path.join(root, 'runs', run.id, 'evidence.json')))
@@ -1079,11 +1228,11 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         const tagging = research.buildAssignmentBatches({ runId: run.id, items: evidence, batchSize: program.taggingBatchSize, batchSizes: program.taggingBatchSizes });
         for (const batch of tagging.batches) { const cache = file(run.id, `${batch.id}.validated.json`); if (fs.existsSync(cache)) assignments = research.applyAssignments(assignments, read(cache).assignments || []); }
       }
-      const reports = (run.reportRunIds || []).map(entry => ({ themeId: entry.themeId, runId: entry.runId, assets: (state.assets || []).filter(asset => asset.runId === entry.runId).map(asset => ({ id: asset.id, deliverableId: asset.deliverableId, title: asset.title, url: run.googleDelivery?.assets?.find(row => row.assetId === asset.id)?.files?.find(f => /docs\.google\.com/.test(f.url || ''))?.url || '' })) }));
+      const reports = (run.reportRunIds || []).map(entry => ({ themeId: entry.themeId, runId: entry.runId, assets: (state.assets || []).filter(asset => asset.runId === entry.runId).map(asset => ({ id: asset.id, deliverableId: asset.deliverableId, title: asset.title, url: deliveredDoc(run.googleDelivery, asset) })) }));
       const workspaceRuns = state.researchRuns.filter(row => row.workspaceId === run.workspaceId).map(row => ({ id: row.id, title: row.title, createdAt: row.createdAt }));
       const w = state.workspaces.find(row => row.id === run.workspaceId) || {};
       // Report links for every theme in the repository (Trend Velocity shows the latest docs per theme).
-      const repositoryReports = {}; for (const researchRun of state.researchRuns.filter(row => row.workspaceId === run.workspaceId)) for (const entry of researchRun.reportRunIds || []) { const docs = (state.assets || []).filter(asset => asset.runId === entry.runId).map(asset => ({ deliverableId: asset.deliverableId, createdAt: asset.createdAt, url: researchRun.googleDelivery?.assets?.find(row => row.assetId === asset.id)?.files?.find(f => /docs\.google\.com/.test(f.url || ''))?.url || '' })); if (docs.length && (!repositoryReports[entry.themeId] || String(docs[0].createdAt) > String(repositoryReports[entry.themeId][0].createdAt))) repositoryReports[entry.themeId] = docs; }
+      const repositoryReports = {}; for (const researchRun of state.researchRuns.filter(row => row.workspaceId === run.workspaceId)) for (const entry of researchRun.reportRunIds || []) { const docs = (state.assets || []).filter(asset => asset.runId === entry.runId).map(asset => ({ deliverableId: asset.deliverableId, createdAt: asset.createdAt, url: deliveredDoc(researchRun.googleDelivery, asset) })); if (docs.length && (!repositoryReports[entry.themeId] || String(docs[0].createdAt) > String(repositoryReports[entry.themeId][0].createdAt))) repositoryReports[entry.themeId] = docs; }
       return { run: publicRun(run), program, evidence, raw, assignments, batches, themes: copy((state.themes || []).filter(t => t.workspaceId === run.workspaceId)), history: copy((state.history || []).filter(h => h.workspaceId === run.workspaceId)), detections: copy((state.detections || []).filter(d => d.workspaceId === run.workspaceId)), taxonomy: copy(w.taxonomy || null), repositoryReports, reports, runs: workspaceRuns, version: researchWorkbookVersion(run) };
     },
     waitForIdle: async () => { while (active.size) await Promise.allSettled([...active.values()]); },

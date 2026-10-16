@@ -1,13 +1,18 @@
 {
-  "//": "Everything Ask AI can point at in Simple mode. Ask AI's 'Show me' steps name an id; the app moves to its tab (or opens the report, folder or dialog it needs), finds the element and spotlights it. 'selector' defaults to [data-spot=\"<id>\"]. 'item' says what the step's item names: 'match' means the element itself carries data-spot-item (a card or row); 'report', 'folder' and 'kit-review' mean the app opens that report, folder or the asset dialog for that report first. 'open' expands a collapsed section.",
+  "//": "Everything Ask AI can point at in Simple mode and the left sidebar. Ask AI's 'Show me' steps name an id; the app moves to its tab (or opens the report, folder or dialog it needs), finds the element and spotlights it. 'selector' defaults to [data-spot=\"<id>\"]. 'item' says what the step's item names: 'match' means the element itself carries data-spot-item (a card or row); 'report', 'folder' and 'kit-review' mean the app opens that report, folder or the asset dialog for that report first. 'open' expands a collapsed section.",
   "spots": [
-    { "id": "nav.home", "tab": "", "where": "Top bar", "what": "The Home tab: what needs you, an ask box, and research in one tap" },
-    { "id": "nav.reports", "tab": "", "where": "Top bar", "what": "The Reports tab: every report, newest first" },
-    { "id": "nav.trends", "tab": "", "where": "Top bar", "what": "The Trends tab: say yes or skip to new trends, then write the reports" },
-    { "id": "nav.assets", "tab": "", "where": "Top bar", "what": "The Assets tab: report folders of channel assets and every picture" },
-    { "id": "nav.ask", "tab": "", "where": "Top bar", "what": "The Ask AI tab" },
-    { "id": "nav.settings", "tab": "", "where": "Top bar, right", "what": "The gear button that opens Settings" },
-    { "id": "top.working", "tab": "", "where": "Top bar, right", "what": "The 'N jobs running' indicator (only while something runs)" },
+    { "id": "nav.workspace", "tab": "", "where": "Left sidebar, top", "what": "The workspace card: the content workspace the whole studio is using (only admins switch it, and start a new one)" },
+    { "id": "nav.role", "tab": "", "where": "Left sidebar, under the workspace", "what": "The role card: your role, or View as for admins, to preview what an editor or a channel owner sees" },
+    { "id": "nav.mode", "tab": "", "where": "Left sidebar, under the role", "what": "The Simple | Advanced layout switch (Advanced has every tool, including research programs, sheets and scrapers)" },
+    { "id": "nav.home", "tab": "", "where": "Left sidebar", "what": "Home: what needs you, an ask box, and research in one tap" },
+    { "id": "nav.reports", "tab": "", "where": "Left sidebar", "what": "Reports: every report, newest first" },
+    { "id": "nav.trends", "tab": "", "where": "Left sidebar", "what": "Trends: say yes or skip to new trends, then write the reports" },
+    { "id": "nav.assets", "tab": "", "where": "Left sidebar", "what": "Assets: report folders of channel assets and every picture" },
+    { "id": "nav.ask", "tab": "", "where": "Left sidebar", "what": "Ask AI" },
+    { "id": "nav.analytics", "tab": "", "where": "Left sidebar, Admin", "what": "Analytics: which trends were approved, and which channels used them (admins only)" },
+    { "id": "nav.people", "tab": "", "where": "Left sidebar, Admin", "what": "People & roles: add people, choose their role and channel, and send sign-in links (admins only)" },
+    { "id": "nav.settings", "tab": "", "where": "Left sidebar, bottom", "what": "Settings: connections, AI and pictures for the whole studio (admins only)" },
+    { "id": "top.working", "tab": "", "where": "Left sidebar, bottom", "what": "The 'N jobs running' indicator (only while something runs)" },
 
     { "id": "home.ask", "tab": "home", "where": "Home", "what": "The 'Ask anything' box" },
     { "id": "home.trends", "tab": "home", "where": "Home", "what": "The tile counting trends that need your OK" },
@@ -21,6 +26,7 @@
     { "id": "reports.types", "tab": "reports", "where": "Reports", "what": "The report type filter chips" },
     { "id": "reports.list", "tab": "reports", "where": "Reports", "what": "The list of reports grouped by date" },
     { "id": "reports.row", "tab": "reports", "item": "match", "where": "Reports", "what": "One report in the list (item: its exact title)" },
+    { "id": "report.edit", "tab": "reports", "item": "report", "where": "An open report", "what": "Edit: change the report's text in place; drafts and kits made later use the edit (item: report title)" },
     { "id": "report.copy", "tab": "reports", "item": "report", "where": "An open report", "what": "Copy text: copies the whole report as Markdown (item: report title)" },
     { "id": "report.file", "tab": "reports", "item": "report", "where": "An open report", "what": "Open file (Mac) or Download (browser) (item: report title)" },
     { "id": "report.make-assets", "tab": "reports", "item": "report", "where": "An open report", "what": "Make channel assets from this report (item: report title)" },
@@ -63,7 +69,7 @@
 
     { "id": "ask.box", "tab": "ask", "where": "Ask AI", "what": "The question box" },
 
-    { "id": "settings.layout", "tab": "settings", "selector": ".settings-layout", "where": "Settings", "what": "The Simple mode switch (off shows the classic layout with every tool)" },
+    { "id": "settings.layout", "tab": "", "selector": "[data-spot=\"nav.mode\"]", "where": "Left sidebar, under the role", "what": "The Simple | Advanced layout switch (it moved here from Settings)" },
     { "id": "settings.share", "tab": "settings", "selector": ".settings-setup", "where": "Settings", "what": "Share your setup: export or load a teammate's programs and knowledge" },
     { "id": "settings.apify", "tab": "settings", "selector": "[data-spot=\"settings.apify\"], .settings-sources", "where": "Settings", "what": "Source collection: the Apify token" },
     { "id": "settings.claude", "tab": "settings", "selector": "[aria-labelledby=\"settings-ai-title\"]", "where": "Settings", "what": "Writing & research: how the app reaches Claude" },

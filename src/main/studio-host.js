@@ -27,10 +27,15 @@ function loadLoginShellPath({ shell = process.env.SHELL || '/bin/zsh', timeoutMs
     child.on('error', finish); child.on('close', finish);
   });
 }
+// Every AI CLI the studio starts (Claude Code, Codex) gets this environment. On the Codex route the CLI can run shell
+// commands, so nothing a person could ask it to print may be in here: no STUDIO_* setting (the web secret key and admin
+// password) and no saved-key variable. No route takes its credential from here: the Claude app and Codex use their
+// own sign-in, and the Anthropic API key route calls the API from the studio itself.
+const CLI_SECRET_ENV = /^(STUDIO_.*|ANTHROPIC_API_KEY|OPENAI_API_KEY|APIFY_API_TOKEN|MONDAY_API_TOKEN|GOOGLE_.*TOKEN|GOOGLE_SHEETS_WEBHOOK_URL)$/;
 function studioCliEnv() {
   const searchPaths = process.platform === 'win32' ? [path.join(os.homedir(), '.local', 'bin'), path.join(process.env.APPDATA || os.homedir(), 'npm')] : [path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.claude', 'local'), '/opt/homebrew/bin', '/usr/local/bin'];
   const env = { ...process.env, PATH: [loginShellPath, ...searchPaths, process.env.PATH || ''].filter(Boolean).join(path.delimiter) };
-  for (const name of Object.keys(env)) if (/^(OPENAI_API_KEY|APIFY_API_TOKEN|GOOGLE_.*TOKEN|STUDIO_.*PASSWORD|STUDIO_SESSION_SECRET)$/.test(name)) delete env[name];
+  for (const name of Object.keys(env)) if (CLI_SECRET_ENV.test(name)) delete env[name];
   return env;
 }
 function createStudioHost({ root, getApifyToken = () => process.env.APIFY_API_TOKEN, model = () => process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL, Client = ApifyClient, runnerOptions = {} } = {}) {

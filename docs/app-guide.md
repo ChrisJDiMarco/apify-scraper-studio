@@ -15,8 +15,8 @@ The research pipeline reproduces the team's earlier n8n "Golden Thread" workflow
 - A **workspace** holds its own brand knowledge, approved products, taxonomy, reference documents, research programs, runs, trend history and Library. Workspaces share nothing.
 - Each workspace has an **edition**, fixed at creation. **Semrush workspace** has Semrush branding, prompts tuned to SEO and search marketing, starter brand knowledge, and Semrush editorial formats (Backlinko, Exploding Topics, Search Engine Land). **General** (listed as **Your brand**) runs the same pipeline for any brand.
 - A fresh install has **Semrush workspace** and **Your workspace** (General). Tester builds open in the Semrush workspace, where the sidebar shows the Semrush wordmark and "Research & content studio": the Semrush edition of Scraper Studio.
-- Switch workspaces with the dropdown under the logo. **+ New workspace** opens a **Create a workspace** form in Brand knowledge.
-- Settings (keys, the Claude connection, Google and Monday.com) apply to every workspace on the Mac.
+- Admins switch workspaces with the workspace card at the top of the left sidebar. **+ New workspace** opens a **Create a workspace** form in Brand knowledge. Editors and channel owners see the workspace name there and follow the studio's active workspace.
+- Settings (keys, the Claude connection, Google and Monday.com) apply to every workspace on the Mac. Only admins see Settings.
 
 ### The flow, end to end
 
@@ -41,24 +41,30 @@ The research pipeline reproduces the team's earlier n8n "Golden Thread" workflow
 
 ### Navigation
 
-Semrush workspace sidebar: **Overview**, **Research programs**, **Sheets**, **Trend board**, **Create content**, **Library**, **Brand knowledge**. Below them, **More tools** expands to: **Collection overview**, **Playbooks**, **Search platforms**, **Chat with findings**, **Scrapers**, **Datasets**, **AI reports**, **Activity**, **Import research**, **Compare snapshots**, **Workflows**. **Settings** is at the bottom.
+One left sidebar serves both layouts. Top to bottom: the workspace; **View as** (admins) or your role; the **Simple | Advanced** layout switch; the pages of the layout you're in; under **Admin**, **Analytics** and **People & roles** (admins only); then **Settings** (admins only), the working indicator (**N jobs running**) and a footer with your name and the app version (and **Sign out** in the browser studio). On a narrow window or a phone, the sidebar opens from the **Menu** button at the top left.
 
-General workspace sidebar: **Content studio** (tabs for Overview, Research programs, Trend board, Create content, Library, Brand knowledge), **Overview**, **Sheets**, **Playbooks**, **Search platforms**, **Chat with findings**, **Scrapers**, **Datasets**, **AI reports**, **Activity**; **More tools** holds **Import research**, **Compare snapshots** and **Workflows**.
+The layout switch is remembered per person. **Simple** shows the essentials (Home, Reports, Trends, Assets and Ask AI); **Advanced** shows every tool, including research programs, sheets and scrapers. Links in Simple that go to an Advanced page (such as **Full board**) open it without changing your layout; press **Simple** to go back.
 
-The header on every page has **Ask AI** (⌘J), **Search or jump to…** (⌘K, a command palette for pages and actions), a working indicator while tasks run, and **Refresh workspace**. ⌘, opens Settings. The sidebar footer shows how many runs are in progress, or "Local workspace", and the app version.
+Advanced layout, Semrush workspace: **Overview**, **Research programs**, **Sheets**, **Trend board**, **Create content**, **Library**, **Brand knowledge**. Below them, **More tools** expands to: **Collection overview**, **Playbooks**, **Search platforms**, **Chat with findings**, **Scrapers**, **Datasets**, **AI reports**, **Activity**, **Import research**, **Compare snapshots**, **Workflows**. **Settings** is at the bottom.
+
+Advanced layout, General workspace: **Content studio** (tabs for Overview, Research programs, Trend board, Create content, Library, Brand knowledge), **Overview**, **Sheets**, **Playbooks**, **Search platforms**, **Chat with findings**, **Scrapers**, **Datasets**, **AI reports**, **Activity**; **More tools** holds **Import research**, **Compare snapshots** and **Workflows**.
+
+In the Advanced layout, the header on every page has **Ask AI** (⌘J), **Search or jump to…** (⌘K, a command palette for pages and actions), a working indicator while tasks run, and **Refresh workspace**. ⌘, opens Settings for admins.
 
 ### Simple mode
 
-Simple mode is on by default. It shows the studio as five tabs in the top bar, with Settings behind the gear on the right:
+Simple mode is on by default. It shows the studio as five tabs in the left sidebar; ⌘1 to ⌘5 follow them:
 
 - **Home** (⌘1): a greeting and an **Ask anything** box; three tiles for trends that need your OK, reports in your library, and **Find new trends** (pick a research program and **Start research**, or **Write N reports** when approved trends are waiting); **Working right now** while something runs; and **Latest reports**.
-- **Reports** (⌘2): every report, newest first, grouped Today, Yesterday, This week, This month and Earlier. Search titles, filter by type, and tap one to read it. The reader has **Copy text**, **Open file** (Mac) or **Download** (browser), **Make channel assets** and **Ask AI about this**; ← and → page through reports and Esc returns to the list. Drafts from channel asset runs live in Assets, not here.
-- **Trends** (⌘3): **Needs your OK** cards (priority, sources and platforms) with **Yes, use it** and **Skip**; a bar to **Write the reports** for approved trends; **Being written**; **Ready to read**. **Find new trends** starts research after a cost confirmation and **Full board** opens the classic trend board.
+- **Reports** (⌘2): every report, newest first, grouped Today, Yesterday, This week, This month and Earlier. Search titles, filter by type, and tap one to read it. The reader has **Copy text**, **Open file** (Mac) or **Download** (browser), **Edit**, **Make channel assets** and **Ask AI about this**; ← and → page through reports and Esc returns to the list. Drafts from channel asset runs live in Assets, not here. Under the title, **Edited by** shows who last edited the report and when, and **Used by** names the channels whose owners said they used the trend; **Where it’s used** at the end lists their links.
+- **Trends** (⌘3): **Needs your OK** cards (priority, sources and platforms) with **Yes, use it** and **Skip**; a bar to **Write the reports** for approved trends; **Being written**; **Ready to read**. **Find new trends** starts research after a cost confirmation; if a search with the same program is still running or waiting for review, it says who started it and when, and asks before starting another. **Full board** opens the Advanced trend board.
 - **Assets** (⌘4): **Report folders** of channel assets (see Channel asset kits below) and **Pictures**: every picture from channel asset runs, Create content and Ask AI, with filters. **Make channel assets** and **Make a picture** sit at the top right.
 - **Ask AI** (⌘5): the assistant as a full page (see Ask AI).
-- **Settings** (⌘,): connections, Claude, images and brand reference images, Google, and the **Simple mode** switch. Turning it off shows the classic layout with every tool in the sidebar; turn it back on from Settings there.
+- **Settings** (⌘,, admins only, at the bottom of the sidebar): connections, Claude, images and brand reference images, Google and Monday.com. The layout switch is in the sidebar, not in Settings.
 
-The top bar shows **N jobs running** while work is in progress.
+The sidebar shows **N jobs running** while work is in progress.
+
+**Editing a report.** Admins and editors can press **Edit** in the reader (or on a written file in an asset folder) to change the text in place: **Write** and **Preview**, then **Save** (⌘S) or **Cancel**. Formatting is Markdown: # Heading, **bold**, - list, [text](https://…). Leaving with unsaved edits asks first. Everything made from the report afterwards uses the edited text: channel asset kits, Create content, exports, Google Drive and Ask AI. **Save to Google Drive** after an edit adds the edited version as a new Doc ending in "(edited)" next to the original, which Drive keeps as it was. Links in an edit need https://; an http:// address stays plain text. If someone else saved the report after you opened it, saving stops and says who and when; copy your text, reopen the report and try again. **Restore the original** removes the edits; drafts already made from the edited version stay as they are.
 
 ### Channel asset kits (Assets)
 
@@ -73,19 +79,19 @@ A channel asset kit is the Golden Thread "Generate All Channel Assets" n8n workf
 
 ### Ask AI
 
-**Ask AI** answers questions, does work for you after you confirm, and can take you to any control in Simple mode and point at it. In Simple mode it's the **Ask AI** tab; in the classic layout it's the header button (⌘J) that opens a panel.
+**Ask AI** answers questions, does work for you after you confirm, and can take you to any control in Simple mode and point at it. In Simple mode it's the **Ask AI** tab; in the Advanced layout it's the header button (⌘J) that opens a panel. Admins and editors have Ask AI; it only points editors at pages they can open. Channel owners don't have it.
 
 - **What it sees**: this guide plus a picture of your studio: which tab and report or folder you were on, your workspace, which connections are saved (yes or no only), the Claude route and model, research programs, recent research runs, what's running now, every trend waiting for your OK or approved, every report title, and every asset folder with its runs and what needs another try. It never sees API keys, tokens or collected posts.
 - **It reads when it needs to**: titles aren't contents, so for questions like "what does the AI citation report say about budgets?" or "why did the PR asset fail?" it first reads up to three reports, asset folders or runs, then answers. The answer notes what it read. Reading adds a second Claude call.
 - **It does the work**: when you ask it to do something it can do, the answer offers buttons. Nothing happens until you click, and anything that spends money asks you to confirm first. It can start research, say yes or skip to a trend or to all waiting trends, write the reports, open a report, open the Make channel assets dialog on a report (you check the cost and press Make), open an asset folder, finish the rest of an asset run, save a run's folder, stop or retry a run, and switch tabs.
 - **Show me**: when you ask where something is or how to do something, the answer can take you there: it switches tabs, opens the report, folder or dialog it needs, and rings the exact control with a note on what to do. Multi-step answers walk through each step; **Next** (or →) moves on, clicking the highlighted control does too, and **Back to chat** returns. When it isn't taking you there right away, the answer has a **Show me** button.
 - Each question uses your Claude connection (Settings → Writing & research) and the **Default Claude model** at medium effort: about $0.15, capped at $0.75 per call. Each answer shows the model and cost.
-- The conversation lasts until you quit. **New conversation** starts over. If Claude isn't reachable, the error offers **Open Settings**.
+- The conversation lasts until you quit. **New conversation** starts over. If Claude isn't reachable, the error offers **Open Settings** to admins; editors are told which admin to ask.
 - AI answers can be mistaken. Check important numbers on the page itself.
 
 **Pictures in Ask AI.** Ask for a picture in plain words, for example "Create a hero image for my latest trend" or "a square LinkedIn graphic about AI Overviews in lavender and mint". Claude writes a detailed prompt and OpenAI draws it; a placeholder shows while it's drawn, usually under a minute.
 
-- Pictures need an OpenAI API key in **Settings → Image generation** (the same key Create content uses). Without it, Ask AI explains how to add one.
+- Pictures need an OpenAI API key in **Settings → Image generation** (the same key Create content uses). Without it, Ask AI explains how to add one to an admin, and tells an editor to ask an admin to turn pictures on.
 - Brand and campaign pictures follow the workspace's visual direction (in the Semrush workspace, the Semrush brand palette). Describe your own style and it follows yours instead. It never draws company logos; it leaves space for one.
 - Sizes: landscape (the default, for social and hero images), square or portrait. Ask for the shape you want.
 - To change a picture, just say so ("make it bluer", "remove the text"): Ask AI rewrites the earlier prompt with your change and draws a new one.
@@ -97,12 +103,33 @@ A channel asset kit is the Golden Thread "Generate All Channel Assets" n8n workf
 
 Scraper Studio also runs as a website: the same pages and features as the Mac app, served from a company server. LIVE CONTEXT says which one the person is using ("edition").
 
-- **Signing in:** a team password, or the company sign-in when the site sits behind it. **Sign out** is at the bottom of the sidebar, next to the version.
-- **One shared studio:** everyone who signs in works in the same workspaces, programs, runs, Library and Settings. A run someone starts is visible to everyone, and two people can't each have their own copy of a program.
+- **Signing in:** with the company sign-in when the site sits behind it. Otherwise each person opens the personal sign-in link an admin sent them; it signs them in on that browser for 30 days. If a link stops working ("This sign-in link doesn’t work anymore"), ask the studio admin for a new one. Admins can also use the **Admin password** under **Admins** on the sign-in page. **Sign out** is at the bottom of the sidebar, next to the version.
+- **Who can do what:** each person has a role, set by an admin in **People & roles** (see Roles and access). Someone signed in but not added yet sees "You’re not in this studio yet", with **Check again** once an admin adds them.
+- **One shared studio:** everyone works in the same workspaces, programs, runs and Library. Only admins switch the active workspace, and everyone, channel owners included, follows it. A run someone starts is visible to everyone who can see runs, and two people can't each have their own copy of a program.
 - **Keys live on the server:** keys saved in Settings are encrypted on the studio server and used for everyone. The server reaches Claude with an Anthropic API key (or Claude Code, if it's installed there). Nobody installs anything.
 - **Files:** where the Mac app shows a file dialog, the browser opens its own file picker and uploads the file. Exports, **Open file**, and **Show in Finder** download the file instead; an export folder downloads as one .zip. **Open data folder** and **Open workspace** aren't available, because folders stay on the server.
 - **Runs keep going** when a browser tab closes; they run on the server. Reopen the site to follow them. The Mac app's quit warning doesn't apply.
 - **Not in the browser studio:** the Mac installer, "Open Anyway" and Claude Code on your own computer.
+
+## Roles and access
+
+Every person in the studio has one of three roles. On the Mac you're the only user and always an admin; roles matter there only for **View as**.
+
+- **Admin**: everything, including Settings, research programs, **People & roles** and **Analytics**.
+- **Editor**: finds trends, writes and edits reports, makes channel assets for any channel, and uses Ask AI. Editors don't see Settings, Brand knowledge, People & roles or Analytics, and can't change research programs or schedules; when something needs one of those, the app names the admin to ask.
+- **Channel owner**: sees only new trends and their own channel's assets, in a simple two-page layout (**Trends** and **My assets**). They never see costs, other channels, Settings or research.
+
+**View as (admins).** The **View as** card in the sidebar previews what an editor or a channel's owner sees. A preview is read-only: a banner says "Previewing what … sees. Buttons that change things are off.", the buttons that person has are shown turned off (hover one to see why), and **Back to Admin** ends it. A preview lasts until you switch back, sign out or restart.
+
+**What a channel owner does.**
+- **Trends** lists each trend the team approved whose brief is written, newest first, with a count of new ones next to **Trends**. Filters: **New**, **Using**, **Not for us** and **All**. Trends from before they joined sit under **Earlier**.
+- **Read the brief** opens the trend's report. **Generate for my channel** makes this channel's drafts from it (the card shows progress; **Stop** stops it, and **Finish the rest** retries files that didn't finish). **Open my assets** jumps to the drafts, whichever set made them; **Generate a new set** makes another set after asking. A set made with other channels that didn't finish this channel's files says to ask an editor, and the card keeps showing an earlier set of yours that did finish. When only an admin can fix what stopped a set (a key, a sign-in, the account's credit), the card says "Ask an admin: the AI connection needs attention." instead of offering **Finish the rest**.
+- **Yes, I’m using this trend** or **Not for us** answers for the channel; **Add the link when it’s live** saves where it was used. Owners of the same channel share one answer per trend, shown as "Answered by …".
+- **My assets** groups the channel's drafts by trend: text opens in a reader with **Copy text**, pictures open full size, and each set has **Save folder** (Mac) or **Download folder** (browser). A set made with other channels says **Made with other channels**; ask an editor to stop or finish it.
+
+**People & roles (admins).** **Add a person** with a name, email, role and, for a channel owner, their channel. In the browser studio, **Make a new sign-in link** gives a link to send them (making a new one ends the old link and signs out anyone using it), **Turn off link** ends it, **Disable** pauses someone's access without removing them, and **Remove** takes them out. Nobody can change their own access or remove the last admin, and admins listed in the server settings show **Set by the server**. On the Mac there's no **Add a person**, because people sign in to the browser studio; instead, People & roles has a **Preview** button for each channel and **Preview as an editor**.
+
+**Analytics (admins).** Which trends were found, approved, written up and used, by channel, over 7, 30, 90 or 365 days. The **Channels** table shows each channel's answers and has **Copy reminder** for trends still waiting on that channel. The **Trends × channels** table shows every answer; click a cell for details, and **Change answer** corrects one. **Show passed and pending** adds trends that weren't approved or aren't written yet, **Recent activity** lists the latest changes, and **Download CSV** exports the table. Decisions made before roles existed show **Not recorded**.
 
 ## First-time setup checklist
 
@@ -638,8 +665,7 @@ Ask AI first. Then send the team: what you did and expected; a screenshot of the
 - **Google delivery is pending for testers.** Create Google Sheet, Pull from a Google Sheets link, Publish to Google Drive and Save to Google Drive need the Sheets bridge, which isn't set up for testers yet. Docs shared by link import without Google; private docs need a manually pasted token that expires.
 - **The build isn't notarized yet**, so macOS asks you to confirm it once (System Settings → Privacy & Security → **Open Anyway**) the first time you open it. There are no automatic updates. Install new builds by hand.
 - **Schedules run only while the app is open** and the Mac is awake.
-- **Ask AI acts only through buttons you click**, and its Show me tours cover Simple mode and Settings (classic pages get Open buttons). It can't change settings or read collected posts.
-- **Channel asset pictures don't use brand reference images or logo files yet** (n8n sent its style examples and the SEL lockup to the image model). Pictures leave a clean footer for the logo instead.
+- **Ask AI acts only through buttons you click**, and its Show me tours cover Simple mode, the sidebar and Settings (Advanced pages get Open buttons). It can't change settings or read collected posts.
 - **Collection is a sample**, not the whole platform. Spending caps, time limits, private accounts and the per-author cap all reduce coverage. Counts describe your sample, not market prevalence.
 - **Research collections don't appear in Datasets or Chat with findings.** Use Sheets.
 - **The app doesn't track blog coverage on its own.** Priority scoring uses the taxonomy you import.

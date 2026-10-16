@@ -342,7 +342,7 @@ export function MissionCommandCenter({
         </div>
         <div className="v5-hero-actions">
           <Button disabled={busy} onClick={() => onRunMission(mission.id)}><Play size={16} aria-hidden="true" /> Run mission</Button>
-          <Button className="ghost" disabled={busy} onClick={() => onScheduleMission({ missionId: mission.id, schedule: { cadence: 'weekly', timezone: 'America/New_York', quiet: true, threshold: 5 } })}><CalendarClock size={16} aria-hidden="true" /> Watch weekly</Button>
+          {onScheduleMission && <Button className="ghost" disabled={busy} onClick={() => onScheduleMission({ missionId: mission.id, schedule: { cadence: 'weekly', timezone: 'America/New_York', quiet: true, threshold: 5 } })}><CalendarClock size={16} aria-hidden="true" /> Watch weekly</Button>}
           <Button className="ghost" disabled={busy} onClick={() => onPauseMission(mission.id)}><Pause size={16} aria-hidden="true" /> Pause</Button>
           <Button className="ghost" disabled={busy} onClick={() => onExportMissionBundle(mission.id)}><FolderArchive size={16} aria-hidden="true" /> Bundle</Button>
         </div>

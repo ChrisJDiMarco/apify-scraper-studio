@@ -15,8 +15,9 @@ export class SignedOut extends Error {}
 export async function request(url, init = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...init });
   const body = await response.json().catch(() => ({}));
-  if (response.status === 401) { window.dispatchEvent(new CustomEvent('studio-signed-out', { detail: body.signIn })); throw Object.assign(new SignedOut(body.error || 'Sign in to this studio.'), { mode: body.signIn }); }
-  if (!response.ok) throw Object.assign(new Error(body.error || `The studio server answered ${response.status}.`), { status: response.status });
+  if (response.status === 401) { window.dispatchEvent(new CustomEvent('studio-signed-out', { detail: body.signIn })); throw Object.assign(new SignedOut(body.error || 'Sign in to this studio.'), { mode: body.signIn, status: 401 }); }
+  // status and code (forbidden, preview, editConflict…) stay on the error so screens can tell a refusal from a failure.
+  if (!response.ok) throw Object.assign(new Error(body.error || `The studio server answered ${response.status}.`), { status: response.status, ...(body.code ? { code: body.code } : {}) });
   return body;
 }
 export const postJson = (url, payload) => request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -54,17 +55,34 @@ async function call(method, channel, payload) {
   const response = await postJson('/api/rpc', { channel, payload, uploads });
   response.downloads?.forEach((entry, index) => setTimeout(() => download(entry), index * 400));
   for (const url of response.opens || []) window.open(url, '_blank', 'noopener,noreferrer');
+  if (channel === 'state' && stateListeners.size && !events) openEvents(); // e.g. Check again after access was granted
   return response.result;
 }
 
-// State pushes arrive over server-sent events; the browser reconnects on its own after a drop.
+// State pushes arrive over server-sent events; the browser reconnects on its own after a drop. The server ends a
+// stream when this tab is signed out or its access changes, so an error checks the session: a 401 there announces the
+// sign-out. When the server refused the stream outright (no access), the tab gets fresh state once, which shows the
+// change, and the stream reopens the next time the page reads the state.
 const stateListeners = new Set(); let events = null;
+const notify = (next) => { for (const fn of stateListeners) fn(next); };
+function openEvents() {
+  const source = new EventSource('/api/events'); events = source;
+  source.addEventListener('state-changed', (event) => { let next; try { next = JSON.parse(event.data); } catch { return; } notify(next); });
+  // The same person opened more tabs than the server streams to, and this is the oldest: stop instead of reconnecting
+  // (which would only push out the next one). It opens again the next time this tab reads the state.
+  source.addEventListener('replaced', () => { source.close(); if (events === source) events = null; });
+  source.addEventListener('error', () => {
+    request('/api/session').then(async () => {
+      if (source.readyState !== EventSource.CLOSED || events !== source) return; // still reconnecting on its own
+      events = null;
+      const { result } = await postJson('/api/rpc', { channel: 'state' });
+      if (result && stateListeners.size) notify(result);
+    }).catch(() => {}); // offline or signed out: the browser retries, or the sign-in screen takes over
+  });
+}
 function onStateChanged(listener) {
   stateListeners.add(listener);
-  if (!events) {
-    events = new EventSource('/api/events');
-    events.addEventListener('state-changed', (event) => { let next; try { next = JSON.parse(event.data); } catch { return; } for (const fn of stateListeners) fn(next); });
-  }
+  if (!events) openEvents();
   return () => { stateListeners.delete(listener); if (!stateListeners.size && events) { events.close(); events = null; } };
 }
 

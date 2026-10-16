@@ -1,0 +1,113 @@
+/* Analytics: funnel tiles, the channels table with stacked bars, and the trends × channels matrix. */
+.analytics-page { max-width: 1180px; }
+.analytics-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: -10px; }
+.analytics-updating { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--s-muted); }
+.analytics-section { display: grid; gap: 14px; min-width: 0; }
+.analytics-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.analytics-loading { display: grid; gap: 24px; }
+
+/* Funnel: found → approved → ready → in use → linked. */
+.analytics-funnel { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; counter-reset: funnel; }
+.analytics-tile { position: relative; display: grid; align-content: start; gap: 4px; min-height: 128px; padding: 20px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius); box-shadow: var(--s-shadow); }
+.analytics-funnel > li.analytics-tile:not(:last-child)::after { content: ''; position: absolute; top: 50%; right: -10px; z-index: 1; width: 8px; height: 8px; border-top: 2px solid var(--s-line-strong); border-right: 2px solid var(--s-line-strong); transform: translateY(-50%) rotate(45deg); }
+.analytics-tile strong { font-size: 32px; font-weight: 650; line-height: 1.05; letter-spacing: -1px; font-variant-numeric: tabular-nums; color: var(--s-ink); }
+.analytics-tile > span { font-size: 14.5px; font-weight: 600; color: var(--s-ink); }
+.studio-frame .analytics-tile small { margin-top: auto; padding-top: 6px; font-size: 12.5px; line-height: 1.4; color: var(--s-muted); }
+.analytics-tile.is-key { background: linear-gradient(160deg, var(--s-mint) 0%, var(--s-card) 70%); border-color: color-mix(in srgb, var(--s-mint-ink) 22%, var(--s-line)); }
+.analytics-tile.studio-shimmer { height: 128px; border: 0; box-shadow: none; }
+
+/* Tables share one quiet look; premium.css's 10px uppercase headers don't apply here. */
+.analytics-table-wrap, .analytics-matrix-scroll { min-width: 0; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius); box-shadow: var(--s-shadow); }
+.analytics-table-wrap { overflow-x: auto; }
+.studio-frame :is(.analytics-channels, .analytics-matrix) { width: 100%; margin: 0; border-collapse: separate; border-spacing: 0; font-size: 14px; color: var(--s-ink); background: transparent; }
+.studio-frame :is(.analytics-channels, .analytics-matrix) thead th { padding: 12px 14px; font-size: 12px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; text-align: left; color: var(--s-muted); background: var(--s-card); border-bottom: 1px solid var(--s-line); }
+.studio-frame :is(.analytics-channels, .analytics-matrix) :is(td, tbody th) { padding: 12px 14px; font-size: 14px; font-weight: 400; letter-spacing: 0; text-transform: none; text-align: left; vertical-align: middle; color: var(--s-ink); background: var(--s-card); border-bottom: 1px solid var(--s-line); }
+.studio-frame :is(.analytics-channels, .analytics-matrix) tbody tr:last-child > * { border-bottom: 0; }
+.analytics-channel { display: grid; gap: 2px; min-width: 170px; }
+.analytics-channel strong { font-size: 14.5px; font-weight: 600; }
+.studio-frame .analytics-channel small { font-size: 12.5px; color: var(--s-muted); }
+.analytics-bar-wrap { display: grid; gap: 6px; min-width: 200px; }
+.analytics-bar { display: flex; height: 12px; overflow: hidden; background: var(--s-card); border: 1px dashed var(--s-line-strong); border-radius: 999px; }
+.analytics-bar span { display: block; height: 100%; }
+.analytics-bar .status-using { background: var(--s-mint-ink); }
+.analytics-bar .status-generated { background: var(--s-accent); }
+.analytics-bar .status-not-using { background: var(--s-line-strong); }
+.analytics-bar .status-none { background: transparent; }
+.studio-frame .analytics-bar-wrap small, .analytics-bar-empty { font-size: 12.5px; color: var(--s-muted); }
+.studio-frame .analytics-when { font-size: 13px; color: var(--s-muted); white-space: nowrap; }
+.analytics-remind { text-align: right; white-space: nowrap; }
+
+/* Matrix: sticky header row and first column inside a horizontal scroller. */
+.analytics-matrix-scroll { max-height: min(70vh, 760px); overflow: auto; }
+.analytics-matrix-scroll:focus-visible { outline: 2px solid var(--s-focus); outline-offset: 2px; }
+.studio-frame .analytics-matrix { min-width: max-content; }
+.studio-frame .analytics-matrix thead th { position: sticky; top: 0; z-index: 2; padding: 12px 6px; text-align: center; white-space: nowrap; }
+.studio-frame .analytics-matrix .analytics-trend-col { position: sticky; left: 0; z-index: 1; width: 240px; min-width: 240px; max-width: 240px; text-align: left; box-shadow: 1px 0 0 var(--s-line); }
+.studio-frame .analytics-matrix thead .analytics-trend-col { z-index: 3; padding-left: 16px; }
+.studio-frame .analytics-matrix td { padding: 8px 6px; text-align: center; }
+.analytics-trend { display: grid; gap: 5px; }
+.analytics-trend strong { font-size: 14px; font-weight: 600; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.analytics-trend-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.studio-frame .analytics-trend-meta small { font-size: 12px; color: var(--s-muted); }
+.studio-frame .analytics-matrix .analytics-month th { position: sticky; left: 0; padding: 6px 10px; background: var(--s-bg); border-bottom: 1px solid var(--s-line); }
+.studio-frame .analytics-month-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px 0 6px; font-size: 12.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--s-muted); background: transparent; border: 0; border-radius: 999px; box-shadow: none; }
+.studio-frame .analytics-month-toggle:hover:not(:disabled) { color: var(--s-ink); background: rgba(24, 30, 21, .05); }
+.analytics-month-toggle svg { transition: transform 200ms var(--s-ease); }
+.analytics-month-toggle svg.open { transform: rotate(180deg); }
+
+/* Cells: colour and an icon together, never colour alone. */
+.app-shell.studio-frame[data-edition] .analytics-cell, .studio-frame .analytics-cell { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 0; color: var(--s-muted); background: var(--s-card); border: 1px dashed var(--s-line-strong); border-radius: 8px; box-shadow: none; transition: transform 120ms ease, box-shadow 120ms ease; }
+.app-shell.studio-frame[data-edition] .analytics-cell.status-using, .studio-frame .analytics-cell.status-using { color: var(--s-mint-ink); background: var(--s-mint); border: 1px solid color-mix(in srgb, var(--s-mint-ink) 25%, var(--s-mint)); }
+.app-shell.studio-frame[data-edition] .analytics-cell.status-generated, .studio-frame .analytics-cell.status-generated { color: var(--s-soft-ink); background: var(--s-soft); border: 1px solid color-mix(in srgb, var(--s-accent) 40%, var(--s-soft)); }
+.app-shell.studio-frame[data-edition] .analytics-cell.status-not-using, .studio-frame .analytics-cell.status-not-using { color: var(--s-muted); background: var(--s-bg); border: 1px solid var(--s-line); }
+.app-shell.studio-frame[data-edition] .analytics-cell.not-offered, .studio-frame .analytics-cell.not-offered { opacity: .55; }
+.app-shell.studio-frame[data-edition] button.analytics-cell:hover:not(:disabled), .studio-frame button.analytics-cell:hover:not(:disabled) { transform: scale(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 30%, transparent); }
+.app-shell.studio-frame[data-edition] button.analytics-cell.status-using:hover:not(:disabled) { background: var(--s-mint); }
+.app-shell.studio-frame[data-edition] button.analytics-cell.status-generated:hover:not(:disabled) { background: var(--s-soft); }
+.app-shell.studio-frame[data-edition] button.analytics-cell.status-not-using:hover:not(:disabled) { background: var(--s-bg); }
+.app-shell.studio-frame[data-edition] button.analytics-cell.status-none:hover:not(:disabled) { background: var(--s-card); }
+.analytics-cell[aria-expanded="true"] { box-shadow: 0 0 0 2px var(--s-ink); }
+.analytics-link-dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; background: var(--s-soft-ink); border: 2px solid var(--s-card); border-radius: 50%; }
+.analytics-dot { width: 7px; height: 7px; background: currentColor; border-radius: 50%; }
+.analytics-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12.5px; color: var(--s-muted); }
+.analytics-legend > span { display: inline-flex; align-items: center; gap: 8px; }
+.analytics-cell.is-key { width: 22px; height: 22px; min-height: 22px; border-radius: 6px; }
+
+/* Cell detail. */
+.analytics-popover { position: fixed; z-index: 75; display: grid; gap: 10px; width: 340px; max-height: min(520px, calc(100dvh - 24px)); padding: 16px 16px 18px; overflow-y: auto; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 18px; box-shadow: 0 22px 60px rgba(24, 30, 21, .2); animation: studio-pop 160ms ease both; }
+.analytics-popover:focus { outline: none; }
+.analytics-popover-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.studio-frame .analytics-popover-head small { font-size: 12px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--s-muted); }
+.studio-frame .analytics-popover-head h3 { margin: 2px 0 0; font-size: 16px; font-weight: 650; line-height: 1.35; color: var(--s-ink); }
+.analytics-popover > .studio-chip { justify-self: start; margin: 0; }
+.analytics-popover-link { justify-self: start; }
+.analytics-change { display: grid; gap: 10px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--s-line); }
+.studio-frame .analytics-change h4 { margin: 0; font-size: 13px; font-weight: 650; color: var(--s-ink); }
+.studio-frame .analytics-change .studio-field em { font-style: normal; font-weight: 500; color: var(--s-muted); }
+.analytics-change .studio-primary { justify-self: start; }
+
+/* Recent activity. */
+.analytics-recent { display: grid; margin: 0; padding: 4px 18px; list-style: none; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius); }
+.analytics-recent li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: 12px; padding: 12px 0; font-size: 14px; line-height: 1.45; border-bottom: 1px solid var(--s-line); }
+.analytics-recent li:last-child { border-bottom: 0; }
+.analytics-recent-dot { width: 7px; height: 7px; margin-bottom: 2px; background: var(--s-accent-strong); border-radius: 50%; }
+.analytics-recent time { font-size: 12.5px; color: var(--s-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Under 860px: a card per trend with its strip of channel squares. */
+.analytics-cards { display: grid; gap: 14px; }
+.analytics-card-month { display: grid; gap: 10px; }
+.analytics-card { display: grid; gap: 10px; padding: 16px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-row); }
+.analytics-card > strong { font-size: 15px; font-weight: 600; line-height: 1.35; }
+.analytics-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px 6px; margin: 0; padding: 0; list-style: none; }
+.analytics-strip li { display: grid; justify-items: center; gap: 4px; min-width: 0; }
+.analytics-strip li > span { max-width: 100%; font-size: 11.5px; color: var(--s-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 1100px) { .analytics-funnel { grid-template-columns: repeat(3, minmax(0, 1fr)); } .analytics-funnel > li.analytics-tile::after { display: none; } }
+@media (max-width: 860px) {
+  .analytics-funnel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-tile { min-height: 112px; padding: 16px; }
+  .analytics-tile strong { font-size: 26px; }
+  .analytics-popover { left: 12px; right: 12px; bottom: 12px; top: auto; width: auto; }
+}
+@media (pointer: coarse) { .app-shell.studio-frame[data-edition] .analytics-cell, .studio-frame .analytics-cell { width: 40px; height: 40px; } }
+@media (prefers-reduced-motion: reduce) { .analytics-popover { animation: none; } .analytics-month-toggle svg, .analytics-cell { transition: none; } }

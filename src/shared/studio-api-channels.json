@@ -43,6 +43,20 @@
     "readBrandImage": "studio:readBrandImage",
     "setBrandImageRole": "studio:setBrandImageRole",
     "removeBrandImage": "studio:removeBrandImage",
+    "editStudioAsset": "studio:editStudioAsset",
+    "restoreStudioAsset": "studio:restoreStudioAsset",
+    "getTeam": {
+      "channel": "team:list",
+      "args": []
+    },
+    "saveMember": "team:save-member",
+    "removeMember": "team:remove-member",
+    "createSignInLink": "team:sign-in-link",
+    "revokeSignInLink": "team:revoke-link",
+    "setViewAs": "team:view-as",
+    "setViewPrefs": "team:prefs",
+    "setTrendAdoption": "team:adoption",
+    "getTrendAnalytics": "team:analytics",
     "listWorkbooks": {
       "channel": "workbooks:list",
       "args": []

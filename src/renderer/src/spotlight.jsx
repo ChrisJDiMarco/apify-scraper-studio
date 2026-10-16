@@ -12,7 +12,8 @@ function locate(step) {
   const spot = SPOTS.get(step.target); if (!spot) return null;
   // Visible matches first; hidden ones only when nothing has a box yet (a closed section, or no layout at all).
   const all = [...document.querySelectorAll(spot.selector || `[data-spot="${spot.id}"]`)];
-  const shown = all.filter((node) => node.getClientRects().length); const nodes = shown.length ? shown : all;
+  // A closed sidebar drawer keeps its layout but is visibility: hidden, so it doesn't count as shown.
+  const shown = all.filter((node) => node.getClientRects().length && window.getComputedStyle?.(node).visibility !== 'hidden'); const nodes = shown.length ? shown : all;
   if (spot.item === 'match' && step.item) {
     const item = norm(step.item); const named = (node) => norm(node.dataset.spotItem);
     return nodes.find((node) => named(node) === item) || nodes.find((node) => named(node) && (named(node).includes(item) || item.includes(named(node)))) || null;

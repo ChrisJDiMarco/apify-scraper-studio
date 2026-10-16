@@ -1,4 +1,5 @@
-/* Simple mode: one calm surface, four tabs, big targets, plain words. Semrush palette by default. */
+/* Simple mode: one calm surface, five tabs in the sidebar, big targets, plain words. Semrush palette by default.
+   The sidebar, its tabs and the working indicator live in studio-frame.css; this is the main column. */
 .simple-shell {
   --s-ink: #181e15; --s-muted: #62685e; --s-faint: #8a9088; --s-line: #e3e8e4; --s-bg: #f4f6f5; --s-card: #ffffff;
   --s-accent: #c190ff; --s-accent-strong: #a873f2; --s-soft: #f1eaff; --s-mint: #dceeeb; --s-mint-ink: #1f5a4c; --s-warn: #fff4dc;
@@ -10,25 +11,8 @@
 .simple-shell button { font-family: inherit; }
 .simple-shell button:hover { transform: none; box-shadow: none; }
 
-/* Top bar: brand, the four tabs, and settings. Leaves room for the macOS window buttons. */
-.simple-top { position: relative; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; min-height: 68px; padding: 0 22px; background: rgba(255, 255, 255, .86); border-bottom: 1px solid var(--s-line); backdrop-filter: saturate(1.4) blur(12px); -webkit-app-region: drag; }
-.simple-shell.is-desktop .simple-top { padding-left: 92px; }
-.simple-top button, .simple-top select, .simple-top a { -webkit-app-region: no-drag; }
-.simple-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.simple-brand img { height: 22px; width: auto; }
-.simple-brand strong { font-size: 18px; letter-spacing: -.6px; }
-.simple-brand strong span { color: var(--s-muted); font-weight: 500; }
-.simple-workspace { padding: 4px 10px; font-size: 12px; font-weight: 500; color: var(--s-muted); background: var(--s-bg); border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.simple-tabs { display: flex; gap: 4px; padding: 5px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 999px; }
-.simple-shell .simple-tabs button { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 18px; font-size: 14.5px; font-weight: 550; white-space: nowrap; color: var(--s-muted); background: transparent; border: 0; border-radius: 999px; }
-.simple-shell .simple-tabs button:hover { color: var(--s-ink); background: rgba(255, 255, 255, .8); }
-.simple-shell .simple-tabs button.active { color: var(--s-ink); background: var(--s-card); box-shadow: 0 1px 3px rgba(24, 30, 21, .1), 0 0 0 1px var(--s-line); font-weight: 650; }
-.simple-shell .simple-tabs button.active svg { color: var(--s-accent-strong); }
-.simple-count { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; font-size: 11px; font-weight: 700; color: var(--s-ink); background: var(--s-accent); border-radius: 999px; }
-.simple-top-right { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
-.simple-working { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; font-size: 12.5px; font-weight: 550; color: var(--s-mint-ink); background: var(--s-mint); border-radius: 999px; white-space: nowrap; }
-.simple-shell .simple-icon { display: grid; place-items: center; width: 42px; height: 42px; min-height: 42px; padding: 0; color: var(--s-muted); background: transparent; border: 1px solid transparent; border-radius: 50%; }
-.simple-shell .simple-icon:hover, .simple-shell .simple-icon.active { color: var(--s-ink); background: var(--s-card); border-color: var(--s-line); }
+/* The count badge on a sidebar tab (Trends waiting for an OK). */
+.simple-count { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; font-size: 11.5px; font-weight: 700; color: var(--s-ink); background: var(--s-accent); border-radius: 999px; }
 
 .simple-toast { position: fixed; z-index: 70; left: 50%; bottom: 26px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; max-width: min(640px, calc(100vw - 32px)); padding: 12px 12px 12px 18px; font-size: 14px; color: #fff; background: var(--s-ink); border-radius: 14px; box-shadow: 0 16px 40px rgba(24, 30, 21, .25); animation: simple-rise 240ms cubic-bezier(.2, .8, .2, 1); }
 .simple-toast.error { background: #8a2f1c; }
@@ -178,29 +162,9 @@
 .simple-settings { max-width: 1080px; margin: 0 auto; display: grid; gap: 16px; }
 
 @media (max-width: 900px) {
-  .simple-top { grid-template-columns: 1fr auto; padding: 10px 16px; }
-  .simple-shell.is-desktop .simple-top { padding-left: 84px; }
-  .simple-tabs { grid-column: 1 / -1; grid-row: 2; justify-content: space-between; }
-  .simple-shell .simple-tabs button { flex: 1; justify-content: center; padding: 0 10px; }
   .simple-tiles, .simple-report-cards { grid-template-columns: 1fr; }
   .simple-main { padding: 24px 16px 48px; }
 }
-@media (max-width: 560px) {
-  .simple-shell .simple-tabs button span:not(.simple-count) { display: none; }
-  .simple-workspace, .simple-working { display: none; }
-}
-
-/* Settings → Simple mode switch (shown in both layouts) and the way back from a classic page. */
-.settings-layout-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-.settings-layout-row h3 { margin: 0 0 4px; }
-.settings-layout-row p { margin: 0; max-width: 620px; }
-button.layout-switch { position: relative; flex: none; width: 52px; min-height: 30px; height: 30px; padding: 0; background: #d5dbd6; border: 0; border-radius: 999px; transition: background 180ms ease; }
-button.layout-switch:hover:not(:disabled) { background: #c6cdc7; transform: none; box-shadow: none; }
-button.layout-switch.on, button.layout-switch.on:hover:not(:disabled) { background: #a873f2; }
-button.layout-switch span { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); transition: transform 180ms cubic-bezier(.2, .8, .2, 1); }
-button.layout-switch.on span { transform: translateX(22px); }
-button.back-to-simple { position: fixed; z-index: 75; left: 50%; bottom: 22px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 20px; font-size: 13.5px; font-weight: 650; color: #181e15; background: #c190ff; border: 0; border-radius: 999px; box-shadow: 0 14px 34px rgba(24, 30, 21, .22); }
-button.back-to-simple:hover:not(:disabled) { background: #b07cf7; transform: translateX(-50%) translateY(-1px); }
 
 /* Buttons center their content by default; card buttons fill their width so text lines up on the left edge. */
 .simple-shell .simple-tile, .simple-shell .simple-report-cards button { grid-template-columns: minmax(0, 1fr); justify-content: stretch; align-content: start; }
@@ -263,12 +227,11 @@ button.back-to-simple:hover:not(:disabled) { background: #b07cf7; transform: tra
 .simple-settings .settings-block:first-of-type { margin-top: 0; }
 .simple-settings .settings-view h3 { font-size: 16px; letter-spacing: -.2px; }
 .simple-settings .settings-view p, .simple-settings .settings-view small { font-size: 13px; line-height: 1.55; }
-.simple-settings .settings-view button:not(.layout-switch) { min-height: 38px; padding: 0 16px; font-size: 13px; font-weight: 600; color: #fff; background: var(--s-ink); border: 1px solid var(--s-ink); border-radius: 999px; }
-.simple-settings .settings-view button:not(.layout-switch):hover:not(:disabled) { background: #2d362a; transform: none; box-shadow: none; }
+.simple-settings .settings-view button { min-height: 38px; padding: 0 16px; font-size: 13px; font-weight: 600; color: #fff; background: var(--s-ink); border: 1px solid var(--s-ink); border-radius: 999px; }
+.simple-settings .settings-view button:hover:not(:disabled) { background: #2d362a; transform: none; box-shadow: none; }
 .simple-settings .settings-view button.ghost { color: var(--s-ink); background: var(--s-card); border-color: var(--s-line); }
 .simple-settings .settings-view button.ghost:hover:not(:disabled) { background: var(--s-bg); }
 .simple-settings .settings-view :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { border-radius: 12px; }
-.simple-settings .settings-layout { border-color: var(--s-accent); background: linear-gradient(135deg, var(--s-soft) 0%, var(--s-card) 60%); }
 .simple-settings .brand-set { background: var(--s-bg); border-color: var(--s-line); border-radius: 16px; }
 .simple-settings .brand-set-images li { border-color: var(--s-line); border-radius: 12px; }
 .simple-settings .settings-view .brand-image-remove { width: 36px; min-height: 36px; height: 36px; padding: 0; }
@@ -276,22 +239,12 @@ button.back-to-simple:hover:not(:disabled) { background: #b07cf7; transform: tra
 .simple-settings .brand-set-head p, .simple-settings .brand-set-actions > small, .simple-settings .brand-set-images small { font-size: 12px; }
 @media (max-width: 640px) { .simple-pager { grid-template-columns: 1fr; } }
 
-/* Sliding tab pill: the tabs themselves stay transparent and sit above it. */
-.simple-tabs { position: relative; }
-.simple-tab-pill { position: absolute; top: 5px; left: 0; height: 42px; border-radius: 999px; background: var(--s-card); box-shadow: 0 1px 3px rgba(24, 30, 21, .1), 0 0 0 1px var(--s-line); pointer-events: none; }
-.simple-tab-pill.settled { transition: transform 320ms cubic-bezier(.3, 1.25, .5, 1), width 320ms cubic-bezier(.3, 1.25, .5, 1); }
-@media (prefers-reduced-motion: reduce) { .simple-tab-pill.settled { transition: none; } }
-.simple-shell .simple-tabs button { position: relative; z-index: 1; transition: color 160ms ease; }
-.simple-shell .simple-tabs button.active { background: transparent; box-shadow: none; }
-.simple-shell .simple-tabs button:hover:not(.active) { background: transparent; color: var(--s-ink); }
-.simple-tabs { view-transition-name: simple-tabs; }
 /* Reader toolbar: frosted so the page reads cleanly as it scrolls underneath. */
 .simple-reader-bar { margin: 0 -14px; padding: 12px 14px; background: color-mix(in srgb, var(--s-bg) 82%, transparent); backdrop-filter: blur(14px) saturate(1.3); border-radius: 0 0 18px 18px; }
 
 /* Focus: a soft accent ring for keyboard users, matched to each control's shape; never the classic green. */
 .simple-shell :is(button, a, summary, [tabindex="0"]):focus { outline: none; }
 .simple-shell :is(button, a, summary, [tabindex="0"]):focus-visible { outline: 2px solid var(--s-accent-strong); outline-offset: 2px; box-shadow: none; }
-.simple-shell .simple-tabs button:focus-visible { outline-offset: -2px; border-radius: 999px; }
 .simple-shell :is(input, select, textarea):focus { outline: none; }
 .simple-settings .settings-view :is(input, select, textarea):focus { outline: none; border-color: var(--s-accent-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 25%, transparent); }
 
@@ -490,16 +443,40 @@ button.back-to-simple:hover:not(:disabled) { background: #b07cf7; transform: tra
 .spot-ring::after { content: ''; position: absolute; inset: -3px; border: 2px solid rgba(193, 144, 255, .9); border-radius: inherit; animation: spot-pulse 1.6s ease-out infinite; }
 @keyframes spot-pulse { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(1.06); } }
 .spot-dim { position: fixed; inset: 0; background: rgba(18, 22, 17, .4); }
-.simple-shell .spot-card { position: fixed; display: grid; gap: 10px; padding: 12px 12px 12px 16px; color: #181e15; background: #fff; border-radius: 16px; box-shadow: 0 18px 50px rgba(0, 0, 0, .28); pointer-events: auto; transition: top 280ms cubic-bezier(.2, .8, .2, 1), left 280ms cubic-bezier(.2, .8, .2, 1); animation: simple-pop 220ms cubic-bezier(.2, .9, .3, 1.1) both; }
-.simple-shell .spot-card.centered { top: 50%; left: 50%; width: 340px; transform: translate(-50%, -50%); animation: none; }
+:is(.simple-shell, .studio-frame) .spot-card { position: fixed; display: grid; gap: 10px; padding: 12px 12px 12px 16px; color: #181e15; background: #fff; border-radius: 16px; box-shadow: 0 18px 50px rgba(0, 0, 0, .28); pointer-events: auto; transition: top 280ms cubic-bezier(.2, .8, .2, 1), left 280ms cubic-bezier(.2, .8, .2, 1); animation: simple-pop 220ms cubic-bezier(.2, .9, .3, 1.1) both; }
+:is(.simple-shell, .studio-frame) .spot-card.centered { top: 50%; left: 50%; width: 340px; transform: translate(-50%, -50%); animation: none; }
 .spot-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .spot-card-head small { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #8a9088; }
-.simple-shell .spot-card-head button { display: grid; place-items: center; width: 26px; height: 26px; min-height: 26px; padding: 0; color: #62685e; background: #f4f6f5; border: 0; border-radius: 50%; }
+:is(.simple-shell, .studio-frame) .spot-card-head button { display: grid; place-items: center; width: 26px; height: 26px; min-height: 26px; padding: 0; color: #62685e; background: #f4f6f5; border: 0; border-radius: 50%; }
 .spot-card p { margin: 0; font-size: 14px; line-height: 1.5; }
 .spot-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .spot-card-nav { display: flex; gap: 6px; }
-.simple-shell .spot-card .spot-quiet { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; font-size: 12.5px; font-weight: 600; color: #181e15; background: #fff; border: 1px solid #e3e8e4; border-radius: 999px; }
-.simple-shell .spot-card .spot-quiet:hover { background: #f4f6f5; }
-.simple-shell .spot-card .spot-next { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 14px; font-size: 13px; font-weight: 650; color: #181e15; background: #c190ff; border: 0; border-radius: 999px; }
-.simple-shell .spot-card .spot-next:hover { background: #a873f2; }
-@media (prefers-reduced-motion: reduce) { .spot-ring, .simple-shell .spot-card { transition: none; animation: none; } .spot-ring::after { animation: none; } }
+:is(.simple-shell, .studio-frame) .spot-card .spot-quiet { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; font-size: 12.5px; font-weight: 600; color: #181e15; background: #fff; border: 1px solid #e3e8e4; border-radius: 999px; }
+:is(.simple-shell, .studio-frame) .spot-card .spot-quiet:hover { background: #f4f6f5; }
+:is(.simple-shell, .studio-frame) .spot-card .spot-next { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 14px; font-size: 13px; font-weight: 650; color: #181e15; background: #c190ff; border: 0; border-radius: 999px; }
+:is(.simple-shell, .studio-frame) .spot-card .spot-next:hover { background: #a873f2; }
+@media (prefers-reduced-motion: reduce) { .spot-ring, :is(.simple-shell, .studio-frame) .spot-card { transition: none; animation: none; } .spot-ring::after { animation: none; } }
+:is(.simple-shell, .studio-frame) .spot-card-head button:hover:not(:disabled) { color: #181e15; background: #e9ece9; }
+
+/* Reader: who edited the report and which channels used its trend, then where (with links) at the end. */
+.simple-doc-metaline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0 0 10px; font-size: 13px; font-weight: 600; line-height: 1.5; color: var(--s-muted); }
+.simple-doc-metaline > span { display: inline-flex; align-items: center; gap: 6px; }
+.simple-doc-metaline svg { flex: none; color: #5a2fa0; }
+.simple-uses { display: grid; gap: 10px; padding: 20px 22px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 20px; }
+.simple-shell .simple-uses h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.3px; }
+.simple-uses ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.simple-uses li { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 4px 14px; padding: 10px 0; border-top: 1px solid var(--s-line); font-size: 14px; }
+.simple-uses li:first-child { border-top: 0; }
+.simple-uses-channel { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; color: var(--s-ink); }
+.simple-uses-channel svg { flex: none; color: var(--s-mint-ink); }
+.simple-uses a { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; color: var(--s-ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--s-accent) 70%, transparent); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.simple-uses a:hover { color: #5a2fa0; }
+.simple-uses-none { color: var(--s-muted); }
+.simple-uses small { font-size: 12.5px; color: var(--s-muted); white-space: nowrap; }
+@media (max-width: 640px) { .simple-uses li { grid-template-columns: 1fr; } .simple-uses small { white-space: normal; } }
+/* While editing, the editor's own sticky bar replaces the reader bar. */
+.simple-reader.is-editing { max-width: 920px; }
+.simple-kit-viewer.is-editing .simple-kit-viewer-bar small { color: #5a2fa0; }
+
+/* Setup that only an admin can finish: the same banner, as a note rather than a button. */
+.simple-setup.is-note { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 64px; padding: 14px 20px; color: var(--s-ink); background: var(--s-warn); border: 1px solid #f1dca8; border-radius: 16px; }

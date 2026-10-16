@@ -1,0 +1,226 @@
+'use strict';
+// The access gate's logic (docs/roles-and-access.md). index.js wraps every IPC/RPC handler in one synchronous gate that
+// calls, in order: currentViewer() → check() (may this person call this method, and the payload rebuilt to what a channel
+// owner may send) → the handler → after() (activity log, then what a channel owner gets back) or rewriteError(). project()
+// is the state each person receives, for the `state` call, the Mac app's push and the browser's live updates.
+// CommonJS in the real Node context, so it is unit-testable without the vm harnesses index.js runs in.
+const os = require('os');
+const roles = require('./roles');
+const kit = require('../shared/asset-kit');
+const content = require('../shared/content-studio');
+const { kitChannelIds, publicKitRun, channelOf } = require('./channel-view');
+
+const SYSTEM = Object.freeze({ id: 'system', name: 'Automatic' });
+const list = (value) => (Array.isArray(value) ? value : []);
+const text = (value) => (typeof value === 'string' ? value : '');
+const record = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+const time = (value) => { const ms = Date.parse(value || ''); return Number.isFinite(ms) ? ms : 0; };
+const kindOf = (deliverableId) => content.CONTENT_DELIVERABLES.find((entry) => entry.id === deliverableId)?.kind || 'text';
+const fail = (message, status, code) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
+// Errors that send people to Settings, keys or connections they can't open.
+const SENDS_TO_SETTINGS = /\bsettings\b|api[\s_-]?keys?|\bkeys?\b|\btokens?\b|\bsign(?:ed)?[\s-]?in\b|\blog(?:ged)?[\s-]?in\b|\bauth login\b|\bconnect(?:ed|ion)?\b|\bcredentials?\b|\bunauthori[sz]ed\b/i;
+// Errors from (or about) the AI and data providers: they name models, the account's credit and billing, and admin-only
+// program settings, none of which an editor can change and a channel owner must never see (D4).
+const FROM_PROVIDER = /\b(?:claude|anthropic|codex|openai|apify)\b|\bmodels?\b|\bcredits?\b|\bbill(?:ing|ed)\b|\bapi error\b|\boverloaded\b|\brate[\s-]?limit/i;
+// Methods whose handler reports what happened under `activity`, for the log; after() removes it from the result.
+const REPORTED = new Set(['saveMember', 'removeMember', 'createSignInLink', 'setTrendAdoption']);
+const osName = () => { try { return os.userInfo().username || 'You'; } catch (_) { return 'You'; } };
+
+function createAccess({ teamStore, roles: policy = roles, workspace, web = false, localName = '', currentCall = () => null } = {}) {
+  if (!teamStore || !workspace) throw new Error('The access gate needs the team store and the content workspace.');
+  const IDENTITY = new Set(policy.IDENTITY_METHODS); const READS = new Set(policy.READ_METHODS);
+  // The Mac app has one person, always an admin; View as lives in this process's memory and ends when the app quits.
+  const desktopIdentity = Object.freeze({ id: 'local', name: localName || osName(), email: '', role: 'admin', channelId: null, via: 'desktop', disabled: false, memberSince: null });
+  const desktopSession = { viewAs: null };
+
+  // ---------- Who is calling ----------
+  // On the web the browser request carries the identity and its live session (studio-server sets both on every call);
+  // a call without one is refused, never treated as an admin.
+  const identityForCall = () => (web ? currentCall()?.user || null : desktopIdentity);
+  const sessionForCall = () => (web ? currentCall()?.session || null : desktopSession);
+  function viewerFor(identity, session) {
+    return policy.buildViewer({ identity, session, prefs: identity?.id ? teamStore.prefsFor(identity.id) : null, editionId: workspace.activeEditionId(), web, admins: teamStore.admins() });
+  }
+  const currentViewer = () => viewerFor(identityForCall(), sessionForCall());
+  // Who content-workspace credits for a run, decision or edit: read once at a public method's entry.
+  function actorForCall() { const identity = identityForCall(); return identity?.id ? { id: identity.id, name: identity.name || '' } : SYSTEM; }
+
+  // ---------- check ----------
+  function deny(error, viewer, method) {
+    try { teamStore.logEvent({ event: 'denied', identityId: viewer?.id || '', role: viewer?.role ?? null, method, reason: error.code || '' }); } catch (_) { /* Logging never changes the answer. */ }
+    return error;
+  }
+  function check(method, payload, viewer) {
+    if (web && !viewer?.id) throw deny(fail('Sign in to use the studio.', 403, 'forbidden'), viewer, method);
+    const identityMethod = IDENTITY.has(method);
+    const role = identityMethod ? viewer.realRole : viewer.role;
+    // A preview is read-only. Checked first so an admin previewing is told why, not "Only an admin can do that."
+    if (viewer.preview && !identityMethod && !READS.has(method)) throw deny(policy.refusal('preview', { who: policy.previewWho(viewer) }), viewer, method);
+    if (!policy.canCall(role, method)) {
+      if (role == null) throw deny(fail(viewer.disabled ? `${policy.COPY.paused} Ask ${viewer.askAdmin || 'an admin'} if you need it back.` : 'You’re not in this studio yet. Ask a studio admin to add you.', 403, 'forbidden'), viewer, method);
+      throw deny(policy.refusal(policy.isAdminOnly(method) ? 'adminOnly' : 'forbidden'), viewer, method);
+    }
+    // Scopes rebuild the payload from an allowlist for anyone below admin. Identity methods follow the real role, so an
+    // admin previewing a channel owner still changes only their own preferences.
+    const scope = SCOPES[method]?.[role];
+    if (!scope) return payload;
+    try { return scope(record(payload), viewer); } catch (error) { if (error.status === 403) deny(error, viewer, method); throw error; }
+  }
+
+  // Channel owners: what they may send. Every scope builds a new payload, so nothing else rides along (no workspaceId,
+  // budget, picture count or another channel's files).
+  const edition = () => workspace.activeEditionId();
+  function channelDeliverables(viewer) {
+    const folder = kit.kitFolders(edition()).find((entry) => entry.id === viewer.channelId);
+    const offered = new Set(kit.kitDeliverableIds(edition())); const pictures = workspace.picturesReady();
+    return list(folder?.deliverableIds).filter((id) => offered.has(id) && (pictures || kindOf(id) !== 'image'));
+  }
+  function trendBrief(payload) {
+    const source = record(payload.source);
+    const assetId = source.kind === 'report' ? text(source.assetId) || text(source.id) : '';
+    const found = assetId ? workspace.findAsset(assetId) : null;
+    if (!found || !workspace.isTrendReport(found.asset)) throw policy.refusal('outOfScope');
+    return assetId;
+  }
+  function channelKit(create) {
+    return (payload, viewer) => {
+      const assetId = trendBrief(payload); const deliverableIds = channelDeliverables(viewer);
+      if (!deliverableIds.length) throw fail('Nothing for your channel can be made from this trend right now.', 409);
+      // No maxBudgetUsd: the server uses the plan's own cap.
+      return { source: { kind: 'report', assetId }, deliverableIds, ...(create ? { onlyIfIdle: true } : {}) };
+    };
+  }
+  function channelFile(payload, viewer) {
+    const assetId = text(payload.assetId); const found = workspace.findAsset(assetId);
+    if (!found) throw fail('That file isn’t in this workspace anymore.', 404);
+    const ownFile = Boolean(found.run?.kit) && channelOf(found.asset.deliverableId, edition()) === viewer.channelId;
+    if (!ownFile && !workspace.isTrendReport(found.asset)) throw policy.refusal('outOfScope');
+    return { assetId };
+  }
+  function channelRun(payload, viewer) {
+    const run = workspace.findRun(text(payload.runId));
+    if (!run?.kit) throw fail('That set isn’t in this workspace anymore.', 404);
+    if (!kitChannelIds(run, edition()).includes(viewer.channelId)) throw policy.refusal('outOfScope');
+    return run;
+  }
+  // Stop and Finish the rest act on a whole set, so a set made with other channels is left to an editor.
+  function ownSet(retry) {
+    return (payload, viewer) => {
+      const run = channelRun(payload, viewer);
+      if (kitChannelIds(run, edition()).length !== 1) throw policy.refusal('sharedSet');
+      if (!retry) return { runId: run.id };
+      // Finish the rest gets room for what's left, as Simple's Finish button gives it: about $2 per unfinished file.
+      const unfinished = list(run.jobs).filter((job) => job.status !== 'succeeded').length;
+      return { runId: run.id, maxBudgetUsd: Math.min(1000, Math.max(Number(run.maxBudgetUsd) || 0, Math.ceil((Number(run.reservedUsd) || 0) + unfinished * 2))) };
+    };
+  }
+  const SCOPES = {
+    planAssetKit: { channel: channelKit(false) },
+    createAssetKit: { channel: channelKit(true) },
+    readStudioAsset: { channel: channelFile },
+    openStudioAsset: { channel: channelFile },
+    saveAssetKitFolder: { channel: (payload, viewer) => ({ runId: channelRun(payload, viewer).id }) },
+    cancelStudioRun: { channel: ownSet(false) },
+    retryStudioRun: { channel: ownSet(true) },
+    // Their own channel only; link and note left out keep the saved ones.
+    setTrendAdoption: { channel: (payload, viewer) => ({ themeId: text(payload.themeId), channelId: viewer.channelId, status: payload.status, ...(payload.link !== undefined ? { link: payload.link } : {}), ...(payload.note !== undefined ? { note: payload.note } : {}) }) },
+    setViewPrefs: { channel: (payload) => ({ ...(payload.uiMode !== undefined ? { uiMode: 'simple' } : {}), ...(payload.welcomedAt !== undefined ? { welcomedAt: payload.welcomedAt } : {}) }) },
+    // On the web a review is signed by the person who saved it.
+    saveResearchReview: { editor: (payload, viewer) => (web ? { ...payload, reviewer: viewer.name } : payload) },
+  };
+
+  // ---------- after ----------
+  const activeWorkspaceId = () => workspace.activeWorkspace()?.id || '';
+  const themeName = (run, themeId) => [...list(run?.discoveredThemes), ...list(run?.themes)].find((theme) => theme?.id === themeId)?.name || '';
+  const count = (decisions, value) => Object.values(record(decisions)).filter((decision) => decision === value).length;
+  // What the activity log records for each kind of change, with the fields the analytics sentences read.
+  const ACTIVITY = {
+    decideResearchTheme: (result, payload) => ['trend-decision', result?.workspaceId, { runId: result?.id, themeId: payload?.themeId, trendName: themeName(result, payload?.themeId), decision: payload?.decision }],
+    approveResearchThemes: (result) => ['trend-decision', result?.workspaceId, { runId: result?.id, approved: count(result?.decisions, 'approved'), passed: count(result?.decisions, 'passed') }],
+    createAssetKit: (result) => ['kit-created', result?.workspaceId, { runId: result?.id, themeId: result?.kit?.themeId || null, trendName: result?.kit?.sourceTitle || result?.title || '', channels: kitChannelIds(result, edition()), estimateUsd: result?.kit?.estimateUsd ?? null }],
+    editStudioAsset: (result) => ['report-edited', result?.asset?.workspaceId, { assetId: result?.asset?.id, title: result?.asset?.title || '' }],
+    restoreStudioAsset: (result) => ['report-restored', result?.asset?.workspaceId, { assetId: result?.asset?.id, title: result?.asset?.title || '' }],
+    startResearchRun: (result) => ['research-started', result?.workspaceId, { runId: result?.id, programId: result?.programId, programName: result?.title || '' }],
+    saveMember: (result) => ['member-changed', '', result?.activity],
+    removeMember: (result) => ['member-changed', '', result?.activity],
+    createSignInLink: (result) => ['link-issued', '', result?.activity],
+    setTrendAdoption: (result) => ['adoption', activeWorkspaceId(), result?.activity],
+  };
+  function logActivity(method, result, viewer, payload) {
+    const entry = ACTIVITY[method]; if (!entry) return;
+    try {
+      const [kind, workspaceId, detail] = entry(result, payload);
+      if (detail) teamStore.log(kind, typeof workspaceId === 'string' ? workspaceId : activeWorkspaceId(), detail, { id: viewer?.id || SYSTEM.id, name: viewer?.name || SYSTEM.name });
+    } catch (error) { try { teamStore.logEvent({ event: 'activity-not-logged', method, code: error.code || '' }); } catch (_) { /* never fail the action over its log */ } }
+  }
+  function after(method, result, viewer, payload) {
+    logActivity(method, result, viewer, payload);
+    let out = result;
+    if (REPORTED.has(method) && out && typeof out === 'object' && 'activity' in out) { const { activity: _activity, ...rest } = out; out = rest; }
+    const project = viewer?.role === 'channel' ? RESULTS[method] : null;
+    return project ? project(out, viewer) : out;
+  }
+
+  // Channel owners: what comes back. No dollars, models, receipts, evidence or other channels.
+  const kitRun = (run, viewer) => (run && typeof run === 'object' && run.kit ? publicKitRun(run, viewer.channelId, edition()) : run);
+  function channelPlanResult(plan, viewer) {
+    const value = record(plan);
+    const folder = list(value.folders).find((entry) => entry.id === viewer.channelId) || { id: viewer.channelId, name: viewer.channelName || '', items: [] };
+    const earlierSets = list(value.sourceKey ? workspace.kitRunsFor(value.sourceKey) : []).filter((run) => kitChannelIds(run, edition()).includes(viewer.channelId))
+      .sort((a, b) => time(b.createdAt) - time(a.createdAt)).map((run) => ({ runId: run.id, createdAt: run.createdAt || '', status: publicKitRun(run, viewer.channelId, edition()).status }));
+    return {
+      title: text(value.title), folder: { id: folder.id, name: folder.name, items: list(folder.items).filter((item) => item.selected !== false && item.available !== false).map((item) => ({ id: item.id, label: item.label, kind: item.kind || 'text', pictures: Number(item.pictures) || 0 })) },
+      minutes: Number(value.minutes) || 0, imagesReady: Boolean(value.imagesReady), edited: value.edited?.at ? { at: value.edited.at, byName: value.edited.byName || '' } : null, earlierSets,
+    };
+  }
+  function channelAssetResult(result) {
+    const value = record(result); const asset = record(value.asset);
+    const shaped = { id: asset.id, title: asset.title || '', deliverableId: asset.deliverableId, kind: asset.kind || 'text', format: asset.format || '', createdAt: asset.createdAt || '', edited: asset.edited?.at ? { at: asset.edited.at, byName: asset.edited.by?.name || '' } : null };
+    return typeof value.imageDataUrl === 'string' ? { asset: shaped, imageDataUrl: value.imageDataUrl } : { asset: shaped, markdown: text(value.markdown) };
+  }
+  const RESULTS = {
+    planAssetKit: channelPlanResult,
+    createAssetKit: kitRun,
+    cancelStudioRun: kitRun,
+    retryStudioRun: kitRun,
+    readStudioAsset: channelAssetResult,
+    openStudioAsset: () => ({ opened: true }),
+    saveAssetKitFolder: (result) => { const value = record(result); return value.cancelled ? { cancelled: true } : { folderName: text(value.folderName), assetCount: Number(value.assetCount) || 0, ...(value.savedTo ? { savedTo: value.savedTo } : {}) }; },
+  };
+
+  // ---------- rewriteError ----------
+  // Editors and channel owners never get sent to Settings, keys or connections they can't open, and never read a provider's
+  // own error (model ids, credit, billing): those messages become one plain line naming who to ask. A channel owner also
+  // can't raise a budget. The status stays.
+  function rewriteError(error, viewer) {
+    const role = viewer?.role;
+    if (!error || typeof error !== 'object' || !['editor', 'channel'].includes(role)) return error;
+    if (typeof error.code === 'string' && Object.prototype.hasOwnProperty.call(policy.COPY, error.code)) return error; // already written for people
+    const message = String(error.message || '');
+    let key = null;
+    if (role === 'channel' && /\bbudget\b/i.test(message)) key = 'askBudget';
+    else if (SENDS_TO_SETTINGS.test(message) || FROM_PROVIDER.test(message)) key = /\bpictures?\b|\bimages?\b/i.test(message) ? 'askPictures' : /\bgoogle\b|\bdrive\b/i.test(message) ? 'askDrive' : 'askConnection';
+    if (!key) return error;
+    let admin = 'an admin'; try { admin = policy.askWho(teamStore.admins()); } catch (_) { /* fall back to "an admin" */ }
+    return Object.assign(new Error(policy.format(key, { admin })), { code: key, ...(error.status ? { status: error.status } : {}) });
+  }
+
+  // ---------- project ----------
+  // One projection per state object and kind of viewer: a broadcast to several tabs of the same person, or several
+  // people with the same view, is built once.
+  const projections = new WeakMap();
+  function project(base, viewer) {
+    if (!base || typeof base !== 'object') return base;
+    const key = policy.viewKey(viewer);
+    let views = projections.get(base); if (!views) { views = new Map(); projections.set(base, views); }
+    if (!views.has(key)) {
+      const workspaceId = base.contentStudio?.activeWorkspaceId || activeWorkspaceId();
+      views.set(key, policy.projectState(base, viewer, { adoptions: teamStore.adoptionsFor(workspaceId), admins: teamStore.admins(), memberCount: teamStore.listMembers().length, editionId: workspace.workspaceById(workspaceId)?.editionId || edition() }));
+    }
+    return views.get(key);
+  }
+
+  return { identityForCall, sessionForCall, viewerFor, currentViewer, actorForCall, check, after, rewriteError, project };
+}
+
+module.exports = { createAccess, SYSTEM };

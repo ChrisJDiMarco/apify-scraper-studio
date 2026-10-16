@@ -20,10 +20,11 @@ p, small { text-wrap: pretty; }
 button:active:not(:disabled) { transform: translateY(1px); transition-duration: 40ms; }
 
 /* Navigation: one pill slides under the active item; the page area rises in via a view transition. */
-.sidebar nav[aria-label="Primary"] { position: relative; }
+/* The Advanced layout's Primary nav and the frame's Main and Admin navs share it (studio-frame.css styles the pill). */
+.sidebar nav:is([aria-label="Primary"], [aria-label="Main"], [aria-label="Admin"]) { position: relative; }
 .sidebar nav button { position: relative; z-index: 1; }
-.app-shell[data-edition] .sidebar nav[aria-label="Primary"] button.active,
-.app-shell[data-edition] .sidebar nav[aria-label="Primary"] button.active:hover:not(:disabled) { background: transparent; }
+.app-shell[data-edition] .sidebar nav:is([aria-label="Primary"], [aria-label="Main"], [aria-label="Admin"]):has(> :is(.nav-indicator, .studio-nav-indicator)) button.active,
+.app-shell[data-edition] .sidebar nav:is([aria-label="Primary"], [aria-label="Main"], [aria-label="Admin"]):has(> :is(.nav-indicator, .studio-nav-indicator)) button.active:hover:not(:disabled) { background: transparent; }
 .nav-indicator { position: absolute; top: 0; left: 0; z-index: 0; border-radius: 7px; background: var(--nav-indicator); pointer-events: none; }
 .app-shell[data-edition="semrush"] .nav-indicator { border-radius: 999px; }
 .nav-indicator.settled { transition: transform var(--dur-settle) var(--spring-settle), width var(--dur-settle) var(--spring-settle), height var(--dur-settle) var(--spring-settle); }
@@ -92,7 +93,7 @@ summary > svg:last-child { transition: transform 200ms var(--spring-settle); }
 @media (prefers-reduced-motion: reduce) {
   /* Movement becomes a plain fade; the scroll fade and spinners stay because they carry information. */
   .more-nav > button:not(.more-toggle), .job-pill, .feedback, .command-palette { animation-name: craft-fade-in; animation-delay: 0ms; }
-  .nav-indicator.settled { transition: none; }
+  .nav-indicator.settled, .studio-nav-indicator.settled { transition: none; }
   details:not(.data-export-menu)::details-content, summary > svg:last-child { transition: none; }
   .local-dot[data-live]::after { display: none; }
   button:active:not(:disabled) { transform: none; }

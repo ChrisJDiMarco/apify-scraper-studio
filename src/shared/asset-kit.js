@@ -6,17 +6,18 @@ const content = require('./content-studio');
 const research = require('./research-program');
 
 // n8n made one "Golden Thread — <trend> (<date>)" folder per run with these channel folders, in this order.
+// The ids are the stable channel ids a channel owner is assigned to; the short names label narrow columns.
 const KIT_FOLDERS = Object.freeze([
-  { id: 'blog', semrush: 'Semrush Blog', general: 'Blog', deliverables: ['blogshort', 'bloglong'] },
-  { id: 'newsletter', semrush: 'Semrush Newsletter', general: 'Newsletter', deliverables: ['newsletter'] },
-  { id: 'paidmedia', semrush: 'Semrush Paid Media', general: 'Paid media', deliverables: ['ads', 'landingpage'] },
-  { id: 'pr', semrush: 'Semrush PR', general: 'PR', deliverables: ['pr'] },
-  { id: 'social', semrush: 'Semrush Social Team', general: 'Social', deliverables: ['social', 'brand-image'] },
-  { id: 'affiliate', semrush: 'Affiliate Program', general: 'Partners', deliverables: ['affiliate'] },
-  { id: 'enterprise', semrush: 'Enterprise Sales Enablement', general: 'Sales enablement', deliverables: ['enterprise'] },
-  { id: 'backlinko', semrush: 'Backlinko', general: 'Video', deliverables: ['backlinko'] },
-  { id: 'explodingtopics', semrush: 'Exploding Topics', general: 'Trend editorial', deliverables: ['explodingtopics'] },
-  { id: 'searchengineland', semrush: 'Search Engine Land / MarTech', general: 'News editorial', deliverables: ['sel', 'sel-image', 'sel-social-image'] },
+  { id: 'blog', semrush: 'Semrush Blog', general: 'Blog', semrushShort: 'Blog', generalShort: 'Blog', deliverables: ['blogshort', 'bloglong'] },
+  { id: 'newsletter', semrush: 'Semrush Newsletter', general: 'Newsletter', semrushShort: 'Newsletter', generalShort: 'Newsletter', deliverables: ['newsletter'] },
+  { id: 'paidmedia', semrush: 'Semrush Paid Media', general: 'Paid media', semrushShort: 'Paid media', generalShort: 'Paid media', deliverables: ['ads', 'landingpage'] },
+  { id: 'pr', semrush: 'Semrush PR', general: 'PR', semrushShort: 'PR', generalShort: 'PR', deliverables: ['pr'] },
+  { id: 'social', semrush: 'Semrush Social Team', general: 'Social', semrushShort: 'Social', generalShort: 'Social', deliverables: ['social', 'brand-image'] },
+  { id: 'affiliate', semrush: 'Affiliate Program', general: 'Partners', semrushShort: 'Affiliate', generalShort: 'Partners', deliverables: ['affiliate'] },
+  { id: 'enterprise', semrush: 'Enterprise Sales Enablement', general: 'Sales enablement', semrushShort: 'Enterprise', generalShort: 'Sales', deliverables: ['enterprise'] },
+  { id: 'backlinko', semrush: 'Backlinko', general: 'Video', semrushShort: 'Backlinko', generalShort: 'Video', deliverables: ['backlinko'] },
+  { id: 'explodingtopics', semrush: 'Exploding Topics', general: 'Trend editorial', semrushShort: 'Exploding Topics', generalShort: 'Trend editorial', deliverables: ['explodingtopics'] },
+  { id: 'searchengineland', semrush: 'Search Engine Land / MarTech', general: 'News editorial', semrushShort: 'SEL', generalShort: 'News', deliverables: ['sel', 'sel-image', 'sel-social-image'] },
 ].map((folder) => Object.freeze(folder)));
 // n8n's file names: "<label> — <trend> (<date>)", pictures "<label> — <trend> — Variation N (<date>)".
 const SEMRUSH_FILE_LABELS = Object.freeze({
@@ -40,13 +41,13 @@ const offered = (id, editionId) => { const descriptor = descriptorOf(id); return
 const round = (value) => Math.round(value * 100) / 100;
 
 function kitFolders(editionId = 'general') {
-  return KIT_FOLDERS.map((folder) => ({ id: folder.id, name: editionId === 'semrush' ? folder.semrush : folder.general, deliverableIds: folder.deliverables.filter((id) => offered(id, editionId)) })).filter((folder) => folder.deliverableIds.length);
+  return KIT_FOLDERS.map((folder) => ({ id: folder.id, name: editionId === 'semrush' ? folder.semrush : folder.general, short: editionId === 'semrush' ? folder.semrushShort : folder.generalShort, deliverableIds: folder.deliverables.filter((id) => offered(id, editionId)) })).filter((folder) => folder.deliverableIds.length);
 }
 function kitDeliverableIds(editionId = 'general', { images = true } = {}) {
   return kitFolders(editionId).flatMap((folder) => folder.deliverableIds).filter((id) => images || descriptorOf(id).kind !== 'image');
 }
 function kitFolderFor(deliverableId, editionId = 'general') {
-  return kitFolders(editionId).find((folder) => folder.deliverableIds.includes(deliverableId)) || { id: 'other', name: 'Other', deliverableIds: [] };
+  return kitFolders(editionId).find((folder) => folder.deliverableIds.includes(deliverableId)) || { id: 'other', name: 'Other', short: 'Other', deliverableIds: [] };
 }
 function kitFileLabel(deliverableId, editionId = 'general') {
   if (editionId === 'semrush' && SEMRUSH_FILE_LABELS[deliverableId]) return SEMRUSH_FILE_LABELS[deliverableId];

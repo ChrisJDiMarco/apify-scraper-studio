@@ -411,7 +411,8 @@ describe('Ask AI', () => {
     expect(call.stdin).toContain('"apifyToken": true');
     expect(call.stdin).toContain('User: Hi there\n\nAssistant: Hello!');
     expect(call.stdin).toContain('Question: How do I start a run?');
-    expect(call.stdin).toContain('SPOTS (places in Simple mode you can show');
+    expect(call.stdin).toContain('SPOTS (places in the studio you can show');
+    expect(call.stdin).toContain('The studio has a left sidebar for both layouts');
     expect(call.stdin).toContain('"layout": "simple"');
     for (const secret of ['fixture-apify-secret', 'fixture-sheets-secret', 'Ignore the rules']) expect(call.stdin).not.toContain(secret);
   });
@@ -443,6 +444,24 @@ describe('Ask AI', () => {
     expect((await off.invoke('help:ask', { question: 'Make a hero image' })).image).toBeNull();
     await expect(off.invoke('help:image', { prompt: 'A chart', size: '1536x1024' })).rejects.toThrow('Settings → Image generation');
     await expect(off.invoke('help:save-image', { id: '../../secret' })).rejects.toThrow('no longer available');
+  });
+  it('keeps an editor’s answers away from places only admins can open', () => {
+    const help = mainRequire('./help-assistant');
+    const editor = help.helpPrompt({ question: 'Can I make pictures?', context: { layout: 'simple', role: 'editor' }, guide: '' });
+    expect(editor).toContain('This person is an Editor: they can\'t change settings, keys, people or research programs.');
+    expect(editor).toContain('Pictures are off. Ask an admin to turn them on.');
+    expect(editor).not.toContain('Settings → Image generation');
+    expect(editor).not.toMatch(/^(settings\.[\w-]+|nav\.(settings|people|analytics|workspace)):/m);
+    expect(editor).not.toContain('knowledge = Brand knowledge'); expect(editor).toContain('open-tab: target = home, reports, trends, assets or ask.');
+    const admin = help.helpPrompt({ question: 'Can I make pictures?', context: { layout: 'classic' }, guide: '' });
+    expect(admin).toContain('Settings → Image generation'); expect(admin).toMatch(/^nav\.settings:/m); expect(admin).toContain('the Advanced layout');
+    expect(help.helpSchema(undefined, { role: 'editor' }).properties.pages.items.properties.page.enum).not.toContain('settings');
+    const raw = { answer: 'Ask an admin.', pages: [{ page: 'knowledge', label: 'Brand' }, { page: 'settings', label: 'Settings' }, { page: 'research', label: 'Research' }], actions: [{ kind: 'open-tab', label: 'Settings', target: 'settings' }, { kind: 'open-tab', label: 'Trends', target: 'trends' }], show: { autoStart: true, steps: [{ target: 'nav.settings', item: '', say: 'Settings live here.' }, { target: 'settings.images', item: '', say: 'Turn pictures on.' }, { target: 'nav.people', item: '', say: 'People.' }, { target: 'nav.trends', item: '', say: 'Trends are here.' }] } };
+    const reply = help.cleanReply(raw, { role: 'editor' });
+    expect(reply.pages).toEqual([{ page: 'research', label: 'Research' }]);
+    expect(reply.actions).toEqual([{ kind: 'open-tab', label: 'Trends', target: 'trends' }]);
+    expect(reply.show.steps.map((step) => step.target)).toEqual(['nav.trends']);
+    expect(help.cleanReply(raw, { role: 'admin' }).show.steps).toHaveLength(4);
   });
   it('turns away empty or oversized questions without calling Claude', async () => {
     const app = mainHarness();

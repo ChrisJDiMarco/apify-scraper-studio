@@ -1,0 +1,146 @@
+/* Channel owner: Trends and My assets. Roomy single-column cards; what to read on the left, what to do on the right.
+   Tokens and the shared kit (buttons, chips, dialogs, toasts) come from studio-frame.css. */
+.channel-page { max-width: 980px; }
+.channel-list { display: grid; gap: 30px; }
+.channel-group, .channel-earlier { display: grid; gap: 12px; }
+.channel-cards { display: grid; gap: 14px; }
+.channel-cards[hidden] { display: none; }
+
+/* Welcome: inline, three steps that match the card's buttons. */
+.channel-welcome { display: flex; align-items: center; gap: 24px; padding: 24px 26px; background: linear-gradient(135deg, var(--s-soft) 0%, var(--s-card) 75%); border: 1px solid color-mix(in srgb, var(--s-accent) 45%, var(--s-line)); border-radius: var(--s-radius); }
+.channel-welcome-copy { flex: 1; display: grid; gap: 14px; min-width: 0; }
+.studio-frame .channel-welcome h2 { margin: 0; font-size: 19px; font-weight: 650; line-height: 1.35; letter-spacing: -.3px; color: var(--s-ink); }
+.channel-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.channel-steps li { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.45; color: var(--s-ink); }
+.channel-steps li > span { display: grid; place-items: center; flex: none; width: 24px; height: 24px; font-size: 12.5px; font-weight: 700; color: var(--s-ink); background: var(--s-accent); border-radius: 50%; }
+
+/* A trend card. */
+.channel-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, 300px); gap: 24px; padding: 22px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius); box-shadow: var(--s-shadow); animation: studio-rise 220ms ease backwards; }
+.channel-card.is-new { border-color: color-mix(in srgb, var(--s-accent) 55%, var(--s-line)); }
+.channel-card-main { display: grid; align-content: start; justify-items: start; gap: 10px; min-width: 0; padding: 4px 0 0 4px; }
+.channel-card-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.studio-frame .channel-card h3 { margin: 0; font-size: 19px; font-weight: 650; line-height: 1.3; letter-spacing: -.3px; color: var(--s-ink); overflow-wrap: anywhere; }
+.studio-frame .channel-card-summary { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--s-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.channel-edited { font-weight: 500; color: var(--s-muted); }
+.channel-card-side { display: grid; align-content: start; gap: 14px; padding: 16px; background: var(--s-bg); border-radius: var(--s-radius-row); }
+
+.channel-card.is-loading { animation: none; }
+.channel-loading-side { min-height: 150px; border-radius: var(--s-radius-row); }
+
+/* Make slot: one primary action at a time. */
+.channel-make { display: grid; gap: 8px; }
+.channel-make .studio-link { justify-self: center; }
+.studio-frame .channel-make-files { margin: 0; font-size: 12.5px; line-height: 1.45; text-align: center; color: var(--s-muted); }
+.studio-frame .channel-make-status { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 13.5px; font-weight: 600; color: var(--s-ink); }
+.channel-make-status svg { flex: none; color: var(--s-soft-ink); }
+.channel-make-status.done svg { color: var(--s-mint-ink); }
+.channel-make-status.problem svg { color: #b4471f; }
+.channel-make.is-live .studio-quiet { justify-self: start; }
+.studio-frame .channel-note { margin: 0; padding: 9px 12px; font-size: 12.5px; line-height: 1.45; color: var(--s-warn-ink); background: var(--s-warn); border-radius: 10px; }
+.studio-frame .channel-note.quiet { padding: 0; color: var(--s-muted); background: transparent; }
+.channel-progress { height: 8px; overflow: hidden; background: var(--s-card); border-radius: 999px; box-shadow: inset 0 0 0 1px var(--s-line); }
+.channel-progress span { display: block; height: 100%; background: var(--s-accent-strong); border-radius: inherit; transition: width 500ms ease; }
+
+/* Answer: two big buttons, then a "Using" line with the link once it's live. */
+.channel-answer { display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--s-line); }
+.channel-answer-label { font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted); }
+.channel-answer-buttons { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.studio-frame .channel-answer-buttons button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 14px; font-size: 14px; font-weight: 600; line-height: 1.2; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-control); box-shadow: none; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
+.studio-frame .channel-answer-buttons button:hover:not(:disabled) { color: var(--s-ink); background: var(--s-card); border-color: var(--s-line-strong); }
+.studio-frame .channel-answer-buttons .channel-yes[aria-pressed="true"], .studio-frame .channel-answer-buttons .channel-yes[aria-pressed="true"]:hover:not(:disabled) { color: var(--s-mint-ink); background: var(--s-mint); border-color: color-mix(in srgb, var(--s-mint-ink) 35%, var(--s-mint)); }
+.studio-frame .channel-answer-buttons .channel-no { color: var(--s-muted); }
+.studio-frame .channel-answer-buttons .channel-no[aria-pressed="true"], .studio-frame .channel-answer-buttons .channel-no[aria-pressed="true"]:hover:not(:disabled) { color: var(--s-ink); background: var(--s-bg); border-color: var(--s-line-strong); box-shadow: inset 0 0 0 1px var(--s-line-strong); }
+.studio-frame .channel-answer-buttons button:disabled { opacity: .55; cursor: not-allowed; }
+.channel-answer > .studio-link { justify-self: start; }
+.channel-answer-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.channel-answer-line .studio-menu-wrap { margin-left: auto; }
+.studio-frame .channel-link-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 30px; padding: 0 10px; font-size: 13px; font-weight: 600; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; box-shadow: none; }
+.studio-frame .channel-link-chip:hover:not(:disabled) { color: var(--s-ink); background: var(--s-card); border-color: var(--s-line-strong); text-decoration: underline; text-underline-offset: 3px; }
+.channel-link-chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.channel-link-chip svg { flex: none; color: var(--s-muted); }
+.studio-frame .channel-answered-by { margin: 0; font-size: 12.5px; color: var(--s-muted); }
+.channel-link-form { display: grid; gap: 8px; padding: 12px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-control); }
+.channel-link-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* The Earlier group: collapsed until asked for. */
+.studio-frame .channel-earlier-head { margin: 0; font-size: 13px; line-height: 1; }
+.studio-frame .channel-disclosure { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px 0 8px; font-size: 13px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--s-muted); background: transparent; border: 0; border-radius: 999px; box-shadow: none; }
+.studio-frame .channel-disclosure:hover:not(:disabled) { color: var(--s-ink); background: rgba(24, 30, 21, .05); }
+.channel-disclosure svg { transition: transform 200ms var(--s-ease); }
+.channel-disclosure svg.open { transform: rotate(180deg); }
+.studio-frame .channel-earlier-note { margin: -6px 0 0 12px; font-size: 13.5px; color: var(--s-muted); }
+
+/* The generate sheet. */
+.channel-plan { display: grid; gap: 10px; }
+.studio-frame .channel-plan h3 { margin: 0; font-size: 13px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--s-muted); }
+.channel-plan ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.channel-plan li { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--s-bg); border-radius: 14px; }
+.channel-plan li > span:last-child { display: grid; gap: 1px; min-width: 0; }
+.channel-plan strong { font-size: 14.5px; font-weight: 600; }
+.studio-frame .channel-plan small { font-size: 12.5px; color: var(--s-muted); }
+.channel-plan-icon { display: grid; place-items: center; flex: none; width: 34px; height: 34px; color: var(--s-mint-ink); background: var(--s-mint); border-radius: 10px; }
+.channel-plan-facts { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.channel-plan-facts li { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.45; color: var(--s-ink); }
+.channel-plan-facts svg { flex: none; margin-top: 1px; color: var(--s-soft-ink); }
+.channel-sheet-problem { display: grid; justify-items: start; gap: 10px; padding: 12px 14px; background: var(--s-danger-soft); border-radius: 12px; }
+
+/* My assets: a group per trend, a set per run, the files inside. */
+.channel-asset-group { display: grid; gap: 14px; padding: 22px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius); box-shadow: var(--s-shadow); scroll-margin-top: 16px; }
+.channel-asset-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.studio-frame .channel-asset-head h2 { margin: 0; font-size: 20px; font-weight: 650; line-height: 1.3; letter-spacing: -.4px; color: var(--s-ink); overflow-wrap: anywhere; }
+.studio-frame .channel-asset-head p { margin: 4px 0 0; font-size: 13px; color: var(--s-muted); }
+.channel-asset-group > .channel-answer { padding: 14px 16px; background: var(--s-bg); border: 0; border-radius: var(--s-radius-row); }
+.channel-asset-group > .channel-answer .channel-answer-buttons { grid-template-columns: repeat(2, minmax(0, max-content)); }
+.channel-sets { display: grid; gap: 12px; }
+.channel-set { display: grid; gap: 10px; padding: 14px; background: var(--s-bg); border-radius: var(--s-radius-row); }
+.channel-set-head { display: flex; align-items: center; gap: 12px; }
+.channel-set-icon { display: grid; place-items: center; flex: none; width: 38px; height: 38px; color: var(--s-soft-ink); background: var(--s-soft); border-radius: 12px; }
+.channel-set-copy { display: grid; flex: 1; gap: 1px; min-width: 0; }
+.channel-set-copy strong { font-size: 14.5px; font-weight: 650; }
+.studio-frame .channel-set-copy small { font-size: 12.5px; color: var(--s-muted); }
+.channel-files { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.studio-frame .channel-file, .channel-file.is-pictures { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 10px 12px; text-align: left; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-control); box-shadow: none; font-weight: 400; transition: border-color 150ms ease, box-shadow 150ms ease; }
+.studio-frame button.channel-file:hover:not(:disabled) { color: var(--s-ink); background: var(--s-card); border-color: var(--s-accent); box-shadow: 0 6px 16px rgba(24, 30, 21, .06); }
+.studio-frame button.channel-file:disabled { opacity: 1; cursor: default; }
+.channel-file-icon { display: grid; place-items: center; width: 34px; height: 34px; color: var(--s-mint-ink); background: var(--s-mint); border-radius: 10px; }
+.channel-file-copy { display: grid; gap: 1px; min-width: 0; }
+.channel-file-copy strong { font-size: 14px; font-weight: 600; line-height: 1.35; }
+.studio-frame .channel-file-copy small { font-size: 12.5px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.channel-dot { display: grid; place-items: center; width: 22px; height: 22px; color: var(--s-soft-ink); border-radius: 50%; }
+.channel-dot.done { color: var(--s-mint-ink); background: var(--s-mint); }
+.channel-dot.waiting::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--s-line-strong); }
+.channel-dot.problem { color: #b4471f; background: var(--s-danger-soft); }
+.channel-thumbs { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.studio-frame .channel-thumb { display: block; aspect-ratio: 3 / 2; min-height: 0; padding: 0; overflow: hidden; background: #eef1ef; border: 0; border-radius: 10px; box-shadow: none; }
+.studio-frame .channel-thumb:hover:not(:disabled) { background: #eef1ef; }
+.channel-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 300ms ease; }
+.channel-thumb:hover img { transform: scale(1.04); }
+
+/* Lightbox for pictures. */
+.studio-dialog.channel-lightbox { grid-template-rows: minmax(0, 1fr); width: min(1120px, 100%); }
+.channel-lightbox-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: 0; }
+.channel-lightbox-media { display: grid; place-items: center; min-height: 360px; max-height: calc(100dvh - 48px); background: #101410; }
+.channel-lightbox-media img { display: block; max-width: 100%; max-height: calc(100dvh - 48px); object-fit: contain; }
+.channel-lightbox-media .studio-shimmer { width: 100%; height: 100%; min-height: 360px; border-radius: 0; }
+.channel-lightbox-side { display: grid; align-content: start; gap: 14px; padding: 18px 18px 24px 24px; overflow-y: auto; }
+.channel-lightbox-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.studio-frame .channel-lightbox-head small { font-size: 12.5px; font-weight: 600; color: var(--s-muted); }
+.studio-frame .channel-lightbox-side h2 { margin: 0; font-size: 20px; font-weight: 650; line-height: 1.3; letter-spacing: -.4px; color: var(--s-ink); overflow-wrap: anywhere; }
+.channel-lightbox-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.channel-lightbox-pager { display: inline-flex; gap: 4px; margin-left: auto; }
+
+@media (max-width: 860px) {
+  .channel-card { grid-template-columns: 1fr; gap: 16px; padding: 18px; }
+  .channel-card-main { padding: 0; }
+  .channel-steps { grid-template-columns: 1fr; }
+  .channel-welcome { flex-direction: column; align-items: stretch; padding: 20px; }
+  .channel-asset-group { padding: 16px; }
+  .channel-asset-group > .channel-answer .channel-answer-buttons { grid-template-columns: 1fr; }
+  .channel-lightbox-grid { grid-template-columns: 1fr; overflow-y: auto; }
+  .channel-lightbox-media { min-height: 240px; }
+}
+@media (max-width: 560px) {
+  .channel-set-head { flex-wrap: wrap; }
+  .channel-set-head .studio-quiet { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .channel-card { animation: none; } .channel-disclosure svg, .channel-thumb img { transition: none; } }
