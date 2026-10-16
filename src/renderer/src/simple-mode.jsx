@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ArrowRight, ArrowUp, Check, Images, ChevronLeft, ChevronRight, CircleCheck, ClipboardCopy, Download, ExternalLink, FileText, FolderOpen, Home, LoaderCircle, Megaphone, MessageCircle, PenLine, Radar, Search, Sparkles, TrendingUp, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUp, Check, Images, ChevronLeft, ChevronRight, CircleCheck, ClipboardCopy, Download, ExternalLink, FileText, FolderOpen, Home, LayoutList, LoaderCircle, Megaphone, MessageCircle, PenLine, Radar, Search, Sparkles, SquareKanban, TrendingUp, X } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import { HelpAssistant } from './help-assistant.jsx';
 import { SimpleAssets, kitSourcesFrom } from './simple-assets.jsx';
@@ -9,7 +9,7 @@ import { AssetEditor, canEditAsset } from './asset-editor.jsx';
 import { linkLabel } from './channel-owner.jsx';
 import { PREVIEW_TITLE, adminNames, formatDay, formatTime, useCan, useCanRun, useViewer, writeProps } from './viewer.js';
 import { formatDate, number, withViewTransition } from './ui.jsx';
-import { buildTrendBoard, generationPlan } from '../../shared/trend-board.js';
+import { PASSED_STAGE, TREND_STAGES, buildTrendBoard, generationPlan } from '../../shared/trend-board.js';
 import './simple-mode.css';
 
 // Simple mode: the whole studio as five plain tabs, listed in the left sidebar (App renders it, and owns which tab is
@@ -547,16 +547,19 @@ function SimpleTrends({ board, waiting, approved, programs, busy, onDecide, onWr
   const ready = board.columns.ready || [];
   const empty = !board.cards.length && !board.scouting.length;
   const canDecide = can('decideResearchTheme');
-  return <div className="simple-page">
+  const [layout, setLayout] = useState(() => { try { return localStorage.getItem('simple.trends.layout') === 'board' ? 'board' : 'list'; } catch { return 'list'; } });
+  const chooseLayout = (next) => { setLayout(next); try { localStorage.setItem('simple.trends.layout', next); } catch { /* a convenience only */ } };
+  return <div className={`simple-page${layout === 'board' ? ' simple-page-wide' : ''}`}>
     <div className="simple-page-head"><div><h1>Trends</h1><p>Research finds them. {canDecide ? 'You decide which ones become reports.' : 'Editors decide which ones become reports.'}</p></div>
-      <div className="simple-head-actions">{onOpenClassic && <button type="button" data-spot="trends.board" className="simple-quiet" onClick={() => onOpenClassic('board')}>Full board</button>}{can('startResearchRun') && <button type="button" data-spot="trends.find" className="simple-primary" {...writeProps(viewer, busy)} onClick={() => onStartResearch(programs[0])}><Radar size={15} aria-hidden="true" />Find new trends</button>}</div></div>
+      <div className="simple-head-actions"><div className="simple-segment simple-layout-switch" role="tablist" aria-label="Show trends as">{[['list', 'List', LayoutList], ['board', 'Board', SquareKanban]].map(([id, label, Icon]) => <button type="button" role="tab" key={id} data-spot={`trends.layout-${id}`} aria-selected={layout === id} onClick={() => chooseLayout(id)}><Icon size={15} aria-hidden="true" />{label}</button>)}</div>{can('startResearchRun') && <button type="button" data-spot="trends.find" className="simple-primary" {...writeProps(viewer, busy)} onClick={() => onStartResearch(programs[0])}><Radar size={15} aria-hidden="true" />Find new trends</button>}</div></div>
 
     {board.scouting.filter((scout) => ACTIVE.has(scout.status)).map((scout) => <div className="simple-scouting" key={scout.runId} role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" /><span><strong>Looking for trends · {scout.title}</strong><small>{scout.stage === 'discovery' && scout.progress ? `Batch ${number(scout.progress.completed)} of ${number(scout.progress.total)}` : 'Collecting posts and conversations'}</small></span></div>)}
 
-    {!empty && !waiting.length && !approved.length && !board.scouting.some((scout) => ACTIVE.has(scout.status)) && <div className="simple-caught-up"><CircleCheck size={20} aria-hidden="true" /><span><strong>You’re all caught up</strong><small>Every trend has been decided. Find new ones whenever you like.</small></span></div>}
+    {layout === 'board' && !empty && <SimpleKanban board={board} approved={approved} busy={busy} canDecide={canDecide} canWrite={can('approveResearchThemes')} viewer={viewer} onDecide={onDecide} onWriteReports={onWriteReports} onOpenReport={onOpenReport} onOpenClassic={onOpenClassic} />}
+    {layout === 'list' && !empty && !waiting.length && !approved.length && !board.scouting.some((scout) => ACTIVE.has(scout.status)) && <div className="simple-caught-up"><CircleCheck size={20} aria-hidden="true" /><span><strong>You’re all caught up</strong><small>Every trend has been decided. Find new ones whenever you like.</small></span></div>}
     {empty && <div className="simple-empty big"><TrendingUp size={30} aria-hidden="true" /><h2>No trends yet</h2><p>Start a research run. Every trend it finds shows up here for a simple yes or skip. Nothing is written or spent until you say yes.</p></div>}
 
-    {waiting.length > 0 && <section className="simple-section" aria-labelledby="simple-waiting" data-spot="trends.waiting">
+    {layout === 'list' && waiting.length > 0 && <section className="simple-section" aria-labelledby="simple-waiting" data-spot="trends.waiting">
       <h2 id="simple-waiting">Needs your OK <span className="simple-pill">{waiting.length}</span></h2>
       <div className="simple-trend-grid">{waiting.map((card) => <article className="simple-trend" key={card.key} data-spot="trends.card" data-spot-item={card.name} style={{ viewTransitionName: `simple-${card.key.replace(/[^a-zA-Z0-9_-]/g, '-')}` }}>
         <div className="simple-trend-meta">{card.priorityTier && <span className={`simple-tier tier-${card.priorityTier.toLowerCase().replace(/[^a-z]+/g, '-')}`}>{readable(card.priorityTier.toLowerCase())}</span>}<span>{plural(card.evidenceCount, 'source')}</span>{card.platforms.length > 0 && <span>{card.platforms.map((platform) => ({ x: 'X', linkedin: 'LinkedIn', reddit: 'Reddit' }[platform] || platform)).join(' · ')}</span>}</div>
@@ -566,16 +569,39 @@ function SimpleTrends({ board, waiting, approved, programs, busy, onDecide, onWr
       </article>)}</div>
     </section>}
 
-    {approved.length > 0 && <div className="simple-ready-bar"><span><strong>{plural(approved.length, 'trend')} approved</strong><small>{approved.map((card) => card.name).slice(0, 3).join(' · ')}{approved.length > 3 ? ' …' : ''}</small></span>{can('approveResearchThemes') && <button type="button" data-spot="trends.write" className="simple-primary" {...writeProps(viewer, busy)} onClick={onWriteReports}>Write the reports<ArrowRight size={15} aria-hidden="true" /></button>}</div>}
+    {layout === 'list' && approved.length > 0 && <div className="simple-ready-bar"><span><strong>{plural(approved.length, 'trend')} approved</strong><small>{approved.map((card) => card.name).slice(0, 3).join(' · ')}{approved.length > 3 ? ' …' : ''}</small></span>{can('approveResearchThemes') && <button type="button" data-spot="trends.write" className="simple-primary" {...writeProps(viewer, busy)} onClick={onWriteReports}>Write the reports<ArrowRight size={15} aria-hidden="true" /></button>}</div>}
 
-    {production.length > 0 && <section className="simple-section" aria-labelledby="simple-writing" data-spot="trends.writing">
+    {layout === 'list' && production.length > 0 && <section className="simple-section" aria-labelledby="simple-writing" data-spot="trends.writing">
       <h2 id="simple-writing">Being written</h2>
       <ul className="simple-live">{production.map((card) => <li key={card.key} className={card.needsAttention ? 'attention' : ''}>{card.needsAttention ? <X size={16} aria-hidden="true" /> : <LoaderCircle className="spin" size={16} aria-hidden="true" />}<span><strong>{card.name}</strong><small>{card.activity || 'Writing'}</small></span>{card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research')}>See why<ArrowRight size={14} aria-hidden="true" /></button>}</li>)}</ul>
     </section>}
 
-    {ready.length > 0 && <section className="simple-section" aria-labelledby="simple-done" data-spot="trends.ready">
+    {layout === 'list' && ready.length > 0 && <section className="simple-section" aria-labelledby="simple-done" data-spot="trends.ready">
       <h2 id="simple-done">Ready to read</h2>
       <div className="simple-report-cards">{ready.map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; return <button type="button" key={card.key} disabled={!report} onClick={() => report && onOpenReport(report.id)}><span className="simple-doc-icon done"><Check size={18} aria-hidden="true" /></span><strong>{card.name}</strong><small>{plural(card.reportAssets?.length || 0, 'report')}</small><span className="simple-read">Read<ArrowRight size={14} aria-hidden="true" /></span></button>; })}</div>
     </section>}
+  </div>;
+}
+
+// The same trends as a board: one column per stage, left to right, with each stage's next step on its cards.
+function SimpleKanban({ board, approved, busy, canDecide, canWrite, viewer, onDecide, onWriteReports, onOpenReport, onOpenClassic }) {
+  const columns = [...TREND_STAGES, PASSED_STAGE];
+  const reportOf = (card) => card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0];
+  return <div className="simple-kanban" data-spot="trends.kanban" role="list" aria-label="Trend board">
+    {columns.map((stage) => { const cards = board.columns[stage.id] || []; return <section key={stage.id} role="listitem" className={`simple-kanban-col stage-${stage.id}`} aria-labelledby={`kanban-${stage.id}`}>
+      <header><h2 id={`kanban-${stage.id}`}>{stage.label}<span className="simple-kanban-count">{cards.length}</span></h2><p>{stage.hint}</p>
+        {stage.id === 'approved' && canWrite && approved.length > 0 && <button type="button" data-spot="trends.write" className="simple-primary simple-kanban-action" {...writeProps(viewer, busy)} onClick={onWriteReports}>Write the reports<ArrowRight size={14} aria-hidden="true" /></button>}</header>
+      <div className="simple-kanban-cards">
+        {!cards.length && <p className="simple-kanban-empty">Nothing here</p>}
+        {cards.map((card) => { const report = stage.id === 'ready' ? reportOf(card) : null; return <article key={card.key} className={`simple-kanban-card${card.needsAttention ? ' attention' : ''}`} data-spot="trends.card" data-spot-item={card.name} style={{ viewTransitionName: `kanban-${card.key.replace(/[^a-zA-Z0-9_-]/g, '-')}` }}>
+          <div className="simple-trend-meta">{card.priorityTier && <span className={`simple-tier tier-${card.priorityTier.toLowerCase().replace(/[^a-z]+/g, '-')}`}>{readable(card.priorityTier.toLowerCase())}</span>}<span>{plural(card.evidenceCount, 'source')}</span></div>
+          <h3>{card.name}</h3>
+          {card.description && stage.id !== 'passed' && <p>{card.description}</p>}
+          {stage.id === 'potential' && canDecide && card.canDecide && <div className="simple-kanban-buttons"><button type="button" className="simple-yes" {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'approved')}><Check size={14} aria-hidden="true" />Yes</button><button type="button" className="simple-skip" {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'passed')}>Skip</button></div>}
+          {stage.id === 'production' && <div className="simple-kanban-status">{card.needsAttention ? <X size={14} aria-hidden="true" /> : <LoaderCircle className="spin" size={14} aria-hidden="true" />}<span>{card.activity || 'Writing'}</span>{card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research')}>See why</button>}</div>}
+          {stage.id === 'ready' && <button type="button" className="simple-kanban-read" disabled={!report} onClick={() => report && onOpenReport(report.id)}>{plural(card.reportAssets?.length || 0, 'report')}<span>Read<ArrowRight size={13} aria-hidden="true" /></span></button>}
+        </article>; })}
+      </div>
+    </section>; })}
   </div>;
 }

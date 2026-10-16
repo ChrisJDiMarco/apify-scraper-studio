@@ -33,7 +33,9 @@
     { "id": "report.ask", "tab": "reports", "item": "report", "where": "An open report", "what": "Ask AI about this report (item: report title)" },
 
     { "id": "trends.find", "tab": "trends", "where": "Trends", "what": "Find new trends: starts a research run after a cost confirmation" },
-    { "id": "trends.board", "tab": "trends", "where": "Trends", "what": "Full board: the classic trend board" },
+    { "id": "trends.layout-list", "tab": "trends", "where": "Trends, top right", "what": "List: trends grouped by what needs doing" },
+    { "id": "trends.layout-board", "tab": "trends", "where": "Trends, top right", "what": "Board: trends as a kanban board, one column per stage (Potential, Approved, In production, Ready, Passed)" },
+    { "id": "trends.kanban", "tab": "trends", "where": "Trends, Board view", "what": "The trend board: one column per stage, with Yes/Skip, Write the reports and Read on the cards" },
     { "id": "trends.waiting", "tab": "trends", "where": "Trends", "what": "'Needs your OK': trends waiting for a decision" },
     { "id": "trends.card", "tab": "trends", "item": "match", "where": "Trends", "what": "One trend waiting for your OK (item: its exact name)" },
     { "id": "trends.yes", "tab": "trends", "item": "match", "where": "Trends, on a trend card", "what": "Yes, use it (item: trend name)" },
