@@ -51,7 +51,7 @@ describe('Settings → Brand reference images', () => {
     await waitFor(() => expect(bridge.removeBrandImage).toHaveBeenCalledWith({ workspaceId: 'semrush', imageId: 'style-1' }));
   });
   it('says why a picture was refused, in the set it was added to, and marks a full set', async () => {
-    const bridge = api({ addBrandImage: vi.fn(async () => { throw new Error('Choose a PNG, JPEG or WebP picture.'); }), readBrandImage: vi.fn(async () => { throw new Error('missing'); }) });
+    const bridge = api({ addBrandImage: vi.fn(async () => { throw new Error('Choose a PNG, JPEG or WebP picture.'); }), readBrandImage: vi.fn(async () => { throw new Error('The reference image “example.png” is missing from the studio’s data folder. Remove it and add it again.'); }) });
     const full = Array.from({ length: 6 }, (_, index) => image(`style-${index}`, 'style', `example-${index}.png`));
     render(<BrandImages api={bridge} workspace={workspace(full)} imagesConfigured={false} />);
     expect(screen.getByText(/Pictures are drawn once an OpenAI key is saved/)).toBeInTheDocument();
@@ -62,6 +62,23 @@ describe('Settings → Brand reference images', () => {
     fireEvent.click(within(social).getByRole('button', { name: /Add style example/ }));
     expect(await within(social).findByRole('alert')).toHaveTextContent('Choose a PNG, JPEG or WebP picture.');
     expect(within(editorial).queryByRole('alert')).toBeNull();
+  });
+  it('offers a retry when a preview fails to load for another reason, instead of calling the file missing', async () => {
+    let fail = true; const bridge = api({ readBrandImage: vi.fn(async ({ imageId }) => { if (fail) { fail = false; throw new Error('The studio server answered 502.'); } return { id: imageId, dataUrl: `data:image/png;base64,${imageId}` }; }) });
+    render(<BrandImages api={bridge} workspace={workspace([image('style-1', 'style', 'example.png')])} imagesConfigured />);
+    const editorial = setNamed('Search Engine Land editorial heroes');
+    fireEvent.click(await within(editorial).findByRole('button', { name: /Preview didn’t load\. Retry/ }));
+    expect(await within(editorial).findByRole('img', { name: 'example.png' })).toHaveAttribute('src', 'data:image/png;base64,style-1');
+    expect(within(editorial).queryByText('File missing')).toBeNull(); expect(bridge.readBrandImage).toHaveBeenCalledTimes(2);
+  });
+  it('starts afresh in another workspace: no errors or previews carried over from the last one', async () => {
+    const bridge = api({ addBrandImage: vi.fn(async () => { throw new Error('That picture is already in this set.'); }) });
+    const general = { id: 'general', editionId: 'general', name: 'Your workspace', brandImageSets: [{ id: 'campaign', deliverableId: 'brand-image', label: 'Campaign graphics', hint: '', max: 6, images: [] }] };
+    const { rerender } = render(<BrandImages api={bridge} workspace={workspace()} imagesConfigured />);
+    fireEvent.click(within(setNamed('Semrush campaign graphics')).getByRole('button', { name: /Add style example/ }));
+    expect(await within(setNamed('Semrush campaign graphics')).findByRole('alert')).toHaveTextContent('already in this set');
+    rerender(<BrandImages api={bridge} workspace={general} imagesConfigured />);
+    expect(within(setNamed('Campaign graphics')).queryByRole('alert')).toBeNull();
   });
   it('shows nothing without a workspace that has picture sets', () => {
     const { container } = render(<BrandImages api={api()} workspace={{ id: 'general', editionId: 'general' }} />);

@@ -268,13 +268,19 @@ describe('brand reference images in kit pictures', () => {
     const retried = sent('sel-image')[1];
     expect(retried.variantPrompts).toEqual(editorial.variantPrompts); expect(retried.references.map(ref => Buffer.from(ref.data))).toEqual([...styles, logo]);
   });
-  it('stops a picture set before any spend when a reference image saved with its run is damaged', async () => {
-    const h = harness({ generateImage: failOnce('sel-image') }); h.api.addBrandImage({ workspaceId: 'semrush', family: 'sel-editorial', role: 'logo', name: 'logo.png', data: picture(331, 60, 7) });
+  it('stops a picture set before any spend when a reference image saved with its run is damaged, leaving Settings intact', async () => {
+    const h = harness({ generateImage: failOnce('sel-image') }); const logo = picture(331, 60, 7);
+    const saved = h.api.addBrandImage({ workspaceId: 'semrush', family: 'sel-editorial', role: 'logo', name: 'logo.png', data: logo }).image;
     const run = await made(h, { source: { kind: 'report', assetId: 'asset-toolkit' }, deliverableIds: ['sel-image'] }); expect(run.status).toBe('failed');
-    fs.writeFileSync(path.join(h.root, 'runs', run.id, 'reference-sel-image-1.png'), picture(331, 60, 8));
+    // The run folder is the Codex CLI's writable workspace: its copy shares nothing with the Settings picture.
+    const copy = path.join(h.root, 'runs', run.id, 'reference-sel-image-1.png'); expect(fs.statSync(copy).nlink).toBe(1);
+    fs.writeFileSync(copy, picture(331, 60, 8));
+    expect(h.api.readBrandImage({ workspaceId: 'semrush', imageId: saved.id }).dataUrl).toBe(`data:image/png;base64,${logo.toString('base64')}`);
     h.api.retryStudioRun({ runId: run.id }); await h.api.waitForIdle();
     expect(h.api.readStudioRun({ runId: run.id }).jobs[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('A reference image saved with this run is missing or damaged') });
     expect(h.generateImage).toHaveBeenCalledTimes(1);
+    const next = await made(h, { source: { kind: 'report', assetId: 'asset-toolkit' }, deliverableIds: ['sel-image'] }); expect(next.status).toBe('succeeded');
+    expect(Buffer.from(h.generateImage.mock.calls.at(-1)[0].deliverable.references[0].data)).toEqual(logo);
   });
   it('draws a run made before Settings kept reference images without them, so its saved pictures still match', async () => {
     const h = harness({ generateImage: failOnce('sel-image') }); h.api.addBrandImage({ workspaceId: 'semrush', family: 'sel-editorial', role: 'logo', name: 'logo.png', data: picture(331, 60, 7) });

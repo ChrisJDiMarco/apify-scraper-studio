@@ -271,9 +271,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   function kitReferenceCounts(w) {
     return Object.fromEntries(brandImages().brandImageFamilies(w.editionId).map(family => [family.deliverableId, (w.brandImages || []).filter(image => image.family === family.id).length]));
   }
-  // A kit run keeps the reference images it started with. Each picture set's style examples and logo are linked into
-  // the run folder (a hard link takes no extra space; a copy where links don't work), so a retry sends the same
-  // pictures and its saved variants still match, whatever changes in Settings later.
+  // A kit run keeps the reference images it started with. Each picture set's style examples and logo are copied into
+  // the run folder, so a retry sends the same pictures and its saved variants still match, whatever changes in Settings
+  // later. Copy-on-write clones take no extra space where the disk supports them (APFS). Never hard links: the run
+  // folder is the Codex CLI's writable workspace, and a write there must not reach Settings or other runs.
   function snapshotKitReferences(run, w, deliverables) {
     const sets = {};
     for (const deliverable of deliverables.filter(d => d.kind === 'image')) {
@@ -284,7 +285,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         const source = brandImageFile(w.id, image); const name = `reference-${safeId(deliverable.id)}-${index + 1}.${image.extension}`; const target = file(run.id, name);
         if (!fs.existsSync(source)) throw new Error(`The reference image “${image.name}” is missing from the studio’s data folder. Remove it in Settings → Brand reference images and add it again.`);
         fs.rmSync(target, { force: true });
-        try { fs.linkSync(source, target); } catch (_) { fs.copyFileSync(source, target); }
+        fs.copyFileSync(source, target, fs.constants.COPYFILE_FICLONE); // a plain copy where cloning isn't supported
         if (sha256(fs.readFileSync(target)) !== image.sha256) throw new Error(`The reference image “${image.name}” changed on disk. Remove it in Settings → Brand reference images and add it again.`);
         return { role: image.role, name: image.name, mime: image.mime, extension: image.extension, bytes: image.bytes, width: image.width, height: image.height, sha256: image.sha256, file: name };
       });
@@ -893,7 +894,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     removeBrandImage({ workspaceId, imageId } = {}) {
       const w = workspace(workspaceId); const image = brandImageRecord(w, imageId);
       w.brandImages = (w.brandImages || []).filter(entry => entry.id !== image.id); w.updatedAt = stamp(); save();
-      fs.rmSync(brandImageFile(w.id, image), { force: true }); // runs that started with it keep their own link
+      fs.rmSync(brandImageFile(w.id, image), { force: true }); // runs that started with it keep their own copy
       return { removed: image.id };
     },
     // Parses the "Product & Solution Registry" doc text into structured products (used to check

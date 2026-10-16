@@ -7,9 +7,13 @@ const list = (value) => (Array.isArray(value) ? value : []);
 // Settings → Brand reference images. The pictures a channel asset kit draws send these to the image model with their
 // prompt, as the Golden Thread n8n workflow did: style examples guide the look and are never copied, and an approved
 // logo is merged in exactly, in a clean footer. A set without a logo draws none and leaves the footer clean.
-export function BrandImages({ api, workspace, busy, imagesConfigured }) {
+// Thumbnails, errors and work in progress belong to one workspace, so switching workspaces starts the section afresh.
+export function BrandImages(props) { return <BrandImageSets key={props.workspace?.id || 'none'} {...props} />; }
+const MISSING_FILE = /missing from the studio/i; // readBrandImage's answer when the stored file is gone
+function BrandImageSets({ api, workspace, busy, imagesConfigured }) {
   const sets = list(workspace?.brandImageSets);
-  const [thumbs, setThumbs] = useState({}); // image id → data URL, or 'missing'
+  const [thumbs, setThumbs] = useState({}); // image id → data URL, 'missing' (the file is gone) or 'error' (try again)
+  const [attempt, setAttempt] = useState(0);
   const [working, setWorking] = useState('');
   const [problems, setProblems] = useState({});
   const loading = useRef(new Set()); const mounted = useRef(true);
@@ -20,11 +24,12 @@ export function BrandImages({ api, workspace, busy, imagesConfigured }) {
       if (thumbs[imageId] || loading.current.has(imageId)) continue;
       loading.current.add(imageId);
       Promise.resolve().then(() => api.readBrandImage({ workspaceId: workspace.id, imageId }))
-        .then((result) => { if (mounted.current) setThumbs((current) => ({ ...current, [imageId]: result?.dataUrl || 'missing' })); })
-        .catch(() => { if (mounted.current) setThumbs((current) => ({ ...current, [imageId]: 'missing' })); })
+        .then((result) => { if (mounted.current) setThumbs((current) => ({ ...current, [imageId]: result?.dataUrl || 'error' })); })
+        .catch((error) => { if (mounted.current) setThumbs((current) => ({ ...current, [imageId]: MISSING_FILE.test(error?.message || '') ? 'missing' : 'error' })); })
         .finally(() => loading.current.delete(imageId));
     }
-  }, [ids, workspace?.id]);
+  }, [ids, workspace?.id, attempt]);
+  const retry = (imageId) => { setThumbs((current) => { const next = { ...current }; delete next[imageId]; return next; }); setAttempt((value) => value + 1); };
   if (!workspace?.id || !sets.length) return null;
   const total = sets.reduce((sum, set) => sum + list(set.images).length, 0);
   const disabled = busy || Boolean(working);
@@ -51,7 +56,7 @@ export function BrandImages({ api, workspace, busy, imagesConfigured }) {
         {images.length ? <ul className="brand-set-images">{images.map((image) => {
           const thumb = thumbs[image.id];
           return <li key={image.id} className={image.role === 'logo' ? 'is-logo' : undefined}>
-            <span className="brand-thumb">{thumb === 'missing' ? <span className="brand-thumb-missing">File missing</span> : thumb ? <img src={thumb} alt={image.name} /> : <span className="brand-thumb-loading" aria-label="Loading picture" />}</span>
+            <span className="brand-thumb">{thumb === 'missing' ? <span className="brand-thumb-missing">File missing</span> : thumb === 'error' ? <button type="button" className="ghost brand-thumb-retry" onClick={() => retry(image.id)}>Preview didn’t load. Retry</button> : thumb ? <img src={thumb} alt={image.name} /> : <span className="brand-thumb-loading" role="img" aria-label="Loading picture" />}</span>
             <span className="brand-image-name" title={image.name}>{image.name}</span>
             <small>{image.width} × {image.height}</small>
             <span className="brand-image-actions">

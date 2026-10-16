@@ -255,6 +255,7 @@ summary { cursor: pointer; color: #637666; font-size: 12px; font-weight: 550; } 
 .brand-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .brand-thumb-loading { width: 100%; height: 100%; background: #eef1ef; }
 .brand-thumb-missing { font-size: 11px; color: #9a3d22; }
+.brand-thumb .brand-thumb-retry { padding: 4px 10px; font-size: 11px; white-space: normal; }
 .brand-image-name { overflow: hidden; font-size: 11px; color: var(--ink); white-space: nowrap; text-overflow: ellipsis; }
 .brand-set-images small { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .brand-image-actions { display: flex; align-items: center; gap: 6px; }
