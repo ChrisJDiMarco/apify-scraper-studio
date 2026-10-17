@@ -160,6 +160,24 @@ describe('Anthropic API failures', () => {
     expect(result.message).not.toContain(KEY);
     if (error.status) expect(result).toMatchObject({ status: error.status, requestId: `req_${error.status}` });
   });
+  it('retries once with the schema in the prompt when the API refuses to compile it, and still parses one JSON object', async () => {
+    const refused = apiError(400, 'invalid_request_error', 'The compiled grammar is too large, which would cause performance issues. Simplify your tool schemas or reduce the number of strict tools.');
+    const fenced = reply({ content: [{ type: 'thinking', thinking: '', signature: 'sig' }, { type: 'text', text: '```json\n{"reply":"pong"}\n```' }] });
+    const { runner: api, calls } = setup({ answer: (params) => (params.output_config?.format ? { error: refused } : fenced) });
+    const { output, receipt } = await api.run({ schema, prompt: 'Summarize.', model: 'claude-opus-5-5', effort: 'high' });
+    expect(output).toEqual({ reply: 'pong' });
+    expect(calls.streams).toHaveLength(2);
+    const retry = calls.streams[1].params;
+    expect(retry.output_config).toEqual({ effort: 'high' });
+    expect(retry.messages[0].content).toContain('ANSWER FORMAT');
+    expect(retry.messages[0].content).toContain(JSON.stringify(schema));
+    expect(receipt.structuredOutput).toBe('schema in prompt');
+  });
+  it('does not retry other rejected requests', async () => {
+    const { runner: api, calls } = setup({ answer: { error: apiError(400, 'invalid_request_error', 'prompt is too long: 1200000 tokens > 1000000 maximum') } });
+    await failure(api.run({ schema, prompt: 'x' }));
+    expect(calls.streams).toHaveLength(1);
+  });
   it('redacts any API key the service echoes back', () => {
     const error = describeApiError(apiError(400, 'invalid_request_error', `malformed header x-api-key: ${KEY}`));
     expect(error).toMatchObject({ code: 'ANTHROPIC_BAD_REQUEST', message: 'The Anthropic API rejected this request: malformed header x-api-key: sk-ant-…' });

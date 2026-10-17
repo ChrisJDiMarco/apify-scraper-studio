@@ -34,7 +34,7 @@ const HELP_ACTIONS = {
 // The Prompt Library's button (SPEC-2 §A), offered only to people who can save prompts (promptRights().edit), so nobody
 // else finds it in their instructions or their schema. It proposes; the person applies it on the prompt-change card.
 const PROMPT_ACTIONS = {
-  'edit-prompt': 'target = the prompt\'s name. Proposes a change to one editable part of a prompt (see PROMPTS): fill prompt.promptId, prompt.blockId, prompt.text and prompt.note. It never saves itself; they review the change on its prompt-change card and press Apply.',
+  'edit-prompt': 'target = the prompt\'s name. Proposes a change to one editable part of a prompt (see PROMPTS): fill promptEdit.promptId, promptEdit.blockId, promptEdit.text and promptEdit.note. It never saves itself; they review the change on its prompt-change card and press Apply.',
 };
 const LOOKUP_KINDS = ['report', 'asset-folder', 'run', 'trend', 'posts', 'conversation', 'memory'];
 const PROMPT_LOOKUP = 'prompt'; // people who can open the Prompt Library
@@ -112,23 +112,17 @@ function quickScanTools() {
   return quickScanModule || null;
 }
 
-// One shape everywhere (model output, card, server). Strict: every field is required, so a non-scan action fills it
-// with "" / [] / -1, and -1 means "use the depth preset".
-const SCAN_SCHEMA = { type: 'object', additionalProperties: false, required: ['topic', 'depth', 'platforms', 'maxTargets', 'itemsPerPlatform', 'commentsPerPost', 'lookbackHours', 'aiBudgetUsd', 'collectionBudgetUsd', 'programId'], properties: {
+// The answer schema is kept flat: nested objects inside repeated items (a scan inside every action, rows inside every
+// card) made the API's compiled grammar too large. A reply has at most one quick scan and one prompt edit, so each is a
+// single top-level object, and cards carry their table rows and metric fields as lines of text that cleanCards parses.
+// Strict: every field is required, so an unused one is "" / [] / -1, and -1 in scan means "use the depth preset".
+const SCAN_SCHEMA = { type: 'object', additionalProperties: false, required: ['topic', 'depth', 'platforms', 'xAccounts', 'linkedinAccounts', 'redditAccounts', 'itemsPerPlatform', 'commentsPerPost', 'lookbackHours', 'aiBudgetUsd', 'collectionBudgetUsd', 'programId'], properties: {
   topic: S, depth: { type: 'string', enum: SCAN_DEPTHS }, platforms: { type: 'array', maxItems: 3, items: { type: 'string', enum: SCAN_PLATFORMS } },
-  maxTargets: { type: 'object', additionalProperties: false, required: SCAN_PLATFORMS, properties: { x: I, linkedin: I, reddit: I } },
-  itemsPerPlatform: I, commentsPerPost: I, lookbackHours: I, aiBudgetUsd: N, collectionBudgetUsd: N, programId: S,
+  xAccounts: I, linkedinAccounts: I, redditAccounts: I, itemsPerPlatform: I, commentsPerPost: I, lookbackHours: I, aiBudgetUsd: N, collectionBudgetUsd: N, programId: S,
 } };
-// Flat on purpose: one object type for every card keeps the schema valid on the API, the Claude app and Codex (no anyOf).
-const cardSchema = () => ({ type: 'object', additionalProperties: false, required: ['type', 'ref', 'title', 'note', 'items', 'fields', 'columns', 'rows', 'actionIndexes'], properties: {
-  type: S, ref: S, title: S, note: S,
-  items: { type: 'array', maxItems: 8, items: S },
-  fields: { type: 'array', maxItems: 4, items: { type: 'object', additionalProperties: false, required: ['label', 'value'], properties: { label: S, value: S } } },
-  columns: { type: 'array', maxItems: 5, items: S },
-  rows: { type: 'array', maxItems: 8, items: { type: 'object', additionalProperties: false, required: ['cells'], properties: { cells: { type: 'array', maxItems: 5, items: S } } } },
-  actionIndexes: { type: 'array', maxItems: 4, items: I },
+const cardSchema = () => ({ type: 'object', additionalProperties: false, required: ['type', 'ref', 'title', 'note', 'items', 'actionIndexes'], properties: {
+  type: S, ref: S, title: S, note: S, items: { type: 'array', maxItems: 9, items: S }, actionIndexes: { type: 'array', maxItems: 4, items: I },
 } });
-// edit-prompt's proposal. Every action carries it once edits are on (strict schema); other actions send "" everywhere.
 const promptEditSchema = () => ({ type: 'object', additionalProperties: false, required: ['promptId', 'blockId', 'text', 'note'], properties: { promptId: S, blockId: S, text: S, note: S } });
 
 // `promptAccess` (see promptRights) adds the prompt lookup, the Prompts page and spots, and for people who can save
@@ -138,14 +132,17 @@ const promptEditSchema = () => ({ type: 'object', additionalProperties: false, r
 // anything else, so the reply is checked just as strictly. Keep enums to short, fixed lists.
 function helpSchema(imageSizes = IMAGE_SIZES, { role = 'admin', promptAccess = null, access = null } = {}) {
   const rights = promptRights(promptAccess);
-  const action = { kind: S, label: S, target: S, scan: SCAN_SCHEMA, ...(rights.edit ? { prompt: promptEditSchema() } : {}) };
-  return { type: 'object', additionalProperties: false, required: ['answer', 'pages', 'followUps', 'image', 'actions', 'show', 'lookups', 'cards', 'remember', 'summary', 'title'], properties: {
+  const action = { kind: S, label: S, target: S };
+  return { type: 'object', additionalProperties: false, required: ['answer', 'pages', 'followUps', 'image', 'actions', 'scan', ...(rights.edit ? ['promptEdit'] : []), 'show', 'lookups', 'cards', 'remember', 'summary', 'title'], properties: {
     answer: S,
     // A picture to create for this reply (create: false for ordinary answers).
     image: { type: 'object', additionalProperties: false, required: ['create', 'title', 'prompt', 'size'], properties: { create: { type: 'boolean' }, title: S, prompt: S, size: { type: 'string', enum: imageSizes } } },
     pages: { type: 'array', maxItems: 3, items: { type: 'object', additionalProperties: false, required: ['page', 'label'], properties: { page: S, label: S } } },
     followUps: { type: 'array', maxItems: 3, items: S },
     actions: { type: 'array', maxItems: 4, items: { type: 'object', additionalProperties: false, required: Object.keys(action), properties: action } },
+    // The one quick-scan action's plan, and the one edit-prompt action's change (see ACTIONS).
+    scan: SCAN_SCHEMA,
+    ...(rights.edit ? { promptEdit: promptEditSchema() } : {}),
     show: { type: 'object', additionalProperties: false, required: ['autoStart', 'steps'], properties: { autoStart: { type: 'boolean' }, steps: { type: 'array', maxItems: 5, items: { type: 'object', additionalProperties: false, required: ['target', 'item', 'say'], properties: { target: S, item: S, say: S } } } } },
     lookups: { type: 'array', maxItems: 3, items: { type: 'object', additionalProperties: false, required: ['kind', 'target'], properties: { kind: { type: 'string', enum: lookupKindsFor(rights) }, target: S } } },
     cards: { type: 'array', maxItems: 4, items: cardSchema() },
@@ -164,7 +161,7 @@ function promptRules(rights) {
 - Answer what a prompt says, how it works or how to change it only from a prompt lookup: read it first, and quote its text only from LOOKUP RESULTS. Never guess or invent prompt text.
 - Only editable parts can change. Fixed parts, data sections, the answer format and the rules the studio enforces stay as they are; say so when they ask to change one of those.
 - Saving makes a new version. Runs already going keep the version they started with, and History in **Prompts** compares or restores any version.
-${rights.edit ? `- When they ask to change a prompt and its lookup is in LOOKUP RESULTS, offer one edit-prompt action, never more than one per reply: target = the prompt's name; prompt.promptId = its id; prompt.blockId = the id of the one editable part to change; prompt.text = the whole new text of that part, not only the changed lines, keeping every required {{value}} and required term from the lookup and everything they didn't ask to change; prompt.note = one plain sentence under 200 characters on what changes and why. Pair it with a prompt-change card. A change to a second part waits for another reply.
+${rights.edit ? `- When they ask to change a prompt and its lookup is in LOOKUP RESULTS, offer one edit-prompt action, never more than one per reply: target = the prompt's name; promptEdit.promptId = its id; promptEdit.blockId = the id of the one editable part to change; promptEdit.text = the whole new text of that part, not only the changed lines, keeping every required {{value}} and required term from the lookup and everything they didn't ask to change; promptEdit.note = one plain sentence under 200 characters on what changes and why. Pair it with a prompt-change card. A change to a second part waits for another reply.
 - The edit is only a suggestion until they press Apply on its card. Never say a prompt was changed, saved or updated.
 - When the prompt is locked and LIVE CONTEXT role isn't admin, offer no edit: say an admin locked it and they can ask an admin to change it.` : '- They can read prompts here but not change them. When they ask for a change, explain what would change and that an admin, or someone who can edit prompts, can make it.'}`;
 }
@@ -202,8 +199,8 @@ ACTIONS (do it for them)
 - When they ask you to do something you can do, offer it in actions as a button they click, in either layout. Never say you already did it. Up to 4. Each target must match LIVE CONTEXT exactly:
 ${Object.keys(actionsFor(rights, reach)).map((kind) => `  ${kind}: ${actionRule(kind, role, rights)}`).join('\n')}
 - label is the button text, for example "Make assets for AI Citation Tracking".
-- scan is only for quick-scan actions. For every other action set scan to topic "", depth "lite", platforms [], programId "", and -1 for x, linkedin, reddit and every other number.${rights.edit ? `
-- prompt is only for edit-prompt actions. For every other action set prompt.promptId, prompt.blockId, prompt.text and prompt.note to "".` : ''}
+- scan (top level) is the plan for the reply's one quick-scan action. With no quick-scan action, set topic "", depth "lite", platforms [], programId "" and every number to -1.${rights.edit ? `
+- promptEdit (top level) is the change for the reply's one edit-prompt action. With no edit-prompt action, set promptId, blockId, text and note to "".` : ''}
 
 CARDS (structured blocks under the answer)
 - Add up to 4 cards when they make the answer clearer: the trend, report, folder, run or program the answer is about; numbers worth scanning; steps to tick off; two options side by side. Plain how-to answers need none.
@@ -217,17 +214,17 @@ CARDS (structured blocks under the answer)
   posts: ref = the keywords of a posts lookup; items = urls of the posts from LOOKUP RESULTS to quote, or [] for the most engaged.
   scan-plan: ref = the topic; actionIndexes = [the index of its quick-scan action].${rights.edit ? `
   prompt-change: ref = the prompt's name; actionIndexes = [the index of its edit-prompt action]. Shows the change line by line with the studio's checks and an Apply button.` : ''}
-  metric: fields = 2 to 4 { label, value }; items = the change for each field in the same order ("+3 posts"; "" when none).
-  table: columns = up to 5 headers; rows = up to 8 rows of cells in column order.
+  metric: items = 2 to 4 lines "Label: value", with the change in brackets when there is one ("Posts: 412 (+38)").
+  table: items = the header line, then up to 8 rows, cells separated by " | " ("Trend | Posts | Change").
   checklist: items = up to 8 steps; start a step with "✓ " when it is already done.
-  compare: columns = [left title, right title]; rows = one pair of points per row ("" when a side has no point there).
+  compare: items = "Left title | Right title", then one line per pair of points ("point | point"; leave a side empty when it has none).
 - Numbers, statuses, costs and dates in metric, table, checklist and compare cards come only from LIVE CONTEXT or LOOKUP RESULTS. Never estimate or invent them.
 - title = a short heading ("" uses the ref); note = one optional sentence on why it matters. actionIndexes = indexes into actions for the card's buttons (a trend card with its approve-trend and pass-trend actions, a run card with stop-run or retry-run), [] when none.
-- Leave unused card fields empty: ref "", items [], fields [], columns [], rows []. Don't repeat in the answer what a card shows; one line pointing to it is enough.
+- Leave unused card fields empty: ref "", items []. Don't repeat in the answer what a card shows; one line pointing to it is enough.
 
 QUICK SCANS (a small, fresh look at one topic)
 - When they ask what is happening with a topic right now, today or in the last hours, or ask for a small, quick or cheap scrape, offer a quick-scan action: target = the topic, label like "Run a small scan on SEO (last 6 hours)". It never runs from your answer: they adjust the plan, check the cost and start it on the scan-plan card. Never say it ran or started.
-- Size scan from their words. topic = the topic in a few words. depth = lite for small, cheap, quick or low cost; deep for thorough, deep or comprehensive; otherwise standard. lookbackHours = 1 for "the last hour", 3 to 6 for "the last few hours", 12 for "this morning", 24 for "today", 48 for "the last two days", ${maxHours()} for "this week" (never more than ${maxHours()}), or -1 when they gave no window (the depth's default). platforms = the ones that fit the topic and have accounts in the program (LIVE CONTEXT programs sources): x for news, launches and fast-moving talk, linkedin for B2B, careers and industry opinion, reddit for practitioner questions and complaints; all three when unsure. maxTargets, itemsPerPlatform, commentsPerPost, aiBudgetUsd and collectionBudgetUsd = -1 to use the depth's defaults; give a number only when they asked for one ("keep it under $3" splits into aiBudgetUsd 1.5 and collectionBudgetUsd 1.5). programId = "" (the studio uses the only or the newest program) or the exact name from programs when they named one.
+- Fill the top-level scan from their words. topic = the topic in a few words. depth = lite for small, cheap, quick or low cost; deep for thorough, deep or comprehensive; otherwise standard. lookbackHours = 1 for "the last hour", 3 to 6 for "the last few hours", 12 for "this morning", 24 for "today", 48 for "the last two days", ${maxHours()} for "this week" (never more than ${maxHours()}), or -1 when they gave no window (the depth's default). platforms = the ones that fit the topic and have accounts in the program (LIVE CONTEXT programs sources): x for news, launches and fast-moving talk, linkedin for B2B, careers and industry opinion, reddit for practitioner questions and complaints; all three when unsure. xAccounts, linkedinAccounts, redditAccounts (how many saved accounts or communities to sample on each), itemsPerPlatform, commentsPerPost, aiBudgetUsd and collectionBudgetUsd = -1 to use the depth's defaults; give a number only when they asked for one ("keep it under $3" splits into aiBudgetUsd 1.5 and collectionBudgetUsd 1.5). programId = "" (the studio uses the only or the newest program) or the exact name from programs when they named one.
 - Always pair it with a scan-plan card whose actionIndexes holds that action's index. A quick scan samples the saved accounts of a research program; when programs is empty, say they need a research program with accounts first and offer no quick-scan.
 - When a quick scan in LIVE CONTEXT quickScans has finished and they ask what changed or what is going on, answer from posts and run lookups, with trend cards for the themes it found.
 
@@ -293,6 +290,12 @@ function pickProgram(programs, ref) {
 }
 // A quick-scan button's plan, re-normalized here (preset, then overrides, then clamped to limits) so the card and the
 // server always start from the same scan. `programs` undefined skips program resolution (programId stays "").
+// The top-level scan names its account counts per platform; normalizeScan takes them as maxTargets.
+function flatScan(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const { xAccounts, linkedinAccounts, redditAccounts, ...rest } = raw;
+  return { ...rest, maxTargets: { x: xAccounts, linkedin: linkedinAccounts, reddit: redditAccounts } };
+}
 function cleanScan(raw, target, programs) {
   const tools = quickScanTools(); if (!tools) return null;
   const input = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -306,15 +309,31 @@ function cleanScan(raw, target, programs) {
 
 // Cards as the model wrote them, trimmed to size, with actionIndexes renumbered to the actions that survived cleaning.
 // Positions inside items, columns and rows stay put ("" included): metric deltas and compare pairs depend on them.
+// Metric, table and compare cards arrive as lines of text (see CARDS): "Label: value (change)" and "a | b | c". They are
+// parsed here into fields, columns and rows; a card that already has them (older answers) keeps its own.
+const cells = (line) => String(line ?? '').split('|').map((cell) => cell.trim());
+function linesToParts(type, lines) {
+  if (type === 'metric') {
+    const parsed = lines.map((line) => /^(.+?):\s*(.+?)(?:\s*\(([^)]*)\))?\s*$/.exec(String(line ?? ''))).filter(Boolean).slice(0, 4);
+    return { fields: parsed.map((match) => ({ label: match[1], value: match[2] })), items: parsed.map((match) => match[3] || ''), columns: [], rows: [] };
+  }
+  if (type === 'table' || type === 'compare') { const [head = '', ...body] = lines; return { fields: [], items: [], columns: cells(head), rows: body.slice(0, 8).map(cells) }; }
+  return { fields: [], items: lines, columns: [], rows: [] };
+}
 function cleanCards(raw, actionAt, types = CARD_TYPES) {
-  return (Array.isArray(raw) ? raw : []).filter((card) => card && types.includes(card.type)).slice(0, 4).map((card) => ({
-    type: card.type, ref: clip(card.ref, 200), title: clip(card.title, 120), note: clip(card.note, 300),
-    items: texts(card.items, 8, 300),
-    fields: (Array.isArray(card.fields) ? card.fields : []).filter((field) => field && clip(field.label, 60)).slice(0, 4).map((field) => ({ label: clip(field.label, 60), value: clip(field.value, 80) })),
-    columns: texts(card.columns, 5, 60),
-    rows: (Array.isArray(card.rows) ? card.rows : []).slice(0, 8).map((row) => texts(row?.cells, 5, 160)),
-    actionIndexes: [...new Set((Array.isArray(card.actionIndexes) ? card.actionIndexes : []).map((index) => actionAt.get(index)).filter(Number.isInteger))].slice(0, 4),
-  }));
+  return (Array.isArray(raw) ? raw : []).filter((card) => card && types.includes(card.type)).slice(0, 4).map((card) => {
+    const lines = texts(card.items, 9, 300);
+    const given = Array.isArray(card.fields) || Array.isArray(card.columns) || Array.isArray(card.rows);
+    const parts = given ? { fields: card.fields, items: lines, columns: card.columns, rows: (Array.isArray(card.rows) ? card.rows : []).map((row) => row?.cells) } : linesToParts(card.type, lines);
+    return {
+      type: card.type, ref: clip(card.ref, 200), title: clip(card.title, 120), note: clip(card.note, 300),
+      items: texts(parts.items, 8, 300),
+      fields: (Array.isArray(parts.fields) ? parts.fields : []).filter((field) => field && clip(field.label, 60)).slice(0, 4).map((field) => ({ label: clip(field.label, 60), value: clip(field.value, 80) })),
+      columns: texts(parts.columns, 5, 60),
+      rows: (Array.isArray(parts.rows) ? parts.rows : []).slice(0, 8).map((row) => texts(row, 5, 160)),
+      actionIndexes: [...new Set((Array.isArray(card.actionIndexes) ? card.actionIndexes : []).map((index) => actionAt.get(index)).filter(Number.isInteger))].slice(0, 4),
+    };
+  });
 }
 function cleanRemember(raw) {
   const seen = new Set();
@@ -376,10 +395,10 @@ function cleanReply(output = {}, { imagesOn = false, imageSizes = IMAGE_SIZES, r
   (Array.isArray(output.actions) ? output.actions : []).forEach((row, index) => {
     if (actions.length >= 4 || !kinds[row?.kind] || (isEditor(role) && row.kind === 'open-tab' && clip(row.target, 160).toLowerCase() === 'settings')) return;
     const action = { kind: row.kind, label: clip(row.label, 60) || 'Do it', target: row.kind === 'open-tracker' ? '' : clip(row.target, 160) };
-    if (row.kind === 'quick-scan') { const scan = cleanScan(row.scan, action.target, programs); if (!scan) return; action.scan = scan; action.target ||= scan.topic; }
+    if (row.kind === 'quick-scan') { const scan = cleanScan(row.scan || flatScan(output.scan), action.target, programs); if (!scan) return; action.scan = scan; action.target ||= scan.topic; }
     // One prompt edit per reply, as the PROMPTS rules say.
     if (row.kind === 'edit-prompt') {
-      const prompt = actions.some((entry) => entry.kind === 'edit-prompt') ? null : cleanPromptEdit(row.prompt, rights); if (!prompt) return;
+      const prompt = actions.some((entry) => entry.kind === 'edit-prompt') ? null : cleanPromptEdit(row.prompt || output.promptEdit, rights); if (!prompt) return;
       action.prompt = prompt; action.target ||= editablePrompts(rights.editionId).find((entry) => entry.id === prompt.promptId)?.name || prompt.promptId;
       if (!clip(row.label, 60)) action.label = 'Review the change';
     }

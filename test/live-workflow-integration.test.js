@@ -475,7 +475,7 @@ describe('Ask AI', () => {
     expect(calls[0].stdin).toContain('PROMPTS (the instructions behind research');
     expect(calls[0].stdin).toContain('edit-prompt: target');
     expect(calls[0].stdin).toContain('"id": "research.discovery"');
-    expect(JSON.parse(calls[0].args[calls[0].args.indexOf('--json-schema') + 1]).properties.actions.items.properties.prompt.properties.promptId).toEqual({ type: 'string' });
+    expect(JSON.parse(calls[0].args[calls[0].args.indexOf('--json-schema') + 1]).properties.promptEdit.properties.promptId).toEqual({ type: 'string' });
     expect(calls[1].stdin).toContain('"kind": "editable"');
     // One edit per reply; nothing was saved by the answer itself.
     expect(reply.message.actions.map((action) => action.kind)).toEqual(['edit-prompt', 'open-tab']);

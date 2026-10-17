@@ -159,9 +159,13 @@ function buildMessageParams({ model, prompt, schema, maxTokens, effort = '', ada
     system: cachePrefix ? [{ type: 'text', text: CLAUDE_SYSTEM_PROMPT }, { type: 'text', text: cachePrefix, cache_control: { type: 'ephemeral' } }] : CLAUDE_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
     ...(adaptiveThinking ? { thinking: { type: 'adaptive' } } : {}),
-    output_config: { ...(effort ? { effort } : {}), format: { type: 'json_schema', schema } },
+    ...(schema || effort ? { output_config: { ...(effort ? { effort } : {}), ...(schema ? { format: { type: 'json_schema', schema } } : {}) } } : {}),
   };
 }
+// The API compiles a structured-output schema into a grammar and refuses one it judges too large or too complex; these
+// are the messages it uses. The request is retried once with the schema written into the prompt instead (see run()).
+const GRAMMAR_REFUSED = /compiled grammar is too large|too complex for compilation/i;
+const answerFormat = (schemaText) => `\n\nANSWER FORMAT\nReturn only one JSON object that matches this JSON schema: every property it lists, nothing else, no code fences and no text before or after it.\n${schemaText}`;
 
 const usd = (value) => `$${value >= 0.1 ? value.toFixed(2) : Number(value.toPrecision(2))}`;
 const RAISE_BUDGET = "Raise the run's AI budget and retry; finished steps are kept.";
@@ -241,7 +245,16 @@ function validateRequest({ schema, prompt, model, effort, maxBudgetUsd, cachePre
 }
 
 // Stop reason → answer or coded error. Every error here was billed, so it carries the measured cost.
-function settle(message, { model, budget, maxTokens, capSource, effort, requestedEffort, requestId, durationMs }) {
+// Without output_config.format (the grammar fallback) the reply is plain text that should hold one JSON object; take it
+// even when the model wrapped it in a code fence. Callers validate every answer either way.
+function jsonFrom(text) {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try { return JSON.parse(trimmed); } catch (_) {}
+  const start = trimmed.indexOf('{'); const end = trimmed.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('No JSON object in the reply.');
+  return JSON.parse(trimmed.slice(start, end + 1));
+}
+function settle(message, { model, budget, maxTokens, capSource, effort, requestedEffort, requestId, durationMs, schemaInPrompt = false }) {
   const actualModel = typeof message?.model === 'string' ? message.model : '';
   const verified = modelMatches(model, [actualModel]);
   const usage = isObject(message?.usage) ? message.usage : null;
@@ -262,14 +275,14 @@ function settle(message, { model, budget, maxTokens, capSource, effort, requeste
   const missing = () => runnerError('Claude did not return the required structured output. No unvalidated answer was saved.', 'CLAUDE_MISSING_STRUCTURED_OUTPUT', fields);
   if (typeof text !== 'string' || !text.trim()) throw missing();
   let output;
-  try { output = JSON.parse(text); } catch (_) { throw runnerError('Claude returned structured output that is not valid JSON. No unvalidated answer was saved.', 'CLAUDE_INVALID_RESULT', fields); }
+  try { output = schemaInPrompt ? jsonFrom(text) : JSON.parse(text); } catch (_) { throw runnerError('Claude returned structured output that is not valid JSON. No unvalidated answer was saved.', 'CLAUDE_INVALID_RESULT', fields); }
   if (!isObject(output)) throw missing();
   return {
     output,
     receipt: {
       provider: ANTHROPIC_PROVIDER, requestedModel: model, actualModel, actualModels: [actualModel],
       effort: effort.effort, ...(effort.note ? { requestedEffort, effortNote: effort.note } : {}),
-      costUsd, usage, durationMs, stopReason, requestId, maxTokens, costBasis: COST_BASIS,
+      costUsd, usage, durationMs, stopReason, requestId, maxTokens, costBasis: COST_BASIS, ...(schemaInPrompt ? { structuredOutput: 'schema in prompt' } : {}),
     },
   };
 }
@@ -320,10 +333,18 @@ function createAnthropicRunner({ apiKey, Client = Anthropic, clock = Date.now, m
       const chosen = resolveEffort(effort, profile.efforts, model);
       const maxTokens = Math.min(profile.maxOutputTokens, budgetTokens);
       const params = buildMessageParams({ model, prompt, schema: apiSchema, maxTokens, effort: chosen.effort, adaptiveThinking: profile.adaptiveThinking, cachePrefix });
-      let message;
+      let message; let schemaInPrompt = false;
       // Streamed so long thinking-plus-answer calls never hit HTTP idle timeouts; finalMessage() gathers the reply.
-      try { stream = client.messages.stream(params, { signal: controller.signal }); message = await stream.finalMessage(); } catch (error) { throw failure(error); }
-      return settle(message, { model, budget, maxTokens, capSource: budgetTokens < profile.maxOutputTokens ? 'budget' : 'model', effort: chosen, requestedEffort: effort, requestId: stream.request_id ?? null, durationMs: Math.max(0, clock() - startedAt) });
+      try { stream = client.messages.stream(params, { signal: controller.signal }); message = await stream.finalMessage(); }
+      catch (error) {
+        const refused = failure(error);
+        // A schema the API won't compile is refused before any answer starts (nothing billed). Ask once more with the
+        // schema written into the prompt; the caller's checks (cleanReply, the stage validators) still decide what's kept.
+        if (refused.code !== 'ANTHROPIC_BAD_REQUEST' || !GRAMMAR_REFUSED.test(refused.message)) throw refused;
+        const loose = buildMessageParams({ model, prompt: prompt + answerFormat(schemaText), schema: null, maxTokens, effort: chosen.effort, adaptiveThinking: profile.adaptiveThinking, cachePrefix });
+        try { stream = client.messages.stream(loose, { signal: controller.signal }); message = await stream.finalMessage(); schemaInPrompt = true; } catch (retryError) { throw failure(retryError); }
+      }
+      return settle(message, { model, budget, maxTokens, capSource: budgetTokens < profile.maxOutputTokens ? 'budget' : 'model', effort: chosen, requestedEffort: effort, requestId: stream.request_id ?? null, durationMs: Math.max(0, clock() - startedAt), schemaInPrompt });
     } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
   }
 

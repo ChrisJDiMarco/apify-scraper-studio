@@ -60,7 +60,8 @@ describe('prompt rules, lookups and the edit button', () => {
     const text = parts({ context: { layout: 'simple', role: 'editor' }, role: 'editor' });
     for (const missing of ['PROMPTS (the instructions', 'edit-prompt', 'prompt-change', '  prompt: target', 'prompts = Prompts']) expect(text).not.toContain(missing);
     const schema = help.helpSchema(undefined, { role: 'editor' });
-    expect(schema.properties.actions.items.required).toEqual(['kind', 'label', 'target', 'scan']);
+    expect(schema.properties.actions.items.required).toEqual(['kind', 'label', 'target']);
+    expect(schema.properties.promptEdit).toBeUndefined();
     expect(schema.properties.lookups.items.properties.kind.enum).not.toContain('prompt');
     // Pages, spots and card types are plain strings in the schema; the reply cleaner drops what this person can't use.
     const reply = help.cleanReply({ answer: 'x', pages: [{ page: 'prompts', label: 'Prompts' }], cards: [{ ...card, type: 'prompt-change' }], show: { autoStart: false, steps: [{ target: 'nav.prompts', item: '', say: 'Prompts live here.' }] } }, { role: 'editor' });
@@ -89,9 +90,11 @@ describe('prompt rules, lookups and the edit button', () => {
     expect(text).toContain('prompt-change: ref = the prompt\'s name');
     const schema = help.helpSchema(undefined, { role: 'editor', promptAccess: EDITOR });
     const action = schema.properties.actions.items;
-    expect(action.required).toEqual(['kind', 'label', 'target', 'scan', 'prompt']);
-    expect(action.properties.prompt).toMatchObject({ additionalProperties: false, required: ['promptId', 'blockId', 'text', 'note'] });
-    expect(action.properties.prompt.properties.promptId).toEqual({ type: 'string' });
+    expect(action.required).toEqual(['kind', 'label', 'target']);
+    // One prompt edit per reply, so its fields sit once at the top level rather than inside every action.
+    expect(schema.required).toContain('promptEdit');
+    expect(schema.properties.promptEdit).toMatchObject({ additionalProperties: false, required: ['promptId', 'blockId', 'text', 'note'] });
+    expect(schema.properties.promptEdit.properties.promptId).toEqual({ type: 'string' });
     // Only editable prompts survive the cleaner: system.claude has nothing that can change.
     const edit = (promptId, blockId) => ({ kind: 'edit-prompt', label: '', target: '', scan: {}, prompt: { promptId, blockId, text: 'Return nothing.', note: '' } });
     expect(help.cleanReply({ answer: 'x', actions: [edit('system.claude', 'body')] }, { role: 'editor', promptAccess: EDITOR }).actions).toEqual([]);
@@ -143,7 +146,7 @@ describe('asking with prompt lookups', () => {
     expect(calls[0].prompt).toContain('SYSTEM INSTRUCTIONS\nYou are Ask AI for the Northwind team.\n');
     expect(calls[0].prompt).toContain('PROMPTS (the instructions behind research');
     expect(calls[1].prompt).toContain('"title": "Find candidate trends"');
-    expect(calls[0].schema.properties.actions.items.properties.prompt).toBeTruthy();
+    expect(calls[0].schema.properties.promptEdit).toBeTruthy();
     expect(reply.actions[0]).toMatchObject({ kind: 'edit-prompt', prompt: { promptId: 'research.discovery', blockId: 'empty' } });
     expect(reply.cards).toEqual([expect.objectContaining({ type: 'prompt-change', actionIndexes: [0] })]);
     expect(reply.read).toEqual([{ kind: 'prompt', title: 'Find candidate trends' }]);
@@ -168,5 +171,26 @@ describe('the Ask AI answer schema stays small enough for the API', () => {
       expect(Math.max(...lists)).toBeLessThanOrEqual(10);
       expect(lists.reduce((sum, n) => sum + n, 0)).toBeLessThanOrEqual(40);
     }
+  });
+});
+
+describe('the flat answer shape', () => {
+  it('reads the quick scan and the prompt edit from the top level, and card lines as fields, columns and rows', () => {
+    const output = {
+      answer: 'Here is a plan.',
+      actions: [{ kind: 'edit-prompt', label: 'Review', target: '' }],
+      promptEdit: { promptId: 'research.discovery', blockId: 'empty', text: 'Return nothing.', note: 'Shorter.' },
+      cards: [
+        { type: 'metric', ref: '', title: 'This week', note: '', items: ['Posts: 412 (+38)', 'Trends: 6'], actionIndexes: [] },
+        { type: 'table', ref: '', title: 'Top trends', note: '', items: ['Trend | Posts', 'AI Overviews | 120', 'Listicles | 80'], actionIndexes: [] },
+        { type: 'compare', ref: '', title: 'Blog vs Social', note: '', items: ['Blog | Social', 'Long read | Thread', ' | Carousel'], actionIndexes: [] },
+      ],
+    };
+    const reply = help.cleanReply(output, { role: 'editor', promptAccess: EDITOR });
+    expect(reply.actions[0]).toMatchObject({ kind: 'edit-prompt', prompt: { promptId: 'research.discovery', blockId: 'empty', note: 'Shorter.' } });
+    const [metric, table, compare] = reply.cards;
+    expect(metric).toMatchObject({ fields: [{ label: 'Posts', value: '412' }, { label: 'Trends', value: '6' }], items: ['+38', ''] });
+    expect(table).toMatchObject({ columns: ['Trend', 'Posts'], rows: [['AI Overviews', '120'], ['Listicles', '80']] });
+    expect(help.modelCard(compare).data).toEqual({ left: { title: 'Blog', points: ['Long read'] }, right: { title: 'Social', points: ['Thread', 'Carousel'] } });
   });
 });
