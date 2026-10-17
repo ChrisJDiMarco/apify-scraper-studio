@@ -533,7 +533,7 @@ function cleanReportEdit(raw, target) {
 // [[Exact title]] becomes [Exact title](studio:<kind>/<id>) when `find(title)` names one item ({ kind, id }); anything
 // else becomes plain text. A studio: link the model wrote itself survives only when `known(kind, id)` says it exists.
 // help-assistant.jsx turns studio: links into buttons that open the item.
-const STUDIO_KINDS = ['report', 'trend', 'folder', 'run', 'prompt', 'page'];
+const STUDIO_KINDS = ['report', 'trend', 'folder', 'run', 'prompt', 'program', 'page'];
 const STUDIO_LINK = /\[([^\]\n]{1,160})\]\(studio:([a-z]+)\/([A-Za-z0-9][A-Za-z0-9_.:~-]{0,299})\)/g;
 function linkAnswer(answer, { find, known } = {}) {
   let text = String(answer || '').replace(STUDIO_LINK, (all, label, kind, id) => (STUDIO_KINDS.includes(kind) && typeof known === 'function' && known(kind, id) ? all : label));

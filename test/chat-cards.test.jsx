@@ -98,6 +98,26 @@ describe('report change and run cards', () => {
     expect(screen.getByText(/Sam changed this report after the suggestion/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
   });
+  it('names the button for what it does: it opens the report in the reader, not in Edit', () => {
+    const openReport = vi.fn();
+    draw([card], [{ kind: 'edit-report', label: 'Review' }], { api: { editStudioAsset: vi.fn() }, onNav: { openReport } });
+    expect(screen.queryByRole('button', { name: /Open in the editor/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Open the report/ }));
+    expect(openReport).toHaveBeenCalledWith('asset-r');
+  });
+  it('opens the program card’s own program, not just Research programs', () => {
+    const program = { type: 'program', title: 'AI search pulse', note: '', actionIndexes: [], data: { programId: 'p-pulse', name: 'AI search pulse' } };
+    const openTarget = vi.fn(); const openPage = vi.fn();
+    draw([program], [], { onNav: { openTarget, openPage } });
+    fireEvent.click(screen.getByRole('button', { name: /See the program/ }));
+    expect(openTarget).toHaveBeenCalledWith({ kind: 'program', id: 'p-pulse' });
+    expect(openPage).not.toHaveBeenCalled();
+    cleanup();
+    // A layout without openTarget (or a card without its id) still opens the page.
+    draw([program], [], { onNav: { openPage } });
+    fireEvent.click(screen.getByRole('button', { name: /See the program/ }));
+    expect(openPage).toHaveBeenCalledWith('research');
+  });
   it('offers a finished quick scan a full run with the program it borrowed, not a topic it can’t keep', async () => {
     const onRunAction = vi.fn(async () => 'Research started. New trends will appear under Trends.');
     const run = { type: 'run', title: '', note: '', actionIndexes: [], data: { runId: 'scan-1', kind: 'quick-scan', title: 'Quick scan · AI Overviews', status: 'succeeded', programId: 'p-weekly', themes: [] } };

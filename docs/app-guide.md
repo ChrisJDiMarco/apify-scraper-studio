@@ -142,7 +142,7 @@ A channel asset kit is the Golden Thread "Generate All Channel Assets" n8n workf
   - **A choice**: Ask AI asks which one, for example when two runs found a trend with the same name. Picking one runs the button with no extra AI cost.
   - **A plan**: numbered steps that run one at a time, each with **Skip**; a step that fails shows **Try again**.
   - **A draft** (Slack, email, LinkedIn, X or a note): edit it, then **Copy**, **Copy for Slack** or **Ask for a shorter one**. Ask AI never sends anything.
-  - **Suggested report change**: new text for one section of a report you asked it to read, shown as added and removed lines with a brand check. **Apply** saves it as your edit (refused if someone saved the report since); **Open in the editor** opens it instead.
+  - **Suggested report change**: new text for one section of a report you asked it to read, shown as added and removed lines with a brand check. **Apply** saves it as your edit (refused if someone saved the report since); **Open the report** opens it in the reader instead, where **Edit** changes it by hand.
 - **It does the work**: when you ask it to do something it can do, the answer offers buttons, in both layouts. Nothing happens until you click, and anything that spends money first shows a confirmation with the estimate and the caps. It only offers buttons your role can use, and the studio checks every one again. A button whose target it can't find is left off (it says so), and a button that fails shows why under it.
   - **Trends**: start research with a program (its whole saved setup), plan a quick scan, say yes (optionally with a note and channels) or skip (optionally with a reason), undo either while the run still waits for review, say yes to several at once, and write reports for some or all approved trends (the confirmation names approved trends from that run that will be skipped).
   - **Reports and assets**: open Make channel assets on a report with channels ticked (you press **Make**), set a report's or file's status (Published asks for the live link), mark a ready trend used or not by one channel (roles with **Mark trends used**), suggest a report change, finish an asset set, save a folder, stop or retry a run.
@@ -605,7 +605,7 @@ A run that started since your last visit opens first; otherwise the workbook you
 
 | Tab | What it holds |
 | --- | --- |
-| **Theme Repository** | Every discovered theme: description, matching_keywords, criteria, Novelty, Status (Approved, Passed, Waiting for review), Evidence Count, Taxonomy Category |
+| **Theme Repository** | Every discovered theme: description, matching_keywords, criteria, Novelty, Status (Approved, Skipped, Needs your OK), Evidence Count, Taxonomy Category |
 | **Twitter**, **Reddit**, **LinkedIn** | One row per kept post, newest first: post_url, text, engagement columns, prevalence_score, Theme, Confidence, Reasoning, entities, Pain_Point_Type, Urgency_Signal. Reddit adds subreddit and title. LinkedIn adds headline and profile |
 | **Theme Summary Data** | Per theme: post counts, engagement totals and prevalence per platform, **Overall Prevalence Score**, and **Weighted Prevalence Score** (top theme = 100) |
 | **Post Counts Reference** | Posts per theme per platform |

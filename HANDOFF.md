@@ -59,7 +59,7 @@ Semrush marketing roles. Every person has one role; the server enforces it on ev
 
 Admins can add up to 12 **custom roles** built on Editor or Channel owner, from the templates Viewer, Analyst and
 Channel reviewer, and adjust any person's access per capability (deny wins). The model is
-25 capabilities over 158 RPC methods; with no policy edits the defaults are admin 158 methods, editor 110, channel owner 13. Details:
+25 capabilities over 167 RPC methods; with no policy edits the defaults are admin 167 methods, editor 112, channel owner 13. Details:
 [docs/roles-and-access.md](docs/roles-and-access.md).
 
 Two layouts, chosen per person: **Simple** (the default; Home, Trends, Reports, Assets, Inbox, Calendar, Ask AI) and

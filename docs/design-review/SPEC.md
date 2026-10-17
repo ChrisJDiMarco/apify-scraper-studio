@@ -171,7 +171,7 @@ Hydrated card shape (the renderer contract): `{ type, title, note, data, actionI
 | choice *(added later)* | the candidates for an ambiguous target, or a follow-up question | Pick one; runs the button on the chosen ids with no AI call |
 | plan *(added later)* | numbered steps (buttons or `ask` steps) | Runs steps in order, each with Skip; a failed step shows Try again |
 | draft *(added later)* | `{ kind: slack\|email\|linkedin\|x\|note, subject, text }` | Editable text with Copy, Copy for Slack, Ask for a shorter one; never sent |
-| report-change *(added later)* | a section's old and new text | Diff with brand check, **Apply** through `editStudioAsset` with `baseEditedAt`, Open in the editor |
+| report-change *(added later)* | a section's old and new text | Diff with brand check, **Apply** through `editStudioAsset` with `baseEditedAt`, Open the report |
 
 **Actions (added later).** Every Ask AI button type is listed once in `src/shared/ask-actions.json` (27 kinds plus 3 old names as aliases): label, target type, params, the methods a role needs (all of them), spend and confirmation rules, and the prompt line. `help-assistant.js` builds the ACTIONS prompt and gates buttons from it, `helpResolveActions` in `index.js` resolves each target to real ids (two equal matches become a choice card; no match drops the button), and `studio-actions.js` runs it. Params are flat `key=value` strings checked by `cleanParams`.
 

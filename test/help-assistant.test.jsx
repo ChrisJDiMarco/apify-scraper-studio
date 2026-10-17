@@ -132,6 +132,21 @@ describe('Ask AI panel', () => {
     expect(openTarget).toHaveBeenCalledWith({ kind: 'report', id: 'asset-1' });
     expect(studioLinks('[x](studio:nowhere/1) and [y](studio:page/research)')).toEqual({ text: '[x](studio:nowhere/1) and **y**', links: [{ label: 'y', kind: 'page', id: 'research' }] });
   });
+  it('opens a [[Program]] link on that program, and on Research programs where the layout can’t', async () => {
+    expect(studioLinks('Run [Weekly listening](studio:program/p-weekly).')).toEqual({ text: 'Run **Weekly listening**.', links: [{ label: 'Weekly listening', kind: 'program', id: 'p-weekly' }] });
+    const openTarget = vi.fn();
+    const api = { askHelp: vi.fn(async () => reply({ answer: 'Run [Weekly listening](studio:program/p-weekly) again.', pages: [], followUps: [] })) };
+    render(<HelpAssistant api={api} open onClose={vi.fn()} page={page} onOpenPage={vi.fn()} nav={{ openTarget }} />);
+    fireEvent.click(screen.getByRole('button', { name: /What will a research run cost\?/ }));
+    fireEvent.click(within(await screen.findByRole('article', { name: 'Answer' })).getByRole('button', { name: /Weekly listening/ }));
+    expect(openTarget).toHaveBeenCalledWith({ kind: 'program', id: 'p-weekly' });
+    cleanup();
+    const onOpenPage = vi.fn();
+    render(<HelpAssistant api={api} open onClose={vi.fn()} page={page} onOpenPage={onOpenPage} nav={{}} />);
+    fireEvent.click(screen.getByRole('button', { name: /What will a research run cost\?/ }));
+    fireEvent.click(within(await screen.findByRole('article', { name: 'Answer' })).getByRole('button', { name: /Weekly listening/ }));
+    expect(onOpenPage).toHaveBeenCalledWith('research');
+  });
   it('records a button that failed as failed, shows why, and asks a plan’s ask step itself', async () => {
     const recordAskOutcome = vi.fn(async () => ({}));
     const message = { id: 'msg-00000000-0000-0000-0000-000000000001', role: 'assistant', content: 'Two steps.', actions: [{ kind: 'start-research', label: 'Start research', target: 'Weekly listening' }, { kind: 'ask', label: 'Then: make Social assets', target: 'Make Social assets for the new report' }], cards: [] };

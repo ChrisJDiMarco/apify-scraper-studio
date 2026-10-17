@@ -181,7 +181,8 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
   // Links go in when there is an address to build them on; without one, the copy says where to add it (once a session).
   async function copyBriefing() { const done = await copyText(briefingMarkdown(data, { changes, origin: linkOrigin })); setCopied(done ? `Copied. Paste it into Slack.${linkOrigin ? '' : admin ? ' Add a Studio web address in Settings to include links.' : ''}` : 'The briefing couldn’t be copied. Try again.'); setTimeout(() => setCopied(''), linkOrigin ? 2400 : 4800); }
   function submit(event) { event.preventDefault(); const text = draft.trim(); if (!text || !onAsk || viewer.preview) return; onAsk(text, ''); setDraft(''); }
-  const openTrend = (entry) => (entry?.reportAssetId ? open({ kind: 'report', id: entry.reportAssetId, page: 'reports' }) : open({ kind: 'trend', id: list(entry?.themeIds)[0] || entry?.trendId || '', page: 'trends' }));
+  // A trend opens on its newest appearance (this run's card), not the first theme id it was seen under.
+  const openTrend = (entry) => (entry?.reportAssetId ? open({ kind: 'report', id: entry.reportAssetId, page: 'reports' }) : open({ kind: 'trend', id: entry?.latestThemeId || list(entry?.themeIds).at(-1) || entry?.trendId || '', ...(entry?.latestRunId ? { runId: entry.latestRunId } : {}), page: 'trends' }));
   const linkButton = (link) => (api.openSourceUrl ? <button type="button" className="wb-link-chip" title={link} onClick={() => api.openSourceUrl(link)}><ExternalLink size={13} aria-hidden="true" /><span>{linkText(link)}</span></button> : <a className="wb-link-chip" href={link} target="_blank" rel="noreferrer" title={link}><ExternalLink size={13} aria-hidden="true" /><span>{linkText(link)}</span></a>);
   const subtitle = [`Week of ${week.label}${week.lastWeek ? ' (last week)' : ''}`, latestRun ? `since ${weekday(latestRun.createdAt)}’s research run` : ''].filter(Boolean).join(' · ');
 

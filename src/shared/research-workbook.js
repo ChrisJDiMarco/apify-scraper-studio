@@ -92,7 +92,8 @@ function buildResearchWorkbook(source = {}) {
   // Theme Repository: every discovered theme, with the review decision beside it.
   const discovered = run.discoveredThemes || run.themes || [];
   const approvedIds = new Set((run.themes || []).map((theme) => theme.id));
-  const status = (theme) => run.decisions?.[theme.id] === 'passed' ? 'Passed' : (run.decisions?.[theme.id] === 'approved' || (run.approvedAt && approvedIds.has(theme.id))) ? 'Approved' : run.status === 'awaiting-review' ? 'Waiting for review' : approvedIds.has(theme.id) ? 'Approved' : '';
+  // The same words as the Trend board, Home, Inbox and the Trend tracker workbook (trend-history.js): Skip is 'Skipped', undecided is 'Needs your OK'.
+  const status = (theme) => run.decisions?.[theme.id] === 'passed' ? 'Skipped' : (run.decisions?.[theme.id] === 'approved' || (run.approvedAt && approvedIds.has(theme.id))) ? 'Approved' : run.status === 'awaiting-review' ? 'Needs your OK' : approvedIds.has(theme.id) ? 'Approved' : '';
   sheets.push(discovered.length ? {
     id: 'themes', name: SHEETS.themes.name, columns: SHEETS.themes.columns,
     rows: discovered.map((theme) => [theme.name, theme.description, JSON.stringify(theme.matchingKeywords || []), theme.matchingCriteria, theme.negativeCriteria, theme.novelty, status(theme), theme.evidenceCount ?? (theme.evidenceIds || []).length, theme.taxonomyCategory].map(cell)),

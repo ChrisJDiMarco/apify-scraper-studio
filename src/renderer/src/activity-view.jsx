@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, CheckCircle2, CircleDashed, Clock3, Database, FileText, Globe2, Hourglass, LoaderCircle, RotateCcw, Search, Sparkles, Square, SquareKanban } from 'lucide-react';
 import { ACTIVITY_KINDS, activitySummary, buildActivity, dayLabel, filterActivity, formatDuration } from '../../shared/activity-feed.js';
 import { Button, JsonBlock, formatDate, label, number } from './ui.jsx';
+import { hasCapability, useViewer } from './viewer.js';
 import './workspace-pages.css';
 
 const KIND_ICONS = { collection: Globe2, research: Search, content: FileText, analysis: Sparkles, job: CircleDashed };
@@ -33,6 +34,8 @@ export function ActivityView({ state, busy, onRunRecipe, onDatasetSelect, onNavi
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const listRef = useRef(null);
+  // Without See costs the server strips every run's cost, so a spend tile would only ever say $0.00.
+  const seeCosts = hasCapability(useViewer(), 'seeCosts');
   const entries = useMemo(() => buildActivity(state), [state]);
   const summary = useMemo(() => activitySummary(entries), [entries]);
   const visible = filterActivity(entries, { kind, state: status, query, sinceDays });
@@ -63,7 +66,7 @@ export function ActivityView({ state, busy, onRunRecipe, onDatasetSelect, onNavi
       <button type="button" className="ws-stat" aria-pressed={status === 'review'} onClick={() => setStatus((value) => value === 'review' ? 'all' : 'review')}><span>Waiting on you</span><strong>{number(summary.review)}</strong>{summary.review > 0 && <small>Trends to review</small>}</button>
       <button type="button" className="ws-stat" aria-pressed={status === 'attention'} onClick={() => setStatus((value) => value === 'attention' ? 'all' : 'attention')}><span>Needs attention</span><strong className={summary.attention ? 'warn' : ''}>{number(summary.attention)}</strong><small>Last 7 days</small></button>
       <div className="ws-stat"><span>Finished this week</span><strong>{number(summary.doneThisWeek)}</strong><small>{number(summary.rowsThisWeek)} rows collected</small></div>
-      <div className="ws-stat"><span>AI spend this week</span><strong>{money(summary.spendThisWeek)}</strong><small>Recorded by runs</small></div>
+      {seeCosts && <div className="ws-stat"><span>AI spend this week</span><strong>{money(summary.spendThisWeek)}</strong><small>Recorded by runs</small></div>}
     </div>
     <div className="ws-toolbar">
       <label className="ws-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="Search activity" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search names, errors, statuses…" /></label>
@@ -96,8 +99,8 @@ export function ActivityView({ state, busy, onRunRecipe, onDatasetSelect, onNavi
             {selected.kind === 'collection' && selected.recipeId && <Button disabled={busy} onClick={() => onRunRecipe(selected.recipeId)}><RotateCcw size={14} aria-hidden="true" />Run again</Button>}
             {selected.datasetId && <Button className="ghost" onClick={() => { onDatasetSelect(selected.datasetId); onNavigate('datasets'); }}><Database size={14} aria-hidden="true" />Open dataset</Button>}
             {selected.kind === 'research' && selected.state === 'review' && <Button onClick={() => onOpenStudio('board')}><SquareKanban size={14} aria-hidden="true" />Review trends</Button>}
-            {selected.kind === 'research' && selected.state !== 'review' && <Button className="ghost" onClick={() => onOpenStudio('research')}>Open in Research programs<ArrowRight size={14} aria-hidden="true" /></Button>}
-            {selected.kind === 'content' && <Button className="ghost" onClick={() => onOpenStudio('create')}>Open in Create content<ArrowRight size={14} aria-hidden="true" /></Button>}
+            {selected.kind === 'research' && selected.state !== 'review' && <Button className="ghost" onClick={() => onOpenStudio('research', selected.studioRunId)}>Open in Research programs<ArrowRight size={14} aria-hidden="true" /></Button>}
+            {selected.kind === 'content' && <Button className="ghost" onClick={() => onOpenStudio('create', selected.studioRunId)}>Open in Create content<ArrowRight size={14} aria-hidden="true" /></Button>}
             {selected.kind === 'analysis' && <Button className="ghost" onClick={() => onNavigate('reports', { analysisId: selected.analysisId })}>Open report<ArrowRight size={14} aria-hidden="true" /></Button>}
             {selected.kind === 'job' && selected.cancellable && selected.state === 'active' && <Button className="ghost danger" disabled={busy} onClick={() => onCancelJob(selected.jobId)}><Square size={12} aria-hidden="true" />Cancel</Button>}
           </div>

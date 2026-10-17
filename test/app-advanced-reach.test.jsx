@@ -18,10 +18,10 @@ const plan = { title: TREND, sourceKey: 'theme:theme-1', sourceKind: 'trend', ch
   folders: [{ id: 'blog', name: 'Semrush Blog', items: [{ id: 'blogshort', label: 'Blog — Short News Update', kind: 'text', selected: true, available: true }] }] };
 
 // The Advanced layout (settings.uiMode), as the local admin.
-async function openAdvanced() {
+async function openAdvanced(extra = {}) {
   const workspaces = [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush', knowledge: {}, products: [] }];
   const state = { projects: [], recipes: [], datasets: [{ id: 'd1', name: 'Saved posts', itemCount: 3, createdAt: '2026-10-01T00:00:00Z' }], cards: [], assets: [], runs: [], analyses: [], jobs: [], keys: { APIFY_API_TOKEN: true, OPENAI_API_KEY: true }, settings: { maxItems: 1000, sheets: {}, uiMode: 'classic' }, v5: { missions: [], jobs: [], recipeVersions: {}, commandPalette: [], evidenceSummary: { sample: [] } },
-    contentStudio: { activeWorkspaceId: 'semrush', workspaces, programs: [], researchRuns: [], contentRuns: [{ id: 'content-trend', workspaceId: 'semrush', type: 'content', title: TREND, themeId: 'theme-1', status: 'succeeded', createdAt: '2026-10-10T10:00:00Z', jobs: [] }, kitRun], assets, availableDatasets: [], availableReports: [], capabilities: {} } };
+    contentStudio: { activeWorkspaceId: 'semrush', workspaces, programs: [], researchRuns: [], contentRuns: [{ id: 'content-trend', workspaceId: 'semrush', type: 'content', title: TREND, themeId: 'theme-1', status: 'succeeded', createdAt: '2026-10-10T10:00:00Z', jobs: [] }, kitRun], assets, availableDatasets: [], availableReports: [], capabilities: {}, ...extra } };
   const api = {
     appMeta: vi.fn(async () => ({ version: 'test' })), state: vi.fn(async () => state), onStateChanged: vi.fn(() => () => {}), readDataset: vi.fn(async () => ({ items: [] })),
     contentCatalog: vi.fn(async () => ({ editions: [], deliverables: [] })), listHelpImages: vi.fn(async () => []), readHelpImage: vi.fn(async () => ({})),
@@ -67,5 +67,53 @@ describe('the Advanced layout reaches what Simple has', () => {
     fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'folder' } });
     fireEvent.click(await within(palette).findByRole('button', { name: new RegExp(`Open folder: ${TREND}`) }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Your asset library' })).toBeInTheDocument();
+  });
+});
+
+// What one studio page hands the next, through the real shell: the sidebar changes the studio view without remounting it.
+describe('Advanced hand-offs between studio pages', () => {
+  const OTHER = 'Zero click';
+  // A finished research run with two trends, each with its trends report (Ready on the board), and a channel-asset file
+  // in the first trend's kit.
+  const ready = {
+    researchRuns: [{ id: 'research-1', workspaceId: 'semrush', programId: 'p1', status: 'succeeded', title: 'Weekly listening', createdAt: '2026-10-09T10:00:00Z',
+      discoveredThemes: [{ id: 'theme-1', name: TREND }, { id: 'theme-2', name: OTHER }], themes: [{ id: 'theme-1', name: TREND }, { id: 'theme-2', name: OTHER }],
+      reportRunIds: [{ themeId: 'theme-1', runId: 'content-trend' }, { themeId: 'theme-2', runId: 'content-trend-2' }] }],
+    contentRuns: [{ id: 'content-trend', workspaceId: 'semrush', type: 'content', title: TREND, themeId: 'theme-1', status: 'succeeded', createdAt: '2026-10-10T10:00:00Z', jobs: [] },
+      { id: 'content-trend-2', workspaceId: 'semrush', type: 'content', title: OTHER, themeId: 'theme-2', status: 'succeeded', createdAt: '2026-10-10T11:00:00Z', jobs: [] }, kitRun],
+    assets: [...assets, { id: 'asset-report-2', workspaceId: 'semrush', runId: 'content-trend-2', deliverableId: 'evidence-report', kind: 'text', title: `${OTHER} — Comprehensive Trends Report`, createdAt: '2026-10-10T11:00:00Z' },
+      { id: 'kit-file', workspaceId: 'semrush', runId: 'content-kit', deliverableId: 'blogshort', kind: 'text', title: 'Blog — Short News Update', createdAt: '2026-10-16T14:00:00Z' }],
+  };
+  const sidebar = (name) => fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: new RegExp(`^${name}`) }));
+  const card = async (name) => within(await screen.findByRole('article', { name }));
+
+  it('opens Create content with the trend’s report attached from a Ready card on the Trend board', async () => {
+    const api = await openAdvanced(ready);
+    sidebar('Trend board');
+    fireEvent.click((await card(TREND)).getByRole('button', { name: 'Create content' }));
+    expect((await screen.findAllByRole('heading', { level: 1, name: 'Create content' })).length).toBeGreaterThan(0); // the top bar names the page too
+    await waitFor(() => expect(screen.getByLabelText('Source title')).toHaveValue(`${TREND} — Comprehensive Trends Report`));
+    expect(screen.getByRole('textbox', { name: 'Source brief' })).toHaveValue('# Draft asset-report\n\nBody text for asset-report.');
+    expect(api.readStudioAsset).toHaveBeenCalledWith({ assetId: 'asset-report' });
+    // Asking for new content later starts from a blank brief, not the report handed over before.
+    sidebar('Library');
+    sidebar('Create content');
+    expect(await screen.findByLabelText('Source title')).toHaveValue('');
+  });
+
+  it('shows the report Read trends report names, even after a folder was opened in the Library', async () => {
+    const api = await openAdvanced(ready);
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    const palette = await screen.findByRole('dialog', { name: 'Command palette' });
+    fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'folder' } });
+    fireEvent.click(await within(palette).findByRole('button', { name: new RegExp(`Open folder: ${TREND}`) }));
+    expect(await screen.findByText('Body text for kit-file.')).toBeInTheDocument();
+    sidebar('Trend board');
+    fireEvent.click((await card(OTHER)).getByRole('button', { name: 'Read trends report' }));
+    expect(await screen.findByText('Body text for asset-report-2.')).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(screen.getByText('Body text for asset-report-2.')).toBeInTheDocument();
+    expect(screen.queryByText('Body text for kit-file.')).not.toBeInTheDocument();
+    expect(api.readStudioAsset).toHaveBeenLastCalledWith({ assetId: 'asset-report-2' });
   });
 });

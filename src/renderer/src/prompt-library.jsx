@@ -153,6 +153,9 @@ export function PromptLibrary({ api, state, viewer: viewerIn, can: canIn, reques
   const [detail, setDetail] = useState({ status: 'idle', data: null, error: '' });
   const [tab, setTab] = useState('edit');
   const [drafts, setDrafts] = useState({});
+  // Each prompt's latest test run (`${workspaceId}:${promptId}` → its state), kept here so a paid test that's still
+  // running, or its result, is still shown after a look at Edit or History or another prompt.
+  const [tests, setTests] = useState({});
   const [saving, setSaving] = useState(false);
   const loads = useRef(0); const reads = useRef(0); const handled = useRef(null);
   const backRef = useRef(null); const listRef = useRef(null); const wasHidden = useRef(false);
@@ -311,7 +314,9 @@ export function PromptLibrary({ api, state, viewer: viewerIn, can: canIn, reques
               <PromptTabs tab={tab} onTab={setTab} idBase={titleId} dirty={dirty} />
               <div id={`${titleId}-panel-${tab}`} role="tabpanel" aria-labelledby={`${titleId}-tab-${tab}`} className="pl-panel" tabIndex={-1}>
                 {tab === 'edit' && <EditTab key={entry.id} detail={data} parts={promptParts(entry)} textOf={textOf} setDraft={setDraft} changed={changed} readOnly={readOnly} readOnlyWhy={readOnlyWhy} saving={saving} onDiscard={() => setDrafts({})} onSave={() => setSaving(true)} />}
-                {tab === 'preview' && <PreviewTab key={entry.id} api={api} state={state} detail={data} drafts={changed} viewer={viewer} can={can} confirm={confirm} lockedForYou={lockedForYou} />}
+                {tab === 'preview' && <PreviewTab key={entry.id} api={api} state={state} detail={data} drafts={changed} viewer={viewer} can={can} confirm={confirm} lockedForYou={lockedForYou}
+                  test={tests[`${workspaceId}:${entry.id}`] || IDLE_TEST} setTest={(next) => setTests((current) => ({ ...current, [`${workspaceId}:${entry.id}`]: next }))}
+                  onTested={(record) => record?.id && setDetail((current) => (current.data?.prompt?.id === entry.id ? { ...current, data: { ...current.data, tests: [record, ...list(current.data.tests).filter((row) => row.id !== record.id)].slice(0, 10) } } : current))} />}
                 {tab === 'history' && <HistoryTab key={entry.id} api={api} detail={data} viewer={viewer} can={can} confirm={confirm} dirty={dirty} onChanged={afterSave} onDetail={(next) => { setDetail({ status: 'ready', data: next, error: '' }); setCatalog((current) => ({ ...current, prompts: current.prompts.map((item) => (item.id === next?.prompt?.id ? { ...item, locked: Boolean(next.locked) } : item)) })); }} />}
               </div>
             </article>}
@@ -493,7 +498,10 @@ function SaveDialog({ api, detail, changed, onClose, onSaved, onReload }) {
 }
 
 // ---------- Preview ----------
-function PreviewTab({ api, state, detail, drafts, viewer, can, confirm, lockedForYou }) {
+const IDLE_TEST = Object.freeze({ status: 'idle', result: null, error: '', estimate: null });
+// `test` and `setTest` live in PromptLibrary, so leaving this tab mid-test doesn't lose the run or its result;
+// `onTested(record)` adds a finished test to Recent test runs straight away.
+function PreviewTab({ api, state, detail, drafts, viewer, can, confirm, lockedForYou, test = IDLE_TEST, setTest, onTested }) {
   const entry = detail.prompt; const id = useId();
   const samples = list(entry.test?.samples).filter((sample) => SAMPLE_LABELS[sample]);
   const options = samples.length ? samples : ['bundled'];
@@ -504,7 +512,6 @@ function PreviewTab({ api, state, detail, drafts, viewer, can, confirm, lockedFo
   const draftKey = JSON.stringify(draft || {});
   const [view, setView] = useState({ status: 'loading', data: null, error: '' });
   const [all, setAll] = useState(false);
-  const [test, setTest] = useState({ status: 'idle', result: null, error: '', estimate: null });
   const reads = useRef(0);
   const labels = Object.fromEntries(list(entry.blocks).map((block) => [block.id, block.label]));
   useEffect(() => {
@@ -559,7 +566,7 @@ function PreviewTab({ api, state, detail, drafts, viewer, can, confirm, lockedFo
     });
     if (!ok) { setTest({ status: 'idle', result: null, error: '', estimate: null }); return; }
     setTest({ status: 'running', result: null, error: '', estimate });
-    try { setTest({ status: 'done', result: await api.testPrompt({ id: entry.id, sample, fingerprint: estimate.fingerprint, ...(draft ? { blocks: draft } : {}) }), error: '', estimate }); }
+    try { const result = await api.testPrompt({ id: entry.id, sample, fingerprint: estimate.fingerprint, ...(draft ? { blocks: draft } : {}) }); setTest({ status: 'done', result, error: '', estimate }); onTested?.(result?.test); }
     catch (failure) { setTest({ status: 'error', result: null, error: messageOf(failure), estimate, stale: /check the cost again/i.test(messageOf(failure)) }); }
   }
   async function stop() { if (job && typeof api?.cancelJob === 'function') { try { await api.cancelJob(job.id); } catch { /* it finished first; its result shows below */ } } }

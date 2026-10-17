@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Check, CircleAlert, FileText, Images, LoaderCircle, PenLine, Radar, RotateCcw, Sparkles, SquareKanban, Undo2, X } from 'lucide-react';
 import { Button, formatDate, number, withViewTransition } from './ui.jsx';
 import { PASSED_STAGE, TREND_STAGES, buildTrendBoard, generationPlan } from '../../shared/trend-board.js';
@@ -31,7 +31,7 @@ function scoutingText(scout) {
 // fits (My channels).
 function TrendCard({ card, trend = null, by = null, channels = [], fits = [], disabled, mayDecide = false, write = { disabled: Boolean(disabled) }, preview = false, dragging, api, onDecide, onDecideWithNote, onAsk, onDragStart, onDragEnd, onOpenRun, onReadReport, onCreateAssets, onMakeAssets }) {
   const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0];
-  return <article className={`tb-card ${card.needsAttention ? 'attention' : ''} ${dragging ? 'dragging' : ''}`} style={{ viewTransitionName: transitionName(card.key) }} draggable={mayDecide && card.canDecide && !disabled && !preview} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', card.key); onDragStart(card.key); }} onDragEnd={onDragEnd} aria-label={card.name}>
+  return <article className={`tb-card ${card.needsAttention ? 'attention' : ''} ${dragging ? 'dragging' : ''}`} data-card-key={card.key} style={{ viewTransitionName: transitionName(card.key) }} draggable={mayDecide && card.canDecide && !disabled && !preview} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', card.key); onDragStart(card.key); }} onDragEnd={onDragEnd} aria-label={card.name}>
     {card.priorityTier && <div className="tb-card-meta"><span className={`tb-tier tier-${card.priorityTier.toLowerCase().replace(/[^a-z]+/g, '-')}`} title={card.priorityScore != null ? `Priority score ${card.priorityScore}` : undefined}>{card.priorityTier}</span></div>}
     <h4>{card.name}</h4>
     {card.description && <p className="tb-card-description">{card.description}</p>}
@@ -48,9 +48,11 @@ function TrendCard({ card, trend = null, by = null, channels = [], fits = [], di
 }
 
 // `onAsk(question)` (optional) opens Ask AI for "What people are saying". Buttons whose callback is missing don't show:
-// `onFindTrends` (a role that can start or set up research), `onCreateAssets` (Create content), `onMakeAssets(report)`
-// (the channel asset dialog); `askAdmin` names who to ask instead.
-export function TrendBoardView({ studio = {}, monday, api, action, disabled, pageHeading = false, askAdmin = 'an admin', onFindTrends, onOpenRun, onOpenSheets, onReadReport, onCreateAssets, onMakeAssets, onSettings, onAsk }) {
+// `onFindTrends` (a role that can start or set up research; `findLabel` says which it does), `onCreateAssets` (Create
+// content), `onMakeAssets(report)` (the channel asset dialog); `askAdmin` names who to ask instead. `focus` ({ key,
+// themeId }) is a trend opened from elsewhere (Home's Needs your OK, What changed): the board scrolls to its card once,
+// showing the skipped trends first when it is one of them.
+export function TrendBoardView({ studio = {}, monday, api, action, disabled, pageHeading = false, askAdmin = 'an admin', onFindTrends, findLabel = 'Find new trends', onOpenRun, onOpenSheets, onReadReport, onCreateAssets, onMakeAssets, onSettings, onAsk, focus = null }) {
   const viewer = useViewer();
   const confirm = useConfirm();
   const seeCosts = hasCapability(viewer, 'seeCosts');
@@ -58,6 +60,7 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
   // What this role may do here (in an admin's preview, the previewed role's), and write buttons that stay off in a preview.
   const mayDecide = canCall(viewer, 'decideResearchTheme');
   const mayWrite = canCall(viewer, 'approveResearchThemes') && canCall(viewer, 'continueResearchRun');
+  const maySync = canCall(viewer, 'syncTrendBoardToMonday'); // Export and publish; a read-only role never sees Sync
   const write = writeProps(viewer, disabled);
   const editionId = list(studio.workspaces).find((workspace) => workspace.id === studio.activeWorkspaceId)?.editionId || 'general';
   const channels = useMemo(() => routingChannels(editionId), [editionId]);
@@ -135,6 +138,7 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
     }, `Writing reports for ${plural(approved.length, 'trend')}. Cards move to Ready as each one finishes.`);
   }
   async function syncMonday() {
+    if (!canRun(viewer, 'syncTrendBoardToMonday')) return;
     setSyncNote('');
     const cards = board.cards.map(({ key, stage, name, description, evidenceCount, platforms, programName }) => ({ key, stage, name, description, evidenceCount, platforms, programName }));
     if (!(await confirm({ title: `Send ${plural(cards.length, 'trend')} to your Monday.com board?`, lines: ['Existing items are updated, new ones are added.'], confirmLabel: 'Send to Monday.com' }))) return;
@@ -146,6 +150,27 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
     setDragKey(''); setDropStage('');
     if (card && stage in DROP_DECISION) decide(card, DROP_DECISION[stage]);
   }
+  // A trend opened from elsewhere: reveal it (a skipped one needs its row shown), then scroll to it once the page has
+  // settled (the shell puts a newly opened page at the top first).
+  const boardRef = useRef(null);
+  const [scrollKey, setScrollKey] = useState('');
+  useEffect(() => {
+    if (!focus?.key) return;
+    const card = board.cards.find((row) => row.themeId === focus.themeId);
+    if (!card) return;
+    if (card.stage === 'passed') setShowPassed(true);
+    setScrollKey(card.key);
+  }, [focus?.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!scrollKey) return undefined;
+    const timer = setTimeout(() => {
+      const node = [...(boardRef.current?.querySelectorAll('.tb-card') || [])].find((row) => row.dataset.cardKey === scrollKey);
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      node?.scrollIntoView?.({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+      setScrollKey('');
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [scrollKey, showPassed]);
   const dragCard = board.cards.find((row) => row.key === dragKey);
   const approvedRuns = mayWrite ? [...new Set(board.columns.approved.filter((card) => card.canDecide).map((card) => card.runId))] : [];
   const runById = new Map(list(studio.researchRuns).map((run) => [run.id, run]));
@@ -153,20 +178,21 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
   const empty = !board.cards.length && !board.scouting.length;
   const stages = showPassed ? [...TREND_STAGES, PASSED_STAGE] : TREND_STAGES;
 
-  // Connecting Monday.com happens in Settings, so without Settings (an editor) only a connected board's Sync shows.
-  const mondayControl = !api.syncTrendBoardToMonday ? null
+  // Connecting Monday.com happens in Settings, so without Settings (an editor) only a connected board's Sync shows, and
+  // only to a role the server lets sync (in an admin's preview it shows, switched off like every other write).
+  const mondayControl = !api.syncTrendBoardToMonday || !maySync ? null
     : (!monday?.connected || !monday.boardId) && !onSettings ? null
     : !monday?.connected ? <Button type="button" className="cs-quiet" onClick={onSettings}><SquareKanban size={14} aria-hidden="true" />Connect Monday.com</Button>
     : !monday.boardId ? <Button type="button" className="cs-quiet" onClick={onSettings}><SquareKanban size={14} aria-hidden="true" />Choose a Monday board</Button>
-    : <Button type="button" className="cs-quiet" disabled={disabled || !board.cards.length} onClick={syncMonday} title={monday.lastSyncedAt ? `Last synced ${formatDate(monday.lastSyncedAt)}` : 'Not synced yet'}><SquareKanban size={14} aria-hidden="true" />Sync to {monday.boardName || 'Monday.com'}</Button>;
+    : <Button type="button" className="cs-quiet" onClick={syncMonday} title={monday.lastSyncedAt ? `Last synced ${formatDate(monday.lastSyncedAt)}` : 'Not synced yet'} {...writeProps(viewer, disabled || !board.cards.length)}><SquareKanban size={14} aria-hidden="true" />Sync to {monday.boardName || 'Monday.com'}</Button>;
 
-  return <div className="tb-board">
+  return <div className="tb-board" ref={boardRef}>
     <div className={`cs-section-heading ${pageHeading ? 'cs-page-heading' : ''}`}>
       <div><Heading id={pageHeading ? 'content-studio-title' : undefined}>Trend board</Heading><p>Research scouts the trends. You decide which ones become reports and campaigns.</p></div>
-      <div className="tb-head-actions">{mondayControl}{onFindTrends && <Button type="button" disabled={disabled} onClick={onFindTrends}><Radar size={15} aria-hidden="true" />Find new trends</Button>}</div>
+      <div className="tb-head-actions">{mondayControl}{onFindTrends && <Button type="button" disabled={disabled} onClick={onFindTrends}><Radar size={15} aria-hidden="true" />{findLabel}</Button>}</div>
     </div>
     {(boardError || syncNote || monday?.lastError) && <p className={`tb-note ${boardError || monday?.lastError ? 'attention' : ''}`} role={boardError ? 'alert' : 'status'}>{boardError || syncNote || `Last Monday.com sync: ${monday.lastError}`}</p>}
-    {empty ? <div className="cs-empty"><span><Radar size={24} aria-hidden="true" /></span><h3>No trends on the board yet</h3><p>A research run reads the posts your program follows and brings every trend it finds to Needs your OK. Say yes to the ones worth a report, add a note for the channels if you like, then press Write reports. Nothing is written or spent until you do.</p>{onFindTrends ? <Button type="button" onClick={onFindTrends}>{list(studio.programs).length ? 'Find new trends' : 'Set up research'}<ArrowRight size={14} aria-hidden="true" /></Button> : <p className="tb-note">Ask {askAdmin} to start a research run.</p>}</div>
+    {empty ? <div className="cs-empty"><span><Radar size={24} aria-hidden="true" /></span><h3>No trends on the board yet</h3><p>A research run reads the posts your program follows and brings every trend it finds to Needs your OK. Say yes to the ones worth a report, add a note for the channels if you like, then press Write reports. Nothing is written or spent until you do.</p>{onFindTrends ? <Button type="button" disabled={disabled} onClick={onFindTrends}>{findLabel}<ArrowRight size={14} aria-hidden="true" /></Button> : <p className="tb-note">Ask {askAdmin} to start a research run.</p>}</div>
       : <div className="tb-columns" style={{ '--tb-columns': stages.length }}>
         {stages.map((stage) => {
           const cards = board.columns[stage.id];

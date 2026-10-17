@@ -83,7 +83,7 @@ describe('method policy', () => {
 
   it('reproduces the old fixed matrix exactly with no policy edits', () => {
     const counts = Object.fromEntries(roles.ROLE_IDS.map((role) => [role, roles.METHOD_NAMES.filter((method) => roles.canCall(role, method)).length]));
-    expect(counts).toEqual({ admin: 158, editor: 110, channel: 13 }); // + readTrendPosts (readResearch)
+    expect(counts).toEqual({ admin: 167, editor: 112, channel: 13 }); // + readTrendPosts (readResearch); + AI connections and routing (settings, managePrograms); + cancelAsk and readAskProgress (askAi)
     expect(roles.capabilitiesFor({ roleId: 'channel' })).toEqual(['core', 'makeAssets', 'manageRuns', 'markTrendsUsed', 'readAssets']);
     expect(roles.capabilitiesFor({ roleId: 'editor' })).toEqual(['approveTrends', 'askAi', 'core', 'dataTools', 'editPrompts', 'editReports', 'exportPublish', 'makeAssets', 'manageRuns', 'quickScans', 'readAssets', 'readResearch', 'seeCosts', 'sheets', 'startResearch', 'viewPrompts', 'writeReports']);
     expect(roles.capabilitiesFor({ roleId: 'admin' })).toHaveLength(25);

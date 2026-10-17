@@ -119,8 +119,42 @@ describe('Ask AI buttons report what really happened', () => {
     await expect(result.current.runAiAction({ kind: 'make-assets', target: 'Zero-click', assetId: 'asset-r', params: { channels: ['social'] } })).resolves.toBe('Opened the asset dialog with Social ticked. Check what will be made, then press Make.');
     expect(makeAssets).toHaveBeenCalledWith({ kind: 'report', assetId: 'asset-r', channels: ['social'] });
     await expect(result.current.runAiAction({ kind: 'copy', target: 'Zero-click', ref: { kind: 'report', id: 'asset-r' }, params: { what: 'link' } })).rejects.toThrow('Share links need a Studio web address');
-    expect(copyLink).toHaveBeenCalledWith('report', 'asset-r');
+    expect(copyLink).not.toHaveBeenCalled(); // Ask AI copies and waits for the copy itself
     await expect(hook({}, { nav: {} }).result.current.runAiAction({ kind: 'invite-people', target: '', params: { emails: ['alex@example.com'] } })).rejects.toThrow('That isn’t available in this layout.');
+  });
+  it('says Copied only once the link was really copied, and shows a refused copy under the button', async () => {
+    const hadClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard'); const execCommand = document.execCommand;
+    const writeText = vi.fn(async () => { throw new Error('Write permission denied.'); });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    document.execCommand = vi.fn(() => false);
+    try {
+      // The layout's copyLink copies without waiting and returns the link at once; Ask AI no longer trusts that.
+      const copyLink = vi.fn(() => 'https://studio.example.com/#/report/asset-r');
+      const { result } = hook({}, { nav: { copyLink }, web: true });
+      const copy = () => result.current.runAiAction({ kind: 'copy', target: 'Zero-click', ref: { kind: 'report', id: 'asset-r' }, params: { what: 'link' } });
+      await expect(copy()).rejects.toThrow('This window blocked copying. Open it and use Copy link there.');
+      writeText.mockImplementation(async () => {});
+      await expect(copy()).resolves.toBe('Copied the link.');
+      expect(writeText).toHaveBeenLastCalledWith(expect.stringMatching(/\/#\/report\/asset-r$/));
+      expect(copyLink).not.toHaveBeenCalled();
+    } finally {
+      if (hadClipboard) Object.defineProperty(navigator, 'clipboard', hadClipboard); else delete navigator.clipboard;
+      document.execCommand = execCommand;
+    }
+  });
+  it('opens the research program Ask AI named (by id, by link or by name), not just the page', async () => {
+    const openTarget = vi.fn(); const openPage = vi.fn();
+    const { result } = hook({}, { nav: { openTarget, openPage } });
+    await expect(result.current.runAiAction({ kind: 'open', target: 'Weekly listening', programId: 'p-weekly', params: { type: 'program' } })).resolves.toBe('Opened “Weekly listening” in Research programs.');
+    expect(openTarget).toHaveBeenLastCalledWith({ kind: 'program', id: 'p-weekly' });
+    await result.current.runAiAction({ kind: 'open', target: 'AI search pulse', ref: { kind: 'program', id: 'p-pulse' }, params: {} });
+    expect(openTarget).toHaveBeenLastCalledWith({ kind: 'program', id: 'p-pulse' });
+    await result.current.runAiAction({ kind: 'open', target: 'Weekly listening', params: { type: 'program' } });
+    expect(openTarget).toHaveBeenLastCalledWith({ kind: 'program', id: 'p-weekly' });
+    expect(openPage).not.toHaveBeenCalled();
+    // A layout that can't open one program still opens the page.
+    await expect(hook({}, { nav: { openPage } }).result.current.runAiAction({ kind: 'open', target: 'Weekly listening', programId: 'p-weekly', params: { type: 'program' } })).resolves.toBe('Opened Research programs.');
+    expect(openPage).toHaveBeenCalledWith('research');
   });
   it('says View as worked only once the server agreed, and nothing when the person cancelled', async () => {
     const run = (viewAs) => hook({}, { nav: { viewAs } }).result.current.runAiAction({ kind: 'view-as', target: 'Channel owner', title: 'Channel owner', roleId: 'channel', params: {} });

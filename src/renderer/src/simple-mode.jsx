@@ -62,8 +62,9 @@ export function askIntro(can, { admin = false } = {}) {
     'Our conversations are saved for you, and you can see what I remember under Memory.',
   ].join(' ');
 }
-// Ask AI page links that have a home in Simple mode; anything else opens in the Advanced layout.
-const SIMPLE_PAGE = { overview: 'home', dashboard: 'home', library: 'reports', reports: 'reports', board: 'trends', settings: 'settings', assets: 'assets', inbox: 'inbox', calendar: 'calendar', prompts: 'prompts', analytics: 'analytics', people: 'people' };
+// Ask AI page links (main/help-assistant.js HELP_PAGES ids) that have a home in Simple mode; anything else opens in the
+// Advanced layout. `reports` there is Dataset reports and `dashboard` the Collection overview, so neither maps to a tab.
+const SIMPLE_PAGE = { overview: 'home', library: 'reports', board: 'trends', settings: 'settings', assets: 'assets', inbox: 'inbox', calendar: 'calendar', prompts: 'prompts', analytics: 'analytics', people: 'people' };
 // Pages App draws (renderPage) inside the Simple column.
 const SHELL_PAGES = new Set(['analytics', 'people', 'prompts', 'inbox', 'calendar']);
 const ACTIVE = new Set(['queued', 'running']);
@@ -90,8 +91,9 @@ function trendIndex(history) {
 // Advanced layout handing over to Assets); `onOpenSheets(workbookId)` opens one Sheets workbook as an Advanced page (the
 // Trend tracker). `onOpenTarget(target)` is App's router for the briefing's links ({ kind, id, page }, as the Inbox
 // uses), `onOpenPrompt(promptId)` opens Prompts, and `linkOrigin` is the address share links are built on. `shellNav`
-// carries the shell's own ways (App): copyLink(kind, id), openInvite(preset), viewAs(payload), openProgramDraft(draft)
-// and create(kind) (the New menu), which Ask AI's nav and Home's Next up use.
+// carries the shell's own ways (App): copyLink(kind, id), openInvite(preset), viewAs(payload), openProgramDraft(draft),
+// create(kind) (the New menu) and makeAssets(request) (the asset dialog over the current page), which Ask AI's nav, the
+// report reader and Home's Next up use.
 export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, error, onDismiss, action, background = [], renderPage, renderSettings, onOpenClassic, onOpenSheets, onOpenTarget, onOpenPrompt, linkOrigin: linkOriginIn, tab: shownTab, onTab, tabs = SIMPLE_TABS, settingsAllowed = true, onNotice, onNavSpot, spotRoot, shellRequest = null, shellNav = {} }) {
   // Ask AI announces each picture it makes, so Assets lists it even when it was drawn behind another tab.
   const api = useAnnouncingApi(apiIn);
@@ -122,16 +124,22 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const channels = useMemo(() => routingChannels(workspace?.editionId || 'general'), [workspace?.editionId]);
 
   useEffect(() => { if (tab !== 'ask') setLastTab(tab); }, [tab]);
+  // Leaving Reports (other than for Ask AI, which keeps the report as its context) closes the reader, so every way back
+  // (the sidebar, Home's All reports, an Inbox or Next up page link) opens the list. Opening one report sets it again.
+  useEffect(() => { if (tab !== 'reports' && tab !== 'ask') setReportId(''); }, [tab]);
   function ask(text, context = '') { setSeed({ text, context, key: Date.now() }); go('ask'); }
   function draftAsk(text) { setSeed({ draft: text, key: Date.now() }); go('ask'); }
   // Images load once and stay cached for the session, so returning to Assets is instant.
   const [imageCache, setImageCache] = useState({});
   const [assetRequest, setAssetRequest] = useState(null); // open the asset dialog, a folder, or Assets itself
-  // Make channel assets ({ kind: 'report', assetId, channels? }): Assets opens with the dialog on that report, its
-  // `channels` pre-ticked (else the person's own). Without a source the dialog opens on its source step.
-  function makeAssets(request) { const { channels, ...source } = request || {}; setAssetRequest({ key: Date.now(), open: 'creator', ...(source.kind ? { source } : {}), ...(list(channels).length ? { channels: list(channels).map(String) } : {}) }); go('assets'); }
-  // A folder in Assets by its kit sourceKey or Library node id (SimpleAssets resolves either).
-  function openFolderKey(folderKey) { setAssetRequest({ key: Date.now(), open: 'folder', folderKey }); go('assets'); }
+  // Make channel assets ({ kind: 'report', assetId, channels? }) inside Assets: the dialog on that report, its `channels`
+  // pre-ticked (else the person's own); without a source it opens on its source step. After Make, Assets opens the folder.
+  function makeAssetsInAssets(request) { const { channels, ...source } = request || {}; setAssetRequest({ key: Date.now(), open: 'creator', ...(source.kind ? { source } : {}), ...(list(channels).length ? { channels: list(channels).map(String) } : {}) }); go('assets'); }
+  // From anywhere else (a report, Home, Ask AI) the dialog opens over the page you're on (App's KitCreatorHost), so
+  // Cancel leaves you there; after Make, a note offers Open folder.
+  function makeAssets(request) { if (shellNav.makeAssets && tab !== 'assets') shellNav.makeAssets(request); else makeAssetsInAssets(request); }
+  // A folder in Assets by its kit sourceKey or Library node id (SimpleAssets resolves either); `runId` opens that set.
+  function openFolderKey(folderKey, runId = '') { setAssetRequest({ key: Date.now(), open: 'folder', folderKey, ...(runId ? { runId } : {}) }); go('assets'); }
   function openFolder(folder) { openFolderKey(folder.key); }
   function openReport(id) { setReportId(id); go('reports'); }
   function openPage(target) {
@@ -145,7 +153,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   // a run, a prompt, a page) goes through App's router, which the Inbox and share links use too.
   function openTarget(target = {}) {
     if (target.kind === 'report' && target.id && reports.some((row) => row.id === target.id)) openReport(target.id);
-    else if (target.kind === 'folder' && target.id) openFolderKey(target.id);
+    else if (target.kind === 'folder' && target.id) openFolderKey(target.id, target.runId || '');
     else if (onOpenTarget) onOpenTarget(target);
     else if (target.page && tabs.includes(target.page)) go(target.page);
   }
@@ -210,7 +218,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     else if (spot.tab === 'reports') { setReportId(''); go('reports'); }
     else if (spot.item === 'folder') { const folder = findFolder(step.item) || kitFolders[0]; if (folder) openFolder(folder); else go('assets'); }
     else if (spot.item === 'kit-source') { setAssetRequest({ key: Date.now(), open: 'creator', mode: { 'kit-dialog.link': 'link', 'kit-dialog.paste': 'paste' }[spot.id] || 'report' }); go('assets'); }
-    else if (spot.item === 'kit-review') { const report = findReport(step.item) || reports[0]; if (report) makeAssets({ kind: 'report', assetId: report.id }); else go('assets'); }
+    else if (spot.item === 'kit-review') { const report = findReport(step.item) || reports[0]; if (report) makeAssetsInAssets({ kind: 'report', assetId: report.id }); else go('assets'); }
     // A trend's folder sits inside its research run, so Assets opens that run for the step's trend.
     else if (spot.tab === 'assets') { setAssetRequest({ key: Date.now(), open: 'home', ...(spot.id === 'assets.folder' && step.item ? { item: step.item } : {}) }); go('assets'); }
     else if (spot.tab === 'settings' && !settingsAllowed) return;
@@ -232,7 +240,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     if (shellRequest.kind === 'report' && shellRequest.assetId) openReport(shellRequest.assetId);
     else if (shellRequest.kind === 'ask' && shellRequest.text) ask(shellRequest.text, shellRequest.context || '');
     else if (shellRequest.kind === 'ask' && shellRequest.draft) draftAsk(shellRequest.draft);
-    else if (shellRequest.kind === 'assets') { if (shellRequest.source || shellRequest.creator) makeAssets(shellRequest.source); else if (shellRequest.folderKey) openFolderKey(shellRequest.folderKey); else go('assets'); }
+    else if (shellRequest.kind === 'assets') { if (shellRequest.source || shellRequest.creator) makeAssetsInAssets(shellRequest.source); else if (shellRequest.folderKey) openFolderKey(shellRequest.folderKey, shellRequest.runId || ''); else go('assets'); }
   }, [shellRequest?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const studioImages = list(studio.assets).filter(mine).filter((asset) => asset.kind === 'image' || asset.kind === 'video');
 
@@ -323,7 +331,7 @@ function SimpleTrends({ board, waiting, approved, programs, program, onProgram, 
     {board.scouting.filter((scout) => ACTIVE.has(scout.status)).map((scout) => <div className="simple-scouting" key={scout.runId} role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" /><span><strong>Looking for trends · {scout.title}</strong><small>{scout.stage === 'discovery' && scout.progress ? `Batch ${number(scout.progress.completed)} of ${number(scout.progress.total)}` : 'Collecting posts and conversations'}</small></span></div>)}
     {/* A run that stopped before finding trends says so here, in both layouts, instead of "all caught up". It stays until a
         newer run finds trends, so it's a status, not an alert read out on every visit. */}
-    {stopped.map((scout) => <div className="simple-scouting attention" key={scout.runId} role="status"><TriangleAlert size={16} aria-hidden="true" /><span><strong>Research stopped · {scout.title}</strong><small>{scout.message || scout.error || 'It stopped before any trends were found.'}</small></span>{onRetry ? <button type="button" className="simple-skip" {...writeProps(viewer, busy)} onClick={() => onRetry(scout.runId)}>Try again</button> : <small className="simple-scouting-ask">Ask {askAdmin} to try it again.</small>}{onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research')}>See why<ArrowRight size={14} aria-hidden="true" /></button>}</div>)}
+    {stopped.map((scout) => <div className="simple-scouting attention" key={scout.runId} role="status"><TriangleAlert size={16} aria-hidden="true" /><span><strong>Research stopped · {scout.title}</strong><small>{scout.message || scout.error || 'It stopped before any trends were found.'}</small></span>{onRetry ? <button type="button" className="simple-skip" {...writeProps(viewer, busy)} onClick={() => onRetry(scout.runId)}>Try again</button> : <small className="simple-scouting-ask">Ask {askAdmin} to try it again.</small>}{onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research', scout.runId ? { runId: scout.runId } : {})}>See why<ArrowRight size={14} aria-hidden="true" /></button>}</div>)}
 
     {layout === 'board' && !empty && <SimpleKanban board={board} approved={approved} busy={busy} canDecide={canDecide} canWrite={canWrite} viewer={viewer} meta={meta} why={why} decided={decided} yes={yes} onDecide={onDecide} onWriteReports={onWriteReports} onOpenReport={onOpenReport} onOpenClassic={onOpenClassic} />}
     {layout === 'list' && !empty && !waiting.length && !approved.length && !stopped.length && !board.scouting.some((scout) => ACTIVE.has(scout.status)) && <div className="simple-caught-up"><CircleCheck size={20} aria-hidden="true" /><span><strong>You’re all caught up</strong><small>Every trend has been decided. Find new ones whenever you like.</small></span></div>}
@@ -350,7 +358,7 @@ function SimpleTrends({ board, waiting, approved, programs, program, onProgram, 
 
     {layout === 'list' && production.length > 0 && <section className="simple-section" aria-labelledby="simple-writing" data-spot="trends.writing">
       <h2 id="simple-writing">Being written</h2>
-      <ul className="simple-live">{production.map((card) => <li key={card.key} className={card.needsAttention ? 'attention' : ''} data-spot="trends.ready-card" data-spot-item={card.name}>{card.needsAttention ? <X size={16} aria-hidden="true" /> : <LoaderCircle className="spin" size={16} aria-hidden="true" />}<span><strong>{card.name}</strong><small>{card.activity || 'Writing'}</small></span>{card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research')}>See why<ArrowRight size={14} aria-hidden="true" /></button>}</li>)}</ul>
+      <ul className="simple-live">{production.map((card) => <li key={card.key} className={card.needsAttention ? 'attention' : ''} data-spot="trends.ready-card" data-spot-item={card.name}>{card.needsAttention ? <X size={16} aria-hidden="true" /> : <LoaderCircle className="spin" size={16} aria-hidden="true" />}<span><strong>{card.name}</strong><small>{card.activity || 'Writing'}</small></span>{card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research', card.runId ? { runId: card.runId } : {})}>See why<ArrowRight size={14} aria-hidden="true" /></button>}</li>)}</ul>
     </section>}
 
     {layout === 'list' && ready.length > 0 && <section className="simple-section" aria-labelledby="simple-done" data-spot="trends.ready">
@@ -378,7 +386,7 @@ function SimpleKanban({ board, approved, busy, canDecide, canWrite, viewer, meta
           {stage.id === 'potential' ? why(card) : decided(card)}
           {stage.id === 'potential' && canDecide && card.canDecide && <div className="simple-kanban-buttons">{yes(card, 14)}<button type="button" data-spot="trends.skip" data-spot-item={card.name} className="simple-skip" aria-label={`Skip ${card.name}`} {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'passed')}>Skip</button></div>}
           {(stage.id === 'approved' || stage.id === 'passed') && canDecide && card.canDecide && <div className="simple-kanban-buttons"><button type="button" className="simple-skip" aria-label={`${stage.id === 'passed' ? 'Reconsider' : 'Undo the yes for'} ${card.name}`} {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'pending')}>{stage.id === 'passed' ? <RotateCcw size={13} aria-hidden="true" /> : <Undo2 size={13} aria-hidden="true" />}{stage.id === 'passed' ? 'Reconsider' : 'Undo'}</button></div>}
-          {stage.id === 'production' && <div className="simple-kanban-status">{card.needsAttention ? <X size={14} aria-hidden="true" /> : <LoaderCircle className="spin" size={14} aria-hidden="true" />}<span>{card.activity || 'Writing'}</span>{card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research')}>See why</button>}</div>}
+          {stage.id === 'production' && <div className="simple-kanban-status">{card.needsAttention ? <X size={14} aria-hidden="true" /> : <LoaderCircle className="spin" size={14} aria-hidden="true" />}<span>{card.activity || 'Writing'}</span>{card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research', card.runId ? { runId: card.runId } : {})}>See why</button>}</div>}
           {stage.id === 'ready' && <button type="button" className="simple-kanban-read" disabled={!report} onClick={() => report && onOpenReport(report.id)}>{plural(card.reportAssets?.length || 0, 'report')}<span>Read<ArrowRight size={13} aria-hidden="true" /></span></button>}
         </article>; })}
       </div>

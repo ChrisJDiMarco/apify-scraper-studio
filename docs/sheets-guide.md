@@ -8,7 +8,7 @@ Open it from **Sheets** in the sidebar, from **Open in Sheets** on a research ru
 
 | Tab | Where the data comes from |
 | --- | --- |
-| Theme Repository | Every theme discovery proposed: name, description, `matching_keywords`, matching and negative criteria, and novelty. Three columns are added: review status (approved, passed, or waiting), evidence count, and taxonomy category. |
+| Theme Repository | Every theme discovery proposed: name, description, `matching_keywords`, matching and negative criteria, and novelty. Three columns are added: review status (Approved, Skipped, or Needs your OK), evidence count, and taxonomy category. |
 | Twitter · Reddit · LinkedIn | One row per post the run kept after removing duplicates and applying its date window and limits, newest first, in the n8n column layout (`post_url`, `post_text`, engagement counts, `prevalence_score`, Theme, Confidence, Reasoning, entities, pain point, urgency). Reddit titles and subreddits, and LinkedIn headlines and profile links, come from the raw Apify rows. |
 | Theme Summary Data | Per-theme post counts and engagement totals for each platform. A platform's prevalence score is the sum of its posts' `prevalence_score`. **Overall** adds the three platforms together. **Weighted** scales the top theme to 100. |
 | Post Counts Reference | Posts per theme for each platform. |
@@ -41,7 +41,7 @@ Edits save automatically. Edited cells get a small orange corner. On a research 
 
 - **From a file:** in Google Sheets choose File → Download → Microsoft Excel (.xlsx), then **Import → Spreadsheet file**. Every tab that has data comes in, hidden ones included, with the values the sheet showed. Dates and percentages keep their formats, and frozen columns stay frozen. CSV and TSV files come in as one tab each.
 - **From a link:** **Import → Pull from a Google Sheets link** reads the tabs through the Sheets bridge configured in Settings. Redeploy the bridge from [`scripts/google-sheets-webhook.gs`](../scripts/google-sheets-webhook.gs) to pull every tab in its own order; older deployments pull the Golden Thread tab names.
-- **Updating:** **Replace with a newer file…** or **Pull the latest** refreshes an imported workbook and keeps your edits. Rows are matched by `post_url` (or another unique ID or Theme column) when the sheet has one.
+- **Updating:** **Replace with a newer file…** or **Pull the latest** refreshes an imported workbook and keeps your edits. Rows are matched by `post_url` (or another unique ID or Theme column) when the sheet has one. Without one, an edit follows the row whose cells are the same in the new file, wherever it moved. An edit is cleared when its row is gone or changed, or its column is gone, and the notice says how many cells were cleared.
 
 Imported workbooks belong to the workspace you imported them into and are stored under `workbooks/` in the app's data folder. Removing one doesn't touch the original file.
 

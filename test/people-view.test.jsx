@@ -187,6 +187,27 @@ describe('People & access: the People tab', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Invite 2 people' }));
     await waitFor(() => expect(services.inviteMembers).toHaveBeenCalledWith({ people: [{ email: 'alex.kim@semrush.com' }, { email: 'sam.lee@semrush.com' }], role: 'editor' }));
   });
+
+  // ⌘K's "People: <name>" sends { kind: 'person', key, memberId }: that person's sheet opens, over the People list (not
+  // whichever tab was open last), once per key, and a person no longer on the team says so.
+  it('opens that person’s sheet when asked from elsewhere (⌘K People: name), once per request', async () => {
+    window.localStorage.setItem('studio.people.tab', 'log');
+    const services = api();
+    const { rerender } = render(<PeopleView api={services} web viewer={sam} request={{ kind: 'person', key: 3, memberId: 'm-riley' }} />);
+    const sheet = await screen.findByRole('dialog', { name: 'Riley Jones' });
+    expect(within(sheet).getByRole('tab', { name: 'Details' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^People/ })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(within(sheet).getAllByRole('button', { name: 'Close' })[0]);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Riley Jones' })).not.toBeInTheDocument());
+    rerender(<PeopleView api={services} web viewer={sam} request={{ kind: 'person', key: 3, memberId: 'm-riley' }} />);
+    expect(screen.queryByRole('dialog', { name: 'Riley Jones' })).not.toBeInTheDocument();
+    // People already open: a new pick (a new key) opens the next person without a remount.
+    rerender(<PeopleView api={services} web viewer={sam} request={{ kind: 'person', key: 4, memberId: 'm-alex' }} />);
+    expect(await screen.findByRole('dialog', { name: 'Alex Smith' })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Alex Smith' })).getAllByRole('button', { name: 'Close' })[0]);
+    rerender(<PeopleView api={services} web viewer={sam} request={{ kind: 'person', key: 5, memberId: 'm-gone' }} />);
+    expect(await screen.findByText('That person isn’t on the team anymore.')).toBeInTheDocument();
+  });
 });
 
 describe('Invite people', () => {
@@ -336,6 +357,40 @@ describe('The Roles tab', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: /^Channel reviewer/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Make role' }));
     await waitFor(() => expect(services.saveRole).toHaveBeenCalledWith({ label: 'Reviewers', description: '', base: 'channel', template: 'channel-reviewer', rev: ACCESS.rev }));
+  });
+
+  // The draft lives only in the Roles tab, so leaving the tab (or previewing the saved role) would throw it away unasked.
+  it('asks before a tab switch throws away unsaved role changes, and offers no preview of an unsaved role', async () => {
+    const onPreview = vi.fn();
+    render(<PeopleView api={api()} web viewer={sam} onPreview={onPreview} />);
+    await screen.findByRole('table');
+    openTab('Roles');
+    fireEvent.click(screen.getByRole('switch', { name: 'Editor: See team analytics' }));
+    expect(screen.getByRole('region', { name: 'Unsaved role changes' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Editor role actions' }));
+    const item = screen.getByRole('menuitem', { name: 'Preview as this role' });
+    expect(item).toBeDisabled();
+    expect(item).toHaveAttribute('title', 'Save or discard your changes first.');
+    fireEvent.click(item);
+    expect(onPreview).not.toHaveBeenCalled();
+    // Staying keeps the tab and the draft.
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    openTab('Access log');
+    expect(confirm).toHaveBeenCalledWith('Leave without saving your edits?');
+    expect(screen.getByRole('tab', { name: 'Roles' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('switch', { name: /^Editor: See team analytics, not saved yet/ })).toHaveAttribute('aria-checked', 'true');
+    // Leaving drops it, and the guard is clear again once the draft is gone.
+    confirm.mockReturnValue(true);
+    openTab('Access log');
+    expect(await screen.findByRole('list', { name: 'Access log' })).toBeInTheDocument();
+    confirm.mockClear();
+    openTab('Roles');
+    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.getByRole('switch', { name: 'Editor: See team analytics' })).toHaveAttribute('aria-checked', 'false');
+    // With nothing unsaved, Preview as this role works.
+    fireEvent.click(screen.getByRole('button', { name: 'Editor role actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Preview as this role' }));
+    expect(onPreview).toHaveBeenCalledWith({ role: 'editor' });
   });
 });
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ContentStudioView } from '../src/renderer/src/content-studio-view.jsx';
 import { ViewerContext } from '../src/renderer/src/viewer.js';
@@ -96,7 +96,7 @@ describe('research and content studio workspace', () => {
 
   it('generates only the explicitly selected deliverables with the source evidence and budget', async () => {
     const handlers = await setupCreate();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Evidence report' })); fireEvent.click(screen.getByRole('checkbox', { name: 'Social captions' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Trends report' })); fireEvent.click(screen.getByRole('checkbox', { name: 'Social captions' })); // evidence-report carries the Library's name in every edition
     expect(screen.queryByRole('checkbox', { name: 'Editorial heroes' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Review generation' })); fill('Spending allowance (USD)', '2.25');
     fireEvent.click(screen.getByRole('button', { name: 'Generate drafts' }));
@@ -119,7 +119,7 @@ describe('research and content studio workspace', () => {
 
   it('validates source input before generation and supports keyboard-accessible steps', async () => {
     const handlers = props(); render(<ContentStudioView {...handlers} initialView="create" />);
-    await screen.findByRole('checkbox', { name: 'Evidence report', hidden: true });
+    await screen.findByRole('checkbox', { name: 'Trends report', hidden: true });
     fireEvent.click(screen.getByRole('button', { name: 'Choose deliverables' }));
     expect(screen.getByRole('alert')).toHaveTextContent('Give the source brief a title'); expect(handlers.api.createContentRun).not.toHaveBeenCalled();
     const first = screen.getByRole('tab', { name: 'Source brief' }); fireEvent.keyDown(first, { key: 'ArrowRight' });
@@ -531,3 +531,166 @@ describe('Advanced paid work, the board and the Library reader', () => {
   });
 });
 
+
+// The view stays mounted while the shell (sidebar, palette, Ask AI) moves between its pages, so each page must start from
+// what the person clicked, not from what an earlier page left behind.
+describe('Advanced studio pages start from what the person clicked', () => {
+  let go;
+  function Shell({ start = 'overview', ...rest }) {
+    const [view, setView] = React.useState(start);
+    go = (next) => act(() => setView(next));
+    return <ContentStudioView {...rest} shellNavigation activeView={view} onViewChange={setView} />;
+  }
+  const done = { id: 'r0', workspaceId: 'general', programId: 'p1', status: 'succeeded', createdAt: '2026-10-01T10:00:00Z', discoveredThemes: [{ id: 't0', name: 'Zero click' }], themes: [{ id: 't0', name: 'Zero click' }], reportRunIds: [{ themeId: 't0', runId: 'c-report' }] };
+  const reportRun = { id: 'c-report', workspaceId: 'general', status: 'succeeded', themeId: 't0', createdAt: '2026-10-01T11:00:00Z' };
+  const report = { id: 'asset-report', workspaceId: 'general', runId: 'c-report', deliverableId: 'evidence-report', kind: 'text', title: 'Zero click — Trends report', createdAt: '2026-10-01T11:00:00Z' };
+  const readable = (api) => { api.readStudioAsset = vi.fn(async ({ assetId }) => ({ asset: { id: assetId, title: assetId }, markdown: `# ${assetId}\n\nBody of ${assetId}.` })); return api; };
+  // Per-person choices (the program chosen last) live in localStorage; each test starts with an empty one.
+  beforeEach(() => { const values = new Map(); Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)), removeItem: (key) => values.delete(key), clear: () => values.clear() } }); });
+  afterEach(() => { delete window.localStorage; });
+
+  it('clears a page’s error when the shell opens another page', async () => {
+    const handlers = props({ state: { contentStudio: fresh({ researchRuns: [done], contentRuns: [reportRun], assets: [report] }) } });
+    readable(handlers.api).readStudioAsset.mockRejectedValueOnce(new Error('This report could not be read.'));
+    render(<Shell {...handlers} start="board" />);
+    fireEvent.click(within(screen.getByRole('article', { name: 'Zero click' })).getByRole('button', { name: 'Create content' }));
+    expect(await screen.findByText('This report could not be read.')).toBeInTheDocument();
+    go('library');
+    expect(screen.getByRole('heading', { level: 1, name: 'Your asset library' })).toBeInTheDocument();
+    expect(screen.queryByText('This report could not be read.')).not.toBeInTheDocument();
+  });
+
+  it('shows the current workspace’s knowledge again after a New workspace form is left unsaved', () => {
+    render(<ContentStudioView {...props()} />);
+    nav('Brand knowledge');
+    fireEvent.click(screen.getByRole('button', { name: 'New workspace' }));
+    expect(screen.getByLabelText('Workspace name')).toHaveValue('');
+    nav('Trend board'); nav('Brand knowledge');
+    expect(screen.getByLabelText('Workspace name')).toHaveValue('My brand');
+    expect(screen.getByLabelText('Edition')).toBeDisabled();
+  });
+
+  it('opens a run from the board on its own program, without changing the program the person chose last', async () => {
+    const older = { ...program, id: 'p-old', name: 'Older program', createdAt: '2026-09-01T00:00:00Z' };
+    const newer = { ...program, id: 'p-new', name: 'Newest program', createdAt: '2026-10-01T00:00:00Z' };
+    const scout = { id: 'r-fail', workspaceId: 'general', programId: 'p-old', status: 'failed', title: 'Older scout', createdAt: '2026-10-02T00:00:00Z', error: 'The collection stopped.' };
+    window.localStorage.setItem('studio.choice.local.lastProgramId', 'p-new');
+    const handlers = props({ state: { contentStudio: fresh({ programs: [newer, older], researchRuns: [scout] }) } });
+    render(<ContentStudioView {...handlers} initialView="board" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open run' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Research programs' })).toBeInTheDocument();
+    expect(document.querySelector('.cs-program-choice.selected')).toHaveTextContent('Older program');
+    expect(within(screen.getByRole('region', { name: 'Run progress' })).getByRole('heading', { name: 'Older scout' })).toBeInTheDocument();
+    expect(window.localStorage.getItem('studio.choice.local.lastProgramId')).toBe('p-new');
+    fireEvent.click(screen.getByRole('button', { name: 'Start research' }));
+    await waitFor(() => expect(handlers.api.startResearchRun).toHaveBeenCalledWith({ programId: 'p-old', datasetIds: [] }));
+  });
+
+  it('reviews a research run’s saved trends report from Research programs', async () => {
+    const handlers = props({ state: { contentStudio: fresh({ programs: [program], researchRuns: [done], contentRuns: [reportRun], assets: [report] }) } });
+    readable(handlers.api);
+    render(<ContentStudioView {...handlers} initialView="research" />);
+    fireEvent.click(within(screen.getByRole('region', { name: 'Run progress' })).getByRole('button', { name: 'Review' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Your asset library' })).toBeInTheDocument();
+    expect(await screen.findByText('Body of asset-report.')).toBeInTheDocument();
+  });
+
+  it('opens a trend from Home’s Needs your OK on the board, scrolled to its card', async () => {
+    const review = { id: 'r1', workspaceId: 'general', programId: 'p1', status: 'awaiting-review', createdAt: '2026-10-05T10:00:00Z', discoveredThemes: [{ id: 't1', name: 'Manual reporting', evidenceIds: ['e1'] }] };
+    const scrolled = [];
+    const before = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this); };
+    try {
+      render(<ContentStudioView {...props({ state: { contentStudio: fresh({ programs: [program], researchRuns: [review] }) } })} />);
+      fireEvent.click(within(screen.getByRole('region', { name: /Needs your OK/ })).getByRole('button', { name: 'Manual reporting' }));
+      expect(screen.getByRole('heading', { level: 1, name: 'Trend board' })).toBeInTheDocument();
+      await waitFor(() => expect(scrolled.some((node) => node.getAttribute?.('aria-label') === 'Manual reporting')).toBe(true));
+    } finally { Element.prototype.scrollIntoView = before; }
+  });
+
+  it('dates each report in Use a report instead of claiming it has no sources', () => {
+    render(<ContentStudioView {...props({ state: { contentStudio: fresh({ availableReports: [{ id: 'report-1', assetId: 'a1', title: 'Ready research', createdAt: '2026-10-01T10:00:00Z' }] }) } })} initialView="create" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Use a report' }));
+    const row = screen.getByRole('button', { name: /Ready research/ });
+    expect(row).toHaveTextContent(/Saved /);
+    expect(row).not.toHaveTextContent(/source records/);
+  });
+
+  it('shows a content run’s controls by the role’s own gates', () => {
+    const writer = { role: 'editor', base: 'editor', allowed: ['state', 'contentCatalog', 'createContentRun', 'readStudioRun', 'readStudioAsset'], capabilities: ['seeCosts', 'writeReports', 'readAssets', 'readResearch'] };
+    const run = { id: 'c1', workspaceId: 'general', title: 'Test campaign', status: 'running', jobs: [{ id: 'social', label: 'Social captions', status: 'running' }] };
+    const asset = { id: 'a1', workspaceId: 'general', runId: 'c1', kind: 'text', title: 'LinkedIn post' };
+    render(<ViewerContext.Provider value={writer}><ContentStudioView {...props({ state: { contentStudio: fresh({ contentRuns: [run], assets: [asset] }) } })} initialView="create" /></ViewerContext.Provider>);
+    fireEvent.click(screen.getByRole('button', { name: /Test campaign.*Running/ }));
+    expect(screen.getByRole('region', { name: 'Run progress' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel run' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export run' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the file being edited in the Library when a newer file lands, and holds Create from this until Save', async () => {
+    const first = { id: 'a1', workspaceId: 'general', runId: 'c1', kind: 'text', deliverableId: 'social', title: 'First post', createdAt: '2026-10-10T10:00:00Z' };
+    const second = { id: 'a2', workspaceId: 'general', runId: 'c1', kind: 'text', deliverableId: 'social', title: 'Second post', createdAt: '2026-10-10T11:00:00Z' };
+    const handlers = props({ state: { contentStudio: fresh({ assets: [first] }) } });
+    readable(handlers.api).editStudioAsset = vi.fn(async () => ({ asset: first }));
+    const onMakeAssets = vi.fn();
+    const view = render(<ContentStudioView {...handlers} initialView="library" onMakeAssets={onMakeAssets} />);
+    await screen.findByText('Body of a1.');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Text of First post' }), { target: { value: 'My rewrite.' } });
+    expect(screen.getByRole('button', { name: /Create from this/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Make channel assets' })).toBeDisabled();
+    view.rerender(<ContentStudioView {...handlers} state={{ contentStudio: fresh({ assets: [first, second] }) }} initialView="library" onMakeAssets={onMakeAssets} />);
+    expect(screen.getByRole('textbox', { name: 'Text of First post' })).toHaveValue('My rewrite.');
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('asks before Close or New program throws away changes typed into a research program', async () => {
+    render(<ContentStudioView {...props({ state: { contentStudio: fresh({ programs: [program] }) } })} initialView="research" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit program' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(confirmSpy).not.toHaveBeenCalled(); // nothing changed yet
+    await waitFor(() => expect(screen.queryByLabelText('Program name')).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit program' }));
+    fill('Program name', 'Weekly pulse, wider');
+    confirmSpy.mockReturnValueOnce(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1));
+    expect(confirmSpy.mock.calls[0][0]).toMatch(/^Discard this program’s changes\?/);
+    expect(screen.getByLabelText('Program name')).toHaveValue('Weekly pulse, wider');
+    confirmSpy.mockReturnValueOnce(false);
+    fireEvent.click(screen.getByRole('button', { name: /New program/ }));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText('Program name')).toHaveValue('Weekly pulse, wider');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByLabelText('Program name')).not.toBeInTheDocument());
+  });
+
+  it('offers Sync to Monday.com only to a role that may sync, and switches it off in a preview', () => {
+    const monday = { connected: true, boardId: 'b1', boardName: 'Trends board' };
+    const state = { contentStudio: fresh({ researchRuns: [done], contentRuns: [reportRun], assets: [report] }), monday };
+    const api = { ...props().api, syncTrendBoardToMonday: vi.fn(async () => ({ created: 1, updated: 0 })) };
+    const reader = { role: 'editor', base: 'editor', allowed: ['state', 'contentCatalog', 'readStudioRun'] };
+    const first = render(<ViewerContext.Provider value={reader}><ContentStudioView {...props({ state, api })} initialView="board" /></ViewerContext.Provider>);
+    expect(screen.queryByRole('button', { name: /Sync to/ })).not.toBeInTheDocument();
+    first.unmount();
+    const preview = { role: 'editor', base: 'editor', realRole: 'admin', preview: true, allowed: ['state', 'contentCatalog', 'readStudioRun'], roleAllowed: ['state', 'contentCatalog', 'readStudioRun', 'syncTrendBoardToMonday'] };
+    render(<ViewerContext.Provider value={preview}><ContentStudioView {...props({ state, api })} initialView="board" /></ViewerContext.Provider>);
+    const sync = screen.getByRole('button', { name: /Sync to Trends board/ });
+    expect(sync).toBeDisabled();
+    fireEvent.click(sync);
+    expect(api.syncTrendBoardToMonday).not.toHaveBeenCalled();
+  });
+
+  it('starts the default program from the board’s Find new trends, and sets one up when there is none', async () => {
+    const handlers = props({ state: { contentStudio: fresh({ programs: [program], researchRuns: [done], contentRuns: [reportRun], assets: [report] }) } });
+    const first = render(<ContentStudioView {...handlers} initialView="board" />);
+    fireEvent.click(screen.getByRole('button', { name: /Find new trends/ }));
+    await waitFor(() => expect(handlers.api.startResearchRun).toHaveBeenCalledWith({ programId: 'p1', datasetIds: [] }));
+    expect(confirmSpy.mock.calls[0][0]).toMatch(/^Look for new trends with “Weekly pulse”\?/);
+    expect(screen.getByRole('heading', { level: 1, name: 'Trend board' })).toBeInTheDocument();
+    first.unmount();
+    render(<ContentStudioView {...props()} initialView="board" />);
+    fireEvent.click(screen.getAllByRole('button', { name: /Set up research/ })[0]);
+    expect(screen.getByRole('heading', { level: 1, name: 'Research programs' })).toBeInTheDocument();
+  });
+});

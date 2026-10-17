@@ -239,6 +239,8 @@ describe('links, cards and recall', () => {
   it('turns [[Exact title]] into studio links, keeps only links that exist, and web links only to addresses it was given', () => {
     const find = (title) => (title === 'AI Overviews' ? { kind: 'trend', id: 'theme-1' } : null);
     expect(help.linkAnswer('See [[AI Overviews]], [[Nope]], [x](studio:report/asset-1) and [y](studio:report/gone).', { find, known: (kind, id) => id === 'asset-1' })).toBe('See [AI Overviews](studio:trend/theme-1), Nope, [x](studio:report/asset-1) and y.');
+    // A program link keeps its id, so it opens on that program rather than on Research programs alone.
+    expect(help.linkAnswer('Run [[Weekly listening]] or [it](studio:program/p-weekly).', { find: () => ({ kind: 'program', id: 'p-weekly' }), known: (kind, id) => kind === 'program' && id === 'p-weekly' })).toBe('Run [Weekly listening](studio:program/p-weekly) or [it](studio:program/p-weekly).');
     const allowed = help.knownLinks({ posts: [{ url: 'https://x.com/someone/status/1' }] }, 'the guide');
     expect(help.honestLinks('Quote: [post](https://x.com/someone/status/1). Also [this](https://made-up.example.com/a) and https://made-up.example.com/b.', allowed)).toBe('Quote: [post](https://x.com/someone/status/1). Also this and `https://made-up.example.com/b`.');
   });

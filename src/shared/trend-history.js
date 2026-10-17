@@ -311,7 +311,10 @@ function compactTrend(trend) {
   return { trendId: trend.trendId, themeIds: trend.themeIds, name: trend.name, category: trend.category, zone: trend.zone, momentum: trend.momentum, runsSeen: trend.runsSeen, quickScansSeen: trend.quickScansSeen, firstSeen: trend.firstSeen, lastSeen: trend.lastSeen,
     latestPosts: trend.latestPosts, latestSharePct: trend.latestSharePct, changePp: trend.changePp, platforms: trend.platforms, priorityTier: trend.latestPriorityTier, spark: trend.spark, reportAssetId: reportOf(trend)?.assetId || '', origin: trend.origin, summary: trend.summary };
 }
-const changeEntry = (trend) => ({ trendId: trend.trendId, themeIds: trend.themeIds, name: trend.name, category: trend.category, momentum: trend.momentum, runsSeen: trend.runsSeen, lastSeen: trend.lastSeen, latestPosts: trend.latestPosts, latestSharePct: trend.latestSharePct, changePp: trend.changePp, missedRuns: trend.momentumBasis.missedRuns, reportAssetId: reportOf(trend)?.assetId || '' });
+// latestThemeId / latestRunId: the trend's newest research appearance, so What changed opens this run's card (themeIds
+// keeps first-seen order, so its first id can be a card skipped in an older run).
+const latestResearch = (trend) => trend.appearances.filter((entry) => entry.origin === 'research').at(-1) || null;
+const changeEntry = (trend) => ({ trendId: trend.trendId, themeIds: trend.themeIds, latestThemeId: latestResearch(trend)?.themeId || '', latestRunId: latestResearch(trend)?.runId || '', name: trend.name, category: trend.category, momentum: trend.momentum, runsSeen: trend.runsSeen, lastSeen: trend.lastSeen, latestPosts: trend.latestPosts, latestSharePct: trend.latestSharePct, changePp: trend.changePp, missedRuns: trend.momentumBasis.missedRuns, reportAssetId: reportOf(trend)?.assetId || '' });
 
 // "Since your last research run": what that run found new, what rose, and what faded (by share or by absence).
 function trendChanges(history = {}) {

@@ -285,11 +285,14 @@ export function ProgramCard({ card, actions, actionState, onAction, onNav }) {
   const sources = PLATFORMS.map((id) => { const raw = data.sources?.[id]; const count = Array.isArray(raw) ? raw.length : Number(raw) || 0; return count ? `${platformName(id)}: ${plural(count, SOURCE_WORD[id] || 'source')}` : ''; }).filter(Boolean);
   const caps = [finite(data.budgets?.aiUsd) && `AI ${money(data.budgets.aiUsd)}`, finite(data.budgets?.collectionUsd) && `Apify ${money(data.budgets.collectionUsd)}`].filter(Boolean);
   const facts = [['Window', windowText(data.window)], ['Schedule', scheduleText(data.schedule)], ['Caps', caps.join(' · ')]].filter(([, value]) => value);
+  // See the program opens Research programs on this program (openTarget), else on the page alone.
+  const see = data.programId && typeof onNav.openTarget === 'function' ? () => onNav.openTarget({ kind: 'program', id: String(data.programId) })
+    : typeof onNav.openPage === 'function' ? () => onNav.openPage('research') : null;
   return <CardShell type="program" kicker="Research program" title={card.title || data.name || 'Research program'} icon={Radar} note={card.note}>
     {sources.length > 0 && <p className="cc-meta">{sources.join(' · ')}</p>}
     {facts.length > 0 && <dl className="cc-facts">{facts.map(([label, value]) => <React.Fragment key={label}><dt>{label}</dt><dd>{value}</dd></React.Fragment>)}</dl>}
     <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction}>
-      {typeof onNav.openPage === 'function' && <NavButton key="see" icon={ArrowRight} label="See the program" onClick={() => onNav.openPage('research')} />}
+      {see && <NavButton key="see" icon={ArrowRight} label="See the program" onClick={see} />}
     </CardActions>
   </CardShell>;
 }
@@ -877,7 +880,7 @@ export function DraftCard({ card, onAsk }) {
 
 // Report change: Ask AI's new text for one section of a report it read, line by line, with the brand check on the new
 // lines. Apply saves the whole report through editStudioAsset with the edit it was based on, so a save someone made in
-// between is refused (and says who) instead of being overwritten. Open in the editor opens the report instead.
+// between is refused (and says who) instead of being overwritten. Open the report opens it in the reader instead.
 export function ReportChangeCard({ card, actions, actionState, onOutcome, onNav, api, state }) {
   const can = useCan(); const viewer = useViewer();
   const data = card.data || {}; const index = reportActionIndex(card, actions);
@@ -911,7 +914,7 @@ export function ReportChangeCard({ card, actions, actionState, onOutcome, onNav,
       {status?.status === 'done'
         ? <span className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</span>
         : data.canApply && canSave && <span className="cc-action"><button type="button" className="cc-btn is-primary" {...writeProps(viewer, !ready || running)} onClick={apply}>{running ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}{running ? 'Saving…' : 'Apply'}</button></span>}
-      {typeof onNav.openReport === 'function' && data.assetId && <NavButton icon={FileText} label="Open in the editor" onClick={() => onNav.openReport(data.assetId)} />}
+      {typeof onNav.openReport === 'function' && data.assetId && <NavButton icon={FileText} label="Open the report" onClick={() => onNav.openReport(data.assetId)} />}
     </div>
     {!status && ready && <p className="cc-meta cc-faint">Free. Everything made from the report afterwards uses the new text, and Restore the original undoes all edits.</p>}
   </CardShell>;

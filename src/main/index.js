@@ -2810,7 +2810,7 @@ function helpLinkTarget(items, title) {
   const named = hits.length ? hits : items.filter((item) => (item.aliases || []).some((alias) => helpNorm(alias) === helpNorm(title)));
   const best = [...named].sort((a, b) => HELP_LINK_ORDER.indexOf(a.kind) - HELP_LINK_ORDER.indexOf(b.kind))[0];
   if (!best) return null;
-  return best.kind === 'program' ? { kind: 'page', id: 'research' } : { kind: best.kind, id: best.id };
+  return { kind: best.kind, id: best.id }; // a program opens Research programs on that program
 }
 // Loose words → the best items by BM25 over title, aliases and place, with a nudge for recent ones and for a date the
 // words name ("last week", "October"). [{ item, score }], best first.

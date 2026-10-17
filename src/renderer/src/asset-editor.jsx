@@ -99,7 +99,8 @@ export function AssetEditor({ api, asset, markdown = '', edited = null, onSaved,
   saveRef.current = save;
   async function restore() {
     const whose = edited?.byName ? `${edited.byName}’s edits` : 'the edits';
-    if (!(await confirm({ title: 'Restore the original?', lines: [`This removes ${whose}${edited?.at ? ` from ${formatDay(edited.at)}` : ''}. Drafts already made from the edited version stay as they are.`], confirmLabel: 'Restore the original', tone: 'danger' }))) return;
+    // Restoring also closes the editor, so text typed since the last save goes too: say so when there is some.
+    if (!(await confirm({ title: 'Restore the original?', lines: [`This removes ${whose}${edited?.at ? ` from ${formatDay(edited.at)}` : ''}. Drafts already made from the edited version stay as they are.`, dirty ? 'Your unsaved changes in the editor are discarded too.' : ''], confirmLabel: 'Restore the original', tone: 'danger' }))) return;
     setRestoring(true); setProblem('');
     try {
       const result = await runWith(action, () => api.restoreStudioAsset({ assetId: asset.id }));

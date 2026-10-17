@@ -61,7 +61,7 @@ describe('research run as a Golden Thread workbook', () => {
     expect(sheet(workbook, 'Twitter').columns).toEqual(RESEARCH_SHEETS.x.columns);
 
     const themes = sheet(workbook, 'Theme Repository');
-    expect(themes.rows[0].slice(0, 7)).toEqual(['Generative Visibility Replaces Blue-Link Rankings', 'Practitioners measure visibility in AI answers, not rankings.', '["GEO","AI Overviews"]', 'Posts about optimizing for AI engines.', 'Exclude pure keyword tracking.', 'NEW ANGLE', 'Waiting for review']);
+    expect(themes.rows[0].slice(0, 7)).toEqual(['Generative Visibility Replaces Blue-Link Rankings', 'Practitioners measure visibility in AI answers, not rankings.', '["GEO","AI Overviews"]', 'Posts about optimizing for AI engines.', 'Exclude pure keyword tracking.', 'NEW ANGLE', 'Needs your OK']);
 
     // Raw provider fields come through in the n8n column layout.
     const twitter = sheet(workbook, 'Twitter'); const first = twitter.rows.find((row) => row[0] === 'https://x.com/aleyda/status/1');
@@ -116,6 +116,20 @@ describe('research run as a Golden Thread workbook', () => {
     expect(api.listResearchWorkbookSources()).toEqual([]);
     await expect(api.readResearchWorkbookSource({ runId: run.id })).rejects.toThrow(/workspace/);
   });
+
+  // Skip on the Trend board reads 'Skipped' everywhere else (board, Home, Inbox, Trend tracker); the run workbook said 'Passed'.
+  it('labels a skipped trend Skipped and an undecided one Needs your OK in Theme Repository', async () => {
+    const { api } = harness();
+    api.saveResearchProgram(program);
+    const run = api.startResearchRun({ programId: 'program-a', datasetIds: ['dataset-a'] }); await api.waitForIdle();
+    const statusOf = async () => { const themes = sheet(buildResearchWorkbook(await api.readResearchWorkbookSource({ runId: run.id })), 'Theme Repository'); return themes.rows[0][column(themes, 'Status')]; };
+    expect(await statusOf()).toBe('Needs your OK');
+    const themeId = (await api.readResearchWorkbookSource({ runId: run.id })).run.discoveredThemes[0].id;
+    api.decideResearchTheme({ runId: run.id, themeId, decision: 'passed' });
+    expect(await statusOf()).toBe('Skipped');
+    api.decideResearchTheme({ runId: run.id, themeId, decision: 'approved' });
+    expect(await statusOf()).toBe('Approved');
+  });
 });
 
 describe('workbook store', () => {
@@ -152,6 +166,56 @@ describe('workbook store', () => {
     expect(updated.edits.sheets['golden-thread']['k:https://x.com/a/1'].Theme).toBe('AI Overviews');
     expect(updated.sheets[0].rows[1]).toEqual(['https://x.com/a/1', '', '5']);
     expect(api.list().map((entry) => entry.kind)).toEqual(expect.arrayContaining(['research', 'import']));
+  });
+
+  // Replace with a newer file… on a sheet with no unique ID column: rows are keyed by position, and the old edit used to stay
+  // on its row number, so a row added above put the note on a different post.
+  it('moves position-keyed edits with their rows when a newer file adds or re-sorts rows', async () => {
+    const { api, root } = store();
+    const file = path.join(root, 'posts.csv');
+    const editedNote = (workbook, name) => { const sheetOf = workbook.sheets[0]; const index = sheetOf.rows.findIndex((row) => row[0] === name); return workbook.edits.sheets[sheetOf.id]?.[sheetOf.rowKeys[index]]?.notes; };
+    fs.writeFileSync(file, 'name,notes\nAlpha,a\nBravo,b\nCharlie,c\n');
+    const meta = await api.importFile({ filePath: file });
+    expect((await api.read({ workbookId: meta.id })).sheets[0].rowKeys).toEqual(['r2', 'r3', 'r4']);
+    api.saveEdits({ workbookId: meta.id, changes: [{ sheetId: 'posts', rowKey: 'r3', columnKey: 'notes', value: 'BRAVO NOTE', base: null }] });
+
+    fs.writeFileSync(file, 'name,notes\nZulu,z\nCharlie,c\nAlpha,a\nBravo,b\n');
+    const replaced = await api.importFile({ filePath: file, workbookId: meta.id });
+    expect(replaced.warnings).toEqual([]);
+    let workbook = await api.read({ workbookId: meta.id });
+    expect(editedNote(workbook, 'Bravo')).toBe('BRAVO NOTE');
+    expect(['Zulu', 'Charlie', 'Alpha'].map((name) => editedNote(workbook, name))).toEqual([undefined, undefined, undefined]);
+    expect(workbook.edits.sheets).toEqual({ posts: { r5: { notes: 'BRAVO NOTE' } } });
+
+    // A CSV's tab is named after its file, so "posts (2).csv" is a new tab id; its one tab still carries the edits.
+    const renamed = path.join(root, 'posts (2).csv');
+    fs.writeFileSync(renamed, 'name,notes\nBravo,b\nZulu,z\nCharlie,c\nAlpha,a\n');
+    await api.importFile({ filePath: renamed, workbookId: meta.id });
+    workbook = await api.read({ workbookId: meta.id });
+    expect(workbook.sheets[0].id).toBe('posts-2');
+    expect(editedNote(workbook, 'Bravo')).toBe('BRAVO NOTE');
+
+    // When the edited row itself changed in the new file, the edit is cleared and the person is told, not left on another post.
+    fs.writeFileSync(renamed, 'name,notes\nZulu,z\nBravo,b (updated)\nCharlie,c\nAlpha,a\n');
+    const changed = await api.importFile({ filePath: renamed, workbookId: meta.id });
+    expect(changed.warnings).toEqual(['1 edited cell was cleared because its row or column changed in the new file.']);
+    workbook = await api.read({ workbookId: meta.id });
+    expect(workbook.edits.sheets).toEqual({});
+  });
+
+  it('pairs repeated identical rows in order and clears edits whose column is gone', async () => {
+    const { api, root } = store();
+    const file = path.join(root, 'notes.csv');
+    fs.writeFileSync(file, 'Note,Owner\nsame,\nsame,\nother,\n');
+    const meta = await api.importFile({ filePath: file });
+    api.saveEdits({ workbookId: meta.id, changes: [{ sheetId: 'notes', rowKey: 'r3', columnKey: 'Owner', value: 'Sam', base: null }, { sheetId: 'notes', rowKey: 'r4', columnKey: 'Owner', value: 'Riley', base: null }] });
+    fs.writeFileSync(file, 'Note,Owner\nnew,\nsame,\nsame,\nother,\n');
+    expect((await api.importFile({ filePath: file, workbookId: meta.id })).warnings).toEqual([]);
+    expect((await api.read({ workbookId: meta.id })).edits.sheets).toEqual({ notes: { r4: { Owner: 'Sam' }, r5: { Owner: 'Riley' } } });
+    // The Owner column is gone from the newest file: both edits are cleared and counted.
+    fs.writeFileSync(file, 'Note\nnew\nsame\nsame\nother\n');
+    expect((await api.importFile({ filePath: file, workbookId: meta.id })).warnings).toEqual(['2 edited cells were cleared because their rows or columns changed in the new file.']);
+    expect((await api.read({ workbookId: meta.id })).edits.sheets).toEqual({});
   });
 
   it('validates edits before saving them', () => {

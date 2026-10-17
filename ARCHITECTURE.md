@@ -32,7 +32,7 @@ when the build changes. Errors the server didn't expect reach the browser as "So
 
 ## The RPC method registry
 
-`src/shared/studio-api-channels.json` lists every method the UI calls (158) and the main-process channel it maps to
+`src/shared/studio-api-channels.json` lists every method the UI calls (167) and the main-process channel it maps to
 (`studio:*`, `help:*`, `team:*` and older ones such as `save-key`). Three things must agree with it:
 
 1. `src/preload/index.js`: the Mac bridge, written by hand (`invoke('studio:x', payload)`).

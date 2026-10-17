@@ -111,10 +111,18 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
     if (workbookId && !existing) fail('Choose an imported workbook to update.');
     const id = existing?.id || `workbook-${randomUUID()}`; const now = stamp();
     const workbook = { id, name: existing?.name || parsed.name, sheets };
+    const warnings = [...(parsed.warnings || [])];
+    // Replacing with a newer file: each edit follows its record into the new rows (see carryEdits), read before the old file is overwritten.
+    const storedEdits = existing ? readEdits(id) : null;
+    const carried = existing ? carryEdits(readJson(workbookFile(id), null), workbook, storedEdits) : null;
     writeJson(workbookFile(id), workbook);
+    if (carried?.changed) {
+      writeJson(editsFile(editsKey(id)), { version: 1, sheets: carried.sheets, meta: carried.meta, savedAt: carried.dropped ? now : storedEdits.savedAt || '' });
+      if (carried.dropped) warnings.push(`${carried.dropped.toLocaleString('en-US')} edited ${carried.dropped === 1 ? 'cell was' : 'cells were'} cleared because ${carried.dropped === 1 ? 'its row or column' : 'their rows or columns'} changed in the new file.`);
+    }
     const meta = { id, workspaceId: activeWorkspaceId(), name: workbook.name, source, createdAt: existing?.createdAt || now, updatedAt: now, sheets: summary(workbook) };
     writeJson(indexFile, { version: 1, workbooks: [meta, ...index.workbooks.filter((row) => row.id !== id)] });
-    return { ...meta, kind: 'import', warnings: parsed.warnings || [] };
+    return { ...meta, kind: 'import', warnings };
   }
 
   async function importFile({ filePath, workbookId } = {}) {
@@ -249,6 +257,52 @@ function setCell(tree, { sheetId, rowKey, columnKey }, value) {
     return;
   }
   ((tree[sheetId] ||= {})[rowKey] ||= {})[columnKey] = value;
+}
+// Edit column keys as the grid makes them (sheet-model.js columnKeys): the header when it is unique, else the column letter.
+function columnLetter(index) { let n = index + 1; let letters = ''; while (n > 0) { const rem = (n - 1) % 26; letters = String.fromCharCode(65 + rem) + letters; n = Math.floor((n - 1) / 26); } return letters; }
+function editColumnKeys(columns) {
+  const counts = new Map(); for (const label of columns) counts.set(label, (counts.get(label) || 0) + 1);
+  return columns.map((label, index) => (label && counts.get(label) === 1 ? label : `#${columnLetter(index)}`));
+}
+// Old row index → new row key, for each old row whose cells, in every column both tabs share, match the new rows exactly
+// as often as they appeared before (repeated identical rows pair up in order); anything else has no match.
+function contentMatch(before, after, beforeKeys, afterKeys) {
+  const pairs = beforeKeys.flatMap((key, index) => { const at = afterKeys.indexOf(key); return at >= 0 && before.columns[index] === after.columns[at] ? [[index, at]] : []; });
+  const found = new Map(); if (!pairs.length) return found;
+  const group = (rows, side) => { const groups = new Map(); rows.forEach((row, index) => { const key = JSON.stringify(pairs.map((pair) => row[pair[side]] ?? '')); const list = groups.get(key); if (list) list.push(index); else groups.set(key, [index]); }); return groups; };
+  const olds = group(before.rows, 0); const news = group(after.rows, 1);
+  for (const [key, list] of olds) { const into = news.get(key); if (into?.length === list.length) list.forEach((index, n) => found.set(index, after.rowKeys[into[n]])); }
+  return found;
+}
+// Replacing an imported workbook with a newer file. Edits are stored by tab, row key and column key. A row keyed by a unique
+// column (k:…) keeps its key, but a row keyed by its position (r<n>) would put the old edit on whatever record now sits on that
+// row. So each edit follows its record: a k: key still in the new tab stays; any other row moves to the new row with the same
+// cells; an edit whose row, column or tab can't be found is cleared and counted. A CSV's only tab is named after the file,
+// so a workbook with one tab carries its edits into the new file's one tab whatever it is called.
+function carryEdits(previous, next, stored) {
+  const sheets = {}; const meta = {}; let dropped = 0; let moved = false;
+  const oldSheets = Array.isArray(previous?.sheets) ? previous.sheets : [];
+  for (const [sheetId, rows] of Object.entries(stored?.sheets || {})) {
+    const before = oldSheets.find((sheet) => sheet.id === sheetId);
+    const after = next.sheets.find((sheet) => sheet.id === sheetId) || (oldSheets.length === 1 && next.sheets.length === 1 ? next.sheets[0] : null);
+    const beforeKeys = before ? editColumnKeys(before.columns) : []; const afterKeys = after ? editColumnKeys(after.columns) : [];
+    const afterRows = new Set(after?.rowKeys || []); let match = null;
+    // A letter key (#B) carries over only when the same header still sits under it.
+    const carries = (columnKey) => { const at = afterKeys.indexOf(columnKey); if (at < 0) return false; if (!columnKey.startsWith('#')) return true; const was = beforeKeys.indexOf(columnKey); return was >= 0 && before.columns[was] === after.columns[at]; };
+    for (const [rowKey, cells] of Object.entries(rows || {})) {
+      let target = null;
+      if (after && rowKey.startsWith('k:') && afterRows.has(rowKey)) target = rowKey;
+      else if (after && before) { match ||= contentMatch(before, after, beforeKeys, afterKeys); target = match.get(before.rowKeys.indexOf(rowKey)) ?? null; }
+      for (const [columnKey, value] of Object.entries(cells || {})) {
+        if (target === null || !carries(columnKey)) { dropped++; continue; }
+        const into = { sheetId: after.id, rowKey: target, columnKey };
+        setCell(sheets, into, value);
+        const writer = stored.meta?.[sheetId]?.[rowKey]?.[columnKey]; if (writer) setCell(meta, into, writer);
+        if (after.id !== sheetId || target !== rowKey) moved = true;
+      }
+    }
+  }
+  return { sheets, meta, dropped, changed: dropped > 0 || moved };
 }
 function conflictError(conflicts) {
   const names = [...new Set(conflicts.map((entry) => entry.by).filter(Boolean))];

@@ -29,8 +29,8 @@ import ASK_ACTIONS from '../../shared/ask-actions.json';
  * @property {(page: string) => void} [openPage]  Open an Ask AI page id (main/help-assistant.js HELP_PAGES: research, board, library, sheets, settings…).
  * @property {(workbookId: string) => void} [openSheets]  Open Sheets on one workbook ('trend-tracker' is the Trend tracker).
  * @property {(promptId: string) => void} [openPrompt]  Open one prompt in Prompts (the Prompt Library) by registry id, e.g. 'research.discovery'.
- * @property {(target: { kind: 'report'|'trend'|'folder'|'run'|'prompt'|'page', id?: string, page?: string }) => void} [openTarget]  Open anything with an id, in this layout.
- * @property {(kind: 'report'|'trend'|'assets'|'prompt', id: string) => string} [copyLink]  Copy a share link; returns it, or '' when there is no web address to build it on.
+ * @property {(target: { kind: 'report'|'trend'|'folder'|'run'|'prompt'|'program'|'page', id?: string, page?: string }) => void} [openTarget]  Open anything with an id, in this layout.
+ * @property {(kind: 'report'|'trend'|'assets'|'prompt', id: string) => string} [copyLink]  Copy a share link; returns it, or '' when there is no web address to build it on (the New menu and palette; Ask AI's Copy link copies and waits itself).
  * @property {(preset: { emails?: string[], role?: string, channelId?: string }) => void} [openInvite]  Open the invite dialog filled in; the admin presses Invite.
  * @property {(target: { role?: string, channelId?: string, memberId?: string }) => any} [viewAs]  Preview the studio as a role or a person.
  * @property {(draft: { name: string, query: string, lookbackDays: number, sources: { x: string[], linkedin: string[], reddit: string[] } }) => void} [openProgramDraft]  Open the research program editor filled in; the admin presses Save.
@@ -569,10 +569,18 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
       if (type === 'report' || request.assetId) { const report = (request.assetId && reports.find((row) => row.id === request.assetId)) || findReport(request.target); if (!report) throw new Error(`I couldn’t find a report called “${request.target}”.`); go('openReport', report.id); return 'Opened.'; }
       if (type === 'folder' || request.folderKey) { const folder = (request.folderKey && kitFolders.find((row) => row.key === request.folderKey)) || findFolder(request.target); if (!folder) throw new Error(`I couldn’t find an asset folder called “${request.target}”.`); go('openFolder', folder.key); return 'Opened.'; }
       if (type === 'prompt') { go('openPrompt', request.promptId || ref.id); return 'Opened.'; }
-      if (type === 'program') { go('openPage', 'research'); return 'Opened Research programs.'; }
+      // A program opens Research programs with that program selected (or the page alone, when the layout can't).
+      if (type === 'program') {
+        const id = request.programId || (ref.kind === 'program' ? ref.id : '');
+        const program = (id && programs.find((row) => row.id === id)) || (request.target ? programs.find((row) => same(row.name, request.target)) : null);
+        if (program && typeof nav?.openTarget === 'function') { nav.openTarget({ kind: 'program', id: program.id }); return `Opened “${program.name}” in Research programs.`; }
+        go('openPage', 'research'); return 'Opened Research programs.';
+      }
       if (type === 'page') {
         if (page === 'settings' && !settingsAllowed) throw new Error(`Settings are for admins. Ask ${askAdmin} if something needs changing.`);
-        if (typeof nav?.openTarget === 'function') nav.openTarget({ kind: 'page', page, id: page }); else go('openPage', page);
+        // `page` is an Ask AI page id (HELP_PAGES: `reports` is Dataset reports), which openPage speaks; openTarget's pages
+        // are Simple's tab ids, so it's only the fallback for a layout without openPage.
+        if (typeof nav?.openPage !== 'function' && typeof nav?.openTarget === 'function') nav.openTarget({ kind: 'page', page, id: page }); else go('openPage', page);
         return 'Opened.';
       }
       // A trend opens on its card (or the Trends tab); a run where its progress shows (or Home).
@@ -593,13 +601,12 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
       const id = ref.id || request.assetId || request.folderKey || request.themeId || request.promptId || '';
       const what = request.params.what || 'link';
       const linkKind = { report: 'report', trend: 'trend', folder: 'assets', prompt: 'prompt' }[kind];
-      // The share link (deep-links.js), built quietly for a Slack summary; Copy link itself goes through the layout's
-      // copyLink, which copies and says so.
+      // The share link (deep-links.js, on the same address as the layout's own Copy link). Copy link waits for the copy,
+      // so a window that refuses it shows the failure under the button instead of "Copied".
       const link = linkKind && id ? linkFor(linkKind, id, { origin: shareOrigin({ web, settings: state?.settings }) }) : '';
       const noLink = () => new Error(web ? 'This link couldn’t be made. Try Copy link on the page itself.' : `Share links need a Studio web address. Ask ${askAdmin} to add one in Settings.`);
       if (what === 'link') {
         if (!linkKind || !id) throw new Error(`I couldn’t find “${request.target || 'that'}” to link to.`);
-        if (typeof nav?.copyLink === 'function') { if (!String(nav.copyLink(linkKind, id) || '')) throw noLink(); return 'Copied the link.'; }
         if (!link) throw noLink();
         await clip(link, 'Open it and use Copy link there.');
         return 'Copied the link.';

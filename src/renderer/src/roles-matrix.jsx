@@ -2,6 +2,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, Eye, Lock, Minus, PenLine, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { Dialog, DialogClose, MoreMenu, useNarrow } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
+import { useUnsavedGuard } from './asset-editor.jsx';
 import { availability, capabilityRules, withRequirements, withoutDependents } from './person-sheet.jsx';
 import { plural, writeProps } from './viewer.js';
 import './roles-matrix.css';
@@ -113,6 +114,11 @@ export function RolesMatrix({ team, viewer = {}, api, action, onPreview, onSaved
   const changeCount = changes.reduce((sum, entry) => sum + entry.on.length + entry.off.length, 0);
   const affectedPeople = list(team?.members).filter((member) => !member.disabled && changes.some((entry) => entry.role.id === member.role));
   const dirty = changeCount > 0;
+  // App's unsaved guard: switching People tabs, previews, the sidebar, Settings and the layout switch ask before an
+  // unsaved draft is thrown away (the draft lives only here, and leaving the Roles tab unmounts it).
+  const guard = useUnsavedGuard(); const guardKey = useId();
+  useEffect(() => { guard.set(guardKey, dirty); }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => guard.set(guardKey, false), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggle(role, cap) {
     if (!canSave) return;
@@ -183,7 +189,7 @@ export function RolesMatrix({ team, viewer = {}, api, action, onPreview, onSaved
   function header(role) {
     const count = Number(role.memberCount) || 0;
     const items = role.base === 'admin' ? [] : [
-      onPreview && { label: 'Preview as this role', icon: Eye, onSelect: () => previewRole(role) },
+      onPreview && { label: 'Preview as this role', icon: Eye, ...blockedWhileDirty, onSelect: () => previewRole(role) },
       !role.builtIn && canEditRoles && { label: 'Rename', icon: PenLine, ...blockedWhileDirty, onSelect: () => { setProblem(''); setDialog({ kind: 'rename', role }); } },
       role.builtIn && canSave && { label: 'Reset to defaults', icon: RotateCcw, onSelect: () => resetRole(role) },
       !role.builtIn && canEditRoles && typeof api?.deleteRole === 'function' && { label: 'Delete', icon: Trash2, danger: true, ...blockedWhileDirty, onSelect: () => { setProblem(''); setDialog({ kind: 'delete', role }); } },

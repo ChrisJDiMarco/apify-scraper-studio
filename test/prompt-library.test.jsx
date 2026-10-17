@@ -199,6 +199,29 @@ describe('the Prompts page', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Test run…' })).toBeEnabled());
     expect(api.testPrompt).not.toHaveBeenCalled();
   });
+  it('keeps a paid test run across a look at Edit, and lists it under Recent test runs when it ends', async () => {
+    const api = fakeApi();
+    let finish;
+    api.testPrompt = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const state = { ...STATE, jobs: [{ id: 'ptest-1', kind: 'prompt-test', title: 'Test run · Find candidate trends', cancellable: true }] };
+    page({ api, state });
+    await openPrompt('Find candidate trends');
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Test run…' }));
+    await waitFor(() => expect(api.testPrompt).toHaveBeenCalledOnce());
+    // A look at the text while it runs: coming back still shows the run, with Stop, not a fresh Test run… button.
+    fireEvent.click(screen.getByRole('tab', { name: /Edit/ }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+    expect(await screen.findByRole('button', { name: /Testing…/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    // It ends while the person is on Edit: the result and its record are there on return.
+    fireEvent.click(screen.getByRole('tab', { name: /Edit/ }));
+    await act(async () => { finish({ testId: 'ptest-1', ok: true, status: 'passed', problems: [], output: { candidates: [] }, receipt: { costUsd: 0.18, model: 'claude-opus-5-5', route: 'claude-api', metered: true }, sampleLabel: 'Sample data (made-up posts)', test: { id: 'ptest-1', at: '2026-10-17T12:00:00.000Z', by: { name: 'Alex' }, ok: true, status: 'passed', costUsd: 0.18 } }); });
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
+    expect(await screen.findByRole('heading', { level: 4, name: 'Passes the studio’s checks' })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Recent test runs' })).getByText(/Alex · Passed/)).toBeInTheDocument();
+    expect(api.estimatePromptTest).toHaveBeenCalledOnce();
+  });
   it('compares and restores versions, and lets an admin lock the prompt', async () => {
     const api = fakeApi({ saved: { 'research.discovery': { empty: 'Return nothing.' } } });
     const onNotice = vi.fn();

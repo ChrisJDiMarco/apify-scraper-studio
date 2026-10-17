@@ -115,6 +115,16 @@ describe('AssetEditor', () => {
     expect(onSaved).toHaveBeenCalledWith({ asset: expect.objectContaining({ edited: null }), restored: true });
   });
 
+  it('says Restore the original also discards what was typed since the last save', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const { text, services } = open({ edited });
+    fireEvent.change(text, { target: { value: 'Typed but not saved.' } });
+    fireEvent.click(screen.getByRole('button', { name: /Restore the original/ }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(`Restore the original?\n\nThis removes Riley’s edits from ${day(edited.at)}. Drafts already made from the edited version stay as they are.\n\nYour unsaved changes in the editor are discarded too.`));
+    expect(services.restoreStudioAsset).not.toHaveBeenCalled();
+    expect(text).toHaveValue('Typed but not saved.');
+  });
+
   it('offers no Restore for an unedited report, and turns Save off in a preview', () => {
     render(<ViewerContext.Provider value={{ role: 'editor', realRole: 'admin', preview: true, allowed: ['state'] }}><AssetEditor api={api()} asset={asset} markdown="Text." /></ViewerContext.Provider>);
     expect(screen.queryByRole('button', { name: /Restore the original/ })).not.toBeInTheDocument();

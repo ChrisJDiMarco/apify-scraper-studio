@@ -83,7 +83,7 @@ function threadFrom(messages) {
 const legacyHistory = (messages) => messages.flatMap(({ role, content, image, context: earlier }) => [...(earlier ? [{ role: 'user', content: earlier }] : []), { role, content: image?.prompt ? `${content}\n[Picture created from this prompt: ${image.prompt}]` : content }]);
 // In-app links in an answer, [label](studio:<kind>/<id>) (the server writes them from [[Exact title]] and drops any it
 // can't find): the words stay in the text, in bold, and each link becomes a button under the answer.
-const STUDIO_LINK = /\[([^\]\n]{1,160})\]\(studio:(report|trend|folder|run|prompt|page)\/([A-Za-z0-9][A-Za-z0-9_.:~-]{0,299})\)/g;
+const STUDIO_LINK = /\[([^\]\n]{1,160})\]\(studio:(report|trend|folder|run|prompt|program|page)\/([A-Za-z0-9][A-Za-z0-9_.:~-]{0,299})\)/g;
 export function studioLinks(content) {
   const links = []; const seen = new Set();
   const text = String(content || '').replace(STUDIO_LINK, (all, label, kind, id) => {
@@ -567,9 +567,12 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   // An in-answer link: the layout opens the item (openTarget), else the nearest place it has.
   function openLink(link) {
     try {
+      // A page link carries an Ask AI page id (HELP_PAGES: `reports` is Dataset reports), the same as the page buttons
+      // under an answer, so it opens the same way they do; openTarget's pages are Simple's tab ids.
+      if (link.kind === 'page' && typeof onOpenPage === 'function') { onOpenPage(link.id); return; }
       if (typeof nav?.openTarget === 'function') { nav.openTarget({ kind: link.kind, id: link.id, ...(link.kind === 'page' ? { page: link.id } : {}) }); return; }
-      const ways = { report: () => nav?.openReport?.(link.id), folder: () => nav?.openFolder?.(link.id), prompt: () => nav?.openPrompt?.(link.id), page: () => onOpenPage?.(link.id), trend: () => nav?.openTab?.('trends'), run: () => nav?.openTab?.('home') };
-      const way = { report: nav?.openReport, folder: nav?.openFolder, prompt: nav?.openPrompt, page: onOpenPage, trend: nav?.openTab, run: nav?.openTab }[link.kind];
+      const ways = { report: () => nav?.openReport?.(link.id), folder: () => nav?.openFolder?.(link.id), prompt: () => nav?.openPrompt?.(link.id), page: () => onOpenPage?.(link.id), program: () => onOpenPage?.('research'), trend: () => nav?.openTab?.('trends'), run: () => nav?.openTab?.('home') };
+      const way = { report: nav?.openReport, folder: nav?.openFolder, prompt: nav?.openPrompt, page: onOpenPage, program: onOpenPage, trend: nav?.openTab, run: nav?.openTab }[link.kind];
       if (typeof way !== 'function') { setNotice('That isn’t available in this layout.'); return; }
       ways[link.kind]();
     } catch (failure) { setNotice(errorText(failure)); }

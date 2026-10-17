@@ -37,7 +37,7 @@ the No access screen.
    (`spends`) on an editor base, because paid work shows its estimate first. A channel base never needs costs.
 
 The methods are the union of the capabilities' methods (a channel base: intersected with `channelSafeMethods`). With
-no policy edits this is exactly the old fixed matrix: admin 158 methods, editor 110, channel owner 13
+no policy edits this is exactly the old fixed matrix: admin 167 methods, editor 112, channel owner 13
 (`test/roles.test.js` and `test/docs-consistency.test.js` check these numbers).
 
 Channels are the ten asset-kit folders in `src/shared/kit-folders.json` `folders` (main reads them through

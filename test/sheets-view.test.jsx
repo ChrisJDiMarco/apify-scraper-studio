@@ -103,16 +103,29 @@ describe('Sheets view', () => {
     await waitFor(() => expect(bridge.saveWorkbookEdits).toHaveBeenLastCalledWith({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: {} } }, base: { version: 1, sheets: { themes: { t1: { Novelty: 'EVERGREEN' } } } } }), { timeout: 2000 });
   });
 
-  it('says which edits weren’t saved because someone else changed those cells', async () => {
-    const bridge = await open({ api: api({ saveWorkbookEdits: vi.fn(async () => ({ savedAt: 'now', edits: { version: 1, sheets: {} }, conflicts: [{ sheetId: 'themes', rowKey: 't1', columnKey: 'Novelty', stored: 'EVERGREEN', by: 'Riley' }] })) }) });
+  it('says which edits weren’t saved because someone else changed those cells, and shows the value that was kept', async () => {
+    const saveWorkbookEdits = vi.fn(async () => ({ savedAt: 'now', edits: { version: 1, sheets: {} }, conflicts: [] }));
+    saveWorkbookEdits.mockResolvedValueOnce({ savedAt: 'now', edits: { version: 1, sheets: { themes: { t1: { Novelty: 'EVERGREEN' } } } }, conflicts: [{ sheetId: 'themes', rowKey: 't1', columnKey: 'Novelty', stored: 'EVERGREEN', by: 'Riley' }] });
+    await open({ api: api({ saveWorkbookEdits }) });
     fireEvent.mouseDown(cell('NEW ANGLE'), { button: 0 });
     fireEvent.keyDown(grid(), { key: 'E' });
     const editor = screen.getByLabelText('Edit Novelty');
-    fireEvent.change(editor, { target: { value: 'NEW TOPIC' } });
+    fireEvent.change(editor, { target: { value: 'MINE' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
-    await waitFor(() => expect(bridge.saveWorkbookEdits).toHaveBeenCalled(), { timeout: 2000 });
-    expect(await screen.findByText(/Someone else changed 1 cell you edited, so their value was kept\. Reopen the sheet/)).toBeInTheDocument();
+    await waitFor(() => expect(saveWorkbookEdits).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(await screen.findByText('Riley changed 1 cell you edited, so their value was kept and is shown now. Your other changes are saved.')).toBeInTheDocument();
     expect(screen.getByText('Not saved')).toBeInTheDocument();
+    // The grid shows Riley's value, not the refused one.
+    expect(cell('EVERGREEN')).toHaveClass('edited');
+    expect(within(grid()).queryByText('MINE')).not.toBeInTheDocument();
+    // The next save sends the kept value as both base and edit, so the refused cell is neither resent nor counted as saved.
+    fireEvent.mouseDown(cell('Generative Visibility'), { button: 0 });
+    fireEvent.keyDown(grid(), { key: 'G' });
+    const theme = screen.getByLabelText('Edit Theme');
+    fireEvent.change(theme, { target: { value: 'GEO' } });
+    fireEvent.keyDown(theme, { key: 'Enter' });
+    await waitFor(() => expect(saveWorkbookEdits).toHaveBeenCalledTimes(2), { timeout: 2000 });
+    expect(saveWorkbookEdits).toHaveBeenLastCalledWith({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: { t1: { Novelty: 'EVERGREEN', Theme: 'GEO' } } } }, base: { version: 1, sheets: { themes: { t1: { Novelty: 'EVERGREEN' } } } } });
   });
 
   it('copies a selection as tab-separated cells that paste straight into Google Sheets', async () => {
@@ -172,6 +185,24 @@ describe('Sheets view', () => {
     expect(onNavigate).toHaveBeenCalledWith('research-programs');
     fireEvent.click(screen.getByRole('button', { name: /Import .xlsx or .csv/ }));
     await waitFor(() => expect(bridge.importWorkbook).toHaveBeenCalledWith({}));
+  });
+
+  // Pull the latest goes through the same store as Replace with a newer file…, which clears edits whose rows changed; the
+  // pull notice dropped that warning, so the person never learned their edits were gone.
+  it('says when Pull the latest from Google Sheets cleared edits whose rows changed', async () => {
+    const source = { kind: 'google-sheets', spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/1FixtureSheetIdForTests_0123456789abcdefABCD/edit' };
+    const pulled = { id: 'import-g', kind: 'import', name: 'Golden Thread', source, edits: { version: 1, sheets: {} }, sheets: [{ id: 'notes', name: 'Notes', columns: ['Note'], rows: [['same']], rowKeys: ['r2'] }] };
+    const bridge = api({
+      listWorkbooks: vi.fn(async () => [{ id: 'import-g', kind: 'import', name: 'Golden Thread', source, sheetCount: 1, rowCount: 1, updatedAt: '2026-10-01T00:00:00Z' }]),
+      readWorkbook: vi.fn(async () => JSON.parse(JSON.stringify(pulled))),
+      pullGoogleSheet: vi.fn(async () => ({ ...pulled, sheets: [{ id: 'notes', name: 'Notes', rowCount: 1, columnCount: 1 }], warnings: ['1 edited cell was cleared because its row or column changed in the new file.'] })),
+    });
+    render(<SheetsView api={bridge} state={{}} onNavigate={vi.fn()} initialWorkbookId="import-g" />);
+    await screen.findByRole('grid');
+    fireEvent.click(screen.getByRole('button', { name: /Golden Thread/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Pull the latest from Google Sheets/ }));
+    expect(await screen.findByText('Pulled “Golden Thread” from Google Sheets · 1 tab. 1 edited cell was cleared because its row or column changed in the new file.')).toBeInTheDocument();
+    expect(bridge.pullGoogleSheet).toHaveBeenCalledWith(expect.objectContaining({ workbookId: 'import-g' }));
   });
 });
 

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ClipboardCopy, FileText, Folder, Image as ImageIcon, Link2, LoaderCircle, Search, Sparkles, Upload, X } from 'lucide-react';
 import { trapTab, useModalFocus, useToast } from './role-screens.jsx';
 import { useViewer, writeProps } from './viewer.js';
-import { formatDate, number } from './ui.jsx';
+import { formatDate, friendlyMessage, number } from './ui.jsx';
 import { SOURCE_LABEL } from '../../shared/library-tree.js';
 import './simple-mode.css';
 import './library.css';
@@ -59,6 +59,7 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
   const [chosen, setChosen] = useState(null); // null: everything the kit offers
   const [planning, setPlanning] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [startProblem, setStartProblem] = useState(''); // why Make was refused, shown under the plan so it can be retried
   const first = useRef(null);
   const panel = useRef(null);
   useModalFocus(panel, first);
@@ -106,14 +107,21 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
     const all = list(plan?.folders).flatMap((folder) => folder.items).filter((item) => item.available);
     const current = new Set(chosen || all.filter((item) => item.selected).map((item) => item.id));
     if (current.has(id)) current.delete(id); else current.add(id);
-    if (current.size) setChosen(current);
+    if (current.size) { setChosen(current); setStartProblem(''); }
   }
+  // A refused Make (a signed-out AI route, a budget the server won't take) is said here, in the dialog: the page's own
+  // banner sits behind this sheet.
   async function start() {
     if (!plan || !source) return;
-    setStarting(true);
-    const run = await action(() => api.createAssetKit({ source, ...(chosen ? { deliverableIds: [...chosen] } : {}), maxBudgetUsd: plan.estimate.capUsd }), `Making ${plural(plan.estimate.calls, 'asset')}. They’ll fill this folder as they’re ready.`);
-    setStarting(false);
-    if (run) onCreated(run, plan);
+    setStarting(true); setStartProblem('');
+    try {
+      const run = await action(() => api.createAssetKit({ source, ...(chosen ? { deliverableIds: [...chosen] } : {}), maxBudgetUsd: plan.estimate.capUsd }), `Making ${plural(plan.estimate.calls, 'asset')}. They’ll fill this folder as they’re ready.`, true);
+      setStarting(false);
+      if (run) onCreated(run, plan);
+    } catch (failure) {
+      setStarting(false);
+      setStartProblem(friendlyMessage(failure) || 'The assets couldn’t be started. Try again.');
+    }
   }
   const selected = list(plan?.folders).flatMap((folder) => folder.items).filter((item) => item.selected);
   const pictures = selected.filter((item) => item.kind === 'image').reduce((sum, item) => sum + (item.pictures || 0), 0);
@@ -165,6 +173,7 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
               <div><strong>About {number(plan.minutes)} minutes</strong><small>{plan.route === 'codex' ? 'Codex' : plan.estimate.modelLabel} writes{pictures ? ', OpenAI draws' : ''}</small></div>
             </div>
             {list(plan.warnings).length > 0 && <p className="simple-hint">{plan.warnings[0]}</p>}
+            {startProblem && <p className="simple-error" role="alert">{startProblem}</p>}
           </>}
         </div>}
       <footer className="simple-sheet-foot">
@@ -192,8 +201,11 @@ export function KitCreatorHost({ request, api, sources, imagesReady, action, bus
     showToast(`Making ${plural(plan?.estimate?.calls || list(run?.jobs).length || 0, 'asset')}${run?.kit?.sourceTitle ? ` from “${run.kit.sourceTitle}”` : ''}. They fill the folder as they’re ready.`, key && onOpenFolder ? { actionLabel: 'Open folder', onAction: () => onOpenFolder(key) } : {});
   }
   if (!open && !toast) return null;
+  // The toast below is the one note after Make (with Open folder): the shell's banner gets no success message, since no
+  // folder is open here. A refusal still comes back to the dialog (throwOnError).
+  const quietAction = (work, _message, throwOnError) => action(work, '', throwOnError);
   return <div className="simple-shell kit-creator-host" data-edition={edition}>
-    {open && <KitCreator key={open.key} api={api} sources={sources} preset={open} imagesReady={imagesReady} action={action} busy={busy} picturesOff={picturesOff} focus={focus} onClose={close} onCreated={created} onSettings={onSettings ? () => { close(); onSettings(); } : undefined} />}
+    {open && <KitCreator key={open.key} api={api} sources={sources} preset={open} imagesReady={imagesReady} action={quietAction} busy={busy} picturesOff={picturesOff} focus={focus} onClose={close} onCreated={created} onSettings={onSettings ? () => { close(); onSettings(); } : undefined} />}
     {toast}
   </div>;
 }

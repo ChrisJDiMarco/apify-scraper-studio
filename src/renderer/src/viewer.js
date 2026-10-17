@@ -83,10 +83,12 @@ export function adminNames(state, fallback = 'an admin') {
   return joinOr(admins.slice(0, 3).map((row) => (typeof row === 'string' ? row : row?.name))) || fallback;
 }
 
-// Dates in the viewer's locale: "Oct 12" this year, "Oct 12, 2025" otherwise.
+// Dates in the viewer's locale: "Oct 12" this year, "Oct 12, 2025" otherwise. A bare calendar day ("2026-10-20": a
+// planned date, a trend's first or last seen, a program window) is read as local noon, because new Date() takes it as
+// UTC midnight and would show the day before anywhere west of UTC.
 export function formatDay(value) {
   if (!value) return '';
-  const date = new Date(value);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? new Date(`${value}T12:00:00`) : new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.getFullYear() === new Date().getFullYear() ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : date.toLocaleDateString(undefined, { dateStyle: 'medium' });
 }

@@ -98,6 +98,17 @@ export function exportSheet(sheet, sheetEdits, frozenColumns = 0) {
   return { name: sheet.name, columns: sheet.columns.map((label) => String(label ?? '')), rows, ...(frozenColumns ? { frozenColumns } : {}) };
 }
 const fileSafe = (value) => String(value || 'sheet').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'sheet';
+// Saved edits by tab, row and column ({ version, sheets: { [sheetId]: { [rowKey]: { [columnKey]: value } } } }).
+const editedCell = (tree, { sheetId, rowKey, columnKey }) => tree?.sheets?.[sheetId]?.[rowKey]?.[columnKey];
+// A cell the server refused (someone else changed it first) set to the value that was kept: `stored` null means no edit.
+// With `onlyIf`, only while the cell still holds what was sent: a newer value typed during the save stays.
+function keepStoredCell(tree, { sheetId, rowKey, columnKey, stored }, onlyIf = null) {
+  if (onlyIf && editedCell(tree, { sheetId, rowKey, columnKey }) !== onlyIf.value) return tree;
+  const rows = { ...(tree?.sheets?.[sheetId] || {}) }; const row = { ...(rows[rowKey] || {}) };
+  if (stored == null) delete row[columnKey]; else row[columnKey] = stored;
+  if (Object.keys(row).length) rows[rowKey] = row; else delete rows[rowKey];
+  return { ...tree, version: 1, sheets: { ...(tree?.sheets || {}), [sheetId]: rows } };
+}
 const relative = (iso) => { const time = Date.parse(iso || ''); if (!Number.isFinite(time)) return ''; return new Date(time).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
 
 export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, onNavigate }) {
@@ -181,11 +192,16 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
     saveChain.current = saveChain.current.then(() => {
       const base = basesRef.current.get(targetId);
       return Promise.resolve(api.saveWorkbookEdits({ workbookId: targetId, edits: snapshot, ...(base ? { base } : {}) })).then((result) => {
-        basesRef.current.set(targetId, snapshot);
-        const conflicts = Array.isArray(result?.conflicts) ? result.conflicts.length : 0;
-        if (!conflicts) { setSaveState('saved'); return; }
+        const refused = Array.isArray(result?.conflicts) ? result.conflicts : [];
+        // A refused cell takes the value that was kept, in the base and on screen, so the next save neither sends it again
+        // nor counts it as saved. Only those cells change: the server's whole copy holds other people's cells this page
+        // doesn't, and a base with them would read as reverts.
+        basesRef.current.set(targetId, refused.reduce((tree, cell) => keepStoredCell(tree, cell), snapshot));
+        if (!refused.length) { setSaveState('saved'); return; }
+        if (editsOwnerRef.current === targetId) setEdits((current) => refused.reduce((tree, cell) => keepStoredCell(tree, cell, { value: editedCell(snapshot, cell) }), current));
         setSaveState('error');
-        say({ error: `Someone else changed ${conflicts === 1 ? '1 cell' : `${number(conflicts)} cells`} you edited, so ${conflicts === 1 ? 'their value was' : 'their values were'} kept. Reopen the sheet to see the current values; your other changes are saved.` });
+        const one = refused.length === 1;
+        say({ error: `${refused[0].by || 'Someone else'} changed ${one ? '1 cell' : `${number(refused.length)} cells`} you edited, so ${one ? 'their value was' : 'their values were'} kept and ${one ? 'is' : 'are'} shown now. Your other changes are saved.` });
       }).catch((error) => { setSaveState('error'); say({ error: error.message || String(error) }); })
         .finally(() => { savingRef.current -= 1; });
     });
@@ -423,7 +439,7 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
     event?.preventDefault(); setPending('google');
     try {
       const result = await api.pullGoogleSheet({ spreadsheetUrl: googleUrl, workbookId: targetId }); setMenu(null); setGoogleUrl('');
-      await refreshList(); setWorkbookId(result.id); say({ notice: `Pulled “${result.name}” from Google Sheets · ${result.sheets.length} tabs.` });
+      await refreshList(); setWorkbookId(result.id); say({ notice: `Pulled “${result.name}” from Google Sheets · ${result.sheets.length} ${result.sheets.length === 1 ? 'tab' : 'tabs'}.${result.warnings?.length ? ` ${result.warnings.join(' ')}` : ''}` });
     } catch (error) { say({ error: error.message || String(error) }); }
     finally { setPending(''); }
   }
@@ -515,7 +531,7 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
     </header>
 
     {newerRun && <div className="sheets-run-note newer"><span>{`This is the ${relative(listing.createdAt)} run. A newer run of this program started ${relative(newerRun.createdAt)}.`}</span><button type="button" className="ghost" onClick={() => chooseWorkbook(newerRun.id)}>Open the newer run<ArrowUpRight size={14} aria-hidden="true" /></button></div>}
-    {statusCopy && <div className={`sheets-run-note ${workbook.status}`}><span>{statusCopy}</span><button type="button" className="ghost" onClick={() => onNavigate?.(workbook.status === 'awaiting-review' ? 'trend-board' : 'research-programs')}>{workbook.status === 'awaiting-review' ? 'Review themes' : 'Open run'}<ArrowUpRight size={14} aria-hidden="true" /></button></div>}
+    {statusCopy && <div className={`sheets-run-note ${workbook.status}`}><span>{statusCopy}</span><button type="button" className="ghost" onClick={() => (workbook.status === 'awaiting-review' ? onNavigate?.('trend-board') : onNavigate?.('research-programs', { runId: workbook.id }))}>{workbook.status === 'awaiting-review' ? 'Review themes' : 'Open run'}<ArrowUpRight size={14} aria-hidden="true" /></button></div>}
     {/* Trend tracker summary: how many trends are rising, new, steady and fading; each chip filters the timeline. */}
     {trackerSummary && <div className="sheets-tracker-strip" role="group" aria-label="Trend momentum across research runs" data-spot="sheets.momentum">
       {['rising', 'new', 'steady', 'fading'].map((momentum) => {

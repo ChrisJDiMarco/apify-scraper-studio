@@ -15,6 +15,8 @@ const list = (value) => (Array.isArray(value) ? value : []);
 const time = (value) => { const ms = Date.parse(value || ''); return Number.isFinite(ms) ? ms : NaN; };
 const quote = (value) => `“${String(value || 'Untitled').trim()}”`;
 const plural = (count, word, many = `${word}s`) => `${count} ${count === 1 ? word : many}`;
+// "2026-10-20" → "Tue, Oct 20", as My plan and the Calendar word it (a local calendar day, never a day early west of UTC).
+const plannedDay = (day) => (/^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) ? new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : String(day || ''));
 const ACTIVE = new Set(['queued', 'running']);
 const STOPPED = new Set(['failed', 'partial', 'cancelled']);
 const REPORT_DELIVERABLES = new Set(['evidence-report', 'editorial-toolkit']);
@@ -90,16 +92,19 @@ export function buildInbox({ state = {}, viewer = {}, seenAt = '', now = Date.no
       if (run.status === 'succeeded') {
         if (run.kit) push({ id: `run:${run.id}`, kind: 'run-finished', at, title: `Channel assets ready · ${quote(run.kit.sourceTitle || run.title)}`, detail: plural(files.length, 'file'), target: { kind: 'folder', id: run.kit.sourceKey || '', page: 'assets' } });
         else if (run.themeId && report) push({ id: `run:${run.id}`, kind: 'run-finished', at, title: `Report ready · ${quote(run.title)}`, detail: files.length > 1 ? 'Trends report and editorial toolkit' : 'Trends report', target: { kind: 'report', id: report.id, page: 'reports' } });
-        else if (files[0]) push({ id: `run:${run.id}`, kind: 'run-finished', at, title: `Drafts ready · ${quote(run.title)}`, detail: plural(files.length, 'file'), target: { kind: 'report', id: files[0].id, page: 'reports' } });
+        // A written draft opens in Reports; a set of pictures alone opens Assets (App's router sends a picture there).
+        else if (files[0]) push({ id: `run:${run.id}`, kind: 'run-finished', at, title: `Drafts ready · ${quote(run.title)}`, detail: plural(files.length, 'file'), target: { kind: 'report', id: (files.find((file) => file.kind !== 'image' && file.kind !== 'video') || files[0]).id, page: 'reports' } });
       } else if (STOPPED.has(run.status) && !(run.status === 'cancelled' && run.createdBy?.id === me)) {
         const message = run.message || '';
         push({ id: `run:${run.id}`, kind: 'run-stopped', at, title: `${run.kit ? 'Channel assets' : run.themeId ? 'Report' : 'Drafts'} stopped · ${quote(run.kit?.sourceTitle || run.title)}`, detail: [firstLine(message, 90), NEEDS_ADMIN.test(message) && !allows(viewer, 'saveSettings') ? `ask ${askAdmin}` : ''].filter(Boolean).join(' · '), target: run.kit ? { kind: 'folder', id: run.kit.sourceKey || '', page: 'assets' } : { kind: 'run', id: run.id, page: 'create' } });
       }
     }
-    // Someone else edited or restored a report or draft.
+    // Someone else edited or restored a report, a draft or a channel asset. These rows carry the asset id; App's router
+    // opens a channel asset in its Assets folder (Simple) or the Library (Advanced).
+    const kitRunIds = new Set(contentRuns.filter((run) => run.kit).map((run) => run.id));
     for (const asset of assets) {
       const row = asset.edited?.at ? { ...asset.edited, verb: 'edited' } : asset.restored?.at ? { ...asset.restored, verb: 'restored the original of' } : null;
-      if (row && row.by?.id !== me) push({ id: `edit:${asset.id}:${row.at}`, kind: 'edit', at: row.at, title: `${row.by?.name || row.byName || 'Someone'} ${row.verb} ${quote(asset.title)}`, detail: REPORT_DELIVERABLES.has(asset.deliverableId) ? (asset.deliverableId === 'evidence-report' ? 'Trends report' : 'Editorial toolkit') : 'Draft', target: { kind: 'report', id: asset.id, page: 'reports' } });
+      if (row && row.by?.id !== me) push({ id: `edit:${asset.id}:${row.at}`, kind: 'edit', at: row.at, title: `${row.by?.name || row.byName || 'Someone'} ${row.verb} ${quote(asset.title)}`, detail: REPORT_DELIVERABLES.has(asset.deliverableId) ? (asset.deliverableId === 'evidence-report' ? 'Trends report' : 'Editorial toolkit') : kitRunIds.has(asset.runId) ? 'Channel asset' : 'Draft', target: { kind: 'report', id: asset.id, page: 'reports' } });
       const review = asset.review;
       if (review?.at && review.by?.id !== me && review.status === 'published') push({ id: `status:${asset.id}:${review.at}`, kind: 'adoption', at: review.at, title: `${review.by?.name || 'Someone'} published ${quote(asset.title)}`, detail: review.link || '', target: { kind: 'report', id: asset.id, page: 'reports' } });
     }
@@ -112,7 +117,7 @@ export function buildInbox({ state = {}, viewer = {}, seenAt = '', now = Date.no
       for (const [channelId, row] of Object.entries(byChannel || {})) {
         if (!row?.at || !['using', 'not-using'].includes(row.status)) continue;
         const channel = row.channelName || channelId;
-        push({ id: `adoption:${themeId}:${channelId}:${row.at}`, kind: 'adoption', at: row.at, title: row.status === 'using' ? `${channel} used ${quote(trendName(themeId))}` : `${channel} passed on ${quote(trendName(themeId))}`, detail: row.status === 'using' ? row.link || (row.plannedFor ? `Planned for ${row.plannedFor}` : 'No link yet') : row.byName ? `Answered by ${row.byName}` : '', target: { kind: 'trend', id: themeId, page: 'trends' } });
+        push({ id: `adoption:${themeId}:${channelId}:${row.at}`, kind: 'adoption', at: row.at, title: row.status === 'using' ? `${channel} used ${quote(trendName(themeId))}` : `${channel} passed on ${quote(trendName(themeId))}`, detail: row.status === 'using' ? row.link || (row.plannedFor ? `Planned for ${plannedDay(row.plannedFor)}` : 'No link yet') : row.byName ? `Answered by ${row.byName}` : '', target: { kind: 'trend', id: themeId, page: 'trends' } });
       }
     }
   }

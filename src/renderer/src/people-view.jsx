@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { Eye, Monitor, RefreshCw, UserPlus, Users } from 'lucide-react';
 import { Dialog, DialogClose, useToast } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
+import { useUnsavedGuard } from './asset-editor.jsx';
 import { CoverageStrip, PeopleTable } from './people-table.jsx';
 import { PersonSheet, RetryNote } from './person-sheet.jsx';
 import { InviteDialog } from './invite-dialog.jsx';
@@ -74,8 +75,8 @@ function PreviewDialog({ team, onPreview, onClose }) {
 }
 
 // onPreview(payload) starts View as with a setViewAs payload: { role, channelId? } (any role, custom roles included) or
-// { memberId } (one person, with their own access changes). request: { kind: 'invite', key, preset? } opens Invite once
-// per key (the sidebar's New › Person).
+// { memberId } (one person, with their own access changes). request, acted on once per key: { kind: 'invite', key,
+// preset? } opens Invite (the sidebar's New › Person); { kind: 'person', key, memberId } opens that person's sheet (⌘K).
 export function PeopleView({ api, web = false, busy = false, action, viewer = {}, onPreview, request = null, studioName }) {
   const [team, setTeam] = useState(null);
   const [error, setError] = useState('');
@@ -96,7 +97,13 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
     return () => { cancelled = true; };
   }, [attempt]);
   const reload = () => setAttempt((value) => value + 1);
-  function setTab(value) { setTabState(value); saveTab(value); }
+  // Leaving the Roles tab unmounts its unsaved draft, so ask first (RolesMatrix marks the guard while it has changes).
+  // False when the person chose to stay.
+  const guard = useUnsavedGuard();
+  function setTab(value) {
+    if (value !== tab && !guard.confirmLeave()) return false;
+    setTabState(value); saveTab(value); return true;
+  }
   const previewTo = typeof onPreview === 'function' ? onPreview : null;
   const preview = (payload) => { setPreviewing(false); previewTo?.(payload); };
   const canPreviewAny = Boolean(previewTo);
@@ -110,13 +117,23 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
   const canInvite = web && typeof api?.inviteMembers === 'function' && Boolean(team?.access);
   const firstRun = web && Boolean(team) && members.length <= 1;
   const sheetMember = sheet ? members.find((member) => member.id === sheet.memberId) : null;
-  // A request from elsewhere (New › Person) opens Invite once the team has loaded, once per request.
+  // A request from elsewhere opens once the team has loaded, once per key (App sends a new key on every pick, so this
+  // also works when People is already open): New › Person opens Invite; ⌘K's "People: <name>" opens that person's sheet.
+  // The sheet and Invite are overlays, so they open even when the person chooses to stay on an unsaved Roles tab.
   const handled = useRef('');
   useEffect(() => {
-    if (request?.kind !== 'invite' || !request.key || handled.current === String(request.key) || !team) return;
-    handled.current = String(request.key);
-    if (canInvite) { setTab('people'); setInvite({ preset: request.preset || {} }); }
-  }, [request?.key, Boolean(team), canInvite]);
+    if (!request?.key || !team || handled.current === String(request.key)) return;
+    if (request.kind === 'invite') {
+      handled.current = String(request.key);
+      if (canInvite) { setTab('people'); setInvite({ preset: request.preset || {} }); }
+      return;
+    }
+    if (request.kind === 'person' && request.memberId) {
+      handled.current = String(request.key);
+      if (members.some((member) => member.id === request.memberId)) { setTab('people'); setSheet({ memberId: request.memberId }); }
+      else showToast('That person isn’t on the team anymore.');
+    }
+  }, [request?.key, Boolean(team), canInvite]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function write(fn, done) {
     try { const result = await runWith(action, fn); if (result !== null) { done?.(result); reload(); } return result; }
@@ -162,7 +179,7 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
     {team && <>
       <div className="people-tabs" role="tablist" aria-label="People & access">
         {TABS.map(([id, label], index) => <button key={id} type="button" role="tab" id={`${tabsId}-${id}`} aria-selected={tab === id} aria-controls={`${tabsId}-${id}-panel`} tabIndex={tab === id ? 0 : -1} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}
-          onKeyDown={(event) => { const move = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : event.key === 'Home' ? -index : event.key === 'End' ? TABS.length - 1 - index : 0; if (!move) return; event.preventDefault(); const next = TABS[(index + move + TABS.length) % TABS.length][0]; setTab(next); document.getElementById(`${tabsId}-${next}`)?.focus(); }}>
+          onKeyDown={(event) => { const move = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : event.key === 'Home' ? -index : event.key === 'End' ? TABS.length - 1 - index : 0; if (!move) return; event.preventDefault(); const next = TABS[(index + move + TABS.length) % TABS.length][0]; if (setTab(next)) document.getElementById(`${tabsId}-${next}`)?.focus(); }}>
           {label}{id === 'people' && members.length > 0 ? <span className="studio-count">{members.length}</span> : null}
         </button>)}
       </div>
