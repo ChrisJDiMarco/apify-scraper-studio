@@ -11,10 +11,27 @@ const copies = [
   ['src/main/google-delivery.js', 'out/main/google-delivery.js'],
   ['src/main/bridge-delivery.js', 'out/main/bridge-delivery.js'],
   ['src/main/ai-routes.js', 'out/main/ai-routes.js'],
+  // AI connections and Model routing: registries, catalog, routing, connections and the runners (Settings → AI).
+  ['src/shared/ai-providers.json', 'out/shared/ai-providers.json'],
+  ['src/shared/ai-models.json', 'out/shared/ai-models.json'],
+  ['src/shared/ai-tasks.json', 'out/shared/ai-tasks.json'],
+  ['src/shared/structured-stream.js', 'out/shared/structured-stream.js'], // Ask AI's answer as it is written
+  ['src/main/ai-http.js', 'out/main/ai-http.js'],
+  ['src/main/ai-catalog.js', 'out/main/ai-catalog.js'],
+  ['src/main/ai-routing.js', 'out/main/ai-routing.js'],
+  ['src/main/ai-connections.js', 'out/main/ai-connections.js'],
+  ['src/main/text-router.js', 'out/main/text-router.js'],
+  ['src/main/cli-runners.js', 'out/main/cli-runners.js'],
+  ['src/main/openrouter-runner.js', 'out/main/openrouter-runner.js'],
+  ['src/main/openai-text-runner.js', 'out/main/openai-text-runner.js'],
+  ['src/main/fal-provider.js', 'out/main/fal-provider.js'],
+  ['src/main/media-router.js', 'out/main/media-router.js'],
   ['src/main/web-runtime.js', 'out/main/web-runtime.js'], // loaded only under STUDIO_RUNTIME=web
   ['src/main/help-images.js', 'out/main/help-images.js'],
   ['src/main/help-assistant.js', 'out/main/help-assistant.js'],
   ['src/main/ask-store.js', 'out/main/ask-store.js'], // Ask AI conversations and memory
+  ['src/main/ask-followups.js', 'out/main/ask-followups.js'], // messages a run started from Ask AI posts there
+  ['src/main/ask-progress.js', 'out/main/ask-progress.js'], // Ask AI's streamed answers and their steps
   ['src/shared/help-spots.json', 'out/shared/help-spots.json'],
   ['src/shared/ask-actions.json', 'out/shared/ask-actions.json'], // Ask AI's buttons, shared with studio-actions.js
   ['docs/app-guide.md', 'out/main/app-guide.md'], // Ask AI answers from this guide
@@ -54,6 +71,7 @@ const copies = [
   ['src/shared/brand-images.js', 'out/shared/brand-images.js'],
   ['src/shared/research-program.js', 'out/shared/research-program.js'],
   ['src/shared/research-quick-scan.js', 'out/shared/research-quick-scan.js'], // quick scans sized from chat
+  ['src/shared/research-scan-report.js', 'out/shared/research-scan-report.js'], // a quick scan's short trends report
   ['src/shared/quick-scan.json', 'out/shared/quick-scan.json'],
   ['src/shared/trend-history.js', 'out/shared/trend-history.js'], // trends linked across runs (Trend tracker)
   ['src/shared/research-schedule.js', 'out/shared/research-schedule.js'],

@@ -11,13 +11,18 @@ const CLAUDE_SYSTEM_PROMPT = [
   'You have no tools. Do not attempt to read files, run commands, browse, or contact external services.',
   'Return the requested structured output.',
 ].join(' ');
+// Every runner (Claude Code, the Anthropic API, Codex, OpenRouter, OpenAI) sends this same system prompt.
+const STUDIO_SYSTEM_PROMPT = CLAUDE_SYSTEM_PROMPT;
 
 const CLAUDE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // Every structured call is a one-shot prompt, so the CLI's prompt cache is never read back, yet it
 // writes each prompt to the 1-hour cache at twice the input price (seen on a live run, Oct 2026).
 const CLAUDE_CLI_ENV = { DISABLE_PROMPT_CACHING: '1' };
 
-function buildClaudeCommand({ model = DEFAULT_CLAUDE_MODEL, schema, prompt = '', maxBudgetUsd = DEFAULT_AI_MAX_BUDGET_USD, effort } = {}) {
+// stream: true asks for realtime events (--output-format stream-json with partial messages) so Ask AI can show its answer
+// as it is written; only when the installed CLI lists those flags (claudeStreamSupported). The final 'result' event carries
+// the same structured_output, cost and models as the single JSON result (parseClaudeResult reads either).
+function buildClaudeCommand({ model = DEFAULT_CLAUDE_MODEL, schema, prompt = '', maxBudgetUsd = DEFAULT_AI_MAX_BUDGET_USD, effort, stream = false } = {}) {
   if (typeof model !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$/.test(model)) throw new Error('Choose a valid Claude model ID.');
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) throw new Error('Claude structured output requires a JSON schema object.');
   const budget = Number(maxBudgetUsd);
@@ -27,7 +32,7 @@ function buildClaudeCommand({ model = DEFAULT_CLAUDE_MODEL, schema, prompt = '',
   if (Buffer.byteLength(prompt, 'utf8') > MAX_CLAUDE_STDIN_BYTES) throw new Error('This research context is too large for Claude CLI. Use a smaller dataset or fewer sources.');
   const args = [
     '--print', '--model', model,
-    '--output-format', 'json', '--json-schema', JSON.stringify(schema),
+    '--output-format', stream ? 'stream-json' : 'json', ...(stream ? ['--verbose', '--include-partial-messages'] : []), '--json-schema', JSON.stringify(schema),
     '--tools', '',
     '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
     '--disallowedTools', 'mcp__*',
@@ -49,6 +54,22 @@ function requiredClaudeFlags() {
 function missingClaudeFlags(helpText) {
   const help = String(helpText || '');
   return requiredClaudeFlags().filter((flag) => !new RegExp(`(^|[\\s,])${flag.replace(/-/g, '\\-')}(?![\\w-])`, 'm').test(help));
+}
+
+// Whether this Claude Code can stream partial messages (its --help lists both flags).
+function claudeStreamSupported(helpText) {
+  const help = String(helpText || '');
+  return /--include-partial-messages\b/.test(help) && /stream-json/.test(help) && /(^|\s)--verbose\b/m.test(help);
+}
+// The answer text in one stream-json event line: a text delta, or a piece of the structured output's JSON when the CLI
+// returns it as a tool input. Anything else (thinking, system and result events) gives ''.
+function claudeStreamText(line) {
+  let event; try { event = typeof line === 'string' ? JSON.parse(line) : line; } catch (_) { return ''; }
+  const delta = event?.type === 'stream_event' && event.event?.type === 'content_block_delta' ? event.event.delta : null;
+  if (!delta) return '';
+  if (delta.type === 'text_delta' && typeof delta.text === 'string') return delta.text;
+  if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') return delta.partial_json;
+  return '';
 }
 
 function fail(message, code) {
@@ -115,4 +136,4 @@ function modelMatches(requested, actualModels = []) {
   return actualModels.some((model) => model === requested || (typeof model === 'string' && model.startsWith(`${requested}-`) && /^\d{8}$/.test(model.slice(requested.length + 1))));
 }
 
-module.exports = { CLAUDE_EFFORT_LEVELS, CLAUDE_CLI_ENV, requiredClaudeFlags, missingClaudeFlags, modelMatches, readClaudeCost, DEFAULT_CLAUDE_MODEL, DEFAULT_AI_MAX_BUDGET_USD, MAX_CLAUDE_STDIN_BYTES, CLAUDE_SYSTEM_PROMPT, buildClaudeCommand, parseClaudeResult };
+module.exports = { STUDIO_SYSTEM_PROMPT, claudeStreamSupported, claudeStreamText, CLAUDE_EFFORT_LEVELS, CLAUDE_CLI_ENV, requiredClaudeFlags, missingClaudeFlags, modelMatches, readClaudeCost, DEFAULT_CLAUDE_MODEL, DEFAULT_AI_MAX_BUDGET_USD, MAX_CLAUDE_STDIN_BYTES, CLAUDE_SYSTEM_PROMPT, buildClaudeCommand, parseClaudeResult };

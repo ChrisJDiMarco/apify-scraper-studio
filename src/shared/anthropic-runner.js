@@ -24,6 +24,8 @@ const LOOKUP_TIMEOUT_MS = 20 * 1000;
 const MODEL_PROFILES = [
   [/^claude-(fable|mythos)-5|^claude-opus-(5|4-[78])|^claude-sonnet-5/, { maxOutputTokens: 128000, efforts: CLAUDE_EFFORT_LEVELS, adaptiveThinking: true }],
   [/^claude-(opus|sonnet)-4-6/, { maxOutputTokens: 128000, efforts: ['low', 'medium', 'high', 'max'], adaptiveThinking: true }],
+  // Haiku 5.5 (Oct 2026): 128K output, every effort level (default medium), adaptive thinking on by default.
+  [/^claude-haiku-5/, { maxOutputTokens: 128000, efforts: CLAUDE_EFFORT_LEVELS, adaptiveThinking: true }],
   [/^claude-haiku-4-5/, { maxOutputTokens: 64000, efforts: [], adaptiveThinking: false }],
 ];
 function staticModelProfile(model) {
@@ -171,8 +173,11 @@ const usd = (value) => `$${value >= 0.1 ? value.toFixed(2) : Number(value.toPrec
 const RAISE_BUDGET = "Raise the run's AI budget and retry; finished steps are kept.";
 // Spend guard: refuse before any request when the estimated input alone, or the input plus a minimal answer, would
 // exceed the cap. Otherwise return how many output tokens (thinking included) the rest of the cap can buy.
-function planBudget({ model, maxBudgetUsd, inputCharacters }) {
-  const price = modelPrice(model); const inputTokens = estimateTokens(inputCharacters); const inputCostUsd = inputTokens * price.input / 1e6;
+// `price` ({ input, output } USD per million tokens) is optional: a routed task passes the price it resolved (an OpenRouter
+// model's live price, say); without it the Claude catalog price applies.
+function planBudget({ model, maxBudgetUsd, inputCharacters, price: given = null }) {
+  const price = given && Number.isFinite(given.input) && Number.isFinite(given.output) && given.output > 0 ? given : modelPrice(model);
+  const inputTokens = estimateTokens(inputCharacters); const inputCostUsd = inputTokens * price.input / 1e6;
   if (inputCostUsd > maxBudgetUsd) throw runnerError(`This step's ${usd(maxBudgetUsd)} AI budget cannot cover the request: the input alone is estimated at ${usd(inputCostUsd)} on ${model}. ${RAISE_BUDGET}`, 'CLAUDE_BUDGET_EXCEEDED', { costUsd: 0 });
   // The epsilon absorbs float noise such as 49789.999… for an exact 49790.
   const budgetTokens = Math.floor((maxBudgetUsd * 1e6 - inputTokens * price.input) / price.output + 1e-9);
@@ -184,10 +189,14 @@ function planBudget({ model, maxBudgetUsd, inputCharacters }) {
 const cacheReadRate = (model) => /^claude-(fable|mythos)-5-1(-|$)/.test(model) ? 0.025 : /^claude-opus-5-5(-|$)/.test(model) ? 0.05 : 0.1;
 // List-price USD for a reply's usage. output_tokens already includes thinking. Only calls with a cachePrefix ask for
 // caching (a 5-minute entry); writes (1.25× for 5 minutes, 2× for 1 hour) and reads are priced whenever they appear.
+// Haiku 5.5 bills a request whose prompt passes 100K tokens at its higher tier (modelPrice(model).tiers), for the whole request.
 function usageCost(model, usage) {
   if (!isObject(usage)) return null;
   const count = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
-  const price = modelPrice(model); const split = isObject(usage.cache_creation) ? usage.cache_creation : {};
+  const base = modelPrice(model); const split = isObject(usage.cache_creation) ? usage.cache_creation : {};
+  const promptTokens = count(usage.input_tokens) + count(usage.cache_creation_input_tokens) + count(usage.cache_read_input_tokens);
+  const tier = (Array.isArray(base.tiers) ? base.tiers : []).filter((entry) => promptTokens > entry.aboveInputTokens).sort((a, b) => b.aboveInputTokens - a.aboveInputTokens)[0];
+  const price = tier ? { input: tier.inputUsdPerMTok, output: tier.outputUsdPerMTok } : base;
   const fiveMinute = count(split.ephemeral_5m_input_tokens); const oneHour = count(split.ephemeral_1h_input_tokens);
   const writes = fiveMinute + oneHour ? fiveMinute * 1.25 + oneHour * 2 : count(usage.cache_creation_input_tokens) * 1.25;
   const inputUnits = count(usage.input_tokens) + writes + count(usage.cache_read_input_tokens) * cacheReadRate(model);
@@ -213,7 +222,7 @@ function describeApiError(error, { model = 'this model', costUsd = 0 } = {}) {
   const detail = apiDetail(error);
   if (error instanceof Anthropic.APIUserAbortError) return runnerError('Job cancelled.', 'CANCELLED', fields);
   if (error instanceof Anthropic.APIConnectionTimeoutError) return runnerError('The Anthropic API did not respond in time. Check the internet connection, then retry.', 'TIMEOUT', fields);
-  if (status === 401 || type === 'authentication_error') return runnerError('The Anthropic API key was rejected. Check the key in Settings → Writing & research, or create a new one in the Anthropic Console.', 'ANTHROPIC_AUTH', fields);
+  if (status === 401 || type === 'authentication_error') return runnerError('The Anthropic API key was rejected. Check the key in Settings → AI connections, or create a new one in the Anthropic Console.', 'ANTHROPIC_AUTH', fields);
   if (status === 403 || type === 'permission_error') return runnerError(`The Anthropic API key was rejected for this request (${detail}). Check the key's organization and workspace access in the Anthropic Console.`, 'ANTHROPIC_AUTH', fields);
   if (status === 404 || type === 'not_found_error') return runnerError(`This API key cannot use ${model}. Choose another model, or use a key from an organization with access to it.`, 'ANTHROPIC_MODEL_UNAVAILABLE', fields);
   if (status === 429 || type === 'rate_limit_error') {
@@ -288,7 +297,7 @@ function settle(message, { model, budget, maxTokens, capSource, effort, requeste
 }
 
 function createAnthropicRunner({ apiKey, Client = Anthropic, clock = Date.now, maxRetries } = {}) {
-  if (typeof apiKey !== 'string' || !apiKey.trim()) throw runnerError('Add an Anthropic API key in Settings → Writing & research.', 'ANTHROPIC_AUTH');
+  if (typeof apiKey !== 'string' || !apiKey.trim()) throw runnerError('Add an Anthropic API key in Settings → AI connections.', 'ANTHROPIC_AUTH');
   // authToken: null stops an inherited ANTHROPIC_AUTH_TOKEN from being sent beside the key (the API rejects both).
   // Retries (429, 5xx, 529, connection errors) are the SDK's own, with backoff and retry-after.
   const client = new Client({ apiKey: apiKey.trim(), authToken: null, baseURL: ANTHROPIC_API_URL, ...(maxRetries != null ? { maxRetries } : {}) });
@@ -306,11 +315,13 @@ function createAnthropicRunner({ apiKey, Client = Anthropic, clock = Date.now, m
     }
   }
 
-  async function run({ schema, prompt, cachePrefix = '', model = DEFAULT_CLAUDE_MODEL, effort, maxBudgetUsd = DEFAULT_AI_MAX_BUDGET_USD, timeoutMs, signal } = {}) {
+  // onDelta(text) (optional): each piece of the structured answer's JSON text as it streams (Ask AI shows its answer field
+  // as it arrives, src/shared/structured-stream.js). price (optional): the routed task's resolved price for the spend guard.
+  async function run({ schema, prompt, cachePrefix = '', model = DEFAULT_CLAUDE_MODEL, effort, maxBudgetUsd = DEFAULT_AI_MAX_BUDGET_USD, timeoutMs, signal, onDelta, price } = {}) {
     const { budget, schemaText } = validateRequest({ schema, prompt, model, effort, maxBudgetUsd, cachePrefix });
     const apiSchema = toApiSchema(schema);
     // The guard prices a cached prefix at the full input rate: a cold cache costs that much (more, with the write).
-    const { budgetTokens } = planBudget({ model, maxBudgetUsd: budget, inputCharacters: CLAUDE_SYSTEM_PROMPT.length + cachePrefix.length + prompt.length + schemaText.length });
+    const { budgetTokens } = planBudget({ model, maxBudgetUsd: budget, inputCharacters: CLAUDE_SYSTEM_PROMPT.length + cachePrefix.length + prompt.length + schemaText.length, price });
     if (signal?.aborted) throw runnerError('Job cancelled.', 'CANCELLED', { costUsd: 0 });
     // setTimeout fires at once past 2^31-1 ms, so clamp rather than time out immediately.
     const limitMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.min(timeoutMs, 2 ** 31 - 1) : DEFAULT_TIMEOUT_MS;
@@ -335,14 +346,15 @@ function createAnthropicRunner({ apiKey, Client = Anthropic, clock = Date.now, m
       const params = buildMessageParams({ model, prompt, schema: apiSchema, maxTokens, effort: chosen.effort, adaptiveThinking: profile.adaptiveThinking, cachePrefix });
       let message; let schemaInPrompt = false;
       // Streamed so long thinking-plus-answer calls never hit HTTP idle timeouts; finalMessage() gathers the reply.
-      try { stream = client.messages.stream(params, { signal: controller.signal }); message = await stream.finalMessage(); }
+      const listen = (active) => { if (typeof onDelta === 'function' && typeof active?.on === 'function') active.on('text', (delta) => { try { onDelta(String(delta ?? '')); } catch (_) { /* a display courtesy */ } }); return active; };
+      try { stream = listen(client.messages.stream(params, { signal: controller.signal })); message = await stream.finalMessage(); }
       catch (error) {
         const refused = failure(error);
         // A schema the API won't compile is refused before any answer starts (nothing billed). Ask once more with the
         // schema written into the prompt; the caller's checks (cleanReply, the stage validators) still decide what's kept.
         if (refused.code !== 'ANTHROPIC_BAD_REQUEST' || !GRAMMAR_REFUSED.test(refused.message)) throw refused;
         const loose = buildMessageParams({ model, prompt: prompt + answerFormat(schemaText), schema: null, maxTokens, effort: chosen.effort, adaptiveThinking: profile.adaptiveThinking, cachePrefix });
-        try { stream = client.messages.stream(loose, { signal: controller.signal }); message = await stream.finalMessage(); schemaInPrompt = true; } catch (retryError) { throw failure(retryError); }
+        try { stream = listen(client.messages.stream(loose, { signal: controller.signal })); message = await stream.finalMessage(); schemaInPrompt = true; } catch (retryError) { throw failure(retryError); }
       }
       return settle(message, { model, budget, maxTokens, capSource: budgetTokens < profile.maxOutputTokens ? 'budget' : 'model', effort: chosen, requestedEffort: effort, requestId: stream.request_id ?? null, durationMs: Math.max(0, clock() - startedAt), schemaInPrompt });
     } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
@@ -369,4 +381,4 @@ function createAnthropicRunner({ apiKey, Client = Anthropic, clock = Date.now, m
   return { run, checkModels };
 }
 
-module.exports = { ANTHROPIC_PROVIDER, ANTHROPIC_API_URL, MIN_OUTPUT_TOKENS, DEFAULT_TIMEOUT_MS, createAnthropicRunner, toApiSchema, buildMessageParams, planBudget, resolveEffort, staticModelProfile, profileFromModelInfo, usageCost, describeApiError };
+module.exports = { ANTHROPIC_PROVIDER, ANTHROPIC_API_URL, MIN_OUTPUT_TOKENS, DEFAULT_TIMEOUT_MS, GRAMMAR_REFUSED, RAISE_BUDGET, createAnthropicRunner, toApiSchema, buildMessageParams, planBudget, resolveEffort, staticModelProfile, profileFromModelInfo, usageCost, describeApiError, answerFormat, jsonFrom, usd };

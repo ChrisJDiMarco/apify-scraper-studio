@@ -8,6 +8,12 @@
   --help-action: #c190ff; --help-action-strong: #b07cf7; --help-action-ink: #181e15;
   --help-ok: #1f5a3c; --help-danger: #8a3a22; --help-danger-line: #ecc8b8; --help-danger-bg: #fdf6f2;
   --help-shadow: rgba(24, 30, 21, .10); --help-scrim: rgba(16, 20, 16, .82); --help-scrim-soft: rgba(16, 20, 16, .28);
+  /* The streaming chat (ask-chat.css), derived from the tokens above so the dark set below carries them too. */
+  --ask-caret: var(--help-accent); --ask-step-ink: var(--help-muted); --ask-step-live: var(--help-accent); --ask-step-ok: var(--help-ok); --ask-step-bad: var(--help-danger);
+  --ask-chip-bg: var(--help-soft); --ask-chip-line: var(--help-accent-line); --ask-tool-ink: var(--help-faint); --ask-tool-hover: var(--help-hover);
+  --ask-jump-bg: var(--help-surface); --ask-jump-line: var(--help-line-strong); --ask-jump-shadow: var(--help-shadow);
+  --ask-drop-bg: color-mix(in srgb, var(--help-accent) 8%, var(--help-surface)); --ask-drop-line: var(--help-accent-focus);
+  --ask-caret-period: 1.06s; --ask-rise: 220ms var(--spring-settle, cubic-bezier(.2, .8, .2, 1));
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 80; width: min(440px, 100vw); display: flex; flex-direction: column;
   background: var(--help-surface); border-left: 1px solid var(--help-line); box-shadow: -18px 0 40px var(--help-shadow);
   transform: translateX(104%); transition: transform 220ms var(--spring-settle, cubic-bezier(.2, .8, .2, 1)); color: var(--help-ink); }
@@ -83,10 +89,11 @@
 .help-lightbox img { max-width: 100%; max-height: 100%; border-radius: 12px; box-shadow: 0 24px 60px rgba(0, 0, 0, .35); }
 .help-drawer .help-lightbox .help-icon { position: absolute; top: 16px; right: 16px; color: #fff; background: rgba(255, 255, 255, .14); }
 .help-drawer .help-lightbox .help-icon:hover:not(:disabled) { background: rgba(255, 255, 255, .26); color: #fff; }
-/* Header button */
-.topbar .ask-ai-button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 6px 13px; font-size: 12px; font-weight: 600; color: #3a1d6e; background: #f1e8ff; border: 1px solid #d9c3fb; border-radius: 999px; }
-.topbar .ask-ai-button:hover:not(:disabled), .topbar .ask-ai-button[aria-expanded="true"] { color: #2b1356; background: #e7d8ff; border-color: #c4a4f5; }
-.topbar .ask-ai-button kbd { padding: 1px 5px; font: inherit; font-size: 10px; color: #6b4fa0; background: rgba(255, 255, 255, .7); border-radius: 5px; }
+/* Header button (older top bars), its colors as tokens. */
+.topbar .ask-ai-button { --ask-button-ink: #3a1d6e; --ask-button-bg: #f1e8ff; --ask-button-line: #d9c3fb; --ask-button-ink-hover: #2b1356; --ask-button-bg-hover: #e7d8ff; --ask-button-line-hover: #c4a4f5; --ask-button-kbd: #6b4fa0; --ask-button-kbd-bg: rgba(255, 255, 255, .7);
+  display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 6px 13px; font-size: 12px; font-weight: 600; color: var(--ask-button-ink); background: var(--ask-button-bg); border: 1px solid var(--ask-button-line); border-radius: 999px; }
+.topbar .ask-ai-button:hover:not(:disabled), .topbar .ask-ai-button[aria-expanded="true"] { color: var(--ask-button-ink-hover); background: var(--ask-button-bg-hover); border-color: var(--ask-button-line-hover); }
+.topbar .ask-ai-button kbd { padding: 1px 5px; font: inherit; font-size: 10px; color: var(--ask-button-kbd); background: var(--ask-button-kbd-bg); border-radius: 5px; }
 /* Buttons an answer offers: the person clicks (and confirms) before anything runs. */
 .help-actions { display: grid; gap: 6px; }
 .help-action { display: grid; gap: 4px; justify-items: start; }

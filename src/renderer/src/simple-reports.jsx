@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, CloudUpload, Download, ExternalLink, FileText, FolderOpen, Images, Link2, ListOrdered, Megaphone, MessageSquareText, PenLine, Presentation, ScrollText, Search, Share2, Sparkles, X } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
+import { studioRefDragProps } from './ask-slash.js';
 import { AssetEditor, AssetStatusMenu, canEditAsset, statusLabel, statusOf } from './asset-editor.jsx';
 import { linkLabel } from './channel-owner.jsx';
 import { MoreMenu, copyText, useToast } from './role-screens.jsx';
@@ -14,15 +15,15 @@ import { dateGroup, groupReports, pathTo } from '../../shared/library-tree.js';
 import './library.css';
 
 // Reports in Simple mode, filed as the Library is (src/shared/library-tree.js): one row per trend, holding its Trends
-// report and Editorial toolkit, grouped by the research run that reported it; other reports and Create content drafts
-// follow, by date. The reader switches between a trend's two documents, says where they live, and links to the channel
+// report and Editorial toolkit, grouped by the research run that reported it; then each quick scan's short trends report
+// (Quick scans); other reports and Create content drafts follow, by date. The reader switches between a trend's two documents, says where they live, and links to the channel
 // assets made from them. Without the Library tree every report is its own row, by date, as before.
 const list = (value) => (Array.isArray(value) ? value : []);
 const plural = (count, word) => `${number(count)} ${word}${count === 1 ? '' : 's'}`;
 const readable = (value) => String(value || '').replaceAll('-', ' ').replace(/^./, (letter) => letter.toUpperCase());
 const sentence = (value) => String(value || '').replace(/^./, (letter) => letter.toUpperCase());
 const kindOf = (report) => sentence(report.channel) || readable(report.deliverableId) || 'Report';
-const DOC_LABEL = { 'evidence-report': 'Trends report', 'editorial-toolkit': 'Editorial toolkit' };
+const DOC_LABEL = { 'evidence-report': 'Trends report', 'editorial-toolkit': 'Editorial toolkit', 'scan-report': 'Quick scan report' };
 const docLabel = (report) => DOC_LABEL[report?.deliverableId] || kindOf(report || {});
 const when = (value) => (value ? formatDate(value) : '');
 const textOf = (value) => (typeof value === 'string' ? value : '');
@@ -38,7 +39,7 @@ function reportMarkdown(payload = {}) {
   if (!output || typeof output !== 'object') return '';
   return [`# ${textOf(output.title)}`, textOf(output.summary), ...list(output.sections).map((section) => `## ${textOf(section.heading)}\n\n${textOf(section.body)}\n\n${list(section.items).map((item) => `- ${item.label ? `**${item.label}** — ` : ''}${textOf(item.text)}`).join('\n')}`)].filter(Boolean).join('\n\n');
 }
-const CHIPS = [['all', 'All'], ['report', 'Trends reports'], ['toolkit', 'Toolkits'], ['draft', 'Drafts']];
+const CHIPS = [['all', 'All'], ['report', 'Trends reports'], ['toolkit', 'Toolkits'], ['scan', 'Quick scans'], ['draft', 'Drafts']];
 const STATUS_FILTERS = [['any', 'Any status'], ['draft', 'Draft'], ['in-review', 'In review'], ['approved', 'Approved'], ['scheduled', 'Scheduled'], ['published', 'Published']];
 // "Ask AI about this": the marketer's questions about the open report. The first is the one-click default.
 export const MARKETER_ASKS = [
@@ -163,25 +164,28 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
   const grouped = Boolean(tree);
   const byId = useMemo(() => new Map(reports.map((report) => [report.id, report])), [reports]);
   // Rows: a trend's pair is one row (only the documents this list holds count); everything else is a row of its own.
-  const { trendRows, draftRows } = useMemo(() => {
-    const trends = grouped ? groupReports(tree).map((entry) => ({ ...entry, reportId: byId.has(entry.reportId) ? entry.reportId : '', toolkitId: byId.has(entry.toolkitId) ? entry.toolkitId : '' })).filter((entry) => entry.reportId || entry.toolkitId) : [];
-    const paired = new Set(trends.flatMap((entry) => [entry.reportId, entry.toolkitId]).filter(Boolean));
+  const { trendRows, scanRows, draftRows } = useMemo(() => {
+    const entries = grouped ? groupReports(tree).map((entry) => ({ ...entry, reportId: byId.has(entry.reportId) ? entry.reportId : '', toolkitId: byId.has(entry.toolkitId) ? entry.toolkitId : '' })).filter((entry) => entry.reportId || entry.toolkitId) : [];
+    const trends = entries.filter((entry) => entry.kind !== 'scan'); const scans = entries.filter((entry) => entry.kind === 'scan');
+    const paired = new Set(entries.flatMap((entry) => [entry.reportId, entry.toolkitId]).filter(Boolean));
     return {
       trendRows: trends.map((entry) => ({ kind: 'trend', key: entry.key, entry, title: entry.title, reportId: entry.reportId, toolkitId: entry.toolkitId, groupId: entry.groupId || 'earlier', groupTitle: entry.groupTitle, createdAt: entry.createdAt, edited: entry.edited, haystack: [entry.title, entry.groupTitle, byId.get(entry.reportId)?.title, byId.get(entry.toolkitId)?.title].filter(Boolean).join(' \n').toLowerCase() })),
+      // A quick scan's short trends report: one row per scan, named for its topic.
+      scanRows: scans.map((entry) => ({ kind: 'scan', key: entry.key, entry, title: entry.title, reportId: entry.reportId, toolkitId: '', createdAt: entry.createdAt, edited: entry.edited, haystack: [entry.title, 'quick scan report', byId.get(entry.reportId)?.title].filter(Boolean).join(' \n').toLowerCase() })),
       draftRows: reports.filter((report) => !paired.has(report.id)).map((report) => ({ kind: 'draft', key: report.id, report, title: report.title || 'Report', reportId: report.id, createdAt: report.createdAt, edited: editedOf(report), haystack: `${report.title || ''} \n${kindOf(report)}`.toLowerCase() })),
     };
   }, [grouped, tree, byId, reports]);
-  const kinds = grouped ? CHIPS.filter(([value]) => value === 'all' || (value === 'draft' ? draftRows.length : trendRows.some((row) => (value === 'report' ? row.reportId : row.toolkitId)))).map(([value]) => value) : ['all', ...new Set(reports.map(kindOf))];
+  const kinds = grouped ? CHIPS.filter(([value]) => value === 'all' || (value === 'draft' ? draftRows.length : value === 'scan' ? scanRows.length : trendRows.some((row) => (value === 'report' ? row.reportId : row.toolkitId)))).map(([value]) => value) : ['all', ...new Set(reports.map(kindOf))];
   // A remembered filter with nothing left to match (no toolkits here any more) shows everything instead.
   const kind = kinds.includes(kindPick) ? kindPick : 'all';
   const status = statusPick === 'any' || reports.some((report) => statusOf(report) === statusPick) ? statusPick : 'any';
-  const chipCount = (value) => (value === 'all' ? (grouped ? trendRows.length + draftRows.length : reports.length) : !grouped ? reports.filter((report) => kindOf(report) === value).length : value === 'draft' ? draftRows.length : trendRows.filter((row) => (value === 'report' ? row.reportId : row.toolkitId)).length);
+  const chipCount = (value) => (value === 'all' ? (grouped ? trendRows.length + scanRows.length + draftRows.length : reports.length) : !grouped ? reports.filter((report) => kindOf(report) === value).length : value === 'draft' ? draftRows.length : value === 'scan' ? scanRows.length : trendRows.filter((row) => (value === 'report' ? row.reportId : row.toolkitId)).length);
   const chipLabel = (value) => (grouped ? CHIPS.find(([id]) => id === value)?.[1] : value === 'all' ? 'All' : value);
   const q = query.trim().toLowerCase();
   // The status filter matches a row when one of its documents is at that stage.
   const statusOk = (row) => status === 'any' || [row.reportId, row.toolkitId].filter(Boolean).some((id) => statusOf(byId.get(id)) === status);
   const rows = (grouped
-    ? [...trendRows.filter((row) => (kind === 'all' || (kind === 'report' && row.reportId) || (kind === 'toolkit' && row.toolkitId)) && (!q || row.haystack.includes(q))), ...draftRows.filter((row) => (kind === 'all' || kind === 'draft') && (!q || row.haystack.includes(q)))]
+    ? [...trendRows.filter((row) => (kind === 'all' || (kind === 'report' && row.reportId) || (kind === 'toolkit' && row.toolkitId)) && (!q || row.haystack.includes(q))), ...scanRows.filter((row) => (kind === 'all' || kind === 'scan') && (!q || row.haystack.includes(q))), ...draftRows.filter((row) => (kind === 'all' || kind === 'draft') && (!q || row.haystack.includes(q)))]
     : draftRows.filter((row) => (kind === 'all' || kindOf(row.report) === kind) && (!q || row.haystack.includes(q)))).filter(statusOk);
   const statuses = STATUS_FILTERS.filter(([value]) => value === 'any' || reports.some((report) => statusOf(report) === value));
   // Which document a row opens: the filter's, else the Trends report (the toolkit when there is no report).
@@ -201,6 +205,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
   const next = index >= 0 && index < rows.length - 1 ? rows[index + 1] : null;
   // The trend this document belongs to (even when the filter hides its row), for the switch, the path and the assets link.
   const pair = selected ? trendRows.find((row) => row.reportId === selected.id || row.toolkitId === selected.id) || null : null;
+  const scanRow = selected && !pair ? scanRows.find((row) => row.reportId === selected.id) || null : null;
   useEffect(() => { setEditing(false); }, [selected?.id]);
   useEffect(() => {
     if (!selected) { setPayload(null); return undefined; }
@@ -233,7 +238,8 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
   async function copy() { if (await copyText(markdown)) { setCopied(true); setTimeout(() => setCopied(false), 1800); } else showToast('The text couldn’t be copied. Select it and copy it instead.', { tone: 'error' }); }
   const shareLink = selected && origin ? linkFor('report', selected.id, { origin }) : '';
   async function copyLink() { const done = await copyText(shareLink); showToast(done ? LINK_COPIED : 'The link couldn’t be copied. Try again.', done ? {} : { tone: 'error' }); }
-  const ask = (id) => { const entry = MARKETER_ASKS.find(([key]) => key === id) || MARKETER_ASKS[0]; onAsk(entry[3](selected.title), reportAskContext(selected.title, markdown)); };
+  // The report goes with the question as an attachment Ask AI reads whole; the text excerpt is the fallback for older servers.
+  const ask = (id) => { const entry = MARKETER_ASKS.find(([key]) => key === id) || MARKETER_ASKS[0]; onAsk(entry[3](selected.title), reportAskContext(selected.title, markdown), { attachments: [{ kind: 'report', ref: selected.title }] }); };
   const canEdit = Boolean(selected && api.editStudioAsset && can('editStudioAsset') && canEditAsset(selected));
   function saved(result) {
     setEditing(false);
@@ -244,6 +250,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
   }
   const stage = (id) => { const value = statusOf(byId.get(id)); return value === 'draft' ? '' : statusLabel(value); };
   const rowMeta = (row) => {
+    if (row.kind === 'scan') return ['Quick scan report', when(row.createdAt), row.edited ? 'Edited' : '', stage(row.reportId)].filter(Boolean).join(' · ');
     if (row.kind !== 'trend') return [kindOf(row.report), when(row.createdAt), row.edited ? 'Edited' : '', stage(row.reportId)].filter(Boolean).join(' · ');
     const docs = kind === 'toolkit' ? 'Editorial toolkit' : kind === 'report' ? 'Trends report' : row.reportId && row.toolkitId ? 'Trends report + editorial toolkit' : row.reportId ? 'Trends report' : 'Editorial toolkit';
     return [docs, when(row.createdAt), row.edited ? 'Edited' : '', stage(row.reportId || row.toolkitId)].filter(Boolean).join(' · ');
@@ -259,7 +266,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
     const uses = usesOf ? usesOf(selected) : [];
     // Where this document lives in the Library: research run › trend › document, or its drafts folder.
     const where = pair ? [pair.groupTitle, pair.title, docLabel(selected)] : grouped ? [...pathTo(tree, tree.itemsByKey[`studio:${selected.id}`]?.location).map((node) => node.title), docLabel(selected)] : [];
-    const assetsLink = pair && pair.entry.channelAssets.kits > 0 && onOpenAssets ? pair.entry : null;
+    const assetsLink = (pair || scanRow) && (pair || scanRow).entry.channelAssets.kits > 0 && onOpenAssets ? (pair || scanRow).entry : null;
     const both = pair && pair.reportId && pair.toolkitId;
     return <div className={`simple-page simple-reader${editing ? ' is-editing' : ''}`}>
       {!editing && <div className="simple-reader-bar">
@@ -309,11 +316,12 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
   }
 
   // Groups on screen: each research run's trends, then other reports and drafts by date (or, without the tree, dates).
-  const trendGroups = []; const drafts = rows.filter((row) => row.kind !== 'trend');
+  const trendGroups = []; const drafts = rows.filter((row) => row.kind === 'draft'); const scans = rows.filter((row) => row.kind === 'scan');
   for (const row of rows.filter((entry) => entry.kind === 'trend')) { const last = trendGroups[trendGroups.length - 1]; if (last?.id === row.groupId) last.rows.push(row); else trendGroups.push({ id: row.groupId, title: row.groupTitle, rows: [row] }); }
   const buckets = (entries) => Object.entries(entries.reduce((all, row) => { const label = dateGroup(row.createdAt); (all[label] ||= []).push(row); return all; }, {}));
-  const groups = grouped ? [...trendGroups, ...(drafts.length ? [{ id: 'other', title: 'Other reports and drafts', buckets: buckets(drafts) }] : [])] : buckets(drafts).map(([label, entries]) => ({ id: label, title: label, rows: entries }));
-  const rowButton = (row) => <button type="button" key={row.key} data-spot="reports.row" data-spot-item={row.title} onClick={() => onSelect(openId(row))}><span className="simple-doc-icon"><FileText size={18} aria-hidden="true" /></span><span><strong>{row.title}</strong><small>{rowMeta(row)}</small></span><ArrowRight size={16} aria-hidden="true" /></button>;
+  const groups = grouped ? [...trendGroups, ...(scans.length ? [{ id: 'scans', title: 'Quick scans', rows: scans }] : []), ...(drafts.length ? [{ id: 'other', title: 'Other reports and drafts', buckets: buckets(drafts) }] : [])] : buckets(drafts).map(([label, entries]) => ({ id: label, title: label, rows: entries }));
+  // A row can be dragged into Ask AI to ask about that report (ask-slash.js).
+  const rowButton = (row) => <button type="button" key={row.key} data-spot="reports.row" data-spot-item={row.title} {...studioRefDragProps({ kind: 'report', ref: byId.get(row.reportId)?.title || byId.get(row.toolkitId)?.title || row.title, id: row.reportId || row.toolkitId })} onClick={() => onSelect(openId(row))}><span className="simple-doc-icon"><FileText size={18} aria-hidden="true" /></span><span><strong>{row.title}</strong><small>{rowMeta(row)}</small></span><ArrowRight size={16} aria-hidden="true" /></button>;
   return <div className="simple-page">
     <div className="simple-page-head"><div><h1>Reports</h1><p>{plural(reports.length, 'report')}, newest first. {grouped && trendRows.length ? 'A trend’s report and toolkit share one row.' : 'Tap one to read it.'}</p></div>
       <label className="simple-search" data-spot="reports.search"><Search size={16} aria-hidden="true" /><input aria-label="Search reports" placeholder="Search reports" value={query} onChange={(event) => setQuery(event.target.value)} />{query && <button type="button" aria-label="Clear search" onClick={() => setQuery('')}><X size={14} /></button>}</label></div>

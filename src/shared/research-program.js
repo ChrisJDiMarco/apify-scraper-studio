@@ -16,12 +16,11 @@ const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // are the current models in the same tiers. Prices are list USD per million tokens (input, output).
 // `discovery` marks the models strong enough to read 200-post batches and cite evidence ids reliably;
 // a small quick scan uses the cheapest of them.
-const RESEARCH_MODELS = [
-  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', input: 10, output: 50, discovery: true },
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', input: 4, output: 20, discovery: true },
-  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', input: 2, output: 10, discovery: true },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', input: 1, output: 5, discovery: false },
-];
+// The Claude models come from the studio's model catalog (src/shared/ai-models.json), so Settings → Model routing, program
+// forms and cost estimates all read one list. Haiku 5.5 is priced in tiers (prompts above 100K tokens cost more).
+const AI_MODELS = require('./ai-models.json');
+const AI_PROVIDERS = require('./ai-providers.json');
+const RESEARCH_MODELS = AI_MODELS.text.filter((entry) => entry.family === 'claude').map((entry) => ({ id: entry.id, label: entry.label, input: entry.inputUsdPerMTok, output: entry.outputUsdPerMTok, discovery: entry.strongReader === true, ...(entry.tiers ? { tiers: entry.tiers } : {}) }));
 const DEFAULT_RESEARCH_AI = Object.freeze({
   models: { discovery: 'claude-opus-5-5', synthesis: 'claude-opus-5-5', matching: 'claude-opus-5-5', tagging: 'claude-fable-5-1', reports: 'claude-fable-5-1' },
   effort: { discovery: 'medium', synthesis: 'high', matching: 'medium', tagging: 'low', reports: 'high' },
@@ -100,17 +99,44 @@ function normalizeTarget(value, p, field) {
   if (!(p === 'reddit' ? /^[a-z0-9_]{2,21}$/ : /^[a-z0-9_]{1,15}$/).test(target)) fail(field, 'Enter a valid subreddit or account handle.');
   return target;
 }
-function modelId(v, field, fallback) {
+// A stage model is a Claude ID unless the program routes the stage to another connection (ai.overrides[stage].route), whose
+// own ID pattern then applies (ai-providers.json modelPatterns), e.g. an OpenRouter ID such as anthropic/claude-opus-5.5.
+const TEXT_ROUTES = ['auto', 'claude', 'claude-api', 'codex', 'openai', 'openrouter'];
+const ROUTE_FAMILY = Object.fromEntries([...AI_PROVIDERS.connections, ...AI_PROVIDERS.pseudo].map((entry) => [entry.id, entry.family]));
+function modelId(v, field, fallback, route = '') {
   if (v === undefined || v === '') return fallback;
-  const value = string(v, field, 80, true);
-  if (!/^claude-[a-z0-9][a-z0-9.-]{1,70}$/.test(value)) fail(field, `${field} must be a Claude model ID such as claude-opus-5-5.`);
+  const family = ROUTE_FAMILY[route] || 'claude';
+  const value = string(v, field, family === 'claude' ? 80 : 160, family !== 'codex');
+  if (!new RegExp(AI_PROVIDERS.modelPatterns[family]).test(value)) fail(field, family === 'claude' ? `${field} must be a Claude model ID such as claude-opus-5-5.` : `${field} isn’t a model ID this connection uses.`);
   return value;
+}
+// ai.overrides: the stages a program chooses for itself ({ route?, model?, effort? }); every other stage follows Settings →
+// Model routing. A program saved before overrides existed has none; the router treats its stage models and efforts that
+// differ from DEFAULT_RESEARCH_AI as its choices (src/main/ai-routing.js).
+function validateOverrides(input) {
+  if (input === undefined || input === null) return undefined;
+  const overrides = object(input, 'ai.overrides');
+  return Object.fromEntries(RESEARCH_STAGES.filter((stage) => overrides[stage] != null).map((stage) => {
+    const entry = object(overrides[stage], `ai.overrides.${stage}`);
+    const route = entry.route === undefined || entry.route === '' ? '' : string(entry.route, `ai.overrides.${stage}.route`, 20);
+    if (route && !TEXT_ROUTES.includes(route)) fail(`ai.overrides.${stage}.route`, 'Choose a writing connection: Claude, Codex, OpenAI or OpenRouter.');
+    const model = modelId(entry.model, `ai.overrides.${stage}.model`, '', route);
+    const effort = entry.effort === undefined || entry.effort === '' ? '' : entry.effort;
+    if (effort && !EFFORT_LEVELS.includes(effort)) fail(`ai.overrides.${stage}.effort`, `Choose an effort level: ${EFFORT_LEVELS.join(', ')}.`);
+    if (!route && !model && !effort) return null;
+    return [stage, { ...(route ? { route } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}) }];
+  }).filter(Boolean));
 }
 function validateResearchAi(input) {
   const ai = input === undefined ? {} : object(input, 'ai');
-  const models = ai.models === undefined ? {} : object(ai.models, 'ai.models');
-  const effort = ai.effort === undefined ? {} : object(ai.effort, 'ai.effort');
+  const overrides = validateOverrides(ai.overrides);
+  // With overrides, the legacy models/effort become a mirror of them (the defaults elsewhere), kept for older readers.
+  // A stage routed to another connection keeps the default Claude model in the mirror.
+  const mirrored = (field) => overrides ? Object.fromEntries(RESEARCH_STAGES.map((stage) => [stage, overrides[stage]?.[field] && (field === 'effort' || !overrides[stage].route || ROUTE_FAMILY[overrides[stage].route] === 'claude') ? overrides[stage][field] : undefined])) : null;
+  const models = mirrored('model') || (ai.models === undefined ? {} : object(ai.models, 'ai.models'));
+  const effort = mirrored('effort') || (ai.effort === undefined ? {} : object(ai.effort, 'ai.effort'));
   return {
+    ...(overrides ? { overrides } : {}),
     models: Object.fromEntries(RESEARCH_STAGES.map((stage) => [stage, modelId(models[stage], `ai.models.${stage}`, DEFAULT_RESEARCH_AI.models[stage])])),
     effort: Object.fromEntries(RESEARCH_STAGES.map((stage) => {
       const value = effort[stage] === undefined || effort[stage] === '' ? DEFAULT_RESEARCH_AI.effort[stage] : effort[stage];
@@ -581,20 +607,29 @@ const EFFORT_OUTPUT_MULTIPLIER = { low: 1.3, medium: 1.8, high: 2.5, xhigh: 3.5,
 function modelPrice(model) {
   const known = RESEARCH_MODELS.find((entry) => entry.id === model);
   if (known) return known;
+  if (/haiku-5/.test(model)) return { input: 0.1, output: 0.5 };
   if (/fable|mythos/.test(model)) return { input: 10, output: 50 };
   if (/opus/.test(model)) return { input: 5, output: 25 };
   if (/sonnet-5/.test(model)) return { input: 2, output: 10 };
   if (/sonnet/.test(model)) return { input: 3, output: 15 };
   return { input: 1, output: 5 };
 }
-function callCost(model, effort, inputTokens, outputTokens) {
-  const price = modelPrice(model); const multiplier = EFFORT_OUTPUT_MULTIPLIER[effort] || 2;
+// `price` (optional) is a routed task's resolved price ({ inputUsdPerMTok, outputUsdPerMTok, tiers? } from ai-catalog
+// priceFor, or { input, output }); without it the Claude catalog price applies. `reasoning: false` (a model that takes no
+// effort) counts the output once. A price tier above an input size (Haiku 5.5 above 100K) prices the whole call.
+function callCost(model, effort, inputTokens, outputTokens, { price: given = null, reasoning = true } = {}) {
+  const base = given && Number.isFinite(given.inputUsdPerMTok ?? given.input) ? { input: given.inputUsdPerMTok ?? given.input, output: given.outputUsdPerMTok ?? given.output, tiers: given.tiers } : modelPrice(model);
+  const tier = (Array.isArray(base.tiers) ? base.tiers : []).filter((entry) => inputTokens > entry.aboveInputTokens).sort((a, b) => b.aboveInputTokens - a.aboveInputTokens)[0];
+  const price = tier ? { input: tier.inputUsdPerMTok, output: tier.outputUsdPerMTok } : base;
+  const multiplier = reasoning ? EFFORT_OUTPUT_MULTIPLIER[effort] || 2 : 1;
   return (inputTokens * price.input + outputTokens * multiplier * price.output) / 1e6;
 }
 // Measured on a live run (Oct 2026): these JSON prompts average ~2.4 characters per token (URLs,
 // handles and escaped text tokenize poorly); the CLI's system prompt and schema add ~1,000.
 function estimateTokens(characters) { return Math.ceil(characters / 2.4) + 1000; }
-function estimateResearchCost(input, { evidenceCounts, themeCount } = {}) {
+// `stages` (optional): the resolved { model, effort, price } per stage from Settings → Model routing and the program's own
+// choices (src/main/ai-routing.js); without it the program's models and efforts price at the catalog's Claude prices.
+function estimateResearchCost(input, { evidenceCounts, themeCount, stages: resolved = null } = {}) {
   const program = validateResearchProgram(input);
   const enabled = program.sourceGroups.filter((group) => group.enabled);
   const planned = {};
@@ -607,21 +642,27 @@ function estimateResearchCost(input, { evidenceCounts, themeCount } = {}) {
     planned[p] = Math.max(0, Math.min(program.targetPerPlatform, Number.isFinite(evidenceCounts?.[p]) ? evidenceCounts[p] : estimate));
   }
   const total = Object.values(planned).reduce((sum, count) => sum + count, 0);
-  const { models, effort } = program.ai;
+  const models = { ...program.ai.models }; const effort = { ...program.ai.effort }; const prices = {};
+  if (resolved && typeof resolved === 'object') for (const stage of RESEARCH_STAGES) {
+    const entry = resolved[stage]; if (!entry) continue;
+    if (entry.model !== undefined) models[stage] = entry.model; if (entry.effort !== undefined) effort[stage] = entry.effort;
+    if (entry.price) prices[stage] = entry.price;
+  }
+  const cost = (stage, inputTokens, outputTokens) => callCost(models[stage], effort[stage], inputTokens, outputTokens, prices[stage] ? { price: prices[stage] } : {});
   const discoveryPosts = Math.round(total * 0.6); const taggingPosts = Math.round(total * 0.9);
   const discoveryBatches = PLATFORMS.reduce((sum, p) => sum + Math.ceil(Math.round((planned[p] || 0) * 0.6) / program.discoveryBatchSize), 0);
   const taggingBatches = PLATFORMS.reduce((sum, p) => sum + Math.ceil(Math.round((planned[p] || 0) * 0.9) / program.taggingBatchSizes[p]), 0);
   const themes = themeCount ?? program.maxThemes;
   // Per-post token sizes measured on the Oct 2026 live run (LinkedIn-heavy mix; X posts are shorter).
-  const discovery = callCost(models.discovery, effort.discovery, discoveryPosts * 460 + discoveryBatches * 1500, discoveryBatches * 3500);
-  const synthesis = discoveryBatches ? callCost(models.synthesis, effort.synthesis, Math.min(discoveryBatches * 10, 600) * 260 + 5000, 6000) : 0;
-  const matching = discoveryBatches ? callCost(models.matching, effort.matching, 6000, 2500) : 0;
-  const tagging = callCost(models.tagging, effort.tagging, taggingPosts * 330 + taggingBatches * 3000, taggingPosts * 110);
+  const discovery = cost('discovery', discoveryPosts * 460 + discoveryBatches * 1500, discoveryBatches * 3500);
+  const synthesis = discoveryBatches ? cost('synthesis', Math.min(discoveryBatches * 10, 600) * 260 + 5000, 6000) : 0;
+  const matching = discoveryBatches ? cost('matching', 6000, 2500) : 0;
+  const tagging = cost('tagging', taggingPosts * 330 + taggingBatches * 3000, taggingPosts * 110);
   const matchedPerTheme = Math.min(500, Math.ceil(taggingPosts * 0.6 / Math.max(1, themes)));
-  const reports = themes * (callCost(models.reports, effort.reports, Math.min(240000, matchedPerTheme * 520 + 6000), 8000) + callCost(models.reports, effort.reports, 38000, 5000));
+  const reports = themes * (cost('reports', Math.min(240000, matchedPerTheme * 520 + 6000), 8000) + cost('reports', 38000, 5000));
   const round = (value) => Math.round(value * 100) / 100;
   const stages = { discovery: round(discovery), synthesis: round(synthesis), matching: round(matching), tagging: round(tagging), reports: round(reports) };
   return { posts: { ...planned, total }, batches: { discovery: discoveryBatches, tagging: taggingBatches }, stages, totalUsd: round(Object.values(stages).reduce((sum, value) => sum + value, 0)), models, effort, basis: 'List prices per million tokens; actual CLI-reported cost is recorded per call.' };
 }
 
-module.exports = { MAX_EVIDENCE_ITEMS, PLATFORMS, PLATFORM_LABELS, PAIN_POINTS, URGENCY_SIGNALS, DEFAULT_THRESHOLDS, DEFAULT_RESEARCH_PROGRAM, DEFAULT_RESEARCH_AI, DEFAULT_TAGGING_BATCH_SIZES, DEFAULT_COLLECTION_SETTINGS, RESEARCH_STAGES, RESEARCH_MODELS, EFFORT_LEVELS, DISCOVERY_SCHEMA, THEMES_SCHEMA, MATCHING_SCHEMA, ASSIGNMENTS_SCHEMA, validateResearchProgram, resolveResearchWindow, researchMetrics, engagementScore, batchEngagementScore, prepareResearchEvidence, discoveryPost, taggingPost, postRef, themeRef, candidateRef, refLookup, buildDiscoveryBatches, buildAssignmentBatches, validateCandidates, mergeCandidates, synthesisCandidate, validateThemes, validateThemeMatches, validateAssignments, unclassifiedAssignments, applyAssignments, calculateThemeHistory, calculateThemePriority, aggregateEvidenceMetrics, buildThemeEvidenceSnapshot, validateExactQuotes, estimateResearchCost, callCost, estimateTokens, modelPrice };
+module.exports = { TEXT_ROUTES, validateResearchAi, MAX_EVIDENCE_ITEMS, PLATFORMS, PLATFORM_LABELS, PAIN_POINTS, URGENCY_SIGNALS, DEFAULT_THRESHOLDS, DEFAULT_RESEARCH_PROGRAM, DEFAULT_RESEARCH_AI, DEFAULT_TAGGING_BATCH_SIZES, DEFAULT_COLLECTION_SETTINGS, RESEARCH_STAGES, RESEARCH_MODELS, EFFORT_LEVELS, DISCOVERY_SCHEMA, THEMES_SCHEMA, MATCHING_SCHEMA, ASSIGNMENTS_SCHEMA, validateResearchProgram, resolveResearchWindow, researchMetrics, engagementScore, batchEngagementScore, prepareResearchEvidence, discoveryPost, taggingPost, postRef, themeRef, candidateRef, refLookup, buildDiscoveryBatches, buildAssignmentBatches, validateCandidates, mergeCandidates, synthesisCandidate, validateThemes, validateThemeMatches, validateAssignments, unclassifiedAssignments, applyAssignments, calculateThemeHistory, calculateThemePriority, aggregateEvidenceMetrics, buildThemeEvidenceSnapshot, validateExactQuotes, estimateResearchCost, callCost, estimateTokens, modelPrice };

@@ -77,16 +77,19 @@ export function buildInbox({ state = {}, viewer = {}, seenAt = '', now = Date.no
         push({ id: `run:${run.id}`, kind: 'run-stopped', at, title: `Research run stopped${message ? `: ${firstLine(message, 70)}` : ''}`, detail: [programName(run) || run.title, NEEDS_ADMIN.test(message) && !allows(viewer, 'saveSettings') ? `ask ${askAdmin}` : ''].filter(Boolean).join(' · '), target: { kind: 'run', id: run.id, page: 'research' } });
       }
     }
-    // Quick scans finish with a pulse rather than trends to decide.
+    // Quick scans finish with a pulse rather than trends to decide; one that wrote its short trends report opens it.
     for (const run of researchRuns.filter((row) => row.origin === 'quick-scan' && row.status === 'succeeded')) {
-      const found = list(run.discoveredThemes).length;
-      push({ id: `run:${run.id}`, kind: 'run-finished', at: run.updatedAt || run.createdAt, title: `Quick scan finished · ${run.quickScan?.topic ? quote(run.quickScan.topic) : run.title || ''}`, detail: found ? plural(found, 'trend') : 'No clear trends this time', target: { kind: 'run', id: run.id, page: 'research' } });
+      const found = list(run.discoveredThemes).length; const topic = run.quickScan?.topic ? quote(run.quickScan.topic) : run.title || '';
+      const report = run.scanReport || null; const ready = report?.status === 'succeeded' && report.assetId && assets.some((asset) => asset.id === report.assetId);
+      if (ready) push({ id: `run:${run.id}`, kind: 'run-finished', at: run.updatedAt || run.createdAt, title: `Quick scan report ready · ${topic}`, detail: plural(found, 'trend'), target: { kind: 'report', id: report.assetId, page: 'reports' } });
+      else push({ id: `run:${run.id}`, kind: 'run-finished', at: run.updatedAt || run.createdAt, title: `Quick scan finished · ${topic}`, detail: [found ? plural(found, 'trend') : 'No clear trends this time', report && ['failed', 'cancelled'].includes(report.status) ? 'its trends report didn’t finish' : ''].filter(Boolean).join(' · '), target: { kind: 'run', id: run.id, page: 'research' } });
     }
     // Reports written, channel-asset sets and Create content drafts.
     const assetsByRun = new Map();
     for (const asset of assets) { const rows = assetsByRun.get(asset.runId) || []; rows.push(asset); assetsByRun.set(asset.runId, rows); }
     for (const run of contentRuns) {
-      if (ACTIVE.has(run.status)) continue;
+      // A quick scan's trends report is told on its scan's row.
+      if (ACTIVE.has(run.status) || run.scanReport) continue;
       const at = run.updatedAt || run.createdAt; const files = assetsByRun.get(run.id) || [];
       const report = files.find((asset) => asset.deliverableId === 'evidence-report') || files.find((asset) => REPORT_DELIVERABLES.has(asset.deliverableId)) || null;
       if (run.status === 'succeeded') {

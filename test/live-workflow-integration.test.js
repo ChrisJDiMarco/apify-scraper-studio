@@ -442,12 +442,12 @@ describe('Ask AI', () => {
     const output = { answer: 'Making a landscape hero image.', pages: [], followUps: [], image: picture };
     const on = mainHarness({ cliResults: [{ stdout: claudeSuccess(output) }], env: { OPENAI_API_KEY: 'fixture-openai-secret' } });
     const reply = await on.invoke('help:ask', { question: 'Make a hero image for my latest trend' });
-    expect(reply.image).toEqual({ title: 'AI Overviews hero', prompt: picture.prompt, size: '1536x1024' });
+    expect(reply.image).toEqual({ title: 'AI Overviews hero', prompt: picture.prompt, size: '1536x1024', family: 'none' });
     const call = on.spawns.find((spawn) => spawn.args.includes('--print'));
     expect(call.stdin).toContain('"available": true'); expect(call.stdin).toContain('PICTURES'); expect(call.stdin).not.toContain('fixture-openai-secret');
     const off = mainHarness({ cliResults: [{ stdout: claudeSuccess(output) }] });
     expect((await off.invoke('help:ask', { question: 'Make a hero image' })).image).toBeNull();
-    await expect(off.invoke('help:image', { prompt: 'A chart', size: '1536x1024' })).rejects.toThrow('Settings → Image generation');
+    await expect(off.invoke('help:image', { prompt: 'A chart', size: '1536x1024' })).rejects.toThrow('Settings, AI connections');
     await expect(off.invoke('help:save-image', { id: '../../secret' })).rejects.toThrow('no longer available');
   });
   it('keeps an editor’s answers away from places only admins can open', () => {
@@ -455,11 +455,11 @@ describe('Ask AI', () => {
     const editor = help.helpPrompt({ question: 'Can I make pictures?', context: { layout: 'simple', role: 'editor' }, guide: '' });
     expect(editor).toContain('This person is an Editor: they can\'t change settings, keys, people or research programs.');
     expect(editor).toContain('Pictures are off. Ask an admin to turn them on.');
-    expect(editor).not.toContain('Settings → Image generation');
+    expect(editor).not.toContain('Settings → AI connections');
     expect(editor).not.toMatch(/^(settings\.[\w-]+|nav\.(settings|people|analytics|workspace)):/m);
     expect(editor).not.toContain('knowledge = Brand knowledge'); expect(editor).toContain('open-tab: target = home, trends, reports, assets, inbox, calendar or ask.');
     const admin = help.helpPrompt({ question: 'Can I make pictures?', context: { layout: 'classic' }, guide: '' });
-    expect(admin).toContain('Settings → Image generation'); expect(admin).toMatch(/^nav\.settings:/m); expect(admin).toContain('the Advanced layout');
+    expect(admin).toContain('Settings → AI connections'); expect(admin).toMatch(/^nav\.settings:/m); expect(admin).toContain('the Advanced layout');
     expect(help.helpSchema(undefined, { role: 'editor' }).properties.pages.items.properties.page).toEqual({ type: 'string' });
     const raw = { answer: 'Ask an admin.', pages: [{ page: 'knowledge', label: 'Brand' }, { page: 'settings', label: 'Settings' }, { page: 'research', label: 'Research' }], actions: [{ kind: 'open-tab', label: 'Settings', target: 'settings' }, { kind: 'open-tab', label: 'Trends', target: 'trends' }], show: { autoStart: true, steps: [{ target: 'nav.settings', item: '', say: 'Settings live here.' }, { target: 'settings.images', item: '', say: 'Turn pictures on.' }, { target: 'nav.people', item: '', say: 'People.' }, { target: 'nav.trends', item: '', say: 'Trends are here.' }] } };
     const reply = help.cleanReply(raw, { role: 'editor' });

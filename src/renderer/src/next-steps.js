@@ -59,6 +59,14 @@ export function nextSteps({ state = {}, viewer = {}, can = () => false, board: g
   const stoppedRuns = contentRuns.filter((run) => ['failed', 'partial'].includes(run.status) && now - time(run.updatedAt || run.createdAt) < 7 * DAY && !finishedLater(run))
     .sort((a, b) => time(b.createdAt) - time(a.createdAt)).slice(0, 2);
   for (const run of stoppedRuns) {
+    // A quick scan's trends report that didn't finish: its scan found its trends, and Retry report writes only the report.
+    if (run.scanReport) {
+      const scan = researchRuns.find((row) => row.id === run.researchRunId);
+      const topic = scan?.quickScan?.topic || String(scan?.title || run.title || '').replace(/^Quick scan · /, '');
+      add({ id: `stopped:${run.id}`, kind: 'stopped', tone: 'attention', title: `Quick scan report didn’t finish · ${topic}`, detail: mayRetry ? 'The scan found its trends; Retry report writes only the report.' : `Ask ${askAdmin} to write it.`,
+        action: mayRetry ? { kind: 'retry', runId: run.id, label: 'Retry report' } : { kind: 'open', target: { kind: 'run', id: scan?.id || run.id, page: 'research' }, label: 'Open' } });
+      continue;
+    }
     const title = (run.kit && run.kit.sourceTitle) || run.title || 'A run';
     const left = list(run.jobs).filter((job) => job.status !== 'succeeded').length;
     add({ id: `stopped:${run.id}`, kind: 'stopped', tone: 'attention', title: `${run.kit ? 'Channel assets' : 'Writing'} stopped · ${title}`, detail: [left ? `${plural(left, run.kit ? 'asset' : 'output')} didn’t finish.` : 'It didn’t finish.', mayRetry ? 'Finished work is kept.' : `Ask ${askAdmin} to finish it.`].join(' '),

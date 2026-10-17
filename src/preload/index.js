@@ -187,4 +187,10 @@ contextBridge.exposeInMainWorld('apifyStudio', {
     ipcRenderer.on('state-changed', listener);
     return () => ipcRenderer.removeListener('state-changed', listener);
   },
+  // Ask AI's streamed answers and follow-ups (index.js pushAskEvent), for this window's person.
+  onAskStream: (callback) => {
+    const listener = (_, payload) => callback(payload);
+    ipcRenderer.on('help:stream', listener);
+    return () => ipcRenderer.removeListener('help:stream', listener);
+  },
 });

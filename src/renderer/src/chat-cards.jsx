@@ -22,7 +22,7 @@ import './chat-cards.css';
 // options [{ label, detail, ids }] that run one button on the item picked), plan (data { steps:[{ index, why }] }), draft
 // (data { kind, subject, text }) and report-change (data { assetId, section, diff, markdown, baseEditedAt, ... }).
 //
-// <ChatCards cards actions actionState onAction onRunAction onOutcome onAsk onNav api state conversationId />
+// <ChatCards cards actions actionState onAction onRunAction onOutcome onAsk onNav api state conversationId messageId />
 //   actions      the reply's actions (indexes refer to this array)
 //   actionState  { [index]: { status:'running'|'done'|'failed'|'cancelled', text, runId? } } for this reply
 //   onAction     (index) => Promise: runs reply action `index` and records its outcome (absent: no action buttons)
@@ -31,7 +31,9 @@ import './chat-cards.css';
 //                an action form's save, a choice, a plan step skipped)
 //   onAsk        (text) => void: asks Ask AI a seeded question (Summarize what changed)
 //   onNav        the layout's nav adapter (studio-actions.js StudioNav)
-//   conversationId  the Ask AI conversation the answer belongs to (a prompt change saved from a card names it)
+//   conversationId  the Ask AI conversation the answer belongs to (a prompt change saved from a card names it; a scan or
+//                research run started from a card posts what it found back into it)
+//   messageId    the stored answer the cards belong to (optional; sent with a start so the follow-up can name it)
 const list = (value) => (Array.isArray(value) ? value : []);
 const finite = (value) => value !== null && value !== '' && Number.isFinite(Number(value));
 const text = (value) => (value == null ? '' : String(value));
@@ -48,9 +50,9 @@ const PLATFORM_MARK = { x: 'X', linkedin: 'in', reddit: 'r/' };
 const platformName = (id) => PLATFORM_LABELS[id] || sentence(id);
 const STAGES = { waiting: 'Needs your OK', approved: 'Approved', writing: 'Being written', ready: 'Ready', passed: 'Skipped' };
 const MOMENTUM = { new: { label: 'New', Icon: Sparkles }, rising: { label: 'Rising', Icon: TrendingUp }, steady: { label: 'Steady', Icon: Minus }, fading: { label: 'Fading', Icon: TrendingDown } };
-const DOC_KIND = { 'evidence-report': 'Trends report', 'editorial-toolkit': 'Editorial toolkit' };
+const DOC_KIND = { 'evidence-report': 'Trends report', 'editorial-toolkit': 'Editorial toolkit', 'scan-report': 'Quick scan report' };
 const RUN_STATUS = { queued: 'Queued', running: 'Running', 'awaiting-review': 'Trends need your OK', succeeded: 'Done', partial: 'Partly done', failed: 'Didn’t finish', cancelled: 'Stopped' };
-const RUN_STAGE = { collecting: 'Collecting posts', discovery: 'Finding trends', synthesis: 'Combining what it found', matching: 'Matching to trends you track', 'theme-review': 'Trends found', classification: 'Tagging posts', reports: 'Writing reports', 'scan-complete': 'Scan complete', content: 'Writing' };
+const RUN_STAGE = { collecting: 'Collecting posts', discovery: 'Finding trends', synthesis: 'Combining what it found', matching: 'Matching to trends you track', 'theme-review': 'Trends found', classification: 'Tagging posts', reports: 'Writing reports', 'scan-report': 'Writing the trends report', 'scan-complete': 'Scan complete', content: 'Writing' };
 const WINDOWS = [[1, '1h'], [3, '3h'], [6, '6h'], [12, '12h'], [24, '24h'], [72, '3d'], [168, '7d']];
 const windowLabel = (hours) => (WINDOWS.find(([value]) => value === hours)?.[1]) || (hours % 24 === 0 ? `${hours / 24}d` : `${hours}h`);
 // Dates as "Oct 12", or "2:14 PM" for today.
@@ -71,7 +73,13 @@ function runView(row) {
     runId: row.id, kind, title: row.kit ? `Channel assets · ${row.kit.sourceTitle || row.title || ''}` : row.title || 'Research run', status: row.status, stage: row.stage, message: row.message || '', startedAt: row.createdAt,
     costUsd: row.costUsd, budgetUsd: row.maxBudgetUsd, progress: progressOf(row.status === 'running' ? row.discoveryProgress || row.assignmentProgress || row.progress : row.progress), themes: themes.map((theme) => (typeof theme === 'string' ? theme : theme?.name)).filter(Boolean),
     topic: row.quickScan?.topic || '', programId: row.programId || '', codex: row.ai?.route === 'codex' || list(row.receipts).some((receipt) => receipt?.provider === 'codex'),
+    scanReport: row.scanReport && typeof row.scanReport === 'object' ? row.scanReport : null,
   };
+}
+// The link a start sends so the studio can post what it finds back into this conversation (a stored answer's id only).
+export function askLinkFor(conversationId, messageId = '', actionIndex = -1) {
+  if (!conversationId) return null;
+  return { conversationId: String(conversationId), ...(/^msg-[0-9a-f-]{36}$/.test(String(messageId || '')) ? { messageId: String(messageId) } : {}), ...(Number.isInteger(actionIndex) && actionIndex >= 0 ? { actionIndex } : {}) };
 }
 function runLine(run) {
   if (run.status === 'queued') return 'Starting soon';
@@ -97,10 +105,10 @@ const reportActionIndex = (card, actions) => { const named = list(card.actionInd
 // An open button for this kind of item (open with type=report, or the older open-report).
 const opensAs = (row, type) => row?.kind === `open-${type}` || (row?.kind === 'open' && (row.params?.type === type || row.ref?.kind === type));
 
-export function ChatCards({ cards, actions = [], actionState = {}, onAction, onRunAction, onOutcome, onAsk, onNav = {}, api, state, conversationId = '' }) {
+export function ChatCards({ cards, actions = [], actionState = {}, onAction, onRunAction, onOutcome, onAsk, onNav = {}, api, state, conversationId = '', messageId = '' }) {
   const rows = list(cards).filter((card) => card && RENDERERS[card.type]);
   if (!rows.length) return null;
-  const shared = { actions: list(actions), actionState: actionState || {}, onAction, onRunAction, onOutcome, onAsk, onNav: onNav || {}, api, state, conversationId };
+  const shared = { actions: list(actions), actionState: actionState || {}, onAction, onRunAction, onOutcome, onAsk, onNav: onNav || {}, api, state, conversationId, messageId };
   return <div className="chat-cards">{rows.map((card, index) => { const Card = RENDERERS[card.type]; return <Card key={`${card.type}-${index}`} card={card} {...shared} />; })}</div>;
 }
 
@@ -211,7 +219,9 @@ export function AssetFolderCard({ card, actions, actionState, onAction, onNav, s
 // program it borrowed its accounts from: that run reads the program's whole saved setup (not only the scan's topic),
 // so the button names the program and the usual confirmation shows its estimate. A reply action of the same kind is
 // used when there is one, so its outcome is recorded with the conversation.
-export function RunCard({ card, actions, actionState, onAction, onRunAction, onAsk, onNav, state }) {
+// A quick scan writes a short trends report when it finishes: Open the report when it's ready, Retry report (the report
+// alone; the scan stays done) when it didn't finish.
+export function RunCard({ card, actions, actionState, onAction, onRunAction, onAsk, onNav, state, conversationId = '', messageId = '' }) {
   const can = useCan(); const viewer = useViewer();
   const data = card.data || {};
   const live = findRun(state, data.runId);
@@ -219,7 +229,10 @@ export function RunCard({ card, actions, actionState, onAction, onRunAction, onA
   const [local, setLocal] = useState({});
   const quick = run.kind === 'quick-scan';
   const topic = run.topic || text(run.title).replace(/^Quick scan · /, '');
-  const indexOf = (kind) => list(card.actionIndexes).find((index) => actions[index]?.kind === kind);
+  const report = quick ? run.scanReport || null : null;
+  // A reply's Retry report button (retry-run on the report run) is this card's Retry report, not its Try again.
+  const reportRetryIndex = report?.runId ? list(card.actionIndexes).find((index) => actions[index]?.kind === 'retry-run' && actions[index].runId === report.runId) : undefined;
+  const indexOf = (kind) => (kind === 'retry-report' ? reportRetryIndex : list(card.actionIndexes).find((index) => actions[index]?.kind === kind && index !== reportRetryIndex));
   const stateOf = (kind) => { const index = indexOf(kind); return index != null ? actionState[index] : local[kind]; };
   const programId = run.programId || data.programId || '';
   const programName = list(studioOf(state).programs).find((row) => row.id === programId)?.name || '';
@@ -229,7 +242,10 @@ export function RunCard({ card, actions, actionState, onAction, onRunAction, onA
     if (!onRunAction) return;
     setLocal((current) => ({ ...current, [kind]: { status: 'running' } }));
     try {
-      const request = kind === 'start-research' ? { kind, label: 'Full research', target: programName, programId } : { kind, label: kind === 'stop-run' ? 'Stop' : 'Try again', target: run.title, runId: run.runId || data.runId };
+      const ask = askLinkFor(conversationId, messageId);
+      const request = kind === 'start-research' ? { kind, label: 'Full research', target: programName, programId, ...(ask ? { ask } : {}) }
+        : kind === 'retry-report' ? { kind: 'retry-run', label: 'Retry report', target: 'Quick scan trends report', runId: report?.runId || '' }
+          : { kind, label: kind === 'stop-run' ? 'Stop' : 'Try again', target: run.title, runId: run.runId || data.runId };
       const result = await onRunAction(request);
       setLocal((current) => ({ ...current, [kind]: result === false ? undefined : { status: 'done', text: typeof result === 'string' ? result : 'Done.' } }));
     } catch (failure) { setLocal((current) => ({ ...current, [kind]: { status: 'failed', text: messageOf(failure) } })); }
@@ -241,7 +257,7 @@ export function RunCard({ card, actions, actionState, onAction, onRunAction, onA
     const status = stateOf(kind);
     if (status?.status !== 'done' && (!allowed || !(onRunAction || (indexOf(kind) != null && onAction)))) return null;
     if (status?.status === 'done') return <span key={kind} className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</span>;
-    return <span key={kind} className="cc-action"><button type="button" className={`cc-btn ${kind === 'retry-run' ? 'is-primary' : 'is-quiet'}`} {...writeProps(viewer, status?.status === 'running')} onClick={() => act(kind)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}{label}</button>{status?.status === 'failed' && <small className="cc-failed" role="alert">{status.text}</small>}</span>;
+    return <span key={kind} className="cc-action"><button type="button" className={`cc-btn ${kind === 'retry-run' || kind === 'retry-report' ? 'is-primary' : 'is-quiet'}`} {...writeProps(viewer, status?.status === 'running')} onClick={() => act(kind)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}{label}</button>{status?.status === 'failed' && <small className="cc-failed" role="alert">{status.text}</small>}</span>;
   };
   const cost = finite(run.costUsd) && Number(run.costUsd) > 0 ? `${money(run.costUsd)} AI so far${finite(run.budgetUsd) && Number(run.budgetUsd) > 0 ? ` of ${money(run.budgetUsd)}` : ''}` : finite(run.budgetUsd) && Number(run.budgetUsd) > 0 ? `AI budget ${money(run.budgetUsd)}` : '';
   const kicker = quick ? 'Quick scan' : run.kind === 'kit' ? 'Channel assets' : run.kind === 'content' ? 'Report run' : 'Research run';
@@ -256,6 +272,8 @@ export function RunCard({ card, actions, actionState, onAction, onRunAction, onA
     <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => ['stop-run', 'retry-run'].includes(row.kind) || (row.kind === 'start-research' && quick && run.status === 'succeeded')}>
       {own('stop-run', 'Stop', Square, active && can('cancelStudioRun'))}
       {own('retry-run', 'Try again', RotateCcw, stopped && can('retryStudioRun'))}
+      {own('retry-report', 'Retry report', RotateCcw, run.status === 'succeeded' && ['failed', 'cancelled'].includes(report?.status) && Boolean(report?.runId) && can('retryStudioRun'))}
+      {report?.status === 'succeeded' && report.assetId && typeof onNav.openReport === 'function' && <NavButton key="report" icon={FileText} label="Open the report" onClick={() => onNav.openReport(report.assetId)} />}
       {found && onAsk && <button key="summarize" type="button" className="cc-btn is-primary" {...writeProps(viewer)} onClick={() => onAsk(quick ? `Summarize what the quick scan “${topic}” found: what people are saying, and which trends are new, rising or fading.` : `Summarize what changed in “${run.title}”: which trends are new, rising or fading since the last run.`)}><Sparkles size={13} aria-hidden="true" />Summarize what changed</button>}
       {own('start-research', programName ? `Full research with “${programName}”` : 'Start full research', Radar, quick && run.status === 'succeeded' && Boolean(programId) && can('startResearchRun'))}
       {run.status === 'awaiting-review' && typeof onNav.openTab === 'function' && <NavButton key="review" icon={TrendingUp} label="Review the trends" onClick={() => onNav.openTab('trends')} />}
@@ -476,6 +494,8 @@ export function scanDraft(input = {}, topic = '') {
     topic: text(input?.topic || topic).trim().slice(0, 500), depth, platforms: platforms.length ? platforms : [...PLATFORMS],
     maxTargets: Object.fromEntries(PLATFORMS.map((id) => [id, num(input?.maxTargets?.[id])])), itemsPerPlatform: num(input?.itemsPerPlatform), commentsPerPost: num(input?.commentsPerPost),
     lookbackHours: num(input?.lookbackHours), aiBudgetUsd: num(input?.aiBudgetUsd), collectionBudgetUsd: num(input?.collectionBudgetUsd), programId: text(input?.programId),
+    // The short trends report the scan writes when it finds trends (on unless turned off; its cost is in the check).
+    report: input?.report !== false && input?.report !== 'false',
   };
 }
 const FALLBACK = { lookbackHours: 24, itemsPerPlatform: 60, commentsPerPost: 0, aiBudgetUsd: 1.5, collectionBudgetUsd: 1.5, maxTargets: 8 };
@@ -502,7 +522,7 @@ function Meter({ label, value, cap, words, tone }) {
     {finite(cap) && Number(cap) > 0 && <div className="cc-meter-track" role="meter" aria-label={`${label} against its cap`} aria-valuemin={0} aria-valuemax={Number(cap)} aria-valuenow={Math.min(Number(cap), Number(value) || 0)} aria-valuetext={words}><span style={{ width: `${share}%` }} /></div>}
   </div>;
 }
-export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction, onOutcome, onAsk, onNav, api, state }) {
+export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction, onOutcome, onAsk, onNav, api, state, conversationId = '', messageId = '' }) {
   const can = useCan(); const viewer = useViewer(); const confirm = useConfirm();
   const formId = useId();
   const index = scanActionIndex(card, actions);
@@ -562,7 +582,9 @@ export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction
     if (!ok) return;
     setStarting(true); setError('');
     try {
-      const result = await api.startQuickScan({ programId, scan: payload(), fingerprint: estimate.fingerprint || '' });
+      // The conversation it was planned in, where the studio posts its trends report when it finishes.
+      const ask = askLinkFor(conversationId, messageId, index);
+      const result = await api.startQuickScan({ programId, scan: payload(), fingerprint: estimate.fingerprint || '', ...(ask ? { ask } : {}) });
       const row = result?.run || result || {};
       const runId = row.id || row.runId || '';
       const title = row.title || `Quick scan · ${scan.topic.trim()}`;
@@ -582,7 +604,7 @@ export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction
   const runId = started?.runId || outcome?.runId || (named && list(studio.researchRuns).filter((row) => row.origin === 'quick-scan' && row.title === named).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0]?.id) || '';
   if (runId) {
     const row = started?.row || {};
-    return <RunCard card={{ type: 'run', title: '', note: '', actionIndexes: [], data: { runId, kind: 'quick-scan', title: started?.title || `Quick scan · ${scan.topic}`, status: row.status || 'queued', stage: row.stage || 'collecting', message: row.message || '', startedAt: row.createdAt || '', costUsd: row.costUsd || 0, budgetUsd: row.maxBudgetUsd, progress: null, themes: [] } }} actions={actions} actionState={{}} onAction={onAction} onRunAction={onRunAction} onAsk={onAsk} onNav={onNav} state={state} />;
+    return <RunCard card={{ type: 'run', title: '', note: '', actionIndexes: [], data: { runId, kind: 'quick-scan', title: started?.title || `Quick scan · ${scan.topic}`, status: row.status || 'queued', stage: row.stage || 'collecting', message: row.message || '', startedAt: row.createdAt || '', costUsd: row.costUsd || 0, budgetUsd: row.maxBudgetUsd, progress: null, themes: [] } }} actions={actions} actionState={{}} onAction={onAction} onRunAction={onRunAction} onAsk={onAsk} onNav={onNav} state={state} conversationId={conversationId} messageId={messageId} />;
   }
   if (outcome?.status === 'done') return <p className="cc-done" role="status"><Check size={13} aria-hidden="true" />{outcome.text}</p>;
   // Quick scans can be turned off for one person (Access): no planner they can't check or start, just who to ask.
@@ -626,12 +648,14 @@ export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction
         <Stepper label="AI cap" prefix="$" decimals={2} step={0.25} value={shown('aiBudgetUsd')} min={aiMin} max={aiMax} onChange={(value) => edit({ aiBudgetUsd: value })} />
         <Stepper label="Apify cap" prefix="$" decimals={2} step={0.25} value={shown('collectionBudgetUsd')} min={apifyMin} max={apifyMax} onChange={(value) => edit({ collectionBudgetUsd: value })} />
       </div>
+      <label className="cc-plan-toggle"><input type="checkbox" checked={scan.report !== false} onChange={(event) => edit({ report: event.target.checked })} /><span>Write a short trends report when it finds trends<small>Posted here in Ask AI. Its cost is part of the check.</small></span></label>
       {uncapped && !estimate && <p className="cc-note-line"><Info size={13} aria-hidden="true" />{CODEX_UNCAPPED}</p>}
 
       {estimate && <section className={`cc-estimate${stale ? ' is-stale' : ''}`} aria-label="Cost check" aria-busy={checking}>
         {stale && <p className="cc-note-line" role="status"><Info size={13} aria-hidden="true" />You changed the plan. Check the cost again before starting.</p>}
         {planLines.length > 0 && <ul className="cc-plan-lines">{planLines.map((line, at) => <li key={at}>{line}</li>)}</ul>}
         <Meter label="AI" value={ai.totalUsd} cap={uncapped ? null : aiCap} words={finite(ai.totalUsd) ? `about ${money(ai.totalUsd)}${uncapped ? ' (not capped on Codex)' : ` of ${money(aiCap)} cap`}` : 'No estimate'} />
+        {ai.report?.on && <p className="cc-meter-note">{finite(ai.report.usd) && Number(ai.report.usd) > 0 && !uncapped ? `Includes a short trends report, about ${money(ai.report.usd)}.` : 'Includes a short trends report.'}</p>}
         <Meter label="Apify, worst case" value={collection.worstCaseUsd} cap={apifyCap} words={finite(collection.worstCaseUsd) ? `up to ${money(collection.worstCaseUsd)} of ${money(apifyCap)} cap` : collection.error || 'No estimate'} />
         {targets.length > 0 && <details className="cc-targets"><summary>Accounts it will read · {targets.length}<ChevronDown size={13} aria-hidden="true" /></summary>
           {PLATFORMS.filter((id) => targets.some((row) => row.platform === id)).map((id) => <div key={id} className="cc-target-group"><h5>{platformName(id)}</h5><ul>{targets.filter((row) => row.platform === id).map((row, at) => <li key={`${row.target}-${at}`}><strong>{row.target}</strong><small>{list(row.reasons).join(' · ') || 'In the program’s saved order'}</small></li>)}</ul></div>)}

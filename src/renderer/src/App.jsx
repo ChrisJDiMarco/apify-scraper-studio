@@ -36,7 +36,7 @@ import { InboxView, inboxUnread, markInboxRead } from './inbox-view.jsx';
 import { CalendarView } from './calendar-view.jsx';
 import { PromptLibrary } from './prompt-library.jsx';
 import { LINK_COPIED, deepLinkTarget, linkFor, shareOrigin, useDeepLink } from './deep-links.js';
-import { NoAccess, PreviewBanner, copyText, useNarrow } from './role-screens.jsx';
+import { NoAccess, PreviewBanner, copyText, useNarrow, useToast } from './role-screens.jsx';
 import { ChannelAssets, ChannelPlan, ChannelTrends } from './channel-owner.jsx';
 import { AnalyticsView } from './analytics-view.jsx';
 import { PeopleView } from './people-view.jsx';
@@ -49,10 +49,12 @@ import './studio-frame.css';
 const KEY_CONSEQUENCE = {
   APIFY_API_TOKEN: ['your Apify token', 'Scrapers and research collection stop until you reconnect it.'],
   ANTHROPIC_API_KEY: ['the Anthropic API key', 'Research and drafts use the Claude app instead, if it is installed and signed in.'],
-  OPENAI_API_KEY: ['the image generation key', 'New visuals can’t be generated until you add it again.'],
+  OPENAI_API_KEY: ['the OpenAI key', 'Pictures and OpenAI models routed to it stop before spending until you add it again.'],
   GOOGLE_SHEETS_WEBHOOK_URL: ['the Google Sheets bridge', 'Sending rows to Sheets and pulling tabs stop until you add it again.'],
   GOOGLE_DOCS_ACCESS_TOKEN: ['Google Docs access', 'Importing Google Docs and publishing to Drive stop until you reconnect.'],
   MONDAY_API_TOKEN: ['Monday.com', 'Trend board syncing stops until you reconnect.'],
+  OPENROUTER_API_KEY: ['the OpenRouter key', 'Jobs routed to OpenRouter stop before spending until you add a key again.'],
+  FAL_KEY: ['the fal.ai key', 'Pictures and videos routed to fal.ai stop before spending until you add a key again.'],
 };
 // The in-app question before a data job is cancelled (the Working popover and Scraper runs).
 const CANCEL_JOB = { title: 'Cancel this job?', lines: ['Anything it already finished is kept.'], confirmLabel: 'Cancel job', cancelLabel: 'Keep it running', tone: 'danger' };
@@ -651,20 +653,20 @@ function StudioApp({ api }) {
   // Ask AI with a question, in either layout: Simple's Ask AI tab, or Advanced's drawer. `draft` puts words in the box
   // for the person to finish (New › Quick scan, New › Picture) instead of asking them; `context` goes with the question
   // as background the person doesn't have to paste (a prompt's text from Prompts, a report under review).
-  function openAskAi(text = '', { draft = '', context = '' } = {}) {
+  function openAskAi(text = '', { draft = '', context = '', attachments } = {}) {
     const question = String(text || '').trim();
     const start = String(draft || '');
     const background = typeof context === 'string' ? context : '';
     if (!askAllowed) return;
     if (mode === 'simple') {
       if (!simpleAllowed('ask') || (simpleTabRef.current !== 'ask' && !guard.confirmLeave())) return;
-      if (question) setShellRequest({ key: Date.now(), kind: 'ask', text: question, context: background });
+      if (question) setShellRequest({ key: Date.now(), kind: 'ask', text: question, context: background, ...(Array.isArray(attachments) ? { attachments } : {}) });
       else if (start) setShellRequest({ key: Date.now(), kind: 'ask', draft: start });
       withViewTransition(() => setSimpleTab('ask'));
       return;
     }
     if (mode !== 'classic') return;
-    if (question) setHelpSeed({ key: Date.now(), text: question, context: background });
+    if (question) setHelpSeed({ key: Date.now(), text: question, context: background, ...(Array.isArray(attachments) ? { attachments } : {}) });
     else if (start) setHelpSeed({ key: Date.now(), draft: start });
     setPaletteOpen(false); setHelpOpen(true);
   }
@@ -1068,6 +1070,20 @@ function StudioApp({ api }) {
   briefingActionsRef.current.onRetryRun = (runId) => Promise.resolve().then(() => classicActionsRef.current?.runAiAction({ kind: 'retry-run', runId })).then((result) => { if (typeof result === 'string') setNotice(result); }, (failure) => setNotice(failure?.message || 'That run couldn’t be tried again.'));
   briefingActionsRef.current.onCreate = (kind) => createFromNavRef.current(kind);
   briefingActionsRef.current.postsApi = typeof api.readTrendPosts === 'function' && can('readTrendPosts') ? api : null;
+  // Home's Yes and Skip in the Advanced layout show at once and can be taken back for a few seconds, as in Simple: the
+  // shared decide() keeps the choice on screen while it saves, and Home shows that same board (classicBoard).
+  const [classicBoard, setClassicBoard] = useState(null);
+  const [classicUndoToast, showClassicUndo] = useToast(8000);
+  const decideClassic = (card, decision, extra) => {
+    const decide = classicActionsRef.current?.decide;
+    if (typeof decide !== 'function') return Promise.resolve(false);
+    const sent = decide(card, decision, extra);
+    if (decision !== 'pending') Promise.resolve(sent).then((ok) => { if (ok) showClassicUndo(decision === 'passed' ? `Skipped “${card.name}”.` : `Approved “${card.name}”.`, { actionLabel: 'Undo', onAction: () => classicActionsRef.current?.decide(card, 'pending') }); }, () => {});
+    return sent;
+  };
+  briefingActionsRef.current.onDecide = decideClassic;
+  briefingActionsRef.current.onDecideWithNote = (card, choice) => decideClassic(card, 'approved', choice);
+  briefingActionsRef.current.board = classicBoard;
   const createFromNavRef = useRef(null); createFromNavRef.current = createFromNav;
   const classicActionsRef = useRef(null);
   // A Next up row (next-steps.js) run from the palette: the same actions Home's rail takes, in this layout.
@@ -1157,7 +1173,7 @@ function StudioApp({ api }) {
 
   const content = useMemo(() => {
     const common = { state, busy };
-    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} runRequest={runRequest} createRequest={createRequest} onViewChange={(view) => { if (view !== studioView && !guard.confirmLeave()) return; withViewTransition(() => setStudioView(view)); }} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onProgramRequestHandled={(key) => setProgramRequest((current) => (current?.key === key ? null : current))} onAsk={askAllowed ? (text, context) => openAskAiRef.current(text, { context }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} onMakeAssets={(request) => openKitDialogRef.current(request)} onContextChange={setClassicContext} briefingActions={briefingActionsRef.current} web={web} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice('Asset revealed in Finder.'))} />} />;
+    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} runRequest={runRequest} createRequest={createRequest} onViewChange={(view) => { if (view !== studioView && !guard.confirmLeave()) return; withViewTransition(() => setStudioView(view)); }} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onProgramRequestHandled={(key) => setProgramRequest((current) => (current?.key === key ? null : current))} onAsk={askAllowed ? (text, context, extra) => openAskAiRef.current(text, { context, attachments: extra?.attachments }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} onMakeAssets={(request) => openKitDialogRef.current(request)} onContextChange={setClassicContext} briefingActions={briefingActionsRef.current} web={web} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice('Asset revealed in Finder.'))} />} />;
     if (active === 'sheets') return <SheetsView api={api} state={state} initialWorkbookId={sheetRequest.id} workbookRequestKey={sheetRequest.key} onNavigate={(target, args = {}) => (target === 'research-programs' ? (args?.runId ? openTargetRef.current({ kind: 'run', id: String(args.runId), page: 'research' }) : navigateStudio('research')) : target === 'trend-board' ? navigateStudio('board') : navigate(target))} />;
     if (active === 'templates') return <TemplateLibraryView {...common} onChooseTemplate={choosePlaybook} onNavigate={navigate} />;
     if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), '', true)} onNavigate={navigate} />;
@@ -1245,7 +1261,7 @@ function StudioApp({ api }) {
         onNavigate={navigate}
       />
     );
-  }, [active, state, meta, busy, web, selectedDatasetId, payload, payloadError, selectedDataset, payloadDatasetId, creation, studioView, createWorkspaceKey, semrushShell, contentWorkspace, datasetTab, knowledgeTab, sheetRequest, libraryRequest, runRequest, createRequest, askAllowed, viewer, peopleRequest, programRequest, promptRequest, linkOrigin, inboxSeen]);
+  }, [active, state, meta, busy, web, selectedDatasetId, payload, payloadError, selectedDataset, payloadDatasetId, creation, studioView, createWorkspaceKey, semrushShell, contentWorkspace, datasetTab, knowledgeTab, sheetRequest, libraryRequest, runRequest, createRequest, askAllowed, viewer, peopleRequest, programRequest, promptRequest, linkOrigin, inboxSeen, classicBoard]);
 
   // The palette's items, built only while it is open: this layout's pages from the nav model (in Simple, the Advanced
   // pages too, as peeks), the Create group from the New menu, this workspace's trends, reports and programs, actions.
@@ -1304,6 +1320,8 @@ function StudioApp({ api }) {
   // are passed in.
   const classicActions = useStudioActions({ api, state, action: runAction, viewer, can, canRun, nav: classicStudioNav, settingsAllowed, tabs: simpleTabs, web, onNotice: setNotice });
   classicActionsRef.current = classicActions;
+  // The board Advanced Home shows, with Yes and Skip on it the instant they are pressed (decideClassic).
+  useEffect(() => { setClassicBoard(classicActions.board); }, [classicActions.board]);
   // Ask AI announces each picture it makes, so the Library lists it while the drawer is still open over it.
   const askApi = useAnnouncingApi(api);
   const studioState = state.contentStudio || {};
@@ -1404,6 +1422,7 @@ function StudioApp({ api }) {
         {mode === 'classic' && classicTour && !loading && <Spotlight key={classicTour.key} steps={classicTour.steps} onPrepare={prepareClassicSpot} onClose={() => { setClassicTour(null); if (narrow) setDrawerOpen(false); }} onBackToChat={() => { setClassicTour(null); if (narrow) setDrawerOpen(false); setHelpOpen(true); }} />}
         {mode === 'channel' && (error || notice) && <div className={`studio-toast${error ? ' error' : ''}`} role={error ? 'alert' : 'status'} onMouseEnter={() => setNoticeHeld(true)} onMouseLeave={() => setNoticeHeld(false)}><span>{error || notice}</span><button type="button" className="studio-toast-close" aria-label="Dismiss" onClick={dismiss}><X size={15} aria-hidden="true" /></button></div>}
         {mode === 'channel' && <ChannelBottomNav items={navPages(nav)} active={channelTab} onNavigate={goChannel} />}
+        {mode === 'classic' && classicUndoToast}
         {kitHost}
       </div>
     </div>

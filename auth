@@ -1,0 +1,1 @@
+{"answer":"Open **Trends** in the sidebar.","pages":[],"followUps":[],"image":{"create":false,"title":"","prompt":"","size":"1536x1024"},"actions":[],"show":{"autoStart":false,"steps":[]},"lookups":[]}

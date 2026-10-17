@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ClipboardCopy, FileText, Folder, Image as ImageIcon, Link2, LoaderCircle, Search, Sparkles, Upload, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ClipboardCopy, FileText, Folder, Image as ImageIcon, Link2, LoaderCircle, Search, Sparkles, Upload, X, Clapperboard } from 'lucide-react';
 import { trapTab, useModalFocus, useToast } from './role-screens.jsx';
 import { useViewer, writeProps } from './viewer.js';
 import { formatDate, friendlyMessage, number } from './ui.jsx';
+import { uncappedLine } from './cost-lines.js';
 import { SOURCE_LABEL } from '../../shared/library-tree.js';
 import './simple-mode.css';
 import './library.css';
@@ -18,6 +19,8 @@ const sentence = (value) => String(value || '').replace(/^./, (letter) => letter
 export const MAX_SOURCE_CHARS = 250000;
 // What each picture set sends the image model besides its prompt (Settings → Brand reference images).
 const referenceTitle = (references) => (references?.style || references?.logo ? `Sends ${[references.style ? plural(references.style, 'style example') : '', references.logo ? 'the approved logo' : ''].filter(Boolean).join(' and ')}` : 'No brand reference images yet');
+// The seconds and model of a set's short video, for the chip and the estimate.
+const videoName = (item) => `Short video · ${item.video?.seconds || 8} s`;
 function referenceHint(items) {
   const sets = items.filter((item) => item.kind === 'image');
   const using = sets.filter((item) => item.references?.style || item.references?.logo).length; const logos = sets.filter((item) => item.references?.logo).length;
@@ -158,20 +161,25 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
             <div className="simple-source-card"><span className="simple-doc-icon"><FileText size={18} aria-hidden="true" /></span><span><strong>{plan.title}</strong><small>{[SOURCE_LABEL[plan.sourceKind], plural(plan.characters, 'character'), plan.evidenceCount ? plural(plan.evidenceCount, 'cited source') : '', plan.earlierRuns ? `${plural(plan.earlierRuns, 'earlier run')} in its folder` : ''].filter(Boolean).join(' · ')}</small></span>{!fixed && <button type="button" className="simple-quiet" disabled={starting} onClick={() => { setStep('source'); setPlan(null); setChosen(null); }}>Change</button>}</div>
             <div className="simple-kit-plan" data-spot="kit-dialog.plan">{plan.folders.map((folder) => <div className="simple-kit-plan-folder" key={folder.id}>
               <span className="simple-kit-plan-name"><Folder size={15} aria-hidden="true" />{folder.name}</span>
-              <span className="simple-kit-plan-items">{folder.items.map((item) => { const name = `${sentence(item.label.replace(/^[^—]+—\s*/, ''))}${item.kind === 'image' ? ` ×${item.pictures}` : ''}`; return <button type="button" key={item.id} className="simple-check-chip" role="checkbox" aria-checked={item.selected} aria-label={name} disabled={!item.available || starting || planning} title={!item.available ? (onSettings ? 'Turn on pictures in Settings to include these' : picturesOff) : item.kind === 'image' ? referenceTitle(item.references) : undefined} onClick={() => toggle(item.id)}>
-                <span className="simple-check" aria-hidden="true">{item.selected && <Check size={12} />}</span>{item.kind === 'image' ? <ImageIcon size={13} aria-hidden="true" /> : null}{name}
+              <span className="simple-kit-plan-items">{folder.items.map((item) => { const name = item.kind === 'video' ? videoName(item) : `${sentence(item.label.replace(/^[^—]+—\s*/, ''))}${item.kind === 'image' ? ` ×${item.pictures}` : ''}`; const off = item.kind === 'video' ? (onSettings ? item.unavailable || 'Connect fal.ai in Settings, AI connections to make videos' : 'Videos are off. Ask an admin to turn them on.') : onSettings ? 'Turn on pictures in Settings to include these' : picturesOff; return <button type="button" key={item.id} className="simple-check-chip" role="checkbox" aria-checked={item.selected} aria-label={name} disabled={!item.available || starting || planning} title={!item.available ? off : item.kind === 'image' ? referenceTitle(item.references) : undefined} onClick={() => toggle(item.id)}>
+                <span className="simple-check" aria-hidden="true">{item.selected && <Check size={12} />}</span>{item.kind === 'image' ? <ImageIcon size={13} aria-hidden="true" /> : item.kind === 'video' ? <Clapperboard size={13} aria-hidden="true" /> : null}{name}
               </button>; })}</span>
             </div>)}</div>
             {focused && focusNames.length > 0 && <p className="simple-hint">{list(preset?.channels).length ? 'Ticked for' : 'Ticked for your channels'}: {focusNames.join(', ')}. Tick more if you need them.</p>}
             {!plan.imagesReady && (onSettings ? <p className="simple-hint">Pictures are off. <button type="button" className="simple-link" onClick={onSettings}>Turn them on in Settings</button> to add the hero graphics.</p> : <p className="simple-hint">{picturesOff} Only the written drafts are made until then.</p>)}
             {plan.imagesReady && pictures > 0 && <p className="simple-hint" data-spot="kit-dialog.references">{referenceHint(selected)}{onSettings && <> <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>{selected.some((item) => item.references?.style || item.references?.logo) ? 'Change them in Settings' : 'Add style examples and logos in Settings'}</button></>}</p>}
+            {plan.imagesReady && selected.filter((item) => item.kind === 'image' && !item.references?.style && !item.references?.logo).map((item) => <p key={`refs-${item.id}`} className="simple-hint">{sentence(item.label.replace(/^[^—]+—\s*/, ''))} has no reference images yet, so its pictures follow the brand colors only.</p>)}
+            {selected.some((item) => item.kind === 'video') && <p className="simple-hint">Words in AI video often come out garbled, so the clip has none; the on-screen lines are saved beside it to add in your editor.</p>}
+            {list(plan.folders).flatMap((folder) => folder.items).some((item) => item.kind === 'video' && !item.available) && !selected.some((item) => item.kind === 'video') && <p className="simple-hint">{onSettings ? <>Short videos need fal.ai. <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>Connect it in Settings</button> to add one.</> : 'Videos are off. Ask an admin to turn them on.'}</p>}
             <div className="simple-kit-estimate" data-spot="kit-dialog.estimate">
               <div><strong>{plural(selected.length, 'asset')}</strong><small>{[plural(plan.folders.filter((folder) => folder.items.some((item) => item.selected)).length, 'folder'), pictures ? plural(pictures, 'picture') : ''].filter(Boolean).join(' · ')}</small></div>
               {plan.route === 'codex'
                 ? <div><strong>Your Codex plan</strong><small>Codex doesn’t report costs{pictures ? '; pictures use OpenAI' : ''}</small></div>
                 : <div><strong>About {money(plan.estimate.totalUsd)}</strong><small>Stops at {money(plan.estimate.capUsd)} at most</small></div>}
-              <div><strong>About {number(plan.minutes)} minutes</strong><small>{plan.route === 'codex' ? 'Codex' : plan.estimate.modelLabel} writes{pictures ? ', OpenAI draws' : ''}</small></div>
+              <div><strong>About {number(plan.minutes)} minutes</strong><small>{plan.routes ? [`${plan.routes.writes} writes`, pictures ? `${plan.routes.draws} draws` : '', selected.some((item) => item.kind === 'video') ? `${plan.routes.films} films` : ''].filter(Boolean).join(', ') : `${plan.route === 'codex' ? 'Codex' : plan.estimate.modelLabel} writes${pictures ? ', OpenAI draws' : ''}`}</small></div>
             </div>
+            {selected.filter((item) => item.kind === 'video').map((item) => <p key={`video-${item.id}`} className="simple-hint">{Number.isFinite(item.usd) ? `Video: about ${money(item.usd)} (${item.video?.seconds || 8} seconds${item.video?.modelLabel ? ` on ${item.video.modelLabel}` : ''}).` : 'Includes a short video (a few minutes).'}</p>)}
+            {uncappedLine(plan) && <p className="simple-hint">{uncappedLine(plan)}</p>}
             {list(plan.warnings).length > 0 && <p className="simple-hint">{plan.warnings[0]}</p>}
             {startProblem && <p className="simple-error" role="alert">{startProblem}</p>}
           </>}

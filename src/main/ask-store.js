@@ -124,8 +124,15 @@ function snippet(text, query, max = 400) {
 // and what they remembered, so the next answer knows.
 function historyTurns(message) {
   if (!message || !['user', 'assistant'].includes(message.role)) return [];
-  if (message.role === 'user') return [...(message.context ? [{ role: 'user', content: String(message.context).slice(0, 3900) }] : []), { role: 'user', content: String(message.content || '') }];
+  if (message.role === 'user') {
+    // What they attached (a report dragged into the chat) is named, so a follow-up knows what "this report" was.
+    const attached = list(message.attachments).filter((row) => row?.kind && row.ref).map((row) => `${String(row.kind).replace('asset-folder', 'folder')} “${String(row.ref).slice(0, 160)}”`);
+    return [...(message.context ? [{ role: 'user', content: String(message.context).slice(0, 3900) }] : []), { role: 'user', content: `${String(message.content || '')}${attached.length ? `\n[Attached: ${attached.join(', ')}]` : ''}` }];
+  }
   const notes = [];
+  if (message.stopped) notes.push('[Stopped before finishing]');
+  // A message the studio posted by itself (appendFollowUp) answered no question.
+  if (message.followUp) notes.push('[Posted by the studio when that work finished; no question was asked]');
   if (message.image?.prompt) notes.push(`[Picture created from this prompt: ${message.image.prompt}${message.image.status === 'failed' ? ' (it failed to draw)' : ''}]`);
   for (const action of list(message.actions)) {
     const outcome = action?.outcome;
@@ -144,8 +151,11 @@ function historyTurns(message) {
 // The history for the next question: the last HISTORY_TURNS stored messages, the rolling summary of everything earlier,
 // and the earlier messages the summary doesn't cover yet (sent so the model can fold them in). coverThrough is the id of
 // the last earlier message, which the summary will cover once the model returns a new one.
-function askHistory(conversation, { turns = HISTORY_TURNS } = {}) {
-  const messages = list(conversation?.messages);
+// `before` (a message id) ends the history just before that message: asking the last question again (Retry or Edit)
+// sends what came before it, never the answer it replaces.
+function askHistory(conversation, { turns = HISTORY_TURNS, before = '' } = {}) {
+  const all = list(conversation?.messages); const cut = before ? all.findIndex((message) => message.id === before) : -1;
+  const messages = cut >= 0 ? all.slice(0, cut) : all;
   const recent = messages.slice(-turns); const older = messages.slice(0, Math.max(0, messages.length - turns));
   const covered = conversation?.summaryThrough ? older.findIndex((message) => message.id === conversation.summaryThrough) : -1;
   const pending = older.slice(covered + 1).slice(-MAX_PENDING).flatMap(historyTurns).map((turn) => ({ ...turn, content: turn.content.slice(0, 1500) }));
@@ -155,6 +165,15 @@ function askHistory(conversation, { turns = HISTORY_TURNS } = {}) {
 function plainPreview(text) {
   return clip(String(text ?? '').replace(/```[\s\S]*?```/g, ' ').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[#>*_`~|]+/g, ' '), 140);
 }
+// What a person attached to a question (reports, folders, trends, runs from the studio), as stored on their message.
+const ATTACH_KINDS = ['report', 'asset-folder', 'trend', 'run'];
+function attachmentsOf(user = {}) {
+  const rows = list(user.attachments).filter((row) => row && ATTACH_KINDS.includes(row.kind) && clip(row.ref, 200)).slice(0, 3).map((row) => ({ kind: row.kind, ref: clip(row.ref, 200) }));
+  return rows.length ? { attachments: rows } : {};
+}
+// An earlier answer kept when the question is asked again: only what the panel shows of it (its buttons are off).
+const versionOf = (message, question) => ({ id: message.id, content: String(message.content || ''), cards: list(message.cards).map(copy), read: list(message.read).map(copy), receipt: message.receipt ? copy(message.receipt) : null, createdAt: message.createdAt || '', question: String(question || '').slice(0, 4000), ...(message.stopped ? { stopped: true } : {}) });
+const MAX_VERSIONS = 2;
 function firstTitle(question) {
   const text = clip(question, 400);
   if (text.length <= TITLE_MAX) return text || 'New conversation';
@@ -268,7 +287,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     // The model may name a conversation from its first answer; a title the person chose always stays.
     const suggested = clip(title, TITLE_MAX);
     if (!conversation.messages.length && !conversation.renamed && suggested) conversation.title = suggested;
-    const userMessage = { id: newId('msg'), role: 'user', content: String(user.content || '').slice(0, 4000), ...(user.context ? { context: String(user.context).slice(0, 3900) } : {}), page: user.page && typeof user.page === 'object' ? copy(user.page) : null, requestId: String(user.requestId || ''), createdAt: at };
+    const userMessage = { id: newId('msg'), role: 'user', content: String(user.content || '').slice(0, 4000), ...(user.context ? { context: String(user.context).slice(0, 3900) } : {}), ...attachmentsOf(user), page: user.page && typeof user.page === 'object' ? copy(user.page) : null, requestId: String(user.requestId || ''), createdAt: at };
     const message = { id: newId('msg'), role: 'assistant', ...copy(assistant), cards: list(assistant.cards).map(copy), remembered: [], createdAt: at };
     const remembered = list(remember).length ? rememberItems(identityId, remember, { workspaceId: conversation.workspaceId || workspaceId, source: { conversationId: conversation.id, messageId: message.id } }) : [];
     if (remembered.length) {
@@ -293,6 +312,61 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     }
     saveIndex(identityId, index);
     return copy({ conversation: { id: conversation.id, title: conversation.title, updatedAt: conversation.updatedAt }, userMessage: { id: userMessage.id, content: userMessage.content, createdAt: userMessage.createdAt }, message });
+  }
+
+  // The last question asked again: Retry (mode 'regenerate', the same words) or Edit (mode 'edit', new words). Only the
+  // last question and its answer can be replaced; `replaces` is that question's id. The new answer keeps the answers it
+  // replaces as view-only versions (at most MAX_VERSIONS), and an edited question keeps when it was edited.
+  function replaceLastTurn(identityId, { conversationId = '', replaces = '', mode = 'regenerate', user = {}, assistant = {}, remember = [], summary = null } = {}) {
+    const index = loadIndex(identityId); const at = stamp();
+    const conversation = readConversationFile(identityId, conversationId);
+    if (!conversation) throw fail('This conversation was deleted while Ask AI was answering. Ask again in a new conversation.', 404);
+    const messages = conversation.messages; const userMessage = messages[messages.length - 2]; const old = messages[messages.length - 1];
+    if (messages.length < 2 || userMessage?.role !== 'user' || userMessage.id !== replaces || old?.role !== 'assistant') throw fail('Only your last question can be asked again.', 409);
+    const asked = String(userMessage.content || '');
+    if (mode === 'edit') {
+      const content = String(user.content || '').slice(0, 4000);
+      if (!content.trim()) throw fail('Type a question first.');
+      userMessage.content = content; userMessage.editedAt = at;
+    }
+    if (user.requestId) userMessage.requestId = String(user.requestId);
+    if (user.attachments !== undefined) { delete userMessage.attachments; Object.assign(userMessage, attachmentsOf(user)); }
+    const message = { id: newId('msg'), role: 'assistant', ...copy(assistant), cards: list(assistant.cards).map(copy), remembered: [], versions: [versionOf(old, asked), ...list(old.versions)].slice(0, MAX_VERSIONS), createdAt: at };
+    const remembered = list(remember).length ? rememberItems(identityId, remember, { workspaceId: conversation.workspaceId || '', source: { conversationId: conversation.id, messageId: message.id } }) : [];
+    if (remembered.length) {
+      message.remembered = remembered;
+      message.cards.push({ type: 'memory', title: 'Remembered', note: '', data: { items: remembered }, actionIndexes: [] });
+    }
+    messages[messages.length - 1] = message;
+    if (summary && typeof summary.text === 'string' && summary.text.trim() && summary.through) { conversation.summary = summary.text.trim().slice(0, 2000); conversation.summaryThrough = summary.through; }
+    conversation.updatedAt = at;
+    writeFile(conversationFile(identityId, conversation.id), conversation);
+    index.conversations = [metaOf(conversation), ...index.conversations.filter((row) => row.id !== conversation.id)];
+    if (userMessage.requestId) index.requests.push({ requestId: userMessage.requestId, conversationId: conversation.id, userMessageId: userMessage.id, messageId: message.id });
+    saveIndex(identityId, index);
+    return copy({ conversation: { id: conversation.id, title: conversation.title, updatedAt: conversation.updatedAt }, userMessage: { id: userMessage.id, content: userMessage.content, createdAt: userMessage.createdAt, ...(userMessage.editedAt ? { editedAt: userMessage.editedAt } : {}) }, message, replaced: old.id });
+  }
+
+  // A message the studio posts by itself (src/main/ask-followups.js): a quick scan's trends report or a research run's
+  // trends, once the work started from this conversation is done. No question comes with it. Posted once per `key` (a
+  // repeat returns the first one), and only into a conversation that still exists: it never creates one.
+  function appendFollowUp(identityId, { conversationId = '', key = '', message = {} } = {}) {
+    const conversation = readConversationFile(identityId, conversationId);
+    if (!conversation) return null;
+    const followKey = String(key || '').slice(0, 200);
+    if (!followKey) throw fail('A follow-up needs a key.');
+    const earlier = conversation.messages.find((row) => row.role === 'assistant' && row.followUp?.key === followKey);
+    if (earlier) return { conversationId: conversation.id, messageId: earlier.id, duplicate: true };
+    const at = stamp();
+    const posted = { id: newId('msg'), role: 'assistant', content: String(message.content || '').slice(0, 8000), pages: list(message.pages).map(copy), followUps: list(message.followUps).slice(0, 3).map((line) => String(line).slice(0, 160)), actions: list(message.actions).slice(0, 12).map(copy), show: null, image: null, cards: list(message.cards).slice(0, 6).map(copy), read: [], receipt: message.receipt ? copy(message.receipt) : null, remembered: [], followUp: { key: followKey, event: String(message.followUp?.event || '').slice(0, 60), runId: String(message.followUp?.runId || '').slice(0, 180), at }, createdAt: at };
+    conversation.messages.push(posted);
+    if (conversation.messages.length > MAX_MESSAGES) conversation.messages = conversation.messages.slice(-MAX_MESSAGES);
+    conversation.updatedAt = at;
+    writeFile(conversationFile(identityId, conversation.id), conversation);
+    const index = loadIndex(identityId);
+    index.conversations = [metaOf(conversation), ...index.conversations.filter((row) => row.id !== conversation.id)];
+    saveIndex(identityId, index);
+    return { conversationId: conversation.id, messageId: posted.id };
   }
 
   function renameConversation(identityId, { conversationId, title, pinned } = {}) {
@@ -494,7 +568,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     return true;
   }
 
-  return { listConversations, readConversation, history, findByRequest, appendTurn, renameConversation, deleteConversation, recordOutcome, listMemory, saveMemory, forgetMemory, remember: rememberItems, recall, searchMemory, searchConversations, purge, folderKey };
+  return { listConversations, readConversation, history, findByRequest, appendTurn, replaceLastTurn, appendFollowUp, renameConversation, deleteConversation, recordOutcome, listMemory, saveMemory, forgetMemory, remember: rememberItems, recall, searchMemory, searchConversations, purge, folderKey };
 }
 
 module.exports = { createAskStore, askHistory, looksSecret, normalizedText, tokens, bm25, MEMORY_ID, ASK_VERSION, MAX_CONVERSATIONS, MAX_MESSAGES, MAX_ACTIVE_MEMORY, MAX_FORGOTTEN_MEMORY, HISTORY_TURNS, MEMORY_KINDS, MEMORY_SCOPES, MEMORY_TEXT_MAX };

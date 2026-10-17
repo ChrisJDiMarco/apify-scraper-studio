@@ -10,16 +10,20 @@ const template = require('../shared/prompt-template');
 const research = require('../shared/research-program');
 const cases = require('./prompt-cases');
 const SAMPLES = require('../shared/prompt-samples.json');
+const TASKS = require('../shared/ai-tasks.json');
 
 const IMAGE_MODEL = 'gpt-image-2.5-flare';
 const IMAGE_CAP_USD = 0.25; // the image provider's smallest dispatch allowance per picture
+// Every picture prompt builds the campaign picture, so its tests send the campaign set's brand reference images.
+const PICTURE_FAMILY = 'campaign';
+const REFERENCE_USD = 0.015; // asset-kit KIT_REFERENCE_USD: each reference image's input on a GPT Image picture
 const TEST_TIMEOUT_MS = 600000;
 const fail = (message, status, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const round = (value) => Math.round(value * 100) / 100;
 const safeError = (error) => String(error?.message || error).replace(/(?:Bearer\s+|(?:sk-|apify_api_))[\w.-]+/gi, '[redacted]').slice(0, 1500);
 const idOf = (payload) => String(payload?.id || payload?.promptId || '');
 const modelLabel = (model) => research.RESEARCH_MODELS.find((entry) => entry.id === model)?.label || model;
-const ROUTE_LABELS = { claude: 'the Claude app', 'claude-api': 'the Claude API key', codex: 'Codex' };
+const ROUTE_LABELS = { claude: 'the Claude app', 'claude-api': 'the Claude API key', codex: 'Codex', openai: 'the OpenAI API key', openrouter: 'OpenRouter', fal: 'fal.ai' };
 
 // Hosts: store (prompt-store), workspace() → { id, editionId, name, knowledge }, who() → { id, name }, callerRole(),
 // programs() (this workspace's research programs), kitAi(), settingsModel(), aiRoute() (async), runAI, generateImage,
@@ -29,7 +33,9 @@ const ROUTE_LABELS = { claude: 'the Claude app', 'claude-api': 'the Claude API k
 // someone who may read them (SAMPLE_CAP); anyone else gets the bundled sample.
 // The capability that owns the live data a prompt's "recent run" sample reads (content-workspace latestPromptSample).
 const SAMPLE_CAP = (id) => (id.startsWith('research.') || id.startsWith('reports.') ? 'readResearch' : id.startsWith('assets.') || id.startsWith('pictures.') ? 'readAssets' : id === 'assistant.ask-datasets' || id.startsWith('data.') ? 'dataTools' : null);
-function createPromptLab({ store, workspace, who, callerRole = () => 'admin', callerCaps = () => new Set(['*']), programs = () => [], kitAi, settingsModel = () => 'claude-opus-5-5', aiRoute = async () => 'claude', runAI, generateImage, imagesReady = () => false, trackJob, latestSample = async () => null, testsRoot, emit = () => {} } = {}) {
+// routing (optional): Model routing (resolve, current, taskIdForPrompt); each prompt tests on its task's connection and
+// model. referenceSet(familyId, { data }) (optional): the brand reference images a picture family sends now.
+function createPromptLab({ store, workspace, who, callerRole = () => 'admin', callerCaps = () => new Set(['*']), programs = () => [], kitAi, settingsModel = () => 'claude-opus-5-5', aiRoute = async () => 'claude', runAI, generateImage, imagesReady = () => false, trackJob, latestSample = async () => null, testsRoot, emit = () => {}, routing = null, referenceSet = () => ({ family: 'none', label: '', images: [] }) } = {}) {
   const running = new Set();
   let changesCache = null; // { key, rows }
   const space = () => { const w = workspace(); if (!w) throw fail('Choose a workspace first.', 400); return w; };
@@ -39,9 +45,24 @@ function createPromptLab({ store, workspace, who, callerRole = () => 'admin', ca
     if (!entry) throw fail('That prompt isn’t in the Prompt Library for this workspace.', 404, { code: 'promptUnknown' });
     return entry;
   };
+  // The prompt's AI task as its runs resolve it (research prompts with the newest program's own stage choices). override
+  // ({ route, model, effort, quality }, admins testing a job in Settings → Model routing) replaces the studio's choice.
+  function taskOf(entry, override = null) {
+    if (!routing) return null;
+    const taskId = routing.taskIdForPrompt(entry); if (!taskId) return null;
+    const newest = [...programs()].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0] || null;
+    const context = entry.ai?.modelSource === 'research' && newest ? { program: newest } : {};
+    if (!override) return routing.resolve(taskId, context);
+    const current = routing.current();
+    return routing.resolve(taskId, { ...context, routing: { ...current, tasks: { ...current.tasks, [taskId]: override } } });
+  }
   // Which model and effort a prompt runs on here, as its runs choose them (no route: that needs the host's async check).
-  function modelOf(entry) {
+  function modelOf(entry, override = null) {
     const source = entry.ai?.modelSource || 'none'; const stage = entry.ai?.stage;
+    if (source !== 'none' && routing) {
+      const task = taskOf(entry, override);
+      if (task) return { model: task.model, effort: task.kind === 'text' ? task.effort : '', kind: task.kind === 'video' ? 'none' : task.kind, task };
+    }
     if (source === 'image') return { model: IMAGE_MODEL, effort: '', kind: 'image' };
     if (source === 'none') return { model: '', effort: '', kind: 'none' };
     if (source === 'research') {
@@ -52,10 +73,23 @@ function createPromptLab({ store, workspace, who, callerRole = () => 'admin', ca
     if (source === 'kit') { const ai = kitAi(); return { model: ai.model, effort: entry.ai?.effort || ai.effort, kind: 'text' }; }
     return { model: settingsModel(), effort: entry.ai?.effort || '', kind: 'text' };
   }
-  async function settingsFor(entry) {
-    const route = await aiRoute(); const { model, effort, kind } = modelOf(entry);
+  async function settingsFor(entry, override = null) {
+    const { model, effort, kind, task } = modelOf(entry, override);
+    if (task) {
+      // 'auto' is Claude Code or the Anthropic key, whichever answers now.
+      const route = task.route === 'auto' ? await aiRoute() : task.route;
+      if (kind === 'image') return { route, model, modelLabel: `${task.routeLabel} ${task.modelLabel}`.trim(), effort: '', quality: task.quality || '', metered: true, kind, task };
+      return { route, model, modelLabel: route === 'codex' && !model ? 'Codex (your Codex model)' : task.modelLabel || modelLabel(model), effort, metered: task.metered !== false && route !== 'codex', kind, task };
+    }
+    const route = await aiRoute();
     if (kind === 'image') return { route: 'openai', model, modelLabel: 'OpenAI gpt-image-2.5-flare', effort, metered: true, kind };
     return { route, model, modelLabel: !model ? '' : route === 'codex' ? 'Codex (your Codex model)' : modelLabel(model), effort, metered: route !== 'codex', kind };
+  }
+  // The reference images a picture prompt's preview names and its test sends (the campaign set in Settings now).
+  function pictureReferences(entry, { data = false } = {}) {
+    if (entry.test?.kind !== 'image' && entry.id !== 'pictures.kit-brief') return { family: 'none', label: '', images: [] };
+    try { return referenceSet(PICTURE_FAMILY, { data }) || { family: 'none', label: '', images: [] }; }
+    catch (error) { if (data) throw error; return { family: PICTURE_FAMILY, label: '', images: [] }; }
   }
   function listRow(entry, row) {
     const saved = row || { version: 0, custom: false, locked: false, updatedAt: '', updatedBy: null, defaultChanged: false };
@@ -101,19 +135,30 @@ function createPromptLab({ store, workspace, who, callerRole = () => 'admin', ca
     return { sample: SAMPLES, sampleLabel: SAMPLES.label, sampleId: 'bundled' };
   }
   // One derivation for preview, estimate and test, so all three describe the same call. role is read at the method's entry.
-  async function derive(payload, { trace, role }) {
+  async function derive(payload, { trace, role, override = null }) {
     const w = space(); const entry = entryFor(w, idOf(payload)); const draft = draftOf(entry, payload.blocks);
     const problems = draft ? template.validateBlocks(entry.id, w.editionId, draft) : [];
     const { sample, sampleLabel, sampleId } = await sampleFor(entry, payload.sample ?? payload.sampleId);
+    // Picture prompts show and send the reference lines their runs would (roles only here; the bytes load for a test).
+    const refs = pictureReferences(entry);
     let built;
-    try { built = cases.build(entry.id, { editionId: w.editionId, brandName: w.knowledge?.name || w.name || '', sample, prompts: promptSet(w, entry, draft), trace, role: role || 'admin' }); }
+    try { built = cases.build(entry.id, { editionId: w.editionId, brandName: w.knowledge?.name || w.name || '', sample, prompts: promptSet(w, entry, draft), trace, role: role || 'admin', references: refs.images.map((image) => ({ role: image.role })) }); }
     catch (error) { throw fail(`The ${sampleId === 'latest' ? 'recent run' : 'sample'} couldn’t be turned into this prompt: ${safeError(error)}`, 400, { code: 'promptSample' }); }
-    return { w, entry, draft, problems, built, sampleLabel, sampleId, settings: await settingsFor(entry) };
+    return { w, entry, draft, problems, built, sampleLabel, sampleId, references: refs, settings: await settingsFor(entry, override) };
   }
   function costOf(settings, built, chars) {
     if (built.kind === 'image') return round(built.estimateUsd || 0);
     if (built.kind !== 'text' || !settings.model) return 0;
-    return round(research.callCost(settings.model, settings.effort, research.estimateTokens(chars), built.outputTokens || 2000));
+    const price = settings.task?.price?.basis === 'tokens' && settings.task.price.known ? { price: settings.task.price, reasoning: settings.task.price.reasoning !== false } : {};
+    return round(research.callCost(settings.model, settings.effort, research.estimateTokens(chars), built.outputTokens || 2000, price));
+  }
+  // One test picture on the routed picture task: GPT Image's measured price for its quality plus each reference image, or
+  // fal.ai's unit price.
+  function pictureEstimate(settings, referenceCount) {
+    const task = settings.task;
+    if (task?.route === 'fal') return Number.isFinite(task.price?.unitUsd) ? round(task.price.unitUsd * (/megapixel/i.test(task.price.unit || '') ? 2 : 1)) : null;
+    const base = task?.price?.basis === 'unit' && Number.isFinite(task.price.unitUsd) ? task.price.unitUsd : cases.PICTURE_USD;
+    return round(base + referenceCount * REFERENCE_USD);
   }
   async function previewPrompt(payload = {}) {
     const { entry, problems, built, sampleLabel, sampleId, settings } = await derive(payload, { trace: true, role: String(callerRole() || '') });
@@ -147,16 +192,20 @@ function createPromptLab({ store, workspace, who, callerRole = () => 'admin', ca
     return readPrompt({ id: entry.id });
   }
   // What a test run would cost and on what, before anything is spent. A test of a picture prompt draws one picture.
-  async function estimate(payload, role) {
-    const derived = await derive(payload, { trace: false, role }); const { entry, built, settings } = derived;
+  async function estimate(payload, role, { override = null } = {}) {
+    const derived = await derive(payload, { trace: false, role, override }); const { entry, built, settings } = derived;
     const kind = entry.test?.kind || 'none';
     const base = { id: entry.id, kind, sample: derived.sampleId, sampleLabel: derived.sampleLabel, problems: derived.problems, model: settings.model, modelLabel: settings.modelLabel, effort: settings.effort, route: settings.route, metered: settings.metered, chars: built.prompt.length };
     if (kind === 'none' || built.kind === 'none') return { ...derived, out: { ...base, available: false, reason: 'This prompt can’t be test-run on its own. Use the preview, or try it where it runs.', estimateUsd: 0, capUsd: 0, fingerprint: '' } };
     if (kind === 'image') {
       const prompt = built.pictures[0];
       const ready = typeof generateImage === 'function' && imagesReady();
-      const fingerprint = template.hashOf({ id: entry.id, prompt, model: IMAGE_MODEL, size: built.deliverable.size, kind });
-      return { ...derived, prompt, out: { ...base, available: ready, reason: ready ? '' : 'Pictures aren’t set up. Add an OpenAI API key in Settings → Image generation.', estimateUsd: cases.PICTURE_USD, capUsd: IMAGE_CAP_USD, pictures: 1, fingerprint, note: 'Draws one picture with the first variation. The cap is the image provider’s smallest allowance, not the charge.' } };
+      const refs = derived.references;
+      const estimateUsd = pictureEstimate(settings, settings.task?.route === 'fal' ? 0 : refs.images.length);
+      const priced = estimateUsd != null;
+      const fingerprint = template.hashOf({ id: entry.id, prompt, model: settings.task?.model || IMAGE_MODEL, route: settings.task?.route || 'openai', quality: settings.task?.quality || '', size: built.deliverable.size, kind, references: refs.images.map((image) => [image.role, image.sha256]) });
+      const note = refs.family === 'none' ? 'Draws one picture with the first variation.' : refs.images.length ? `Draws one picture with the first variation and sends the ${refs.images.length} reference image${refs.images.length === 1 ? '' : 's'} in ${refs.label}, as runs do.` : `Draws one picture with the first variation. No reference images in ${refs.label || 'the campaign set'} yet, so the test picture follows the brand colors only.`;
+      return { ...derived, prompt, out: { ...base, available: ready && priced, reason: !ready ? 'Pictures aren’t set up. Connect a picture model in Settings → AI connections.' : priced ? '' : 'fal.ai didn’t return a price for this picture model, so it can’t be estimated.', estimateUsd: estimateUsd ?? 0, capUsd: Math.max(IMAGE_CAP_USD, Math.ceil((estimateUsd || 0) * 3 * 100) / 100), pictures: 1, fingerprint, note: `${note} The cap is the image provider’s smallest allowance, not the charge.`, references: { family: refs.family, label: refs.label, ...referenceSummaryOf(refs.images) } } };
     }
     const estimateUsd = costOf(settings, built, built.prompt.length);
     const capUsd = settings.metered ? Math.min(5, Math.max(0.5, Math.ceil(estimateUsd * 3 * 100) / 100)) : 0;
@@ -164,13 +213,22 @@ function createPromptLab({ store, workspace, who, callerRole = () => 'admin', ca
     return { ...derived, prompt: built.prompt, out: { ...base, available: true, reason: '', estimateUsd, capUsd, tokens: research.estimateTokens(built.prompt.length), fingerprint, note: settings.metered ? '' : 'Your Codex plan (not metered): Codex reports no cost and takes no cap.' } };
   }
   async function estimatePromptTest(payload = {}) { return (await estimate(payload, String(callerRole() || ''))).out; }
+  const referenceSummaryOf = (images) => ({ style: images.filter((image) => image.role === 'style').length, logo: images.filter((image) => image.role === 'logo').length });
+  // The tasks a test run uses (index.js checks their connections and models before anything is spent).
+  function testTasks(payload = {}) {
+    try {
+      const w = space(); const entry = entryFor(w, idOf(payload));
+      if (!['text', 'image'].includes(entry.test?.kind)) return [];
+      const task = taskOf(entry); return task && task.kind === entry.test.kind ? [task] : [];
+    } catch (_) { return []; }
+  }
   // The model a text test needs (index.js runs its model preflight first). Synchronous; pictures need none, and the route
   // check skips Codex itself.
   function testModels(payload = {}) {
     try { const w = space(); const entry = entryFor(w, idOf(payload)); const { model, kind } = modelOf(entry); return entry.test?.kind === 'text' && kind === 'text' && model ? [model] : []; } catch (_) { return []; }
   }
-  async function testPrompt(payload = {}) {
-    const author = by(); const derived = await estimate(payload, author.role); const { w, entry, draft, built, out, settings } = derived;
+  async function testPrompt(payload = {}, { override = null } = {}) {
+    const author = by(); const derived = await estimate(payload, author.role, { override }); const { w, entry, draft, built, out, settings } = derived;
     if (!out.available) throw fail(out.reason, 400, { code: 'promptTestUnavailable' });
     if (typeof payload.fingerprint !== 'string' || payload.fingerprint !== out.fingerprint) throw fail('The prompt changed; check the cost again.', 409, { code: 'promptTestChanged' });
     if (derived.problems.length) throw fail('Fix the problems in this draft before testing it.', 400, { code: 'promptInvalid', problems: derived.problems });
@@ -185,12 +243,14 @@ function createPromptLab({ store, workspace, who, callerRole = () => 'admin', ca
     const started = Date.now(); let result = { ok: false, status: 'failed', problems: [], output: null, receipt: null };
     try {
       if (out.kind === 'image') {
-        const images = await generateImage({ deliverable: { ...built.deliverable, kind: 'image', variants: 1, variantPrompts: [derived.prompt], references: [] }, runId: testId, maxBudgetUsd: out.capUsd, isCancelled: cancelled, onRequest: async () => {}, onVariant: async () => {} });
+        // The campaign set's reference images go with the test picture, read and checked now (as a run copies them).
+        const refs = pictureReferences(entry, { data: true });
+        const images = await generateImage({ ...(settings.task ? { task: settings.task } : {}), deliverable: { ...built.deliverable, kind: 'image', variants: 1, variantPrompts: [derived.prompt], references: refs.images.map((image) => ({ role: image.role, mime: image.mime, data: image.data })) }, runId: testId, maxBudgetUsd: out.capUsd, isCancelled: cancelled, onRequest: async () => {}, onVariant: async () => {} });
         const image = Array.isArray(images) ? images[0] : null;
         if (!image?.png) throw new Error('The image provider returned no picture.');
-        result = { ok: true, status: 'passed', problems: [], output: { imageDataUrl: `data:image/png;base64,${Buffer.from(image.png).toString('base64')}`, size: built.deliverable.size }, receipt: { costUsd: Number.isFinite(image.receipt?.costUsd) ? image.receipt.costUsd : null, model: IMAGE_MODEL, route: 'openai', metered: true } };
+        result = { ok: true, status: 'passed', problems: [], output: { imageDataUrl: `data:image/png;base64,${Buffer.from(image.png).toString('base64')}`, size: built.deliverable.size }, receipt: { costUsd: Number.isFinite(image.receipt?.costUsd) ? image.receipt.costUsd : null, model: image.receipt?.requestedModel || settings.task?.model || IMAGE_MODEL, route: settings.task?.route || 'openai', metered: true, references: referenceSummaryOf(refs.images) } };
       } else {
-        const call = await runAI({ runId: testId, jobId: testId, schema: built.schema, prompt: derived.prompt, maxBudgetUsd: out.capUsd, workspaceDir: dir, outputPath: path.join(dir, 'output.raw.json'), ...(settings.model && settings.metered ? { model: settings.model } : {}), ...(settings.effort ? { effort: settings.effort } : {}), timeoutMs: TEST_TIMEOUT_MS });
+        const call = await runAI({ runId: testId, jobId: testId, schema: built.schema, prompt: derived.prompt, maxBudgetUsd: out.capUsd, workspaceDir: dir, outputPath: path.join(dir, 'output.raw.json'), ...(settings.task ? { task: settings.task } : {}), ...(settings.model && settings.metered ? { model: settings.model } : {}), ...(settings.effort ? { effort: settings.effort } : {}), timeoutMs: TEST_TIMEOUT_MS });
         const receipt = { costUsd: Number.isFinite(call?.receipt?.costUsd) ? call.receipt.costUsd : null, model: call?.receipt?.actualModel || call?.receipt?.requestedModel || settings.model, route: settings.route, metered: settings.metered, effort: settings.effort };
         try { result = { ok: true, status: 'passed', problems: [], output: built.validate(call?.output), receipt }; }
         catch (error) { result = { ok: false, status: 'failed', problems: (Array.isArray(error.violations) && error.violations.length ? error.violations.map((entryRow) => entryRow.message) : [safeError(error)]).slice(0, 20), output: call?.output ?? null, receipt }; }
@@ -206,6 +266,59 @@ function createPromptLab({ store, workspace, who, callerRole = () => 'admin', ca
     }
     const record = store.recordTest(w.id, w.editionId, entry.id, { id: testId, draftHash: draft ? template.hashOf(draft) : '', sample: derived.sampleId, by: author, route: result.receipt?.route || settings.route, model: result.receipt?.model || settings.model, effort: settings.effort, costUsd: result.receipt?.costUsd ?? null, ok: result.ok, status: result.status, problems: result.problems });
     return { testId, ...result, chars: derived.prompt.length, durationMs: Date.now() - started, sampleLabel: derived.sampleLabel, test: record };
+  }
+  // ---------- Settings → Model routing: test one AI job on a chosen connection and model ----------
+  // The job's own prompt runs once on the bundled sample, through its real builder and checks, with the admin's choice
+  // ({ route, model, effort, quality }) in place of the studio's. Videos aren't tested here (a clip takes minutes).
+  function taskTestEntry(taskId) {
+    const task = TASKS.tasks.find((row) => row.id === taskId);
+    if (!task) throw fail('That AI job isn’t in this studio.', 404);
+    if (task.kind === 'video') throw fail('Try video models by making a video from a report; the estimate shows before anything is paid.', 400, { code: 'taskTestVideo' });
+    const w = space(); const registry = template.registryFor(w.editionId).prompts;
+    const ids = [...(task.promptIds || []), ...(task.kind === 'image' ? ['pictures.kit-image'] : [])];
+    const entry = ids.map((promptId) => registry.find((row) => row.id === promptId)).find((row) => row && row.test?.kind === task.kind);
+    if (!entry) throw fail(task.id === 'assistant.ask-ai' ? 'Ask AI can’t be test-run on its own. Ask it a question to try the model.' : 'This job has no prompt to test on its own.', 400, { code: 'taskTestUnavailable' });
+    return { task, entry };
+  }
+  function overrideOf(payload, task) {
+    const override = {};
+    if (typeof payload.route === 'string' && payload.route) override.route = payload.route;
+    if (typeof payload.model === 'string') override.model = payload.model.trim().slice(0, 200);
+    if (task.kind === 'text' && typeof payload.effort === 'string') override.effort = payload.effort;
+    if (task.kind === 'image' && typeof payload.quality === 'string' && payload.quality) override.quality = payload.quality;
+    return override;
+  }
+  async function estimateTaskTest(payload = {}) {
+    if (String(callerRole() || '') !== 'admin') throw fail('Only admins test AI jobs.', 403);
+    const { task, entry } = taskTestEntry(String(payload.taskId || ''));
+    const override = overrideOf(payload, task);
+    const resolved = taskOf(entry, override);
+    if (resolved?.problem) throw fail(resolved.problem, 400, { code: 'taskTestUnavailable' });
+    const { out } = await estimate({ id: entry.id, sample: 'bundled' }, 'admin', { override });
+    if (!out.available) throw fail(out.reason, 400, { code: 'taskTestUnavailable' });
+    const through = ROUTE_LABELS[out.route] || out.route;
+    const money = (value) => `$${value >= 0.1 ? value.toFixed(2) : Number(value.toPrecision(2))}`;
+    const lines = task.kind === 'image'
+      ? [`Draws one picture with the ${entry.name} prompt on the sample with ${out.modelLabel || out.model}${resolved?.quality ? ` at ${resolved.quality} quality` : ''}.`, out.metered ? `About ${money(out.estimateUsd)}, capped at ${money(out.capUsd)}.` : 'Not metered.', ...(out.note ? [out.note] : [])]
+      : [`Runs the ${entry.name} prompt once on the sample with ${out.modelLabel || out.model || 'the default model'}${out.effort ? ` · ${out.effort}` : ''} through ${through}.`, out.metered ? `About ${money(Math.max(out.estimateUsd, 0.01))}, capped at ${money(out.capUsd)}.` : 'Codex doesn’t report cost and takes no cap.'];
+    return { taskId: task.id, kind: task.kind, promptId: entry.id, sampleLabel: out.sampleLabel, estimateUsd: out.estimateUsd, capUsd: out.capUsd, metered: out.metered, lines, fingerprint: out.fingerprint, route: out.route, model: out.model };
+  }
+  const taskTests = new Map(); // requestId → the test's promise (a repeat of the same request joins it)
+  async function testTask(payload = {}) {
+    if (String(callerRole() || '') !== 'admin') throw fail('Only admins test AI jobs.', 403);
+    const requestId = String(payload.requestId || '');
+    if (!/^[A-Za-z0-9_-]{8,100}$/.test(requestId)) throw fail('Invalid test request ID.', 400);
+    if (taskTests.has(requestId)) return taskTests.get(requestId);
+    const work = (async () => {
+      const { task, entry } = taskTestEntry(String(payload.taskId || ''));
+      const override = overrideOf(payload, task);
+      const result = await testPrompt({ id: entry.id, sample: 'bundled', fingerprint: payload.fingerprint }, { override });
+      const image = result.output?.imageDataUrl || '';
+      return { ok: result.ok, durationMs: result.durationMs, receipt: result.receipt, problems: result.problems, ...(image ? { imageDataUrl: image } : { output: result.output, preview: result.output ? JSON.stringify(result.output, null, 2).slice(0, 4000) : '' }) };
+    })();
+    taskTests.set(requestId, work);
+    work.catch(() => taskTests.delete(requestId)).then(() => { if (taskTests.size > 50) taskTests.delete(taskTests.keys().next().value); });
+    return work;
   }
   // The latest saved changes in this workspace (newest first), for the Inbox and analytics. Cached until the next save.
   function recentChanges(limit = 20) {
@@ -223,7 +336,7 @@ function createPromptLab({ store, workspace, who, callerRole = () => 'admin', ca
     changesCache = { key, rows: rows.slice(0, 50) };
     return changesCache.rows.slice(0, limit);
   }
-  return { listPrompts, readPrompt, previewPrompt, diffPromptVersions, savePromptVersion, revertPrompt, setPromptLock, estimatePromptTest, testPrompt, testModels, recentChanges };
+  return { listPrompts, readPrompt, previewPrompt, diffPromptVersions, savePromptVersion, revertPrompt, setPromptLock, estimatePromptTest, testPrompt: (payload) => testPrompt(payload), testModels, testTasks, estimateTaskTest, testTask, recentChanges };
 }
 
 module.exports = { createPromptLab, IMAGE_CAP_USD, ROUTE_LABELS };

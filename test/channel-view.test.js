@@ -144,7 +144,7 @@ describe('kit runs as a channel sees them', () => {
   it('marks a failure only an admin can fix, so the card says so instead of offering another try', () => {
     const base = { id: 'k', kit: { sourceTitle: 'Trend' }, createdAt: fixture.at('10-15'), updatedAt: fixture.at('10-15', '11:00:00') };
     const failed = (error) => publicKitRun({ ...base, status: 'failed', jobs: [{ id: 'blogshort', status: 'failed', error }] }, 'blog', 'semrush');
-    expect(failed('Add an Anthropic API key in Settings → Writing & research.')).toMatchObject({ needsAdmin: true, message: 'Ask an admin: the AI connection needs attention.' });
+    expect(failed('Add an Anthropic API key in Settings → AI connections.')).toMatchObject({ needsAdmin: true, message: 'Ask an admin: the AI connection needs attention.' });
     expect(failed('Credit balance is too low to access the Anthropic API.')).toMatchObject({ needsAdmin: true });
     expect(failed('Claude timed out. Retry the incomplete output.')).not.toHaveProperty('needsAdmin');
     expect(publicKitRun({ ...base, status: 'succeeded', jobs: [{ id: 'blogshort', status: 'succeeded', error: 'ANTHROPIC_API_KEY is not set.' }] }, 'blog', 'semrush')).not.toHaveProperty('needsAdmin');

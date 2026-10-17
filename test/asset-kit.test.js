@@ -55,7 +55,10 @@ describe('asset kits: every channel asset from one report', () => {
     const h = harness(); const plan = h.api.planAssetKit({ source: { kind: 'report', assetId: 'asset-report' } });
     expect(plan.title).toBe(TREND); expect(plan.sourceKey).toBe('theme:theme-citations'); expect(plan.sourceKind).toBe('trend'); expect(plan.evidenceCount).toBe(1);
     expect(plan.folders.map(folder => folder.name)).toEqual(['Semrush Blog', 'Semrush Newsletter', 'Semrush Paid Media', 'Semrush PR', 'Semrush Social Team', 'Affiliate Program', 'Enterprise Sales Enablement', 'Backlinko', 'Exploding Topics', 'Search Engine Land / MarTech']);
-    const items = plan.folders.flatMap(folder => folder.items); expect(items).toHaveLength(15); expect(items.every(item => item.selected && item.available && item.usd > 0)).toBe(true);
+    // The short video is offered but never chosen by default, and needs fal.ai (not connected in this harness).
+    const all = plan.folders.flatMap(folder => folder.items); const items = all.filter(item => item.kind !== 'video');
+    expect(all.find(item => item.kind === 'video')).toMatchObject({ id: 'social-video', label: 'Social Team — Short Video', selected: false, available: false, optIn: true });
+    expect(items).toHaveLength(15); expect(items.every(item => item.selected && item.available && item.usd > 0)).toBe(true);
     expect(items.filter(item => item.kind === 'image').map(item => item.label)).toEqual(['Social Team — Hero Graphic', 'Search Engine Land — Editorial Hero', 'Search Engine Land — Social Hero']);
     expect(plan.estimate.pictures).toBe(9); expect(plan.estimate.model).toBe('claude-fable-5-1'); expect(plan.estimate.capUsd).toBeGreaterThanOrEqual(plan.estimate.totalUsd * 2);
     expect(h.ai).not.toHaveBeenCalled(); expect(h.generateImage).not.toHaveBeenCalled();
@@ -258,7 +261,7 @@ describe('brand reference images in kit pictures', () => {
     expect(editorial.references.map(ref => Buffer.from(ref.data))).toEqual([...styles, logo]);
     for (const prompt of editorial.variantPrompts) expect(prompt).toContain('images 1–2 are approved Search Engine Land style examples; image 3 is the approved Search Engine Land logo.');
     expect(sent('brand-image')[0].references).toHaveLength(1); expect(sent('brand-image')[0].prompt).toContain('Draw no logos or brand marks, including any in the style examples');
-    expect(sent('sel-social-image')[0].references).toBeUndefined(); expect(sent('sel-social-image')[0].prompt).toContain('Draw no logos or brand marks; leave a clean footer');
+    expect(sent('sel-social-image')[0].references).toEqual([]); expect(sent('sel-social-image')[0].prompt).toContain('Draw no logos or brand marks; leave a clean footer');
     expect(h.calls.find(request => callKey(request) === 'brief-sel-image').prompt).toContain('fixed brand rules, 2 approved style examples and the approved logo.');
     expect(h.calls.find(request => callKey(request) === 'brief-sel-social-image').prompt).toContain('fixed brand rules and sees nothing else');
     // Settings change after the run started; the retry still sends the pictures it started with.
@@ -288,6 +291,6 @@ describe('brand reference images in kit pictures', () => {
     fs.rmSync(path.join(h.root, 'runs', run.id, 'brand-references.json'));
     h.api.retryStudioRun({ runId: run.id }); await h.api.waitForIdle();
     const [, retried] = h.generateImage.mock.calls.map(([request]) => request.deliverable);
-    expect(retried.references).toBeUndefined(); expect(retried.prompt).toContain('Draw no logos or brand marks; leave a clean footer');
+    expect(retried.references).toEqual([]); expect(retried.prompt).toContain('Draw no logos or brand marks; leave a clean footer');
   });
 });

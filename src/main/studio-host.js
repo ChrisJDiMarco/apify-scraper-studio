@@ -31,7 +31,7 @@ function loadLoginShellPath({ shell = process.env.SHELL || '/bin/zsh', timeoutMs
 // commands, so nothing a person could ask it to print may be in here: no STUDIO_* setting (the web secret key and admin
 // password) and no saved-key variable. No route takes its credential from here: the Claude app and Codex use their
 // own sign-in, and the Anthropic API key route calls the API from the studio itself.
-const CLI_SECRET_ENV = /^(STUDIO_.*|ANTHROPIC_API_KEY|OPENAI_API_KEY|APIFY_API_TOKEN|MONDAY_API_TOKEN|GOOGLE_.*TOKEN|GOOGLE_SHEETS_WEBHOOK_URL)$/;
+const CLI_SECRET_ENV = /^(STUDIO_.*|ANTHROPIC_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY|FAL_KEY|APIFY_API_TOKEN|MONDAY_API_TOKEN|GOOGLE_.*TOKEN|GOOGLE_SHEETS_WEBHOOK_URL)$/;
 function studioCliEnv() {
   const searchPaths = process.platform === 'win32' ? [path.join(os.homedir(), '.local', 'bin'), path.join(process.env.APPDATA || os.homedir(), 'npm')] : [path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.claude', 'local'), '/opt/homebrew/bin', '/usr/local/bin'];
   const env = { ...process.env, PATH: [loginShellPath, ...searchPaths, process.env.PATH || ''].filter(Boolean).join(path.delimiter) };

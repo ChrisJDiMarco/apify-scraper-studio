@@ -1,11 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bot, CircleAlert, Gauge, LoaderCircle } from 'lucide-react';
+import AI_MODELS from '../../shared/ai-models.json';
+import AI_TASKS from '../../shared/ai-tasks.json';
+import AI_PROVIDERS from '../../shared/ai-providers.json';
 import { number } from './ui.jsx';
+import { ModelPicker, modelName } from './model-picker.jsx';
 
 // Program form sections for n8n parity: the date window (n8n defaults to the last 7 days),
 // per-stage models and effort (n8n ran Opus for discovery/synthesis/matching and Fable for
 // tagging and reports), unattended approval, Drive publishing and a live cost estimate.
-export const RESEARCH_MODELS = [['claude-fable-5-1', 'Claude Fable 5.1'], ['claude-opus-5-5', 'Claude Opus 5.5'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-haiku-4-5', 'Claude Haiku 4.5']];
+// The Claude models from the studio's catalog (src/shared/ai-models.json), as [id, label] pairs.
+export const RESEARCH_MODELS = AI_MODELS.text.filter((entry) => entry.family === 'claude').map((entry) => [entry.id, entry.label]);
 export const DEFAULT_PROGRAM_AI = { models: { discovery: 'claude-opus-5-5', synthesis: 'claude-opus-5-5', matching: 'claude-opus-5-5', tagging: 'claude-fable-5-1', reports: 'claude-fable-5-1' }, effort: { discovery: 'medium', synthesis: 'high', matching: 'medium', tagging: 'low', reports: 'high' }, concurrency: 3 };
 export const DEFAULT_COLLECTION = { xMaxItemsPerHandle: 50, xHandlesPerJob: 5, linkedinPostsPerProfile: 15, linkedinProfilesPerJob: 100, redditPostsPerSub: 300, redditScrollTimeoutSecs: 300, redditSubsPerJob: 6, laneConcurrency: 4 };
 const STAGES = [['discovery', 'Trend discovery', 'Reads 200-post batches per platform'], ['synthesis', 'Theme synthesis', 'Distills the top six themes'], ['matching', 'Theme matching', 'Compares with tracked themes'], ['tagging', 'Post tagging', 'Classifies every post'], ['reports', 'Reports & toolkits', 'Writes the paired documents']];
@@ -26,13 +31,60 @@ export function ProgramWindowFields({ draft, setDraft }) {
   </>;
 }
 
-export function ProgramAiFields({ draft, setDraft }) {
+// A program's own AI choices per stage (ai.overrides). Every stage follows Settings → Model routing ("Studio default") unless
+// the program chooses its own connection, model and effort; those win for this program's runs. A program saved before
+// overrides existed shows the stages whose model or effort differ from the shipped defaults as its choices.
+const STAGE_TASK = { discovery: 'research.discovery', synthesis: 'research.synthesis', matching: 'research.matching', tagging: 'research.tagging', reports: 'reports.trends-report' };
+const TEXT_ROUTES = ['auto', 'claude', 'claude-api', 'codex', 'openai', 'openrouter'];
+const ROUTE_LABEL = Object.fromEntries([...AI_PROVIDERS.connections, ...AI_PROVIDERS.pseudo].map((entry) => [entry.id, entry.label]));
+export function programOverrides(ai = {}) {
+  if (ai && typeof ai.overrides === 'object' && ai.overrides) return { ...ai.overrides };
+  const out = {};
+  for (const [stage] of STAGES) {
+    const model = ai?.models?.[stage]; const effort = ai?.effort?.[stage];
+    const entry = { ...(model && model !== DEFAULT_PROGRAM_AI.models[stage] ? { model } : {}), ...(effort && effort !== DEFAULT_PROGRAM_AI.effort[stage] ? { effort } : {}) };
+    if (Object.keys(entry).length) out[stage] = entry;
+  }
+  return out;
+}
+// What the studio runs for a stage when the program doesn't choose: saved Model routing when it can be read, else the
+// shipped defaults.
+function studioDefault(stage, routing) {
+  const task = AI_TASKS.tasks.find((row) => row.id === STAGE_TASK[stage]);
+  const chosen = routing?.tasks?.[STAGE_TASK[stage]] || {};
+  const route = chosen.route || routing?.defaults?.text?.route || AI_TASKS.defaults.text.route;
+  const model = chosen.model ?? task?.default?.model ?? '';
+  const effort = chosen.effort ?? task?.default?.effort ?? '';
+  return `${modelName(route, 'text', route === 'codex' ? '' : model) || model}${effort && route !== 'codex' ? ` · ${effort}` : ''}, ${ROUTE_LABEL[route] || route}`;
+}
+export function ProgramAiFields({ draft, setDraft, api, routing = null }) {
   const ai = { ...DEFAULT_PROGRAM_AI, ...(draft.ai || {}), models: { ...DEFAULT_PROGRAM_AI.models, ...(draft.ai?.models || {}) }, effort: { ...DEFAULT_PROGRAM_AI.effort, ...(draft.ai?.effort || {}) } };
-  const set = (group, stage, value) => setDraft((current) => ({ ...current, ai: { ...ai, [group]: { ...ai[group], [stage]: value } } }));
-  return <details className="cs-details cs-ai-stages"><summary><Bot size={14} aria-hidden="true" />AI models and effort per stage</summary><div>
-    <p>Defaults follow the n8n workflow: Opus for discovery, synthesis and matching; Fable for tagging, reports and toolkits. Lower effort is cheaper; tagging works well at low.</p>
-    <div className="cs-stage-grid" role="table" aria-label="Models per stage">{STAGES.map(([stage, label, hint]) => <div className="cs-stage-row" role="row" key={stage}><div role="cell"><strong>{label}</strong><small>{hint}</small></div><div role="cell"><label className="cs-sr-only" htmlFor={`cs-model-${stage}`}>{label} model</label><select id={`cs-model-${stage}`} value={ai.models[stage]} onChange={(event) => set('models', stage, event.target.value)}>{RESEARCH_MODELS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></div><div role="cell"><label className="cs-sr-only" htmlFor={`cs-effort-${stage}`}>{label} effort</label><select id={`cs-effort-${stage}`} value={ai.effort[stage]} onChange={(event) => set('effort', stage, event.target.value)}>{EFFORTS.map((level) => <option key={level} value={level}>{level}</option>)}</select></div></div>)}</div>
-    <Field id="cs-ai-concurrency" label="Batches at once" hint="How many discovery or tagging batches run in parallel (1–6)."><input id="cs-ai-concurrency" type="number" min="1" max="6" step="1" value={ai.concurrency} onChange={(event) => setDraft((current) => ({ ...current, ai: { ...ai, concurrency: Number(event.target.value) } }))} /></Field>
+  const overrides = programOverrides(draft.ai);
+  const write = (next) => setDraft((current) => ({ ...current, ai: { ...(current.ai || {}), overrides: next, concurrency: ai.concurrency } }));
+  const setStage = (stage, entry) => { const next = { ...overrides }; if (entry) next[stage] = entry; else delete next[stage]; write(next); };
+  return <details className="cs-details cs-ai-stages"><summary><Bot size={14} aria-hidden="true" />AI for this program</summary><div>
+    <p>Each stage uses the studio’s choice in Settings → Model routing unless this program chooses its own. A program’s own choice wins for its runs. Lower effort is cheaper; tagging works well at low.</p>
+    <div className="cs-stage-grid" role="table" aria-label="AI per stage">{STAGES.map(([stage, label, hint]) => {
+      const own = overrides[stage]; const route = own?.route || 'auto';
+      return <div className="cs-stage-row" role="row" key={stage}>
+        <div role="cell"><strong>{label}</strong><small>{hint}</small></div>
+        <div role="cell"><label className="cs-sr-only" htmlFor={`cs-ai-choice-${stage}`}>{label}: who chooses</label>
+          <select id={`cs-ai-choice-${stage}`} value={own ? 'own' : 'studio'} onChange={(event) => setStage(stage, event.target.value === 'own' ? { model: ai.models[stage], effort: ai.effort[stage] } : null)}>
+            <option value="studio">Studio default ({studioDefault(stage, routing)})</option>
+            <option value="own">Choose for this program…</option>
+          </select></div>
+        {own && <div role="cell" className="cs-stage-own">
+          <label className="cs-sr-only" htmlFor={`cs-route-${stage}`}>{label} connection</label>
+          <select id={`cs-route-${stage}`} value={route} onChange={(event) => { const next = event.target.value; setStage(stage, { ...(next === 'auto' ? {} : { route: next }), model: next === 'codex' ? '' : next === 'openrouter' ? '' : own.model || ai.models[stage], ...(own.effort && next !== 'codex' ? { effort: own.effort } : {}) }); }}>
+            {TEXT_ROUTES.map((value) => <option key={value} value={value}>{ROUTE_LABEL[value]}</option>)}
+          </select>
+          <ModelPicker id={`cs-model-${stage}`} label={`${label} model`} route={route} kind="text" value={own.model || ''} api={api} onChange={(model) => setStage(stage, { ...own, model })} />
+          <label className="cs-sr-only" htmlFor={`cs-effort-${stage}`}>{label} effort</label>
+          <select id={`cs-effort-${stage}`} value={own.effort || ''} onChange={(event) => setStage(stage, { ...own, effort: event.target.value })}><option value="">Model default</option>{EFFORTS.map((level) => <option key={level} value={level}>{level}</option>)}</select>
+        </div>}
+      </div>;
+    })}</div>
+    <Field id="cs-ai-concurrency" label="Batches at once" hint="How many discovery or tagging batches run in parallel (1–6)."><input id="cs-ai-concurrency" type="number" min="1" max="6" step="1" value={ai.concurrency} onChange={(event) => setDraft((current) => ({ ...current, ai: { ...(current.ai || ai), concurrency: Number(event.target.value) } }))} /></Field>
   </div></details>;
 }
 

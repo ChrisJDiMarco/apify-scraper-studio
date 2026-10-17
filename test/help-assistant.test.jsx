@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HelpAssistant, attentionStarters, studioLinks } from '../src/renderer/src/help-assistant.jsx';
 
@@ -58,7 +58,7 @@ describe('Ask AI panel', () => {
     render(<HelpAssistant api={api} open imagesReady onClose={onClose} page={page} onOpenPage={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /Create a hero image for my latest trend/ }));
     expect(await screen.findByText(/Creating the picture/)).toBeInTheDocument();
-    expect(api.createHelpImage).toHaveBeenCalledWith(picture);
+    expect(api.createHelpImage).toHaveBeenCalledWith({ ...picture, family: 'none' }); // no brand set chosen: no reference images
     finish({ ...picture, id: 'help-image-1', dataUrl: 'data:image/png;base64,iVBORw0KGgo=', costUsd: 0.0472, model: 'gpt-image-2.5-flare' });
     const image = await screen.findByRole('img', { name: 'AI Overviews hero' });
     expect(image).toHaveAttribute('src', 'data:image/png;base64,iVBORw0KGgo=');
@@ -172,5 +172,205 @@ describe('Ask AI panel', () => {
     fireEvent.click(within(screen.getByRole('group', { name: 'Needs you now' })).getByRole('button', { name: /Review 1 trend/ }));
     await waitFor(() => expect(onAction).toHaveBeenCalledWith({ kind: 'open-tab', label: 'Open Trends', target: 'trends' }));
     expect(await screen.findByText('Opened.')).toBeInTheDocument();
+  });
+});
+
+// Streaming: the main process sends each answer's progress over api.onAskStream (ask-stream.js). Reduced motion is on
+// here, so streamed text shows at once and the tests read it without waiting for animation frames.
+function streaming(extra = {}) {
+  const listeners = new Set();
+  const emit = (event) => act(() => { for (const fn of [...listeners]) fn(event); });
+  const api = { onAskStream: vi.fn((fn) => { listeners.add(fn); return () => listeners.delete(fn); }), readAskProgress: vi.fn(async () => ({ progress: null, active: [] })), cancelAsk: vi.fn(async () => ({ stopped: true })), ...extra };
+  return { api, emit };
+}
+function deferred() { let resolve; let reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
+const ev = {
+  progress: (requestId, seq, progress) => ({ type: 'progress', requestId, conversationId: '', seq, progress: { steps: [], textLength: 0, ...progress } }),
+  delta: (requestId, seq, at, text) => ({ type: 'delta', requestId, conversationId: '', seq, at, text }),
+};
+const convo = { id: 'ask-00000000-0000-4000-8000-000000000001', title: 'Budgets', updatedAt: '2026-10-17T10:00:00Z' };
+const userMsg = { id: 'msg-00000000-0000-4000-8000-0000000000a1', content: 'How do budgets work?', createdAt: '2026-10-17T10:00:00Z' };
+const answerMsg = (content, extra = {}) => ({ id: 'msg-00000000-0000-4000-8000-0000000000b1', role: 'assistant', content, pages: [], followUps: [], actions: [], cards: [], read: [], receipt: { costUsd: 0.08, model: 'claude-opus-5-5', route: 'claude-api' }, createdAt: '2026-10-17T10:00:05Z', ...extra });
+const persisted = { listAskConversations: vi.fn(async () => ({ conversations: [] })), readAskConversation: vi.fn(async () => ({ conversation: { ...convo, messages: [] } })), renameAskConversation: vi.fn(), deleteAskConversation: vi.fn() };
+const reducedMotion = () => { window.matchMedia = (query) => ({ matches: /reduce/.test(query), media: query, addEventListener() {}, removeEventListener() {} }); };
+const box = () => screen.getByRole('textbox', { name: 'Question about Scraper Studio' });
+const send = (text) => { fireEvent.change(box(), { target: { value: text } }); fireEvent.keyDown(box(), { key: 'Enter' }); };
+
+describe('Ask AI streaming', () => {
+  afterEach(() => { delete window.matchMedia; });
+  it('writes the answer into the same article that then holds the reply, with a caret while writing and cards only after', async () => {
+    reducedMotion();
+    const call = deferred(); const { api, emit } = streaming({ askHelp: vi.fn(() => call.promise) });
+    render(<HelpAssistant api={api} open onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    send('How do budgets work?');
+    const placeholder = await screen.findByRole('article', { name: 'Answering' });
+    expect(within(placeholder).getByRole('img', { name: 'Ask AI is thinking' })).toBeInTheDocument();
+    const { requestId } = api.askHelp.mock.calls[0][0];
+    emit(ev.progress(requestId, 1, { status: 'starting', question: 'How do budgets work?', steps: [{ id: 'context', kind: 'context', label: 'Looking at your studio', status: 'running' }] }));
+    expect(placeholder).toHaveTextContent('Looking at your studio');
+    emit(ev.progress(requestId, 2, { status: 'reading', steps: [{ id: 'lookup-0', kind: 'report', label: 'Reading “Budget guide”', status: 'running' }] }));
+    expect(placeholder).toHaveTextContent('Reading “Budget guide”');
+    emit(ev.delta(requestId, 3, 0, 'Each run has **a budget'));
+    expect(placeholder).toHaveTextContent('Each run has a budget');
+    expect(placeholder).toHaveClass('ask-streaming');
+    expect(placeholder.querySelector('strong')).toHaveTextContent('a budget'); // the open ** is closed while it streams
+    emit(ev.delta(requestId, 4, 23, '** that caps it.'));
+    expect(placeholder).toHaveTextContent('Each run has a budget that caps it.');
+    expect(screen.queryByText('Next steps')).not.toBeInTheDocument();
+    call.resolve({ conversation: convo, userMessage: userMsg, message: answerMsg('Each run has **a budget** that caps it.', { cards: [{ type: 'checklist', title: 'Next steps', note: '', data: { items: [{ text: 'Raise the cap', done: false }] }, actionIndexes: [] }] }) });
+    const answer = await screen.findByRole('article', { name: 'Answer' });
+    expect(answer).toBe(placeholder); // finished in place: no remount, no jump
+    expect(answer).not.toHaveClass('ask-streaming');
+    expect(within(answer).getByText('Next steps')).toBeInTheDocument();
+    expect(answer).toHaveTextContent('claude-opus-5-5 · $0.08');
+    expect(screen.getByText(/^Answer ready\. Each run has a budget that caps it\.$/)).toBeInTheDocument();
+  });
+
+  it('stops an answer with Stop or Esc, keeping what was written', async () => {
+    reducedMotion();
+    const call = deferred(); const onClose = vi.fn();
+    const { api, emit } = streaming({ askHelp: vi.fn(() => call.promise) });
+    render(<HelpAssistant api={api} open onClose={onClose} page={page} onOpenPage={vi.fn()} />);
+    send('Summarize the week');
+    const { requestId } = api.askHelp.mock.calls[0][0];
+    emit(ev.progress(requestId, 1, { status: 'writing' })); emit(ev.delta(requestId, 2, 0, 'Two trends moved'));
+    box().focus();
+    fireEvent.keyDown(box(), { key: 'Escape' });
+    await waitFor(() => expect(api.cancelAsk).toHaveBeenCalledWith({ requestId }));
+    expect(onClose).not.toHaveBeenCalled(); // Esc stopped the answer before closing the drawer
+    expect(screen.getByRole('button', { name: 'Stop answering' })).toBeDisabled();
+    call.resolve({ conversation: convo, userMessage: { ...userMsg, content: 'Summarize the week' }, message: answerMsg('Two trends moved', { stopped: true, receipt: null }) });
+    const answer = await screen.findByRole('article', { name: 'Answer' });
+    expect(answer).toHaveTextContent('Two trends moved');
+    expect(answer).toHaveTextContent('Stopped. What was written so far is kept.');
+    expect(screen.getByRole('button', { name: 'Send question' })).toBeInTheDocument();
+  });
+
+  it('asks the last question again with Retry, and edits it with ↑', async () => {
+    const askHelp = vi.fn(async () => ({ conversation: convo, userMessage: userMsg, message: answerMsg('Budgets cap each run.') }));
+    const { api } = streaming({ askHelp, ...persisted });
+    render(<HelpAssistant api={api} open onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    send('How do budgets work?');
+    const answer = await screen.findByRole('article', { name: 'Answer' });
+    fireEvent.click(within(answer).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(askHelp).toHaveBeenCalledTimes(2));
+    expect(askHelp.mock.calls[1][0]).toMatchObject({ question: 'How do budgets work?', conversationId: convo.id, mode: 'regenerate', replaces: userMsg.id });
+    await screen.findByRole('article', { name: 'Answer' });
+    fireEvent.keyDown(box(), { key: 'ArrowUp' });
+    const edit = await screen.findByRole('textbox', { name: 'Edit question' });
+    fireEvent.change(edit, { target: { value: 'How do AI budgets work?' } });
+    fireEvent.keyDown(edit, { key: 'Enter' });
+    await waitFor(() => expect(askHelp).toHaveBeenCalledTimes(3));
+    expect(askHelp.mock.calls[2][0]).toMatchObject({ question: 'How do AI budgets work?', mode: 'edit', replaces: userMsg.id, conversationId: convo.id });
+  });
+
+  it('queues a question typed while an answer is coming, and sends it once that answer is in', async () => {
+    const call = deferred();
+    const askHelp = vi.fn().mockImplementationOnce(() => call.promise).mockImplementation(async () => reply({ answer: 'Second.', pages: [], followUps: [] }));
+    const { api } = streaming({ askHelp });
+    render(<HelpAssistant api={api} open onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    send('First question');
+    send('Second question');
+    expect(await screen.findByText('Sends when this answer is done')).toBeInTheDocument();
+    expect(askHelp).toHaveBeenCalledTimes(1);
+    call.resolve(reply({ answer: 'First.', pages: [], followUps: [] }));
+    await waitFor(() => expect(askHelp).toHaveBeenCalledTimes(2));
+    expect(askHelp.mock.calls[1][0].question).toBe('Second question');
+  });
+
+  it('opens / commands as they type, moves with the arrow keys and runs one with Enter', async () => {
+    const askHelp = vi.fn(async () => reply({ followUps: [] }));
+    render(<HelpAssistant api={{ askHelp }} open onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    fireEvent.change(box(), { target: { value: '/' } });
+    const menu = screen.getByRole('listbox', { name: 'Commands' });
+    expect(within(menu).getAllByRole('option').length).toBeGreaterThan(4);
+    fireEvent.change(box(), { target: { value: '/s' } });
+    expect(within(menu).getAllByRole('option').map((option) => option.textContent)).toEqual([expect.stringContaining('/scan'), expect.stringContaining('/summarize')]);
+    fireEvent.keyDown(box(), { key: 'ArrowDown' });
+    expect(within(menu).getByRole('option', { selected: true })).toHaveTextContent('/summarize');
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    await waitFor(() => expect(askHelp).toHaveBeenCalledWith(expect.objectContaining({ question: 'Summarize what changed since the last research run.' })));
+    fireEvent.change(box(), { target: { value: '/help' } }); fireEvent.keyDown(box(), { key: 'Escape' }); fireEvent.keyDown(box(), { key: 'Enter' });
+    expect(screen.getByRole('region', { name: 'Commands' })).toHaveTextContent('/scan topic');
+    expect(askHelp).toHaveBeenCalledTimes(1); // /help is answered here, without the AI
+  });
+
+  it('takes a report dropped into the chat as an attachment', async () => {
+    const askHelp = vi.fn(async () => reply({ followUps: [] }));
+    const { container } = render(<HelpAssistant api={{ askHelp }} open onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    const ref = JSON.stringify({ kind: 'report', ref: 'Zero-click report', id: 'asset-1' });
+    const dataTransfer = { types: ['application/x-studio-ref'], getData: (type) => (type === 'application/x-studio-ref' ? ref : ''), files: [], dropEffect: 'none', effectAllowed: 'copy' };
+    const aside = container.querySelector('aside');
+    fireEvent.dragOver(aside, { dataTransfer });
+    fireEvent.drop(aside, { dataTransfer });
+    expect(screen.getByText('Zero-click report')).toBeInTheDocument();
+    expect(box()).toHaveAttribute('placeholder', 'Ask about “Zero-click report”…');
+    send('What should we post?');
+    await waitFor(() => expect(askHelp).toHaveBeenCalledWith(expect.objectContaining({ question: 'What should we post?', attachments: [{ kind: 'report', ref: 'Zero-click report' }] })));
+    expect(await screen.findByText('Report: Zero-click report')).toBeInTheDocument();
+  });
+
+  it('offers Jump to latest once the person scrolls up', async () => {
+    const askHelp = vi.fn(async () => reply({ followUps: [] }));
+    const { container } = render(<HelpAssistant api={{ askHelp }} open onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    send('How do budgets work?');
+    await screen.findByRole('article', { name: 'Answer' });
+    const scroller = container.querySelector('.help-messages');
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2000 });
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 });
+    scroller.scrollTop = 200; fireEvent.wheel(scroller, { deltaY: -100 }); fireEvent.scroll(scroller);
+    fireEvent.click(await screen.findByRole('button', { name: 'Jump to latest' }));
+    expect(scroller.scrollTop).toBe(2000);
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).not.toBeInTheDocument();
+  });
+
+  it('keeps following an answer when its call is cut, and finishes it from the stream', async () => {
+    reducedMotion();
+    const call = deferred(); const { api, emit } = streaming({ askHelp: vi.fn(() => call.promise) });
+    render(<HelpAssistant api={api} open onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    send('How do budgets work?');
+    const { requestId } = api.askHelp.mock.calls[0][0];
+    emit(ev.progress(requestId, 1, { status: 'writing' })); emit(ev.delta(requestId, 2, 0, 'Budgets cap'));
+    call.reject(Object.assign(new Error('The studio isn’t answering right now.'), { status: 524 }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    emit(ev.delta(requestId, 3, 11, ' each run.'));
+    emit({ ...ev.progress(requestId, 4, { status: 'done', textLength: 21, final: { conversation: convo, userMessage: userMsg, message: answerMsg('Budgets cap each run.') } }), conversationId: convo.id });
+    const answer = await screen.findByRole('article', { name: 'Answer' });
+    expect(answer).toHaveTextContent('Budgets cap each run.');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('picks up an answer that was still being written before a reload, and marks its conversation as answering', async () => {
+    reducedMotion();
+    const snapshot = { requestId: 'req-before-reload', conversationId: convo.id, question: 'What changed?', status: 'writing', text: 'Two trends', steps: [], seq: 5 };
+    const { api, emit } = streaming({ askHelp: vi.fn(), ...persisted, listAskConversations: vi.fn(async () => ({ conversations: [convo] })), readAskConversation: vi.fn(async () => ({ conversation: { ...convo, messages: [{ ...userMsg, role: 'user' }, answerMsg('Budgets cap each run.')] } })), readAskProgress: vi.fn(async ({ requestId } = {}) => (requestId ? { progress: snapshot } : { active: [snapshot] })) });
+    sessionStorage.setItem('ask.thread.local', convo.id);
+    render(<HelpAssistant api={api} open variant="page" onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    const answering = await screen.findByRole('article', { name: 'Answering' }, { timeout: 4000 });
+    expect(answering).toHaveTextContent('Two trends');
+    expect(screen.getByText('What changed?')).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Ask AI conversations' })).getByText('Answering…')).toBeInTheDocument();
+    emit({ type: 'delta', requestId: 'req-before-reload', conversationId: convo.id, seq: 6, at: 10, text: ' moved.' });
+    expect(answering).toHaveTextContent('Two trends moved.');
+    emit({ type: 'progress', requestId: 'req-before-reload', conversationId: convo.id, seq: 7, progress: { status: 'done', steps: [], textLength: 17, final: { conversation: convo, userMessage: { ...userMsg, id: 'msg-00000000-0000-4000-8000-0000000000a2', content: 'What changed?' }, message: answerMsg('Two trends moved.', { id: 'msg-00000000-0000-4000-8000-0000000000b2' }) } } });
+    expect(await screen.findAllByRole('article', { name: 'Answer' })).toHaveLength(2);
+    expect(screen.queryByText('Answering…')).not.toBeInTheDocument();
+    sessionStorage.clear();
+  });
+
+  it('shows a follow-up the studio posts into the open conversation as soon as it arrives', async () => {
+    reducedMotion();
+    const stored = [{ ...userMsg, role: 'user' }, answerMsg('Scan planned.')];
+    const followUp = answerMsg('**Quick scan finished: “SEO”**', { id: 'msg-00000000-0000-4000-8000-0000000000c1', followUp: { key: 'scan-finished', runId: 'r1' }, receipt: null });
+    const readAskConversation = vi.fn().mockResolvedValueOnce({ conversation: { ...convo, messages: stored } }).mockResolvedValue({ conversation: { ...convo, messages: [...stored, followUp] } });
+    const { api, emit } = streaming({ askHelp: vi.fn(), ...persisted, listAskConversations: vi.fn(async () => ({ conversations: [convo] })), readAskConversation });
+    sessionStorage.setItem('ask.thread.local', convo.id);
+    render(<HelpAssistant api={api} open onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
+    await screen.findByText('Scan planned.');
+    emit({ type: 'followup', conversationId: convo.id, messageId: followUp.id });
+    expect(await screen.findByText('Quick scan finished: “SEO”')).toBeInTheDocument();
+    expect(screen.getByText(/From the studio/)).toBeInTheDocument();
+    sessionStorage.clear();
   });
 });

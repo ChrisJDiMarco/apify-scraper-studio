@@ -38,7 +38,7 @@ describe('Prompt Library in the content workspace', () => {
   it('lists every prompt for the edition and reads one with its model and history', async () => {
     const h = harness();
     const list = h.api.listPrompts();
-    expect(list.groups.map((group) => group.label)).toEqual(['Research', 'Reports', 'Channel assets', 'Pictures', 'Assistant', 'Data tools', 'Behind every call']);
+    expect(list.groups.map((group) => group.label)).toEqual(['Research', 'Reports', 'Channel assets', 'Pictures', 'Video', 'Assistant', 'Data tools', 'Behind every call']);
     expect(list.prompts.find((row) => row.id === 'research.discovery')).toMatchObject({ name: 'Find candidate trends', version: 0, custom: false, locked: false, editable: true });
     expect(list.prompts.find((row) => row.id === 'system.claude')).toMatchObject({ editable: false });
     const read = await h.api.readPrompt({ id: 'research.discovery' });

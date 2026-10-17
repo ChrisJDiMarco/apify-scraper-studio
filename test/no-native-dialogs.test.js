@@ -8,7 +8,6 @@ import { describe, expect, it } from 'vitest';
 const STILL_NATIVE = new Map([
   ['confirm-dialog.jsx', 'the fallback when no ConfirmProvider is mounted'],
   ['asset-editor.jsx', 'the synchronous unsaved-edits guard every navigation path asks inline'],
-  ['brand-images.jsx', 'not moved yet'],
   ['research-knowledge.jsx', 'not moved yet'],
   ['settings-view.jsx', 'not moved yet'],
   ['sheets-view.jsx', 'not moved yet'],

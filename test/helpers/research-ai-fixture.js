@@ -22,6 +22,7 @@ const stageOf = (request) => {
   if (props.assignments) return 'tagging';
   if (props.executiveSummary) return 'trend-report';
   if (props.whatHappened) return 'toolkit';
+  if (props.trends && props.watch) return 'scan-report';
   return 'content';
 };
 function discoveryPosts(request) { return jsonAfter(request.prompt, 'RAW DATA BATCH (sorted by engagement):'); }
@@ -59,6 +60,11 @@ function researchOutput(request, options = {}) {
       const selfServeId = props.selfServeAngle?.properties?.productId?.enum?.find((id) => id) || '';
       const five = (label) => [1, 2, 3, 4, 5].map((n) => `${label} ${n} about manual reporting friction`);
       return { trendName: theme.name, whatHappened: 'Practitioners describe manual reporting work that slows teams down.', whyMatters: { intro: 'Reporting time is going up.', painPoints: [1, 2, 3].map((n) => ({ label: `Pain ${n}`, text: 'Manual reporting takes hours.' })) }, howToTalk: { intro: 'Lead with the practitioner reality.', talkingPoints: [1, 2, 3].map((n) => ({ label: `Angle ${n}`, text: 'Teams need faster reporting.' })) }, enterpriseAngle: { productId: enterpriseId, paragraph: enterpriseId ? 'At enterprise scale reporting spans many teams.' : 'No approved Enterprise product is registered yet.', capabilities: [1, 2, 3].map((n) => ({ name: `Capability ${n}`, text: 'Automates reporting.' })) }, selfServeAngle: { productId: selfServeId, paragraph: selfServeId ? 'Small teams can automate the basics.' : 'No approved self-serve toolkit is registered yet.', keyTools: (options.keyTools || ['Tool A', 'Tool B', 'Tool C']).map((toolName) => ({ toolName, text: 'Helps with this trend.' })), alsoFits: { productId: '', toolNames: [], text: '' } }, headlines: five('Headline'), subheads: five('Subhead'), hooks: five('Hook'), ctas: { enterprise: ['Book an enterprise demo', 'Talk to sales'], plg: ['Start free', 'Try the toolkit', 'See the tools'] }, caveats: ['Fixture output.'] };
+    }
+    case 'scan-report': {
+      // One entry per trend named in the prompt's TRENDS, citing its own E-refs, with a word-for-word quote from its first post.
+      const trends = jsonAfter(request.prompt, 'TRENDS (in order; "evidence" lists the post ids behind each):'); const posts = jsonAfter(request.prompt, 'POSTS:');
+      return { summary: options.scanSummary || `The scan found ${trends.length} trends worth a closer look.`, trends: trends.map((trend) => { const first = posts.find((post) => post.id === trend.evidence[0]); return { name: trend.name, whatsHappening: `People describe ${trend.name.toLowerCase()} in recent posts.`, whyItMatters: 'It changes what teams report this week.', quotes: first ? [{ evidenceId: first.id, text: first.text.slice(0, 40) }] : [], evidenceIds: trend.evidence.slice(0, 4) }; }), watch: ['Whether more accounts mention it next scan.'], nextSteps: ['Run full research on the strongest trend.'], caveats: ['Fixture output.'] };
     }
     default: return null;
   }

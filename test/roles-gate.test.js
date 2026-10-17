@@ -25,6 +25,8 @@ function fakeCli() {
     const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
     child.stdin = new Writable({ write(_chunk, _encoding, done) { done(); } });
     child.kill = () => { queueMicrotask(() => child.emit('close', null, 'SIGTERM')); return true; };
+    // Codex's free status checks (version and sign-in, ai-connections.js) answer at once: it is installed and signed in.
+    if (command === 'codex' && ['--version', 'login'].includes(args[0])) { queueMicrotask(() => { child.stdout.write(args[0] === 'login' ? 'Logged in using ChatGPT\n' : 'codex-cli 0.156.0\n'); child.emit('close', 0, null); }); return child; }
     calls.push({ command, args, env: options.env });
     const finish = () => { child.stderr.write('Fixture CLI: no AI in tests.'); child.emit('close', 1, null); };
     if (holding) held.push(finish); else queueMicrotask(finish);

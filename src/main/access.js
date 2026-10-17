@@ -23,7 +23,7 @@ const fail = (message, status, code) => Object.assign(new Error(message), { stat
 const SENDS_TO_SETTINGS = /\bsettings\b|api[\s_-]?keys?|\bkeys?\b|\btokens?\b|\bsign(?:ed)?[\s-]?in\b|\blog(?:ged)?[\s-]?in\b|\bauth login\b|\bconnect(?:ed|ion)?\b|\bcredentials?\b|\bunauthori[sz]ed\b/i;
 // Errors from (or about) the AI and data providers: they name models, the account's credit and billing, and admin-only
 // program settings, none of which an editor can change and a channel owner must never see (D4).
-const FROM_PROVIDER = /\b(?:claude|anthropic|codex|openai|apify)\b|\bmodels?\b|\bcredits?\b|\bbill(?:ing|ed)\b|\bapi error\b|\boverloaded\b|\brate[\s-]?limit/i;
+const FROM_PROVIDER = /\b(?:claude|anthropic|codex|openai|openrouter|fal(?:\.ai)?|apify)\b|\bmodels?\b|\bcredits?\b|\bbill(?:ing|ed)\b|\bapi error\b|\boverloaded\b|\brate[\s-]?limit/i;
 // Refusals the app writes for people itself (a prompt name such as "Channel asset picture (image model)", or "a
 // password, key or token" in a secret check, would otherwise read as a provider error). promptSample and
 // promptTestUnavailable can carry a provider's text, so they stay rewritable.
@@ -101,7 +101,8 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
   function channelDeliverables(viewer) {
     const folder = kit.kitFolders(edition()).find((entry) => entry.id === viewer.channelId);
     const offered = new Set(kit.kitDeliverableIds(edition())); const pictures = workspace.picturesReady();
-    return list(folder?.deliverableIds).filter((id) => offered.has(id) && (pictures || kindOf(id) !== 'image'));
+    // A short video is opt-in and costs dollars, so a channel owner's set never includes one.
+    return list(folder?.deliverableIds).filter((id) => offered.has(id) && kindOf(id) !== 'video' && (pictures || kindOf(id) !== 'image'));
   }
   function trendBrief(payload) {
     const source = record(payload.source);
@@ -202,13 +203,18 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     logAudit(method, result, viewer);
     let out = result;
     if ((REPORTED.has(method) || AUDITED.has(method)) && out && typeof out === 'object' && ('activity' in out || 'audit' in out)) { const { activity: _activity, audit: _audit, ...rest } = out; out = rest; }
+    return projectResult(method, out, viewer);
+  }
+  // What a method's answer looks like to this viewer, without logging anything: after() uses it, and so does Ask AI's
+  // live progress (each streamed event and snapshot is shaped as the askHelp answer would be).
+  function projectResult(method, result, viewer) {
     const base = baseOf(viewer);
     const project = base === 'channel' ? RESULTS[method] : null;
-    if (project) return project(out, viewer);
+    if (project) return project(result, viewer);
     // A role without See costs never receives money, from a call's answer either. Identity methods answer with the
     // viewer or the already-projected state.
-    if (base === 'editor' && Array.isArray(viewer?.capabilities) && !viewer.capabilities.includes('seeCosts') && !IDENTITY.has(method)) return policy.stripMoney(out);
-    return out;
+    if (base === 'editor' && Array.isArray(viewer?.capabilities) && !viewer.capabilities.includes('seeCosts') && !IDENTITY.has(method)) return policy.stripMoney(result);
+    return result;
   }
 
   // Channel owners: what comes back. No dollars, models, receipts, evidence or other channels.
@@ -284,7 +290,7 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
   }
   const viewKeyFor = (identity, session) => policy.viewKey(viewerFor(identity, session));
 
-  return { identityForCall, sessionForCall, viewerFor, currentViewer, actorForCall, check, after, rewriteError, project, canUpload, effectiveFor, viewKeyFor, policy: policyNow };
+  return { identityForCall, sessionForCall, viewerFor, currentViewer, actorForCall, check, after, projectResult, rewriteError, project, canUpload, effectiveFor, viewKeyFor, policy: policyNow };
 }
 
 module.exports = { createAccess, SYSTEM, SCOPE_METHODS, UPLOAD_METHODS, AUDITED };

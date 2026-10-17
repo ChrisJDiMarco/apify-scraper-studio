@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, CircleStop, Clapperboard, ClipboardCopy, CloudUpload, Download, ExternalLink, FileText, Folder, FolderOpen, Image as ImageIcon, LayoutTemplate, LoaderCircle, Megaphone, PenLine, Radar, RefreshCw, Sparkles, TriangleAlert, Wand2, X, Zap } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
+import { studioRefDragProps } from './ask-slash.js';
 import { AssetEditor, AssetStatusMenu, canEditAsset, statusLabel, statusOf, useUnsavedGuard } from './asset-editor.jsx';
 import { brandFrom } from './brand-check.js';
 import { copyText, trapTab, useModalFocus, useToast } from './role-screens.jsx';
@@ -11,6 +12,7 @@ import { useHelpImages } from './help-images.js';
 import { KitCreator, kitSourcesFrom } from './kit-creator.jsx';
 import { formatDay, useCan, useViewer, writeProps } from './viewer.js';
 import { formatDate, number, withViewTransition } from './ui.jsx';
+import { VideoPlayer, VideoTile } from './video-preview.jsx';
 import { SOURCE_LABEL, TYPE_LABEL, buildLibraryTree, channelName, channelOf, cleanTitle, folderSummary, pathTo, runSummary } from '../../shared/library-tree.js';
 import './library.css';
 
@@ -112,7 +114,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
   const kitFolderOf = useMemo(() => new Map(kitRuns.flatMap((run) => list(run.jobs).map((job) => [`${run.id}:${job.id}`, job.folder]))), [kitRuns]);
 
   const items = [
-    ...studioImages.map((asset) => ({ key: `studio:${asset.id}`, id: asset.id, source: 'studio', kind: asset.kind === 'video' ? 'video' : 'image', title: asset.title || 'Campaign visual', createdAt: asset.createdAt, label: kitFolderOf.get(`${asset.runId}:${asset.deliverableId}`) || sentence(asset.channel) || 'Campaign visual' })),
+    ...studioImages.map((asset) => ({ key: `studio:${asset.id}`, id: asset.id, source: 'studio', kind: asset.kind === 'video' ? 'video' : 'image', ...(asset.kind === 'video' ? { asset } : {}), title: asset.title || 'Campaign visual', createdAt: asset.createdAt, label: kitFolderOf.get(`${asset.runId}:${asset.deliverableId}`) || sentence(asset.channel) || 'Campaign visual' })),
     ...list(helpImages).map((image) => ({ key: `help:${image.id}`, id: image.id, source: 'help', kind: 'image', title: image.title, createdAt: image.createdAt, prompt: image.prompt, size: image.size, label: 'Made in Ask AI' })),
   ].sort(newest);
   const hasVideo = items.some((item) => item.kind === 'video');
@@ -149,7 +151,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
     const next = order[order.findIndex((asset) => asset.id === reading.asset.id) + step];
     if (next) setReading({ asset: next, run: reading.run });
   }
-  function openPicture(asset, run) { setOpen({ key: `studio:${asset.id}`, id: asset.id, source: 'studio', kind: 'image', title: asset.title, createdAt: asset.createdAt, label: kitFolderOf.get(`${run.id}:${asset.deliverableId}`) || sentence(asset.channel) }); }
+  function openPicture(asset, run) { setOpen({ key: `studio:${asset.id}`, id: asset.id, source: 'studio', kind: asset.kind === 'video' ? 'video' : 'image', ...(asset.kind === 'video' ? { asset } : {}), title: asset.title, createdAt: asset.createdAt, label: kitFolderOf.get(`${run.id}:${asset.deliverableId}`) || sentence(asset.channel) }); }
   function startAgain(run) {
     const kind = run?.kit?.sourceKind;
     if (kind === 'google-doc') setCreating({ key: Date.now(), mode: 'link', link: run.kit.sourceUrl || '' });
@@ -165,10 +167,10 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
     {creating && canMake && <KitCreator key={creating.key} api={api} sources={sources} preset={creating} imagesReady={imagesReady} action={action} busy={busy} picturesOff={picturesOff} focus={focus} onClose={() => setCreating(null)} onCreated={created} onSettings={onSettings} />}
     {reading && <KitFileViewer api={api} web={web} busy={busy} action={action} file={reading} folder={kitFolderOf.get(`${reading.run.id}:${reading.asset.deliverableId}`)} label={list(reading.run.jobs).find((job) => job.id === reading.asset.deliverableId)?.label} brand={brand} onAsk={can('askHelp') ? onAsk : undefined} onNotice={showToast} onClose={() => setReading(null)} onMove={moveFile} />}
     {toast}
-    {open && <PictureLightbox picture={open} cache={cache} busy={busy} web={web} saved={saved === open.key} viewer={viewer} onClose={() => setOpen(null)} onDownload={() => download(open)} onVariation={open.kind === 'image' && imagesReady && can('askHelp') && onAsk ? () => { setOpen(null); onAsk(`Make a variation of the picture “${open.title}”.`, open.prompt ? `EARLIER PICTURE PROMPT (data): ${open.prompt}` : ''); } : undefined} />}
+    {open && <PictureLightbox api={api} picture={open} cache={cache} busy={busy} web={web} saved={saved === open.key} viewer={viewer} onClose={() => setOpen(null)} onDownload={() => download(open)} onVariation={open.kind === 'image' && imagesReady && can('askHelp') && onAsk ? () => { setOpen(null); onAsk(`Make a variation of the picture “${open.title}”.`, open.prompt ? `EARLIER PICTURE PROMPT (data): ${open.prompt}` : ''); } : undefined} />}
   </>;
   const gallery = (rows) => <div className="simple-asset-grid">{rows.map((item) => <button type="button" className="simple-asset" key={item.key} onClick={() => setOpen(item)} aria-label={`Open ${item.title}`}>
-    <span className="simple-asset-frame">{item.kind === 'video' ? <span className="simple-asset-placeholder"><Clapperboard size={26} aria-hidden="true" /></span> : cache[item.key] ? <img src={cache[item.key]} alt="" loading="lazy" /> : <span className="simple-asset-placeholder shimmer" />}</span>
+    <span className="simple-asset-frame">{item.kind === 'video' ? (item.asset ? <VideoTile asset={item.asset} api={api} title={item.title} /> : <span className="simple-asset-placeholder"><Clapperboard size={26} aria-hidden="true" /></span>) : cache[item.key] ? <img src={cache[item.key]} alt="" loading="lazy" /> : <span className="simple-asset-placeholder shimmer" />}</span>
     <span className="simple-asset-copy"><strong>{item.title}</strong><small>{[item.label, formatDate(item.createdAt)].filter(Boolean).join(' · ')}</small></span>
   </button>)}</div>;
   // A folder card: research runs, trends and sources look alike, with a kicker that says which one it is.
@@ -177,7 +179,9 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
     const quick = node.meta.origin === 'quick-scan';
     const kind = node.type === 'research-run' ? (quick ? 'Quick scan' : 'Research run') : node.type === 'trend' ? 'Trend' : node.type === 'source' ? SOURCE_LABEL[node.meta.sourceKind] || 'Other source' : node.id === 'other-sources' ? 'Outside research' : 'Folder';
     const used = list(node.meta.usedBy);
-    return <button type="button" className={`simple-folder${node.live ? ' is-live' : ''}`} key={id} {...(spot ? { 'data-spot': 'assets.folder', 'data-spot-item': node.title } : {})} onClick={() => go({ node: id })} aria-label={`Open the ${node.title} folder`}>
+    // A trend's folder (or a run's) can be dragged into Ask AI to ask about it (ask-slash.js).
+    const dragRef = node.type === 'trend' ? { kind: 'asset-folder', ref: node.title, id } : node.type === 'research-run' ? { kind: 'run', ref: node.title, id } : null;
+    return <button type="button" className={`simple-folder${node.live ? ' is-live' : ''}`} key={id} {...(spot ? { 'data-spot': 'assets.folder', 'data-spot-item': node.title } : {})} {...(dragRef ? studioRefDragProps(dragRef) : {})} onClick={() => go({ node: id })} aria-label={`Open the ${node.title} folder`}>
       <span className="simple-folder-cover" aria-hidden="true">{node.cover.length ? node.cover.map((assetId) => cache[`studio:${assetId}`] ? <img key={assetId} src={cache[`studio:${assetId}`]} alt="" /> : <span key={assetId} className="shimmer" />) : <span className="simple-folder-glyph">{node.type === 'research-run' ? (quick ? <Zap size={30} /> : <Radar size={30} />) : <Folder size={34} />}</span>}</span>
       <span className="simple-folder-copy">
         <span className="simple-folder-kind">{kind}</span>
@@ -306,7 +310,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
 
 // One picture, large: Download (or Open file on the Mac) and Make a variation. A modal: focus moves in, Tab stays in,
 // Esc closes it and focus goes back to the card that opened it.
-function PictureLightbox({ picture, cache, busy, web, saved, viewer, onClose, onDownload, onVariation }) {
+function PictureLightbox({ api, picture, cache, busy, web, saved, viewer, onClose, onDownload, onVariation }) {
   const panel = useRef(null);
   useModalFocus(panel);
   useEffect(() => {
@@ -316,7 +320,7 @@ function PictureLightbox({ picture, cache, busy, web, saved, viewer, onClose, on
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return <div className="simple-lightbox" role="dialog" aria-modal="true" aria-label={picture.title} ref={panel} tabIndex={-1} onKeyDown={(event) => trapTab(event, panel.current)} onClick={onClose}>
     <div className="simple-lightbox-card" onClick={(event) => event.stopPropagation()}>
-      <div className="simple-lightbox-media">{picture.kind === 'video' ? <span className="simple-asset-placeholder"><Clapperboard size={34} aria-hidden="true" /><small>Open the file to play this video.</small></span> : cache[picture.key] ? <img src={cache[picture.key]} alt={picture.title} /> : <span className="simple-asset-placeholder shimmer" />}</div>
+      <div className="simple-lightbox-media">{picture.kind === 'video' ? (picture.asset ? <VideoPlayer asset={picture.asset} api={api} /> : <span className="simple-asset-placeholder"><Clapperboard size={34} aria-hidden="true" /><small>Open the file to play this video.</small></span>) : cache[picture.key] ? <img src={cache[picture.key]} alt={picture.title} /> : <span className="simple-asset-placeholder shimmer" />}</div>
       <aside className="simple-lightbox-side">
         <button type="button" className="simple-lightbox-close" aria-label="Close" onClick={onClose}><X size={18} /></button>
         <small className="simple-doc-meta">{[picture.label, formatDate(picture.createdAt)].filter(Boolean).join(' · ')}</small>
@@ -405,6 +409,16 @@ function JobState({ job }) {
   return <span className="simple-kit-state problem" title={job.error || 'Needs another try'}><TriangleAlert size={13} aria-hidden="true" /></span>;
 }
 function KitFile({ job, run, live, assets, cache, api, onNotice, onOpenFile, onOpenPicture }) {
+  // The short video: its clip opens in the player, with the on-screen lines saved beside it.
+  if (job.kind === 'video') {
+    const clip = assets[0];
+    return <li className="simple-kit-file is-pictures">
+      <span className="simple-kit-file-icon"><Clapperboard size={17} aria-hidden="true" /></span>
+      <span className="simple-kit-file-copy"><strong>{job.label}</strong><small>{clip ? `Short video · ${clip.durationSeconds || ''} s` : jobLine(job, null, live)}</small></span>
+      <JobState job={job} />
+      <span className="simple-kit-thumbs">{clip ? <button type="button" aria-label={`Play ${clip.title}`} onClick={() => onOpenPicture(clip, run)}><VideoTile asset={clip} api={api} title={clip.title} /></button> : <span className={`simple-kit-thumb-empty${job.status === 'running' ? ' shimmer' : ''}`} />}</span>
+    </li>;
+  }
   if (job.kind === 'image') {
     const pictures = [...assets].sort((a, b) => (a.variantIndex ?? 0) - (b.variantIndex ?? 0));
     return <li className="simple-kit-file is-pictures">

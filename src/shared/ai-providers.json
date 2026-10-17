@@ -1,0 +1,36 @@
+{
+  "//": "How the studio reaches each AI vendor (a connection). Read by main (ai-connections.js, ai-routing.js, the runners) and the renderer (Settings → AI connections and Model routing). Route ids already stored in receipts and settings stay: claude, claude-api, codex and the pseudo-route auto. A key never leaves the studio host except to its own vendor.",
+  "version": 1,
+  "connections": [
+    { "id": "claude", "label": "Claude Code", "short": "Claude Code", "plan": "Your Claude plan", "vendor": "anthropic", "vendorLabel": "Anthropic", "kinds": ["text"], "auth": "subscription-cli",
+      "cli": { "command": "claude", "versionArgs": ["--version"], "statusArgs": ["auth", "status", "--json"], "signIn": "claude auth login", "update": "claude update", "install": "https://claude.com/claude-code" },
+      "family": "claude", "structuredOutput": "cli-json-schema", "streaming": "cli-stream-json", "metering": "cli-reported", "caching": "none", "maxPromptBytes": 9437184 },
+    { "id": "claude-api", "label": "Anthropic API key", "short": "Anthropic API", "vendor": "anthropic", "vendorLabel": "Anthropic", "kinds": ["text"], "auth": "api-key", "keyName": "ANTHROPIC_API_KEY", "keyPattern": "^sk-ant-[A-Za-z0-9_-]{20,}$", "keyHint": "sk-ant-…", "consoleUrl": "https://console.anthropic.com",
+      "family": "claude", "structuredOutput": "native", "streaming": "sse", "metering": "usage-list-price", "caching": "prompt-cache" },
+    { "id": "codex", "label": "Codex", "short": "Codex", "plan": "Your ChatGPT plan", "vendor": "openai", "vendorLabel": "OpenAI", "kinds": ["text"], "auth": "subscription-cli",
+      "cli": { "command": "codex", "versionArgs": ["--version"], "statusArgs": ["login", "status"], "signIn": "codex login", "update": "codex update", "install": "https://developers.openai.com/codex/cli" },
+      "family": "codex", "structuredOutput": "cli-output-schema", "streaming": "final", "metering": "none", "caching": "none" },
+    { "id": "openai", "label": "OpenAI API key", "short": "OpenAI API", "vendor": "openai", "vendorLabel": "OpenAI", "kinds": ["image", "text"], "auth": "api-key", "keyName": "OPENAI_API_KEY", "keyHint": "sk-…", "consoleUrl": "https://platform.openai.com/api-keys",
+      "family": "openai", "structuredOutput": "native", "streaming": "sse", "metering": "usage-price-table", "caching": "automatic" },
+    { "id": "openrouter", "label": "OpenRouter", "short": "OpenRouter", "vendor": "openrouter", "vendorLabel": "OpenRouter", "kinds": ["text"], "auth": "api-key", "keyName": "OPENROUTER_API_KEY", "keyPattern": "^sk-or-[A-Za-z0-9_-]{20,}$", "keyHint": "sk-or-…", "consoleUrl": "https://openrouter.ai/settings/keys",
+      "family": "openrouter", "structuredOutput": "native-if-supported", "streaming": "sse", "metering": "reported-cost", "pricing": "live", "caching": "provider" },
+    { "id": "fal", "label": "fal.ai", "short": "fal.ai", "vendor": "fal", "vendorLabel": "fal.ai", "kinds": ["image", "video"], "auth": "api-key", "keyName": "FAL_KEY", "keyHint": "Key from fal.ai/dashboard/keys", "consoleUrl": "https://fal.ai/dashboard/keys",
+      "family": "fal", "structuredOutput": null, "streaming": "queue", "metering": "unit-price", "pricing": "live", "caching": "none" }
+  ],
+  "pseudo": [
+    { "id": "auto", "label": "Claude (automatic)", "short": "Claude", "kinds": ["text"], "resolvesTo": ["claude", "claude-api"], "family": "claude", "detail": "Claude Code when it’s installed, signed in and up to date; otherwise the Anthropic API key." }
+  ],
+  "modelPatterns": {
+    "claude": "^claude-[a-z0-9][a-z0-9.-]{1,70}$",
+    "codex": "^$|^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,80}$",
+    "openai": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,80}$",
+    "openrouter": "^[a-z0-9][a-z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:-]{0,120}$",
+    "fal": "^[a-z0-9][a-z0-9._-]*(/[a-zA-Z0-9._-]+){1,6}$"
+  },
+  "efforts": ["low", "medium", "high", "xhigh", "max"],
+  "privacy": [
+    { "id": "no-training", "label": "Only ones that don’t keep or train on them (recommended)" },
+    { "id": "zdr", "label": "Only zero-retention providers" },
+    { "id": "any", "label": "Any provider" }
+  ]
+}

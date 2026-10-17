@@ -8,6 +8,7 @@ import { can as canCall, canRun, hasCapability, useViewer, writeProps } from './
 import { useConfirm } from './confirm-dialog.jsx';
 import { CODEX_UNCAPPED } from './studio-actions.js';
 import { reportCostLine } from './cost-lines.js';
+import { clearStudioDrag, markStudioDrag } from './ask-slash.js';
 import './trend-board.css';
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -31,7 +32,7 @@ function scoutingText(scout) {
 // fits (My channels).
 function TrendCard({ card, trend = null, by = null, channels = [], fits = [], disabled, mayDecide = false, write = { disabled: Boolean(disabled) }, preview = false, dragging, api, onDecide, onDecideWithNote, onAsk, onDragStart, onDragEnd, onOpenRun, onReadReport, onCreateAssets, onMakeAssets }) {
   const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0];
-  return <article className={`tb-card ${card.needsAttention ? 'attention' : ''} ${dragging ? 'dragging' : ''}`} data-card-key={card.key} style={{ viewTransitionName: transitionName(card.key) }} draggable={mayDecide && card.canDecide && !disabled && !preview} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', card.key); onDragStart(card.key); }} onDragEnd={onDragEnd} aria-label={card.name}>
+  return <article className={`tb-card ${card.needsAttention ? 'attention' : ''} ${dragging ? 'dragging' : ''}`} data-card-key={card.key} style={{ viewTransitionName: transitionName(card.key) }} draggable={mayDecide && card.canDecide && !disabled && !preview} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'copyMove'; event.dataTransfer.setData('text/plain', card.key); markStudioDrag(event, { kind: 'trend', ref: card.name, id: card.key }); onDragStart(card.key); }} onDragEnd={() => { clearStudioDrag(); onDragEnd(); }} aria-label={card.name}>
     {card.priorityTier && <div className="tb-card-meta"><span className={`tb-tier tier-${card.priorityTier.toLowerCase().replace(/[^a-z]+/g, '-')}`} title={card.priorityScore != null ? `Priority score ${card.priorityScore}` : undefined}>{card.priorityTier}</span></div>}
     <h4>{card.name}</h4>
     {card.description && <p className="tb-card-description">{card.description}</p>}

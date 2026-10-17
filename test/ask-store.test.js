@@ -277,3 +277,49 @@ describe('search and purge', () => {
     expect(h.store.purge('')).toBe(false);
   });
 });
+
+describe('asking the last question again', () => {
+  it('replaces only the last answer, keeping up to two earlier ones as view-only versions, and maps the new request', () => {
+    const h = harness();
+    const first = h.store.appendTurn(ALEX, turn('What changed this week?'));
+    const conversationId = first.conversation.id;
+    const second = h.store.appendTurn(ALEX, { ...turn('Which trend is biggest?'), conversationId });
+    h.advance(1000);
+    const again = h.store.replaceLastTurn(ALEX, { conversationId, replaces: second.userMessage.id, mode: 'regenerate', user: { requestId: 'req-regenerate-1' }, assistant: { content: 'AI Overviews is biggest.', actions: [], cards: [], read: [], receipt: { costUsd: 0.02, model: 'claude-opus-5-5' } } });
+    expect(again.replaced).toBe(second.message.id);
+    expect(again.message.versions).toEqual([{ id: second.message.id, content: 'Answer to Which trend is biggest?', cards: [], read: [], receipt: { costUsd: 0.01, model: 'claude-opus-5-5', route: 'claude' }, createdAt: second.message.createdAt, question: 'Which trend is biggest?' }]);
+    const stored = h.store.readConversation(ALEX, conversationId);
+    expect(stored.messages.map((row) => row.id)).toEqual([first.userMessage.id, first.message.id, second.userMessage.id, again.message.id]);
+    expect(h.store.findByRequest(ALEX, 'req-regenerate-1').message.id).toBe(again.message.id);
+    // An edit changes the question's words and keeps when it was edited; versions stay at two.
+    h.advance(1000);
+    const edited = h.store.replaceLastTurn(ALEX, { conversationId, replaces: second.userMessage.id, mode: 'edit', user: { content: 'Which trend grew fastest?', requestId: 'req-edit-1' }, assistant: { content: 'Zero-click grew fastest.', stopped: true } });
+    expect(edited.userMessage).toMatchObject({ id: second.userMessage.id, content: 'Which trend grew fastest?', editedAt: expect.any(String) });
+    expect(edited.message.versions.map((row) => row.content)).toEqual(['AI Overviews is biggest.', 'Answer to Which trend is biggest?']);
+    h.store.replaceLastTurn(ALEX, { conversationId, replaces: second.userMessage.id, user: { requestId: 'req-again-2' }, assistant: { content: 'Third.' } });
+    const last = h.store.readConversation(ALEX, conversationId).messages.at(-1);
+    expect(last.versions.map((row) => row.content)).toEqual(['Zero-click grew fastest.', 'AI Overviews is biggest.']);
+    expect(last.versions[0]).toMatchObject({ stopped: true, question: 'Which trend grew fastest?' });
+    expect(last.versions[0].versions).toBeUndefined();
+  });
+
+  it('refuses anything but the last question', () => {
+    const h = harness();
+    const first = h.store.appendTurn(ALEX, turn('One'));
+    h.store.appendTurn(ALEX, { ...turn('Two'), conversationId: first.conversation.id });
+    expect(() => h.store.replaceLastTurn(ALEX, { conversationId: first.conversation.id, replaces: first.userMessage.id, assistant: { content: 'x' } })).toThrow(expect.objectContaining({ status: 409, message: 'Only your last question can be asked again.' }));
+    expect(() => h.store.replaceLastTurn(ALEX, { conversationId: 'ask-00000000-0000-0000-0000-000000000000', replaces: first.userMessage.id, assistant: { content: 'x' } })).toThrow(expect.objectContaining({ status: 404 }));
+  });
+
+  it('keeps what was attached and a stopped answer, and says both in the history; history can end before a message', () => {
+    const h = harness();
+    const asked = h.store.appendTurn(ALEX, { ...turn('What should we post?'), user: { content: 'What should we post?', requestId: 'req-a', attachments: [{ kind: 'report', ref: 'Zero-click report' }, { kind: 'trend', ref: 'AI Overviews' }, { kind: 'secret', ref: 'x' }] }, assistant: { content: 'Start with', stopped: true } });
+    const stored = h.store.readConversation(ALEX, asked.conversation.id);
+    expect(stored.messages[0].attachments).toEqual([{ kind: 'report', ref: 'Zero-click report' }, { kind: 'trend', ref: 'AI Overviews' }]);
+    expect(stored.messages[1].stopped).toBe(true);
+    const history = askHistory(stored);
+    expect(history.turns[0].content).toBe('What should we post?\n[Attached: report “Zero-click report”, trend “AI Overviews”]');
+    expect(history.turns[1].content).toBe('Start with\n[Stopped before finishing]');
+    expect(askHistory(stored, { before: stored.messages[0].id }).turns).toEqual([]);
+  });
+});

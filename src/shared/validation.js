@@ -47,6 +47,8 @@ function validateKeyName(value, allowed) {
 function validateKeyValue(keyName, value) {
   const text = stringValue(value, keyName, { required: true, max: 3000 });
   if (keyName === 'ANTHROPIC_API_KEY' && !/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(text)) throw new Error('That does not look like an Anthropic API key. Keys start with sk-ant- and come from console.anthropic.com.');
+  if (keyName === 'OPENROUTER_API_KEY' && !/^sk-or-[A-Za-z0-9_-]{20,}$/.test(text)) throw new Error('That does not look like an OpenRouter key. Keys start with sk-or- and come from openrouter.ai/settings/keys.');
+  if (keyName === 'FAL_KEY' && (/\s/.test(text) || text.length < 20)) throw new Error('That does not look like a fal.ai key. Copy the whole key from fal.ai/dashboard/keys.');
   if (keyName !== 'GOOGLE_SHEETS_WEBHOOK_URL') return text;
   let url;
   try {
@@ -122,7 +124,8 @@ function validateSettings(value, current = {}) {
   return {
     ...current,
     // auto: the Claude app (Claude Code CLI) when it is installed, signed in and current, else the API key.
-    aiProvider: enumValue(settings.aiProvider ?? current.aiProvider ?? 'auto', 'AI provider', ['auto', 'claude', 'claude-api', 'codex']),
+    // Settings → Model routing writes this as a mirror of its text default (openai and openrouter are API-key routes).
+    aiProvider: enumValue(settings.aiProvider ?? current.aiProvider ?? 'auto', 'AI provider', ['auto', 'claude', 'claude-api', 'codex', 'openai', 'openrouter']),
     aiModel: stringValue(settings.aiModel ?? current.aiModel ?? 'claude-opus-5-5', 'Claude model', { required: true, max: 160, pattern: /^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/ }),
     aiMaxBudgetUsd: aiBudget(settings.aiMaxBudgetUsd ?? current.aiMaxBudgetUsd ?? 1),
     maxItems: intValue(settings.maxItems, 'Max items', { min: 1, max: 10000, fallback: current.maxItems || 1000 }),

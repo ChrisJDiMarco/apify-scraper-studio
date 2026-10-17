@@ -36,8 +36,8 @@ describe('Ask AI pictures', () => {
     const { images } = setup();
     expect(images.list()).toEqual([]);
     const made = await images.create({ prompt: 'Whales above a city', title: 'Sky whales' });
-    expect(images.list()).toEqual([{ id: made.id, title: 'Sky whales', prompt: 'Whales above a city', size: '1536x1024', createdAt: '2026-10-08T18:00:00.000Z', costUsd: 0.0472 }]);
-    expect(images.read(made.id)).toEqual({ id: made.id, dataUrl: made.dataUrl });
+    expect(images.list()).toEqual([{ id: made.id, title: 'Sky whales', prompt: 'Whales above a city', size: '1536x1024', createdAt: '2026-10-08T18:00:00.000Z', costUsd: 0.0472, family: 'none', references: { label: '', style: 0, logo: 0 } }]);
+    expect(images.read(made.id)).toEqual({ id: made.id, dataUrl: made.dataUrl, family: 'none', references: { label: '', style: 0, logo: 0 } });
     expect(() => images.read('../secrets')).toThrow('no longer available');
   });
 
@@ -49,9 +49,9 @@ describe('Ask AI pictures', () => {
     expect(calls).toEqual([]);
   });
 
-  it('explains how to turn pictures on when no OpenAI key is saved', async () => {
+  it('explains how to turn pictures on when no picture model is connected', async () => {
     const { calls, images } = setup({ configured: false });
-    await expect(images.create({ prompt: 'A chart' })).rejects.toThrow('Settings → Image generation');
+    await expect(images.create({ prompt: 'A chart' })).rejects.toThrow('Settings → AI connections');
     expect(calls).toEqual([]);
   });
 

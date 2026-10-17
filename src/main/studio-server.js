@@ -15,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { randomBytes, timingSafeEqual, createHash } = require('crypto');
 const { methods } = require('../shared/studio-api-channels.json');
-const { copy: COPY, capabilities: CAPABILITIES = [], readMethods: READ_METHODS = [] } = require('../shared/roles.json');
+const { copy: COPY, capabilities: CAPABILITIES = [], readMethods: READ_METHODS = [], paidMethods: PAID_METHODS = [] } = require('../shared/roles.json');
 const { effectiveRole } = require('./roles');
 const { createServerLog, errorFields } = require('./server-log');
 
@@ -24,7 +24,7 @@ const UI_CHANNELS = new Set(Object.values(CHANNEL_OF));
 const READ_CHANNELS = new Set(READ_METHODS.map((method) => CHANNEL_OF[method]).filter(Boolean));
 // While the server drains for a restart, methods that start paid work (every write in a capability that spends) are
 // refused; stopping work, reads and ordinary saves still go through.
-const DRAIN_REFUSED = new Set(CAPABILITIES.filter((capability) => capability.spends).flatMap((capability) => capability.methods || []).filter((method) => !READ_METHODS.includes(method) && !/^(?:cancel|pause)/.test(method)).map((method) => CHANNEL_OF[method]).filter(Boolean));
+const DRAIN_REFUSED = new Set(CAPABILITIES.filter((capability) => capability.spends).flatMap((capability) => capability.methods || []).filter((method) => !READ_METHODS.includes(method) && !/^(?:cancel|pause)/.test(method)).concat(PAID_METHODS).map((method) => CHANNEL_OF[method]).filter(Boolean));
 const SESSION_MS = 12 * 3600000; // admin password sessions
 const LINK_SESSION_MS = 30 * 24 * 3600000; // personal sign-in link sessions: busy people shouldn't need the link every day
 const MAX_LINK_SESSIONS = 10; // per person, so one link can't fill the session table
@@ -47,7 +47,7 @@ const MAX_LOGIN_BYTES = 16 * 1024; // a password or a link token: sign-in is the
 const STATE_COALESCE_MS = 750; // the full state is a few hundred KB; a busy run updates it many times a second
 const GZIP_MIN_BYTES = 16 * 1024;
 const PROXY_SECRET_HEADER = 'x-studio-proxy-secret';
-const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.md': 'text/markdown; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.pdf': 'application/pdf', '.zip': 'application/zip', '.gz': 'application/gzip' };
 const token = () => randomBytes(32).toString('hex');
 const redact = (message) => String(message || 'Request failed.').replace(/(?:sk-ant-|sk-|apify_api_)[\w-]+/g, '[redacted]');
@@ -344,11 +344,30 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
       } catch (error) { log({ event: 'stream-failed', error: redact(error.message) }); entry.stop(); } // a timer: never let it take the server down
     };
     const stop = runtime.onBroadcast('state-changed', (state) => { pending = state; if (!timer && !closed) timer = setTimeout(flush, coalesceMs); });
-    const heartbeat = setInterval(() => { if (!stalled()) write(': keep-alive\n\n'); }, heartbeatMs);
+    // Ask AI's streamed answers and follow-ups for this person (web-runtime sendTo, index.js pushAskEvent): written at
+    // once, never coalesced like the state. Everyone who signs in with the admin password shares one identity, so for
+    // them an answer goes only to the browser session that asked (a follow-up, which names no session, goes to all).
+    // A stalled tab skips them and is told to read them back (ask-resync) once it drains.
+    let askGap = false;
+    const mine = (target) => {
+      if (!target || typeof target !== 'object') return false;
+      if (!who.identity) return Boolean(target.session) && target.session === who.session;
+      if (who.identity.id !== target.identityId) return false;
+      return who.identity.via !== 'password' || !target.session || target.session === who.session;
+    };
+    const resync = () => { if (askGap && !closed && !stalled()) { askGap = false; write('event: ask-resync\ndata: {}\n\n'); } };
+    const offAsk = typeof runtime.onPersonal === 'function' ? runtime.onPersonal('ask', (target, payload) => {
+      if (closed || !mine(target)) return;
+      if (stalled()) { askGap = true; return; }
+      resync();
+      let data; try { data = JSON.stringify(payload); } catch (_) { return; }
+      if (typeof data === 'string') write(`event: ask\ndata: ${data}\n\n`);
+    }) : () => {};
+    const heartbeat = setInterval(() => { if (!stalled()) { resync(); write(': keep-alive\n\n'); } }, heartbeatMs);
     const entry = {
       token: who.token, // the cookie session this stream belongs to ('' for SSO)
       owner,
-      close: () => { if (closed) return; closed = true; stop(); clearInterval(heartbeat); clearTimeout(timer); streams.delete(entry); },
+      close: () => { if (closed) return; closed = true; stop(); offAsk(); clearInterval(heartbeat); clearTimeout(timer); streams.delete(entry); },
       // A dead socket never drains, so ending it would only queue more: its buffers are freed at once instead.
       drop: () => { const open = !closed; entry.close(); if (open) slog.log('info', 'stream-dropped', { reason: 'stalled', identity: logIdentity(who) }); if (gzip) gzip.destroy(); res.destroy(); },
       stop: () => { if (backlog() > backlogBytes) return entry.drop(); const open = !closed; entry.close(); if (open) { if (gzip) gzip.end(); else res.end(); } },

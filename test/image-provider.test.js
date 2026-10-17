@@ -14,7 +14,7 @@ function png(width = 1536, height = 1024, { truncatedPixels = false, invalidFilt
 }
 const IMAGE = png();
 function response({ bytes = IMAGE, usage = digestUsage, data, ...rest } = {}) { return new Response(JSON.stringify({ data: data || [{ b64_json: bytes.toString('base64') }], usage, output_format: 'png', ...rest }), { headers: { 'x-request-id': 'req_fixture_123', 'content-type': 'application/json' } }); }
-function request(variants = 3, extra = {}) { return { runId: 'fixture-run', deliverable: { id: 'brand-image', label: 'Fixture visual', kind: 'image', variants, size: '1536x1024', variantPrompts: Array.from({ length: variants }, (_, i) => `Original fixture direction ${i + 1}`) }, maxBudgetUsd: 1, onRequest: async () => {}, ...extra }; }
+function request(variants = 3, extra = {}) { return { runId: 'fixture-run', deliverable: { id: 'brand-image', label: 'Fixture visual', kind: 'image', variants, size: '1536x1024', variantPrompts: Array.from({ length: variants }, (_, i) => `Original fixture direction ${i + 1}`), references: [] }, maxBudgetUsd: 1, onRequest: async () => {}, ...extra }; }
 async function failed(promise) { try { await promise; throw new Error('Expected fixture operation to fail'); } catch (error) { return error; } }
 function adapter(fetchImpl, extra = {}) { return createImageProvider({ getApiKey: () => 'fixture-private-key', fetchImpl, ...extra }); }
 // Brand reference images as the content workspace sends them: two style examples, then the approved logo.

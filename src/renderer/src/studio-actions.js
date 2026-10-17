@@ -45,6 +45,13 @@ const ALIASES = ASK_ACTIONS.aliases || {};
 export const AI_ACTION_METHOD = Object.freeze(Object.fromEntries(Object.entries(CATALOG).map(([kind, row]) => [kind, Object.freeze([...(row.methods || [])])])));
 export const aiActionAllowed = (kind, check) => Boolean(CATALOG[kind]) && AI_ACTION_METHOD[kind].every((method) => check(method));
 // An older stored button (open-report, approve-all-trends) as the kind it is now, with its fixed params.
+// The Ask AI conversation a button was pressed in (request.ask, or the conversationId the panel adds), so a scan or a
+// research run started there posts what it finds back into it.
+export function askOf(request = {}) {
+  const given = request?.ask && typeof request.ask === 'object' ? request.ask : request?.conversationId ? { conversationId: request.conversationId, messageId: request.messageId, actionIndex: request.actionIndex } : null;
+  if (!given?.conversationId) return null;
+  return { conversationId: String(given.conversationId), ...(given.messageId ? { messageId: String(given.messageId) } : {}), ...(Number.isInteger(given.actionIndex) && given.actionIndex >= 0 ? { actionIndex: given.actionIndex } : {}) };
+}
 export function aiRequest(request = {}) {
   const alias = ALIASES[request?.kind];
   return alias ? { ...request, kind: alias.kind, params: { ...(alias.params || {}), ...(request.params || {}) } } : { ...request, params: request?.params && typeof request.params === 'object' ? request.params : {} };
@@ -267,14 +274,16 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
   }
 
   // inline: Ask AI's button, which shows a failure itself (a throw); otherwise the banner shows it and this resolves null.
-  async function startResearch(program, { inline = false } = {}) {
+  // ask ({ conversationId, messageId?, actionIndex? }): the Ask AI conversation it was started from, where the trends
+  // that need an OK are posted when they're found.
+  async function startResearch(program, { inline = false, ask = null } = {}) {
     const options = isEvent(program) ? null : program;
     if (!canRun('startResearchRun')) { if (inline) throw new Error(viewer.preview ? PREVIEW_TITLE : `Your role doesn’t include starting research. Ask ${askAdmin}.`); return false; }
     if (!options) { if (inline) throw new Error(`There’s no research program yet. ${can('saveResearchProgram') ? 'Set one up under Research programs.' : `Ask ${askAdmin} to set one up.`}`); return noProgram(); }
     const { ok, again } = await confirmStartResearch(options);
     if (!ok) return false;
     const done = 'Research started. New trends will appear under Trends.';
-    const work = () => api.startResearchRun({ programId: options.id, datasetIds: [], ...(again ? { again: true } : {}) });
+    const work = () => api.startResearchRun({ programId: options.id, datasetIds: [], ...(again ? { again: true } : {}), ...(ask ? { ask } : {}) });
     if (inline) { await act(work); return done; }
     return (await run(work, done)) ? done : null;
   }
@@ -285,7 +294,7 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
     if (id) return programs.find((row) => row.id === id) || null;
     return programs.length === 1 ? programs[0] : [...programs].sort(newestProgram)[0] || null;
   }
-  async function quickScan(scanIn = {}, { topic = '', programId = '', inline = false } = {}) {
+  async function quickScan(scanIn = {}, { topic = '', programId = '', inline = false, ask = null } = {}) {
     if (!canRun('startQuickScan')) throw new Error(viewer.preview ? PREVIEW_TITLE : `Only an admin or editor can start a quick scan. Ask ${askAdmin}.`);
     if (typeof api?.estimateQuickScan !== 'function' || typeof api?.startQuickScan !== 'function') throw new Error('Quick scans aren’t available in this version of the studio.');
     const wanted = String(scanIn.programId || programId || '');
@@ -296,7 +305,7 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
     const estimate = await api.estimateQuickScan({ programId: program.id, scan });
     if (quickScanBlocked(estimate)) throw new Error(list(estimate.warnings)[0] || 'This quick scan can’t start as planned. Change it and check the cost again.');
     if (!(await confirmQuickScan(scan, program, estimate))) return false;
-    const work = () => api.startQuickScan({ programId: program.id, scan, fingerprint: estimate?.fingerprint || '' });
+    const work = () => api.startQuickScan({ programId: program.id, scan, fingerprint: estimate?.fingerprint || '', ...(ask ? { ask } : {}) });
     const started = inline ? await act(work) : await run(work, 'Quick scan started. It shows on Home while it runs.');
     return started || inline ? `Started “${started?.title || `Quick scan · ${scan.topic}`}”. It shows on Home while it runs.` : null;
   }
@@ -383,13 +392,15 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
   // Write reports for every approved trend, or only `picks` ([{ runId, themeId }], Ask AI's chosen trends; names when
   // there are no ids). Each run is approved and continued on its own: a run that fails is named in the result, and
   // nothing is reported as writing unless its run really started. inline (Ask AI) throws when none started.
+  // runId: only that run's approved trends (Ask AI's follow-up for a research run started in a conversation).
   async function writeReports(options = {}) {
-    const { inline = false, picks = null, names = null } = isEvent(options) || !options || typeof options !== 'object' ? {} : options;
+    const { inline = false, picks = null, names = null, runId = '' } = isEvent(options) || !options || typeof options !== 'object' ? {} : options;
     // The studio's own buttons show a refusal in the toast (they don't catch); Ask AI's show it under the button.
     const refuse = (text) => { if (inline) throw new Error(text); if (onError) onError(text); else onNotice?.(text); return null; };
     // Checked before anything is saved, so a role without Start research never approves trends it can't write.
     if (!canWriteReports(canRun)) return refuse(viewer.preview ? PREVIEW_TITLE : `Writing reports needs “Approve trends” and “Start research”. Ask ${askAdmin}.`);
-    const chosen = list(picks).length ? approved.filter((card) => picks.some((row) => row.runId === card.runId && row.themeId === card.themeId)) : list(names).length ? approved.filter((card) => names.some((name) => same(name, card.name))) : approved;
+    const chosen = list(picks).length ? approved.filter((card) => picks.some((row) => row.runId === card.runId && row.themeId === card.themeId)) : list(names).length ? approved.filter((card) => names.some((name) => same(name, card.name))) : runId ? approved.filter((card) => card.runId === runId) : approved;
+    if (!chosen.length && runId && !list(picks).length && !list(names).length) { if (inline) throw new Error('Say yes to at least one trend from this run first.'); return 'Say yes to at least one trend from this run first.'; }
     if (!chosen.length) { if ((list(picks).length || list(names).length) && inline) throw new Error('Those trends aren’t approved and waiting for reports anymore.'); return 'There are no approved trends waiting for reports.'; }
     const runIds = [...new Set(chosen.map((card) => card.runId))];
     if (runIds.some((runId) => chosen.filter((card) => card.runId === runId).length > 6)) return refuse('Pick up to six trends from one run; write the rest after.');
@@ -453,9 +464,9 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
     'start-research': (request) => {
       const program = (request.programId && programs.find((row) => row.id === request.programId)) || programs.find((row) => same(row.name, request.target)) || (programs.length === 1 ? programs[0] : null);
       if (!program) throw new Error(`I couldn’t find a research program called “${request.target}”.`);
-      return startResearch(program, { inline: true });
+      return startResearch(program, { inline: true, ask: askOf(request) });
     },
-    'quick-scan': (request) => quickScan(request.scan || {}, { topic: request.target || '', programId: request.programId || '', inline: true }),
+    'quick-scan': (request) => quickScan(request.scan || {}, { topic: request.target || '', programId: request.programId || '', inline: true, ask: askOf(request) }),
     'approve-trend': async (request) => {
       const card = findTrend(request, waiting, 'waiting for your OK');
       const routed = list(request.params.channels);
@@ -487,7 +498,7 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
       if (failed.length) return `Approved ${cards.length - failed.length} of ${cards.length}. “${failed[0].card.name}”${failed.length > 1 ? ` and ${plural(failed.length - 1, 'other')}` : ''} couldn’t be saved: ${why(failed[0].result)}`;
       return `Approved ${plural(cards.length, 'trend')}.`;
     },
-    'write-reports': (request) => writeReports({ inline: true, picks: request.picks || null, names: list(request.params.trends) }),
+    'write-reports': (request) => writeReports({ inline: true, picks: request.picks || null, names: list(request.params.trends), runId: String(request.runId || '') }),
     'make-assets': (request) => {
       const report = (request.assetId && reports.find((row) => row.id === request.assetId)) || findReport(request.target);
       if (!report) throw new Error(`I couldn’t find a report called “${request.target}”.`);

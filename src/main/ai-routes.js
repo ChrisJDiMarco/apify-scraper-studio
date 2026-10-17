@@ -4,11 +4,11 @@
 // Electron-free: the main process injects process spawning, key lookup and settings.
 const fs = require('fs');
 const path = require('path');
-const { buildClaudeCommand, parseClaudeResult, modelMatches, missingClaudeFlags } = require('../shared/claude-runner');
+const { buildClaudeCommand, parseClaudeResult, modelMatches, missingClaudeFlags, claudeStreamSupported } = require('../shared/claude-runner');
 
 const AI_ROUTE_TTL_MS = 10 * 60 * 1000;
 const AI_ROUTE_LABELS = { claude: 'the Claude app', 'claude-api': 'the Anthropic API key', codex: 'Codex' };
-const ADD_KEY = 'Add an Anthropic API key in Settings → Writing & research.';
+const ADD_KEY = 'Add an Anthropic API key in Settings → AI connections.';
 const PING_SCHEMA = { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false };
 
 function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, describeError = (error) => error?.message || String(error), now = Date.now }) {
@@ -25,9 +25,10 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
     try { version = String((await run(['--version'])).stdout || '').trim(); }
     catch (error) { return { installed: false, error: error?.code === 'ENOENT' ? 'The Claude app (Claude Code) is not installed.' : describeError(error) }; }
     try {
-      const missingFlags = missingClaudeFlags((await run(['--help'])).stdout);
+      const help = (await run(['--help'])).stdout; const missingFlags = missingClaudeFlags(help);
       const status = JSON.parse((await run(['auth', 'status', '--json'])).stdout);
-      return { installed: true, version, loggedIn: status.loggedIn === true, missingFlags };
+      // Only what Settings shows: never the account's email or organization.
+      return { installed: true, version, loggedIn: status.loggedIn === true, missingFlags, streaming: claudeStreamSupported(help), ...(typeof status.authMethod === 'string' ? { authMethod: status.authMethod } : {}), ...(typeof status.subscriptionType === 'string' ? { subscriptionType: status.subscriptionType } : {}) };
     } catch (error) { return { installed: true, version, loggedIn: false, missingFlags: [], error: describeError(error) }; }
   }
   function cliProblem(cli) {

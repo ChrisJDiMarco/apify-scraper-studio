@@ -1,16 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ImagePlus, LoaderCircle, Palette, Trash2 } from 'lucide-react';
 import { Badge, Button } from './ui.jsx';
+import { useConfirm } from './confirm-dialog.jsx';
 
 const list = (value) => (Array.isArray(value) ? value : []);
 
-// Settings → Brand reference images. The pictures a channel asset kit draws send these to the image model with their
-// prompt, as the Golden Thread n8n workflow did: style examples guide the look and are never copied, and an approved
-// logo is merged in exactly, in a clean footer. A set without a logo draws none and leaves the footer clean.
+// Settings → Brand reference images. Every picture the studio draws sends its set to the image model with its prompt, as
+// the Golden Thread n8n workflow did: channel asset pictures, Create content pictures, Ask AI pictures and picture test
+// runs. Style examples guide the look and are never copied, and an approved logo is merged in exactly, in a clean footer.
+// A set without a logo draws none and leaves the footer clean. Each set lists where it is used (usedIn).
 // Thumbnails, errors and work in progress belong to one workspace, so switching workspaces starts the section afresh.
 export function BrandImages(props) { return <BrandImageSets key={props.workspace?.id || 'none'} {...props} />; }
 const MISSING_FILE = /missing from the studio/i; // readBrandImage's answer when the stored file is gone
 function BrandImageSets({ api, workspace, busy, imagesConfigured }) {
+  const confirm = useConfirm();
   const sets = list(workspace?.brandImageSets);
   const [thumbs, setThumbs] = useState({}); // image id → data URL, 'missing' (the file is gone) or 'error' (try again)
   const [attempt, setAttempt] = useState(0);
@@ -44,15 +47,19 @@ function BrandImageSets({ api, workspace, busy, imagesConfigured }) {
   }
   const add = (set, role) => run(set.id, `${set.id}:${role}`, () => api.addBrandImage({ workspaceId: workspace.id, family: set.id, role }));
   const changeRole = (set, image, role) => run(set.id, image.id, () => api.setBrandImageRole({ workspaceId: workspace.id, imageId: image.id, role }));
-  const remove = (set, image) => { if (window.confirm(`Remove “${image.name}” from ${set.label}?`)) run(set.id, image.id, () => api.removeBrandImage({ workspaceId: workspace.id, imageId: image.id })); };
+  const remove = async (set, image) => {
+    if (!(await confirm({ title: `Remove “${image.name}”?`, lines: [`It leaves ${set.label}. Runs that already started keep the copy they took.`], confirmLabel: 'Remove', tone: 'danger' }))) return;
+    run(set.id, image.id, () => api.removeBrandImage({ workspaceId: workspace.id, imageId: image.id }));
+  };
 
   return <section className="settings-block settings-brand-images" aria-labelledby="settings-brand-images-title" data-spot="settings.brand-images">
-    <div className="settings-image-heading"><span className="settings-image-icon"><Palette size={21} aria-hidden="true" /></span><div><h3 id="settings-brand-images-title">Brand reference images</h3><p>Style examples and approved logos that channel asset pictures send to the image model.</p></div><Badge tone={total ? 'ready' : 'neutral'}>{total ? `${total} saved` : 'None yet'}</Badge></div>
-    <p className="brand-images-intro">Style examples teach the look (palette, type and texture) and are never copied. An approved logo is placed exactly as supplied in a clean footer; without one, pictures draw no logo and leave the footer clean. New channel asset runs use what’s here, and a run keeps the images it started with.{imagesConfigured ? '' : ' Pictures are drawn once an OpenAI key is saved under Image generation.'}</p>
+    <div className="settings-image-heading"><span className="settings-image-icon"><Palette size={21} aria-hidden="true" /></span><div><h3 id="settings-brand-images-title">Brand reference images</h3><p>Style examples and approved logos sent with every picture the studio draws.</p></div><Badge tone={total ? 'ready' : 'neutral'}>{total ? `${total} saved` : 'None yet'}</Badge></div>
+    <p className="brand-images-intro">Style examples and approved logos sent with every picture the studio draws: channel asset pictures, Create content pictures, Ask AI pictures and picture test runs in Prompts. Style examples teach the look (palette, type and texture) and are never copied. An approved logo is placed exactly as supplied in a clean footer; without one, pictures draw no logo and leave the footer clean. New runs use what’s here, and a run keeps the images it started with.{imagesConfigured ? '' : ' Pictures are drawn once a picture model is connected under AI connections.'}</p>
     <div className="brand-sets">{sets.map((set) => {
       const images = list(set.images); const hasLogo = images.some((image) => image.role === 'logo'); const full = images.length >= set.max;
       return <article className="brand-set" key={set.id} aria-labelledby={`brand-set-${set.id}`}>
         <div className="brand-set-head"><div><h4 id={`brand-set-${set.id}`}>{set.label}</h4><p>{set.hint}</p></div><span className="brand-set-count">{images.length} of {set.max}</span></div>
+        {list(set.usedIn).length > 0 && <dl className="brand-set-uses"><dt>Used for</dt>{list(set.usedIn).map((use) => <dd key={`${use.where}-${use.what}`}><strong>{use.where}</strong> · {use.what}</dd>)}</dl>}
         {images.length ? <ul className="brand-set-images">{images.map((image) => {
           const thumb = thumbs[image.id];
           return <li key={image.id} className={image.role === 'logo' ? 'is-logo' : undefined}>
@@ -64,7 +71,7 @@ function BrandImageSets({ api, workspace, busy, imagesConfigured }) {
               <Button type="button" className="ghost brand-image-remove" aria-label={`Remove ${image.name}`} disabled={disabled} onClick={() => remove(set, image)}>{working === image.id ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}</Button>
             </span>
           </li>;
-        })}</ul> : <p className="brand-set-empty">No reference images yet. These pictures follow the brand colors only and leave the footer clean.</p>}
+        })}</ul> : <p className="brand-set-empty">No reference images yet. Pictures from this set follow the brand colors only and leave the footer clean.</p>}
         <div className="brand-set-actions">
           <Button type="button" disabled={disabled || full} onClick={() => add(set, 'style')}>{working === `${set.id}:style` ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <ImagePlus size={15} aria-hidden="true" />}Add style example…</Button>
           <Button type="button" className="ghost" disabled={disabled || full || hasLogo} onClick={() => add(set, 'logo')}>{working === `${set.id}:logo` ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <ImagePlus size={15} aria-hidden="true" />}Add approved logo…</Button>

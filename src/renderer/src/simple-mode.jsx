@@ -127,7 +127,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   // Leaving Reports (other than for Ask AI, which keeps the report as its context) closes the reader, so every way back
   // (the sidebar, Home's All reports, an Inbox or Next up page link) opens the list. Opening one report sets it again.
   useEffect(() => { if (tab !== 'reports' && tab !== 'ask') setReportId(''); }, [tab]);
-  function ask(text, context = '') { setSeed({ text, context, key: Date.now() }); go('ask'); }
+  function ask(text, context = '', extra = {}) { setSeed({ text, context, ...(Array.isArray(extra?.attachments) ? { attachments: extra.attachments } : {}), key: Date.now() }); go('ask'); }
   function draftAsk(text) { setSeed({ draft: text, key: Date.now() }); go('ask'); }
   // Images load once and stay cached for the session, so returning to Assets is instant.
   const [imageCache, setImageCache] = useState({});
@@ -238,7 +238,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     if (!shellRequest?.key || handledRequest.current === shellRequest.key) return;
     handledRequest.current = shellRequest.key;
     if (shellRequest.kind === 'report' && shellRequest.assetId) openReport(shellRequest.assetId);
-    else if (shellRequest.kind === 'ask' && shellRequest.text) ask(shellRequest.text, shellRequest.context || '');
+    else if (shellRequest.kind === 'ask' && shellRequest.text) ask(shellRequest.text, shellRequest.context || '', { attachments: shellRequest.attachments });
     else if (shellRequest.kind === 'ask' && shellRequest.draft) draftAsk(shellRequest.draft);
     else if (shellRequest.kind === 'assets') { if (shellRequest.source || shellRequest.creator) makeAssetsInAssets(shellRequest.source); else if (shellRequest.folderKey) openFolderKey(shellRequest.folderKey, shellRequest.runId || ''); else go('assets'); }
   }, [shellRequest?.key]); // eslint-disable-line react-hooks/exhaustive-deps

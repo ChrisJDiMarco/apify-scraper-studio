@@ -43,9 +43,9 @@ const { createImageProvider } = require('./image-provider');
 const { readLocalImageKey } = require('./local-image-key');
 const { createResearchWorkspace } = require('./research-workspace');
 const { accountForUrl } = require('../shared/brand-context');
-const { DEFAULT_CLAUDE_MODEL, CLAUDE_CLI_ENV, buildClaudeCommand, parseClaudeResult, modelMatches, readClaudeCost } = require('../shared/claude-runner');
+const { DEFAULT_CLAUDE_MODEL, CLAUDE_CLI_ENV } = require('../shared/claude-runner');
 const { createAiRoutes } = require('./ai-routes');
-const { DEFAULT_RESEARCH_AI, modelPrice } = require('../shared/research-program');
+const { modelPrice } = require('../shared/research-program');
 const { SOURCE_CATALOG, buildSearchRecipes } = require('../shared/source-catalog');
 const { CHAT_SCHEMA, buildFindingsContext, normalizeFindingsAnswer } = require('../shared/findings-chat');
 // Prompt Library: the data tools' prompts read the active workspace's saved text (contentWorkspace.promptEffective).
@@ -60,7 +60,7 @@ try {
   autoUpdater = null;
 }
 const { createApifyRunner, discoverApifyResource: discoverApifyResourceLive } = require('../shared/apify-runner');
-const { SCHEMAS, buildAnalysisContext, buildAssetPrompt, buildCodexCommand, buildPrompt, codexExecSupport, parseJsonlEvents, reportPresetById, validateAiOutput } = require('../shared/codex-runner');
+const { SCHEMAS, buildAnalysisContext, buildAssetPrompt, buildPrompt, codexExecSupport, parseJsonlEvents, reportPresetById, validateAiOutput } = require('../shared/codex-runner');
 const { buildArchiveClearRequest, buildDatasetWriteRequests, buildPingRequest, buildSheetReadRequest, isRetryableSheetMessage, isRetryableSheetStatus } = require('../shared/google-sheets');
 const { buildStudioIntelligence, planIntent } = require('../shared/intelligence');
 const { normalizeItem, toCsv, toJsonl } = require('../shared/normalize');
@@ -109,7 +109,7 @@ const {
 const { ensureWorkspace, isPathInside, safeFilename } = require('../shared/workspace');
 
 const APP_NAME = 'Scraper Studio';
-const KEY_NAMES = ['APIFY_API_TOKEN', 'ANTHROPIC_API_KEY', 'GOOGLE_SHEETS_WEBHOOK_URL', 'GOOGLE_DOCS_ACCESS_TOKEN', 'OPENAI_API_KEY', 'MONDAY_API_TOKEN'];
+const KEY_NAMES = ['APIFY_API_TOKEN', 'ANTHROPIC_API_KEY', 'GOOGLE_SHEETS_WEBHOOK_URL', 'GOOGLE_DOCS_ACCESS_TOKEN', 'OPENAI_API_KEY', 'MONDAY_API_TOKEN', 'OPENROUTER_API_KEY', 'FAL_KEY'];
 const CODEX_TIMEOUT_MS = 10 * 60 * 1000;
 const jobs = new Map();
 const jobProcesses = new Map();
@@ -331,7 +331,7 @@ function keyProblem(name) {
   return problem;
 }
 function keyProblems() { return Object.fromEntries(KEY_NAMES.map((name) => [name, keyProblem(name)]).filter(([, problem]) => problem)); }
-const KEY_LABELS = { APIFY_API_TOKEN: 'Apify token', ANTHROPIC_API_KEY: 'Anthropic API key', GOOGLE_SHEETS_WEBHOOK_URL: 'Google Sheets bridge link', GOOGLE_DOCS_ACCESS_TOKEN: 'Google Drive token', OPENAI_API_KEY: 'OpenAI key', MONDAY_API_TOKEN: 'Monday.com token' };
+const KEY_LABELS = { APIFY_API_TOKEN: 'Apify token', ANTHROPIC_API_KEY: 'Anthropic API key', GOOGLE_SHEETS_WEBHOOK_URL: 'Google Sheets bridge link', GOOGLE_DOCS_ACCESS_TOKEN: 'Google Drive token', OPENAI_API_KEY: 'OpenAI key', MONDAY_API_TOKEN: 'Monday.com token', OPENROUTER_API_KEY: 'OpenRouter key', FAL_KEY: 'fal.ai key' };
 // The message for a key a call needs but can't use: why, when the saved one can't be read, else `missing`.
 function keyNeeded(name, missing) {
   const problem = keyProblem(name);
@@ -1584,7 +1584,7 @@ async function generateAssets({ card, assetTypeIds, datasetId }) {
   try {
     // The instruction is the Prompt Library's "Workflow asset pack" text in the active workspace (defaults otherwise).
     const prompt = dataPrompts.assetPackPrompt(fs.readFileSync(contextPath, 'utf8'), { blocks: contentWorkspace.promptEffective('data.workflow-asset-pack').blocks });
-    const result = await generateStructuredOutput({ schema: SCHEMAS.assetPack, prompt, workspaceDir: runDir, outputPath, jobId: assetRunId });
+    const result = await generateStructuredOutput({ taskId: 'data.workflow-asset-pack', schema: SCHEMAS.assetPack, prompt, workspaceDir: runDir, outputPath, jobId: assetRunId });
     const { stdout, stderr } = result;
     const events = parseJsonlEvents(stdout);
     const output = validateAiOutput('assetPack', readJson(outputPath, null));
@@ -1900,7 +1900,7 @@ async function analyzeDataset({ datasetId, kind, reportPresetId }) {
 
   let stderr = '';
   try {
-    const result = await generateStructuredOutput({ schema: SCHEMAS[valid.kind], prompt, workspaceDir: runDir, outputPath, jobId: analysisId });
+    const result = await generateStructuredOutput({ taskId: valid.kind === 'tag' ? 'data.tag-items' : valid.kind === 'thread' ? 'data.threads' : 'data.dataset-report', schema: SCHEMAS[valid.kind], prompt, workspaceDir: runDir, outputPath, jobId: analysisId });
     stderr = result.stderr;
     fs.writeFileSync(eventsPath, result.stdout);
     const events = parseJsonlEvents(result.stdout);
@@ -2177,50 +2177,44 @@ async function generateStructuredOutput(args) {
   } finally { if (jobId && waiting && apiRequests.get(jobId) === waiting) apiRequests.delete(jobId); }
 }
 
+// ── AI platform: connections, model routing and the runners (Settings → AI connections and Model routing) ─────────────
+// ai-catalog.js knows the models and prices, ai-routing.js resolves which connection, model and effort each AI task uses
+// (src/shared/ai-tasks.json), ai-connections.js says whether each connection is ready, and text-router.js runs a text call
+// on the resolved connection. Nothing here spawns or fetches until a call or a Settings check needs it.
+const aiCatalog = require('./ai-catalog').createAiCatalog({ dataDir: () => dataRoot(), getKey });
+// programs: the active workspace's research programs (their own stage choices, and the newest one's report model for a
+// studio whose routing was never saved).
+const aiRouting = require('./ai-routing').createAiRouting({ getSettings: () => loadData().settings, catalog: aiCatalog, programs: () => { try { return contentWorkspace.routingPrograms(); } catch (_) { return []; } }, isReady: (route) => aiConnections.ready(route) });
+const cliProbe = require('./cli-runners').createCliProbe({ spawn, env: () => { const environment = cliEnv(); for (const name of KEY_NAMES) delete environment[name]; return environment; } });
+const openRouterRunner = require('./openrouter-runner').createOpenRouterRunner({ getKey, privacy: () => aiRouting.current().openrouter.privacy });
+const openAiTextRunner = require('./openai-text-runner').createOpenAiTextRunner({ getKey });
+const aiConnections = require('./ai-connections').createAiConnections({
+  aiRoutes, getKey, keyProblem, web: WEB_RUNTIME, serverUser: WEB_RUNTIME ? (() => { try { return require('os').userInfo().username; } catch (_) { return ''; } })() : '',
+  probeCli: async (command, args) => { await loginShellPathReady; return cliProbe(command, args); },
+  catalog: aiCatalog, getRouting: () => { try { return aiRouting.preview(); } catch (_) { return null; } },
+  runners: { openrouter: openRouterRunner, openaiCheck: (model) => (/^gpt-image-/.test(model) ? imageProvider.checkAccess({ model }) : openAiTextRunner.checkModel(model)) },
+  onChecked: (lastAiCheck) => { try { const data = loadData(); data.settings = { ...data.settings, lastAiCheck }; saveData(); emitState(); } catch (error) { console.warn(`The AI check result could not be saved: ${error?.message || error}`); } },
+});
+const cliRunners = require('./cli-runners');
+const textRouter = require('./text-router').createTextRouter({
+  routing: aiRouting, connections: aiConnections, catalog: aiCatalog, writeJson, apiRequests,
+  maxBudgetUsd: () => aiRouting.current().maxBudgetUsd,
+  runners: {
+    'claude-api': { run: (args) => aiRoutes.runner().run(args) },
+    claude: cliRunners.createClaudeCliRunner({ spawnCli: (command, args, cwd, options) => spawnCodex(command, args, cwd, options), writeJson, cliInfo: async () => (await aiRoutes.resolve('claude')).cli || {} }),
+    codex: cliRunners.createCodexRunner({ spawnCli: (command, args, cwd, options) => spawnCodex(command, args, cwd, options), writeJson, support: () => loginShellPathReady.then(() => codexSupport()), ignoreUserConfig: () => process.env.STUDIO_CODEX_USER_CONFIG === '0' || (WEB_RUNTIME && process.env.STUDIO_CODEX_USER_CONFIG !== '1'), wrapper: (text) => dataPrompts.codexWrapper(text), efforts: (model) => (model ? aiCatalog.profile('codex', model, 'text')?.efforts ?? null : null) }),
+    openrouter: openRouterRunner,
+    openai: openAiTextRunner,
+  },
+});
+
 // `cachePrefix` (optional) is the stable start of the prompt: the API route caches it in its own system block; the Claude
 // app and Codex take one prompt, so for them it simply leads the prompt. `timeoutMs` applies on every route.
-async function generateStructuredOutputNow({ schema, prompt, cachePrefix = '', workspaceDir, outputPath, jobId, maxBudgetUsd, model, effort, timeoutMs }) {
-  const settings = loadData().settings;
-  const { route: provider } = await aiRoutes.requireRoute();
-  if (provider === 'claude-api') {
-    const requestedModel = model || settings.aiModel || DEFAULT_CLAUDE_MODEL;
-    const controller = new AbortController(); if (jobId) apiRequests.set(jobId, controller);
-    try {
-      const { output, receipt } = await aiRoutes.runner().run({ schema, prompt, ...(cachePrefix ? { cachePrefix } : {}), model: requestedModel, effort, maxBudgetUsd: maxBudgetUsd ?? settings.aiMaxBudgetUsd ?? 1, timeoutMs, signal: controller.signal });
-      writeJson(outputPath, output);
-      return { output, receipt, stdout: '' };
-    } finally { if (jobId && apiRequests.get(jobId) === controller) apiRequests.delete(jobId); }
-  }
-  if (cachePrefix) prompt = cachePrefix + prompt;
-  if (provider === 'claude') {
-    // Research stages pass their own model and effort (n8n ran different models per stage).
-    const requestedModel = model || settings.aiModel || DEFAULT_CLAUDE_MODEL;
-    const invocation = buildClaudeCommand({ model: requestedModel, maxBudgetUsd: maxBudgetUsd ?? settings.aiMaxBudgetUsd ?? 1, schema, prompt, effort });
-    let result;
-    try { result = await spawnCodex(invocation.command, invocation.args, workspaceDir, { jobId, stdin: invocation.stdin, providerLabel: 'Claude', ...(timeoutMs ? { timeoutMs } : {}), keepStdoutOnError: true }); }
-    catch (error) { if (error.stdout) { const costUsd = readClaudeCost(error.stdout); try { parseClaudeResult(error.stdout); } catch (detail) { detail.costUsd = costUsd; throw detail; } error.costUsd = costUsd; } throw error; }
-    const parsed = parseClaudeResult(result.stdout);
-    if (!modelMatches(requestedModel, parsed.actualModels)) throw new Error(`Claude returned an unverified or different model (${parsed.actualModels.join(', ') || 'not reported'}). No fallback answer was saved.`);
-    writeJson(outputPath, parsed.output);
-    return { ...result, output: parsed.output, receipt: { provider, requestedModel, actualModel: parsed.actualModel, actualModels: parsed.actualModels, effort: effort || '', costUsd: parsed.costUsd, usage: parsed.usage, durationMs: parsed.durationMs, costBasis: 'CLI-reported list cost; subscription billing may differ' } };
-  }
-  if (provider !== 'codex') throw new Error('Unknown AI provider.');
-  // Codex is a shell agent, and the studio's data folder holds every person's Ask AI conversations and memory. So it runs
-  // in an empty private folder outside the data folder, gets the prompt on stdin (no prompt file is written anywhere),
-  // has its tools off and a read-only sandbox (codex-runner.js), and its answer is copied to outputPath here. The CLI's own
-  // config file (its model, provider, MCP servers and hooks) is skipped on the browser studio and kept on the Mac;
-  // STUDIO_CODEX_USER_CONFIG=1 keeps it, =0 skips it.
-  const isolated = fs.mkdtempSync(path.join(require('os').tmpdir(), 'studio-codex-'));
-  try {
-    const schemaPath = path.join(isolated, 'output.schema.json'); const answerPath = path.join(isolated, 'answer.json');
-    fs.writeFileSync(schemaPath, JSON.stringify(schema), { mode: 0o600 });
-    const invocation = buildCodexCommand({ workspaceDir: isolated, schemaPath, outputPath: answerPath, isolated: true, support: await loginShellPathReady.then(() => codexSupport()), ignoreUserConfig: process.env.STUDIO_CODEX_USER_CONFIG === '0' || (WEB_RUNTIME && process.env.STUDIO_CODEX_USER_CONFIG !== '1') });
-    const result = await spawnCodex(invocation.command, invocation.args, isolated, { jobId, stdin: `${dataPrompts.codexWrapper('the text below')}\n\n${prompt}`, providerLabel: 'Codex', ...(timeoutMs ? { timeoutMs } : {}) });
-    const raw = fs.existsSync(answerPath) ? fs.readFileSync(answerPath, 'utf8') : '';
-    let output = null; try { output = raw ? JSON.parse(raw) : null; } catch (_) { output = null; }
-    if (output !== null) writeJson(outputPath, output); else if (raw) fs.writeFileSync(outputPath, raw); // kept for the receipt
-    return { ...result, output, receipt: { provider, requestedModel: 'CLI configuration', actualModel: '', costUsd: null } };
-  } finally { fs.rmSync(isolated, { recursive: true, force: true }); }
+// `taskId` (or a resolved `task`, from a run's snapshot) chooses the connection, model and effort (ai-routing.js); a call
+// with neither uses the studio's text default with the `model` and `effort` it passes, as before Model routing.
+// `onStream` receives { type: 'text', delta } for the answer field as it is written and { type: 'status', text }.
+async function generateStructuredOutputNow(args) {
+  return textRouter.run(args);
 }
 
 async function askFindings(payload = {}) {
@@ -2262,7 +2256,7 @@ async function askFindings(payload = {}) {
   fs.mkdirSync(runDir, { recursive: true });
   try {
     const outputPath = path.join(runDir, 'answer.json');
-    const result = await generateStructuredOutput({ schema: CHAT_SCHEMA, prompt: context.prompt, workspaceDir: runDir, outputPath, jobId });
+    const result = await generateStructuredOutput({ taskId: 'assistant.ask-datasets', schema: CHAT_SCHEMA, prompt: context.prompt, workspaceDir: runDir, outputPath, jobId });
     const normalized = normalizeFindingsAnswer(result.output, context);
     conversation.messages.push({ id: toId('message'), role: 'assistant', content: normalized.answer, citations: normalized.citations, caveats: normalized.caveats, coverage: context.coverage, aiReceipt: result.receipt, createdAt: now() });
     conversation.status = 'ready'; conversation.updatedAt = now();
@@ -2278,6 +2272,19 @@ async function askFindings(payload = {}) {
 }
 
 const imageProvider = createImageProvider({ getApiKey: () => getKey('OPENAI_API_KEY'), limits: aiLimits.enabled ? aiLimits : null });
+// Pictures and videos by each task's route (OpenAI GPT Image or fal.ai), through media-router.js; fal holds an AI slot
+// only while it submits and downloads (the work happens at fal).
+const falProvider = require('./fal-provider').createFalProvider({ getKey, limits: aiLimits.enabled ? aiLimits : null });
+const mediaRouter = require('./media-router').createMediaRouter({ routing: aiRouting, openaiImages: imageProvider, fal: falProvider, catalog: aiCatalog, connections: aiConnections });
+// What the renderer shows about AI routes (no spawning: Claude Code and Codex come from the last status check).
+function aiCapabilities() {
+  try { return aiCapabilitiesNow(); } catch (error) { console.warn(`AI routing could not be read: ${error?.message || error}`); return { imagesConfigured: false, videosConfigured: false }; }
+}
+function aiCapabilitiesNow() {
+  const text = aiRouting.resolve('assistant.ask-ai'); const picture = aiRouting.resolve('pictures.kit-image'); const clip = aiRouting.resolve('video.social-clip');
+  const imagesReady = mediaRouter.ready('pictures.kit-image'); const videosReady = mediaRouter.ready('video.social-clip');
+  return { routing: { text: `${text.routeLabel} · ${text.modelLabel}`, textRoute: text.route, imagesReady, videosReady, imageLabel: `${picture.routeLabel} · ${picture.modelLabel}`, imageRoute: picture.route, videoLabel: `${clip.routeLabel} · ${clip.modelLabel}`, videoSeconds: clip.video?.durationSeconds || 0 }, imagesConfigured: imagesReady, videosConfigured: videosReady, imageProvider: picture.routeLabel, imageModel: picture.model };
+}
 const googleDelivery = require('./google-delivery').createGoogleDelivery({ getAccessToken: () => getKey('GOOGLE_DOCS_ACCESS_TOKEN') });
 // Both desktop and browser hosts own this same storage boundary exclusively.
 let releaseStudioOwner;
@@ -2304,7 +2311,12 @@ const contentWorkspace = createContentWorkspace({
   // jobId (its job in the tray), so Cancel there stops it.
   runAI: args => generateStructuredOutput({ ...args, jobId: args.jobId || `${args.runId}::${path.basename(args.outputPath || 'call')}` }),
   collect: studioHost.collect,
-  generateImage: request => imageProvider.generateImage(request),
+  generateImage: request => mediaRouter.generateImage(request),
+  generateVideo: request => mediaRouter.generateVideo(request),
+  // A task's routing for content-workspace code that asks by id (the quick scan report's model, 'quickScans.report').
+  taskAi: (taskId, context) => aiRouting.resolve(taskId, context),
+  // Model routing (ai-routing.js): runs snapshot what they resolve when they start; previews price with the same prices.
+  routing: { resolve: (taskId, context) => aiRouting.resolve(taskId, context), snapshot: (taskIds, context) => aiRouting.snapshot(taskIds, context), current: () => aiRouting.current(), taskIdForPrompt: (entry) => aiRouting.taskIdForPrompt(entry), priceFor: (route, model, kind, options) => aiCatalog.priceFor(route, model, kind, options), unitsFor: (price, request) => aiCatalog.unitsFor(price, request), mediaProblem: (taskId) => mediaRouter.problem(taskId) },
   getDatasets: () => [...loadData().datasets, ...studioHost.getDatasets()],
   readDataset: datasetId => loadData().datasets.some(d => d.id === datasetId) ? readDatasetPayload(datasetId) : studioHost.readDataset(datasetId),
   cancelProvider: async runId => { for (const [key, child] of jobProcesses) if (key === runId || key.startsWith(`${runId}::`)) child.kill('SIGTERM'); for (const [key, controller] of apiRequests) if (key === runId || key.startsWith(`${runId}::`)) controller.abort(); await studioHost.cancelProvider(runId); },
@@ -2312,17 +2324,20 @@ const contentWorkspace = createContentWorkspace({
   publishCampaign: request => publishCampaignVia(request, googleDelivery), // the Sheets bridge when connected, else the Drive token
   // The AI route a quick scan's cost check names ('auto' resolved to the Claude app or the API key), so Codex's
   // "spend isn't capped" note shows when it applies.
-  getAiProvider: async () => (await aiRoutes.resolve()).route,
+  getAiProvider: async () => { const route = aiRouting.current().defaults.text.route; return route === 'auto' || route === 'claude' ? (await aiRoutes.resolve(route)).route : route; },
   // Prompt Library: saves are credited with the caller's role, and only admins change or lock a locked prompt (read at
   // each prompt method's entry, like actor). Test runs show in the job tray as cancellable 'prompt-test' jobs.
   getCallerRole: () => access.currentViewer()?.role || '',
   // A preview or test on a recent run's posts, reports or dataset rows only for someone whose role may read them.
   getCallerCapabilities: () => { const viewer = access.currentViewer(); return viewer?.base === 'admin' ? ['*'] : viewer?.capabilities || []; },
+  // A run started from an Ask AI conversation posts what it found there (a quick scan's trends report, trends waiting for
+  // an OK, finished reports, a stop): askFollowUpPost, beside pushAskEvent.
+  onRunEvent: (event) => askFollowUpPost(event),
   trackJob: (job) => {
     startJob({ ...job, status: 'running', startedAt: now() });
     return { finish: (patch = {}) => { wasCancelled(job.id); finishJob(job.id, patch); }, fail: (error) => { wasCancelled(job.id); failJob(job.id, error); }, cancelled: () => cancelledJobs.has(job.id) };
   },
-  capabilities: () => ({ aiProvider: loadData().settings.aiProvider || 'auto', textModel: loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL, imagesConfigured: Boolean(getKey('OPENAI_API_KEY')), imageProvider: 'OpenAI', imageModel: 'gpt-image-2.5-flare', googleConfigured: Boolean(getKey('GOOGLE_DOCS_ACCESS_TOKEN')), googlePublishConfigured: Boolean(googlePublishVia()), googlePublishVia: googlePublishVia() }),
+  capabilities: () => ({ aiProvider: loadData().settings.aiProvider || 'auto', textModel: loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL, ...aiCapabilities(), googleConfigured: Boolean(getKey('GOOGLE_DOCS_ACCESS_TOKEN')), googlePublishConfigured: Boolean(googlePublishVia()), googlePublishVia: googlePublishVia() }),
   importSource: async (payload = {}) => {
     if (payload.url) {
       // A connected Google account reads private docs; a doc shared by link reads without one.
@@ -2377,29 +2392,25 @@ function gated(channel, fn) {
 const handle = (channel, fn) => ipcMain.handle(channel, gated(channel, fn));
 
 const studioMethods = ['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit', 'readBrandImage', 'setBrandImageRole', 'removeBrandImage', 'editStudioAsset', 'restoreStudioAsset', 'estimateQuickScan', 'startQuickScan', 'readTrendHistory', 'readTrendPosts', 'listPrompts', 'readPrompt', 'previewPrompt', 'diffPromptVersions', 'estimatePromptTest', 'savePromptVersion', 'revertPrompt', 'testPrompt', 'setPromptLock', 'setAssetStatus'];
-// Work that spends checks first that Claude can use every model it will need.
-const researchModels = (ai) => Object.values({ ...DEFAULT_RESEARCH_AI.models, ...(ai?.models || {}) });
-const contentModel = () => [loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL];
-function runModels(runId) {
-  let run = null; try { run = contentWorkspace.readStudioRun({ runId }); } catch (_) { return []; }
-  return run?.type === 'research' ? researchModels(run.ai) : run?.ai?.model ? [run.ai.model] : contentModel();
-}
+// Work that spends checks first that every connection and model it will use is ready (ai-connections.js preflight): the
+// tasks it resolves now (a run's own snapshot for continue and retry), each checked on its own connection.
+const programFor = (payload) => contentWorkspace.publicState().programs.find((program) => program.id === payload?.programId) || null;
 const STUDIO_PREFLIGHT = {
-  startResearchRun: (payload) => researchModels(contentWorkspace.publicState().programs.find((program) => program.id === payload?.programId)?.ai),
-  continueResearchRun: (payload) => runModels(payload?.runId),
-  retryStudioRun: (payload) => runModels(payload?.runId),
-  createContentRun: contentModel,
-  createAssetKit: () => [contentWorkspace.assetKitAi().model],
-  // A quick scan may override the program's models; check the ones the scan will actually use.
-  startQuickScan: (payload) => researchModels(contentWorkspace.quickScanAi?.(payload) || contentWorkspace.publicState().programs.find((program) => program.id === payload?.programId)?.ai),
-  // A prompt test run uses its stage's model (none for picture prompts; Codex skips the check).
-  testPrompt: (payload) => contentWorkspace.promptTestModels(payload),
+  startResearchRun: (payload) => aiRouting.resolveMany(aiRouting.taskIdsFor('startResearchRun'), { program: programFor(payload) }),
+  continueResearchRun: (payload) => contentWorkspace.runTasks(payload?.runId),
+  retryStudioRun: (payload) => contentWorkspace.runTasks(payload?.runId),
+  createContentRun: (payload) => contentWorkspace.contentRunTasks(payload),
+  createAssetKit: (payload) => contentWorkspace.kitTasks(payload),
+  // A quick scan may override the program's models; check the ones the scan will actually use (and its report).
+  startQuickScan: (payload) => aiRouting.resolveMany(['quickScans.discovery', 'quickScans.synthesis', ...(payload?.scan?.report === false ? [] : ['quickScans.report'])], { program: { ai: contentWorkspace.quickScanAi?.(payload) || programFor(payload)?.ai } }),
+  // A prompt test run uses its task (Model routing), or the admin's choice to test.
+  testPrompt: (payload) => contentWorkspace.promptTestTasks(payload),
 };
+const taskNeeds = (taskId) => aiRouting.task(taskId)?.needs || {};
 for (const method of studioMethods) handle(`studio:${method}`, async (_, payload) => {
   // A program already searching is caught before the model check, which can cost a few cents on the Claude app.
   if (method === 'startResearchRun') contentWorkspace.checkResearchIdle(payload || {});
-  // A picture prompt's test run needs no Claude or Codex route (it lists no models); prompt-lab checks the image key.
-  if (STUDIO_PREFLIGHT[method]) { const models = STUDIO_PREFLIGHT[method](payload); if (method !== 'testPrompt' || models.length) await aiRoutes.preflight(models); }
+  if (STUDIO_PREFLIGHT[method]) { const tasks = STUDIO_PREFLIGHT[method](payload) || []; if (tasks.length) await aiConnections.preflight(tasks, { needs: taskNeeds }); }
   // The browser studio's run export is a temporary copy, zipped for the download and then removed (offerBrowserFolder).
   if (method === 'exportStudioRun' && WEB_RUNTIME) return offerBrowserFolder(contentWorkspace.exportStudioRun(payload, { temporary: true }));
   const result = await contentWorkspace[method](payload);
@@ -2513,6 +2524,51 @@ handle('preview-search-sources', (_, payload) => {
 });
 handle('ask-findings', (_, payload) => askFindings(payload));
 handle('check-ai', (_, payload) => checkAi(payload));
+
+// ── AI connections and Model routing (Settings) ──────────────────────────────────────────────────────────────────
+const AI_CONNECTION_IDS = ['claude', 'claude-api', 'codex', 'openai', 'openrouter', 'fal'];
+const aiInput = (payload) => (payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {});
+// The models a connection's Test checks by default: the ones Model routing sends it now.
+function routedModels(connection) {
+  const rows = aiRouting.preview().tasks;
+  const routes = connection === 'claude' || connection === 'claude-api' ? [connection, 'auto'] : [connection];
+  return [...new Set(rows.filter((row) => routes.includes(row.route) && row.model && !row.problem).map((row) => row.model))].slice(0, 8);
+}
+handle('ai:connections', async (_, payload = {}) => aiConnections.status({ fresh: aiInput(payload).fresh === true }));
+handle('ai:test-connection', async (_, payload = {}) => {
+  const input = aiInput(payload); const connection = String(input.connection || '');
+  if (!AI_CONNECTION_IDS.includes(connection)) throw Object.assign(new Error('Choose a connection to test.'), { status: 400 });
+  const models = Array.isArray(input.models) ? input.models.filter((id) => typeof id === 'string' && id.length <= 200).slice(0, 8) : routedModels(connection);
+  if (connection === 'codex') codexExecHelp = null; // a check reads a newer CLI's flags again
+  return aiConnections.test(connection, { models });
+});
+handle('ai:models', async (_, payload = {}) => {
+  const input = aiInput(payload); const kind = ['text', 'image', 'video'].includes(input.kind) ? input.kind : 'text';
+  const route = String(input.route || ''); const allowed = { text: ['auto', 'claude', 'claude-api', 'codex', 'openai', 'openrouter'], image: ['openai', 'fal'], video: ['fal'] }[kind];
+  if (!allowed.includes(route)) throw Object.assign(new Error('Choose a connection that makes this kind of work.'), { status: 400 });
+  const filters = aiInput(input.filters);
+  return aiCatalog.list({ route, kind, query: String(input.query || '').slice(0, 100), filters: { structured: filters.structured === true, imageInput: filters.imageInput === true, referenceImages: filters.referenceImages === true, ...(['text-to-image', 'image-to-image', 'text-to-video', 'image-to-video'].includes(filters.category) ? { category: filters.category } : {}) }, cursor: String(input.cursor || '').slice(0, 200), limit: Math.min(50, Math.max(1, Number(input.limit) || 30)) });
+});
+handle('ai:preview-routing', (_, payload = {}) => {
+  const input = aiInput(payload);
+  const preset = ['balanced', 'lowest-cost', 'highest-quality'].includes(input.preset) ? input.preset : null;
+  return aiRouting.preview({ routing: input.routing && typeof input.routing === 'object' ? input.routing : null, preset });
+});
+handle('ai:save-routing', (_, payload = {}) => {
+  const input = aiInput(payload);
+  const routing = aiRouting.validate(input.routing);
+  const data = loadData(); const saved = data.settings.aiRouting || null;
+  // Someone saved after this person opened the page: nothing is written; they reload to see the newer choices.
+  if (saved?.updatedAt && String(input.baseUpdatedAt || '') !== saved.updatedAt) throw Object.assign(new Error(`${saved.updatedBy?.name || 'Someone'} saved routing after you opened it. Reload to see their changes.`), { status: 409, code: 'routingConflict', name: saved.updatedBy?.name || '', time: saved.updatedAt });
+  const stamped = aiRouting.stamp(routing, access.actorForCall());
+  const text = stamped.defaults.text;
+  // The older settings stay in step with the text default, for readers that still look at them.
+  data.settings = { ...data.settings, aiRouting: stamped, aiMaxBudgetUsd: stamped.maxBudgetUsd, ...(['auto', 'claude', 'claude-api', 'codex', 'openai', 'openrouter'].includes(text.route) ? { aiProvider: text.route } : {}), ...(text.model ? { aiModel: text.model } : {}) };
+  saveData(); aiRoutes.invalidate(); aiConnections.invalidate(); emitState();
+  return { routing: stamped, updatedAt: stamped.updatedAt };
+});
+handle('ai:estimate-task-test', (_, payload = {}) => contentWorkspace.estimateAiTaskTest(aiInput(payload)));
+handle('ai:test-task', (_, payload = {}) => contentWorkspace.testAiTask(aiInput(payload)));
 
 // ── Ask AI ────────────────────────────────────────────────────────────────────────────────────────
 // Ask AI (src/main/help-assistant.js) answers from docs/app-guide.md plus a picture of this person's own studio:
@@ -2714,7 +2770,7 @@ function helpContext(page, role = 'admin', promptAccess = null, scope = {}) {
     channelAssets: { model: kitAi.model, effort: kitAi.effort, writesAtOnce: kitAi.concurrency, pictures: Boolean(getKey('OPENAI_API_KEY')) },
     counts: { scrapers: (data.recipes || []).length, datasets: (data.datasets || []).length, libraryAssets: (studio.assets || []).length, pictures: (studio.assets || []).filter((asset) => asset.kind === 'image').length },
     // The brand visual direction as this workspace saved it in Prompts (pictures.direction), else the default.
-    pictures: { available: Boolean(getKey('OPENAI_API_KEY')), visualDirection: require('../shared/content-studio').brandImageDirection(workspace.editionId, { blocks: helpSafe(() => contentWorkspace.promptEffective('pictures.direction').blocks) }), brandReferenceImages: (workspace.brandImageSets || []).map((set) => ({ set: set.label, styleExamples: (set.images || []).filter((image) => image.role === 'style').length, approvedLogo: (set.images || []).some((image) => image.role === 'logo') })) },
+    pictures: { available: mediaRouter.ready('pictures.ask-ai'), visualDirection: require('../shared/content-studio').brandImageDirection(workspace.editionId, { blocks: helpSafe(() => contentWorkspace.promptEffective('pictures.direction').blocks) }), brandReferenceImages: (workspace.brandImageSets || []).map((set) => ({ family: set.id, set: set.label, styleExamples: (set.images || []).filter((image) => image.role === 'style').length, approvedLogo: (set.images || []).some((image) => image.role === 'logo') })) },
     latestTrends: (() => { const run = fullRuns.find((row) => helpThemes(row).length); return run ? helpThemes(run).slice(0, 6).map((theme) => ({ name: String(theme.name || '').slice(0, 120), summary: String(theme.summary || theme.description || '').slice(0, 300) })) : []; })(),
     ...(promptAccess?.view ? { prompts: helpPromptRows() } : {}),
     // Admins only: who is in the studio, for invites and View as.
@@ -3334,6 +3390,41 @@ const askInput = (payload) => (payload && typeof payload === 'object' && !Array.
 const askingNow = new Map(); // `${identityId} ${requestId}` → { question, work }: a repeat of a request in flight joins it
 const askingIn = new Set(); // conversations with a question in progress
 function askIdentityId() { const id = access.identityForCall()?.id; if (!id) throw askFail('Sign in to use Ask AI.', 403); return id; }
+// Ask AI events for one person: a streamed answer's progress and text (ask-progress.js) and follow-up messages the
+// studio posts into a conversation ({ type: 'followup', conversationId, messageId }, from ask-followups.js). On the Mac
+// they go to the window over IPC (help:stream); on the web to that person's own live-update streams (studio-server.js),
+// never to everyone. `session` (the browser session that asked) keeps an answer in that browser for people who share
+// the admin password; follow-ups pass none and reach all of the person's tabs.
+function pushAskEvent(identityId, event, { session = null } = {}) {
+  if (!identityId || !event || typeof event !== 'object') return false;
+  try {
+    if (WEB_RUNTIME) require('./web-runtime').sendTo({ identityId: String(identityId), session }, 'ask', event);
+    else emit('help:stream', event);
+    return true;
+  } catch (_) { return false; } // a window that missed it reads the conversation or the progress back
+}
+// Ask AI follow-ups (src/main/ask-followups.js): the message a run started from a conversation posts there by itself,
+// with the buttons the person's role runs now and money only for people who see costs. No call is in progress when a run
+// finishes, so the person's reach is read for them: the Mac's one person, or on the web the member (or the admin
+// password's owner). A removed or turned-off person gets nothing.
+let askFollowUps = null;
+function askReachFor(identityId) {
+  const identity = WEB_RUNTIME ? (identityId === OWNER_IDENTITY.id ? OWNER_IDENTITY : teamStore.identityFor(teamStore.memberById(identityId), 'link')) : access.identityForCall();
+  if (!identity?.id || identity.id !== identityId || identity.disabled || !identity.role) return null;
+  const viewer = access.viewerFor(identity, null); const admin = viewer.base === 'admin';
+  return { role: viewer.role, allowed: admin ? null : viewer.allowed, hiddenPages: admin ? [] : viewer.hiddenPages, costs: admin || (Array.isArray(viewer.capabilities) && viewer.capabilities.includes('seeCosts')), drive: false, admin };
+}
+function askFollowUpPost(event) {
+  askFollowUps ||= require('./ask-followups').createAskFollowUps({ askStore, reachFor: askReachFor, push: (identityId, payload) => pushAskEvent(identityId, payload) });
+  return askFollowUps.post(event);
+}
+const askProgress = require('./ask-progress').createAskProgress({ send: (target, event) => pushAskEvent(target?.identityId, event, { session: target?.session || null }) });
+const ASK_MESSAGE_ID = /^msg-[0-9a-f-]{36}$/;
+const ASK_BUSY_LIMIT = 2; // questions one person may have going at once (two conversations side by side)
+// What a person attached to a question (a report, folder, trend or run dragged into the chat): read before the answer.
+function askAttachments(value) {
+  return (Array.isArray(value) ? value : []).filter((row) => row && ['report', 'asset-folder', 'trend', 'run'].includes(row.kind) && typeof row.ref === 'string' && row.ref.trim()).slice(0, 3).map((row) => ({ kind: row.kind, ref: row.ref.trim().slice(0, 200) }));
+}
 function askQuestion(value) {
   const text = String(value ?? '').trim();
   if (!text) throw new Error('Type a question first.');
@@ -3357,38 +3448,52 @@ function askNames() {
 // its own folder, removed afterwards, so two people's answers (and Codex's files) never cross.
 // `reach` ({ allowed, hiddenPages, costs, drive, admin }, from help:ask) is what this person's role opens; `related`
 // earlier conversations that match the question.
-async function answerHelp({ question, page, history = [], role, jobId, identityId = '', workspaceId = '', conversationId = '', memory = [], summary = '', pending = [], promptAccess = null, reach = null, checkModel = false, related = [] }) {
-  const model = loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL;
+// `progress` (ask-progress.js) shows the person each step and streams the answer as it is written; `attached` is what
+// they attached to the question (read before the first round).
+async function answerHelp({ question, page, history = [], role, jobId, identityId = '', workspaceId = '', conversationId = '', memory = [], summary = '', pending = [], promptAccess = null, reach = null, checkModel = false, related = [], progress = null, attached = [] }) {
+  // Settings → Model routing chooses Ask AI's connection, model and effort (task assistant.ask-ai).
+  const task = aiRouting.resolve('assistant.ask-ai'); const model = task.model;
   // The per-call cap grows with the model's input price, so the app guide in the prefix fits on Fable or Mythos as it
   // does on the default model (the API route checks the estimate before sending).
-  const helpBudgetUsd = Math.min(100, Math.round(0.75 * Math.max(1, modelPrice(model).input / modelPrice(DEFAULT_CLAUDE_MODEL).input) * 100) / 100);
+  const inputPrice = task.price?.known && task.price.basis === 'tokens' ? task.price.inputUsdPerMTok : modelPrice(model).input;
+  const helpBudgetUsd = Math.min(100, Math.round(0.75 * Math.max(1, inputPrice / modelPrice(DEFAULT_CLAUDE_MODEL).input) * 100) / 100);
   const dir = dataPath('help', 'calls', randomUUID()); fs.mkdirSync(dir, { recursive: true });
   const calls = new Set(); const used = [];
   const stop = { aborted: false, abort() { if (stop.aborted) return; stop.aborted = true; for (const key of calls) { cancelledJobs.add(key); jobProcesses.get(key)?.kill('SIGTERM'); apiRequests.get(key)?.abort(); } } };
   apiRequests.set(jobId, stop);
   startJob({ id: jobId, kind: 'chat', title: 'Ask AI answer', cancellable: true, status: 'running', startedAt: now(), ownerId: identityId });
+  if (cancelledJobs.has(jobId)) stop.abort(); // Stop arrived before the job did (help:cancel)
   try {
+    if (stop.aborted) throw new Error('Job cancelled.');
     // A stored conversation's question checks the model first (a model this route can't use is caught before anything is
     // paid for), after the job is registered so Stop works during the check too.
-    if (checkModel) { await aiRoutes.preflight([model]); if (stop.aborted) throw new Error('Job cancelled.'); }
+    if (checkModel) {
+      progress?.step({ id: 'route', kind: 'route', label: 'Checking the AI connection', status: 'running' });
+      await aiConnections.preflight([task], { needs: taskNeeds }); if (stop.aborted) throw new Error('Job cancelled.');
+      progress?.step({ id: 'route', kind: 'route', label: 'Checked the AI connection', status: 'done' });
+    }
     const programs = (contentWorkspace.publicState().programs || []).map(({ id, name, updatedAt, createdAt }) => ({ id, name, updatedAt: updatedAt || createdAt || '' }));
     // Ask AI's own prompt as this workspace saved it in Prompts (assistant.ask-ai; null = the defaults). The API route caches
     // the prefix by its text, so a saved change starts a new cache entry by itself.
     const blocks = helpSafe(() => contentWorkspace.promptEffective('assistant.ask-ai').blocks);
     const admin = Boolean(reach?.admin) || !reach;
     const reply = await helpAssistant.askHelp({ question, history, page }, {
-      guide: appGuide(), context: (view) => helpContext(view, role, promptAccess, { admin }), role, imagesOn: Boolean(getKey('OPENAI_API_KEY')), imageSizes: HELP_IMAGE_SIZES, memory, summary, pending, programs, blocks, promptAccess, access: reach, related,
+      guide: appGuide(), context: (view) => helpContext(view, role, promptAccess, { admin }), role, imagesOn: mediaRouter.ready('pictures.ask-ai'), imageFamilies: helpSafe(() => (contentWorkspace.publicState().workspaces.find((row) => row.id === workspaceId)?.brandImageSets || []).map((set) => set.id), []), imageSizes: HELP_IMAGE_SIZES, memory, summary, pending, programs, blocks, promptAccess, access: reach, related,
       // What action params are checked against: this workspace's channels, the studio's roles (admins), and today.
       params: { channels: helpChannels(), roles: admin ? helpRoleOptions() : [], today: new Date() },
       readLookup: (lookup) => helpLookup(lookup, { identityId, workspaceId, conversationId, recalled: memory.map((item) => item.id), promptAccess, role, costs: reach?.costs !== false }),
       resolve: ({ actions, answer }) => helpResolveActions({ actions, answer }, { promptAccess, admin, role }),
       hydrate: ({ cards, actions, lookups }) => hydrateCards(cards, { actions, lookups, promptAccess }),
+      progress, attached,
       // Medium effort reads the guide and live context carefully; a question that needs a lookup makes a second call.
       // The instructions, spots and guide are the cached prefix on the API route.
-      generate: async ({ schema, prefix, body, round }) => {
+      // onStream carries the answer as it is written ({ type: 'text', delta }) and the route's own progress; a wait for a
+      // free AI slot (STUDIO_AI_CONCURRENCY) shows as a step.
+      generate: async ({ schema, prefix, body, round, onStream }) => {
         if (stop.aborted) throw new Error('Job cancelled.');
         const key = `${jobId}::${round}`; calls.add(key); used.push(key);
-        try { return await generateStructuredOutput({ schema, prompt: body, cachePrefix: prefix, workspaceDir: dir, outputPath: path.join(dir, round ? 'answer-read.json' : 'answer.json'), jobId: key, maxBudgetUsd: helpBudgetUsd, model, effort: 'medium', timeoutMs: 180000 }); }
+        const streaming = progress ? { onStream, streamField: 'answer', onWait: (ahead) => progress.step({ id: 'queue', kind: 'queue', label: `Waiting for a free AI slot (${ahead} ahead)`, status: 'running' }), onStart: () => progress.step({ id: 'queue', kind: 'queue', label: 'Got an AI slot', status: 'done' }) } : {};
+        try { return await generateStructuredOutput({ schema, prompt: body, cachePrefix: prefix, workspaceDir: dir, outputPath: path.join(dir, round ? 'answer-read.json' : 'answer.json'), jobId: key, maxBudgetUsd: helpBudgetUsd, task, timeoutMs: 180000, ...streaming }); }
         finally { calls.delete(key); }
       },
     });
@@ -3397,7 +3502,8 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
     return reply;
   } catch (error) {
     failJob(jobId, error);
-    if (stop.aborted) throw new Error('Ask AI stopped. Nothing was saved; ask again when you’re ready.');
+    // A stopped answer keeps what it had written so far (askHelp's error.partial); askInConversation saves it.
+    if (stop.aborted) throw Object.assign(new Error('Ask AI stopped. Nothing was saved; ask again when you’re ready.'), { stopped: true, partial: typeof error?.partial === 'string' ? error.partial : '' });
     throw error;
   } finally {
     if (apiRequests.get(jobId) === stop) apiRequests.delete(jobId);
@@ -3410,26 +3516,53 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
 // messages, never from the page: the last 8, the rolling summary of what came before, and what happened to earlier
 // buttons. Only a new conversation takes the page's `history` (an older caller's turns). The person's message and the
 // reply are saved together once the answer is in, with anything Ask AI remembered.
-async function askInConversation({ identityId, role, promptAccess, reach, question, requestId, conversationId, page, context, history }) {
+// mode 'regenerate' (Retry) or 'edit' asks the conversation's last question again, replacing its answer: `replaces` is
+// that question's id, and the history stops before it. The answer streams to the person's windows as it is written
+// (askProgress; `target` and `project` were read at help:ask's entry). Stop keeps what was written so far: it is saved
+// as a stopped answer and returned like any other reply.
+async function askInConversation({ identityId, role, promptAccess, reach, question, requestId, conversationId, page, context, history, mode = '', replaces = '', attachments = [], target = null, project = (event) => event, viewer = null }) {
   const workspaceId = contentWorkspace.activeWorkspaceId();
   const conversation = conversationId ? askStore.readConversation(identityId, conversationId) : null;
   if (conversationId && !conversation) throw askFail('That conversation isn’t available anymore. Start a new one.', 404);
   if (conversation && conversation.workspaceId !== workspaceId) throw askFail('This conversation belongs to another workspace. Switch back to it, or start a new conversation here.', 409);
   if (conversation && askingIn.has(conversation.id)) throw askFail('Ask AI is still answering in this conversation. Wait for it, or stop it first.', 409);
-  const past = conversation ? askHistory(conversation) : { summary: '', turns: Array.isArray(history) ? history : [], pending: [], coverThrough: '' };
+  if (mode) {
+    const messages = conversation?.messages || []; const last = messages[messages.length - 2];
+    if (messages.length < 2 || last?.role !== 'user' || last.id !== replaces || messages[messages.length - 1]?.role !== 'assistant') throw askFail('Only your last question can be asked again.', 409);
+    if (mode === 'regenerate') { question = String(last.content || question); if (!attachments.length) attachments = askAttachments(last.attachments); }
+  }
+  const past = conversation ? askHistory(conversation, mode ? { before: replaces } : {}) : { summary: '', turns: Array.isArray(history) ? history : [], pending: [], coverThrough: '' };
   if (conversation) askingIn.add(conversation.id);
+  const progress = askProgress.begin({ requestId, identityId, target, conversationId: conversation?.id || '', question, mode, project });
+  const save = (assistant, extra = {}) => {
+    const turn = { user: { content: question, context, page, requestId, ...(attachments.length || mode !== 'regenerate' ? { attachments } : {}) }, assistant, remember: extra.remember || [], summary: extra.summary || null };
+    return mode ? askStore.replaceLastTurn(identityId, { conversationId: conversation.id, replaces, mode, ...turn }) : askStore.appendTurn(identityId, { conversationId: conversation?.id || '', workspaceId, ...turn, title: conversation ? '' : extra.title || '' });
+  };
   try {
+    progress.step({ id: 'context', kind: 'context', label: 'Looking at your studio', status: 'running' });
     const memory = askStore.recall(identityId, { workspaceId, query: [question, page.tab, page.report, page.folder, page.trend, page.prompt].filter(Boolean).join(' '), names: askNames(), limit: 12, maxChars: 2500 });
     // Earlier conversations about the same thing, found for free (BM25 over this person's own messages), so a decision
     // made last week comes up without a lookup.
     const related = helpSafe(() => askStore.searchConversations(identityId, [question, page.trend, page.report].filter(Boolean).join(' '), 2, { workspaceId, exclude: conversation?.id || '', minScore: 3 }), []);
-    const reply = await answerHelp({ question, page, history: [...past.turns, ...(context ? [{ role: 'user', content: context }] : [])], role, promptAccess, reach, checkModel: true, jobId: `help-${requestId}`, identityId, workspaceId, conversationId: conversation?.id || '', memory, summary: past.summary, pending: past.pending, related });
-    return askStore.appendTurn(identityId, {
-      conversationId: conversation?.id || '', workspaceId,
-      user: { content: question, context, page, requestId },
-      assistant: { content: reply.answer, pages: reply.pages, followUps: reply.followUps, actions: reply.actions, show: reply.show, image: reply.image ? { ...reply.image, status: 'creating' } : null, cards: reply.cards, read: reply.read, receipt: reply.receipt, ...(reply.unresolved?.length ? { unresolved: reply.unresolved } : {}) },
-      remember: reply.remember, summary: past.pending.length && reply.summary ? { text: reply.summary, through: past.coverThrough } : null, title: conversation ? '' : reply.title,
-    });
+    progress.step({ id: 'context', kind: 'context', label: 'Looked at your studio', status: 'done' });
+    const reply = await answerHelp({ question, page, history: [...past.turns, ...(context ? [{ role: 'user', content: context }] : [])], role, promptAccess, reach, checkModel: true, jobId: `help-${requestId}`, identityId, workspaceId, conversationId: conversation?.id || '', memory, summary: past.summary, pending: past.pending, related, progress, attached: attachments });
+    const saved = save({ content: reply.answer, pages: reply.pages, followUps: reply.followUps, actions: reply.actions, show: reply.show, image: reply.image ? { ...reply.image, status: 'creating' } : null, cards: reply.cards, read: reply.read, receipt: reply.receipt, ...(reply.unresolved?.length ? { unresolved: reply.unresolved } : {}) },
+      { remember: reply.remember, summary: past.pending.length && reply.summary ? { text: reply.summary, through: past.coverThrough } : null, title: reply.title });
+    progress.done(saved);
+    return saved;
+  } catch (error) {
+    const partial = error?.stopped && typeof error.partial === 'string' ? error.partial.trim() : '';
+    if (partial) {
+      // What was written before Stop, kept as a stopped answer: no buttons, cards or receipt (its cost isn't known).
+      let saved = null;
+      try { saved = save({ content: partial, stopped: true, pages: [], followUps: [], actions: [], show: null, image: null, cards: [], read: [], receipt: null }); }
+      catch (saveError) { progress.failed({ message: (viewer ? access.rewriteError(saveError, viewer) : saveError)?.message, code: saveError?.code, stopped: true }); throw saveError; }
+      progress.failed({ message: 'Stopped. What was written so far is kept.', code: 'stopped', stopped: true, reply: saved, retryable: true });
+      return saved;
+    }
+    const shown = viewer ? access.rewriteError(error, viewer) : error;
+    progress.failed({ message: shown?.message || String(error), code: typeof shown?.code === 'string' && /^[a-z][a-zA-Z0-9-]{0,39}$/.test(shown.code) ? shown.code : '', stopped: Boolean(error?.stopped) });
+    throw error;
   } finally { if (conversation) askingIn.delete(conversation.id); }
 }
 
@@ -3455,14 +3588,46 @@ handle('help:ask', async (_, payload = {}) => {
   const identityId = askIdentityId(); const question = askQuestion(input.question);
   const requestId = input.requestId == null ? randomUUID() : String(input.requestId);
   if (!ASK_REQUEST_ID.test(requestId)) throw askFail('Invalid question request ID.');
+  // Retry (mode 'regenerate') or Edit (mode 'edit') of the last question names that question's id in `replaces`.
+  const mode = ['regenerate', 'edit'].includes(input.mode) ? input.mode : '';
+  const replaces = mode ? String(input.replaces ?? '') : '';
+  if (mode && (!ASK_MESSAGE_ID.test(replaces) || !input.conversationId)) throw askFail('Only your last question can be asked again.', 409);
   // The same request never pays twice: one still running is joined, one already answered returns its stored reply.
   const key = `${identityId} ${requestId}`; const running = askingNow.get(key);
   if (running) { if (running.question !== question) throw askFail('Use a new request ID for a different question.'); return running.work; }
   const stored = askStore.findByRequest(identityId, requestId);
-  if (stored) { if (stored.userMessage.content !== question) throw askFail('Use a new request ID for a different question.'); return stored; }
-  const work = askInConversation({ identityId, role, promptAccess, reach, question, requestId, conversationId: String(input.conversationId || ''), page: askPage(input.page), context: String(input.context || '').slice(0, 3900), history: input.history }).finally(() => askingNow.delete(key));
+  if (stored) { if (stored.userMessage.content !== question && !mode) throw askFail('Use a new request ID for a different question.'); return stored; }
+  // Two questions at once per person (two conversations side by side); a third waits for one of them.
+  if ([...askingNow.keys()].filter((entry) => entry.startsWith(`${identityId} `)).length >= ASK_BUSY_LIMIT) throw Object.assign(askFail('You have two questions going. Wait for one to finish, or stop it.', 429), { code: 'askBusy' });
+  // Who the streamed answer goes to (this browser session on the web) and how it is shaped for this person (money
+  // stripped for roles without See costs), read here at the entry like everything else about the asker.
+  const target = { identityId, session: access.sessionForCall() };
+  const project = (event) => access.projectResult('askHelp', event, viewer);
+  const work = askInConversation({ identityId, role, promptAccess, reach, question, requestId, conversationId: String(input.conversationId || ''), page: askPage(input.page), context: String(input.context || '').slice(0, 3900), history: input.history, mode, replaces, attachments: askAttachments(input.attachments), target, project, viewer }).finally(() => askingNow.delete(key));
   askingNow.set(key, { question, work });
   return work;
+});
+// Stop for an answer still being written: only the person who asked can stop it. Named cancel*, so a server draining for
+// a restart still lets it through. { requestId } → { stopped }.
+handle('help:cancel', (_, payload = {}) => {
+  const identityId = askIdentityId(); const requestId = String(askInput(payload).requestId ?? '');
+  if (!ASK_REQUEST_ID.test(requestId)) throw askFail('Invalid question request ID.');
+  const jobId = `help-${requestId}`; const job = jobs.get(jobId); const stop = apiRequests.get(jobId);
+  // Pressed before the answer's job started (it was still reading memory): answerHelp stops it as it starts.
+  if (!job && askingNow.has(`${identityId} ${requestId}`)) { cancelledJobs.add(jobId); return { stopped: true }; }
+  if (!job || job.ownerId !== identityId || !stop) return { stopped: false };
+  cancelledJobs.add(jobId); stop.abort();
+  return { stopped: true };
+});
+// An answer's live progress, read back by a window that missed events (a reload, a dropped stream, a second tab): with
+// a requestId, { progress: snapshot | null }; without, { active: [snapshot] } (running, or finished in the last minute).
+// Only the caller's own answers.
+handle('help:progress', (_, payload = {}) => {
+  const identityId = askIdentityId(); const input = askInput(payload);
+  if (input.requestId == null || input.requestId === '') return { active: askProgress.active(identityId) };
+  const requestId = String(input.requestId);
+  if (!ASK_REQUEST_ID.test(requestId)) throw askFail('Invalid question request ID.');
+  return { progress: askProgress.snapshot(identityId, requestId) };
 });
 const askConversationId = (input) => String(input.conversationId ?? input.id ?? '');
 handle('help:conversations', (_, payload = {}) => {
@@ -3484,10 +3649,16 @@ handle('help:memory', (_, payload = {}) => ({ items: askStore.listMemory(askIden
 handle('help:save-memory', (_, payload = {}) => ({ item: askStore.saveMemory(askIdentityId(), askInput(payload), { workspaceId: contentWorkspace.activeWorkspaceId() }) }));
 handle('help:forget-memory', (_, payload = {}) => ({ item: askStore.forgetMemory(askIdentityId(), String(askInput(payload).id || '')) }));
 
-// Pictures from the Ask AI drawer (help-images.js), through the same image provider as Create content.
+// Pictures from the Ask AI drawer (help-images.js), through the media router (Model routing's pictures.ask-ai) with the
+// brand reference images of the family Ask AI chose for the picture (read from Settings when the request starts).
 let helpImageStore = null;
-const helpImages = () => (helpImageStore ||= require('./help-images').createHelpImages({ generateImage: (request) => imageProvider.generateImage(request), dir: dataPath('help', 'images'), isConfigured: () => Boolean(getKey('OPENAI_API_KEY')) }));
-handle('help:image', (_, payload = {}) => helpImages().create({ prompt: payload.prompt, size: payload.size, title: payload.title }));
+const helpImages = () => (helpImageStore ||= require('./help-images').createHelpImages({
+  generateImage: (request) => mediaRouter.generateImage(request), dir: dataPath('help', 'images'),
+  problem: () => mediaRouter.problem('pictures.ask-ai'),
+  references: (family) => contentWorkspace.brandReferenceSet({ family }),
+  edition: () => contentWorkspace.activeEditionId(), workspaceId: () => contentWorkspace.activeWorkspaceId(),
+}));
+handle('help:image', (_, payload = {}) => helpImages().create({ prompt: payload.prompt, size: payload.size, title: payload.title, family: typeof payload.family === 'string' ? payload.family : 'none' }));
 handle('help:images', () => helpImages().list());
 handle('help:read-image', (_, payload = {}) => helpImages().read(payload.id));
 handle('help:save-image', async (_, payload = {}) => {
@@ -3759,7 +3930,7 @@ handle('save-key', (_, { keyName, value }) => {
   const config = loadConfig();
   config.keys[validKey] = encryptValue(validValue);
   if (config.disabledKeys) delete config.disabledKeys[validKey];
-  saveConfig(); aiRoutes.invalidate();
+  saveConfig(); aiRoutes.invalidate(); aiConnections.invalidate();
   return publicState().keys;
 });
 
@@ -3768,13 +3939,20 @@ handle('clear-key', (_, keyName) => {
   const config = loadConfig();
   delete config.keys[validKey];
   config.disabledKeys = { ...(config.disabledKeys || {}), [validKey]: true };
-  saveConfig(); aiRoutes.invalidate();
+  saveConfig(); aiRoutes.invalidate(); aiConnections.invalidate();
   return publicState().keys;
 });
 
 handle('save-settings', (_, settings) => {
   const data = loadData();
   data.settings = validateSettings(settings, data.settings);
+  // An older screen that still saves the text route, model or cap keeps saved Model routing in step with it.
+  if (data.settings.aiRouting && settings && typeof settings === 'object') {
+    const text = { ...data.settings.aiRouting.defaults?.text };
+    if (settings.aiProvider !== undefined) { text.route = data.settings.aiProvider; if (text.route === 'codex') text.model = ''; }
+    if (settings.aiModel !== undefined && text.route !== 'codex') text.model = data.settings.aiModel;
+    data.settings.aiRouting = { ...data.settings.aiRouting, defaults: { ...data.settings.aiRouting.defaults, text }, ...(settings.aiMaxBudgetUsd !== undefined ? { maxBudgetUsd: data.settings.aiMaxBudgetUsd } : {}) };
+  }
   saveData(); aiRoutes.invalidate();
   emitState();
   return publicState();

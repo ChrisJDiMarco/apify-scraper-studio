@@ -19,6 +19,10 @@
       "label": "Pictures"
     },
     {
+      "id": "video",
+      "label": "Video"
+    },
+    {
       "id": "assistant",
       "label": "Assistant"
     },
@@ -1483,6 +1487,168 @@
         {
           "label": "OUTPUT CHECKLIST",
           "reason": "Restates the checks the studio runs on the answer."
+        }
+      ]
+    },
+    {
+      "id": "reports.quick-scan",
+      "name": "Quick scan trends report",
+      "group": "reports",
+      "description": "Writes the short trends report a quick scan posts in Ask AI when it finishes.",
+      "powers": [
+        "Quick scans: the trends report posted in Ask AI",
+        "Make channel assets can start from it"
+      ],
+      "stage": "reports",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "synthesis",
+        "modelSource": "research",
+        "effort": "",
+        "outputTokens": 4000,
+        "taskId": "quickScans.report"
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "intro",
+          "label": "Who the AI is",
+          "help": "The opening line of the quick scan report request.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "brandClause",
+              "description": "\" for <brand>\" (\" for Semrush\" in the Semrush workspace), else empty",
+              "example": " for Northwind Analytics"
+            },
+            {
+              "name": "topic",
+              "description": "The topic the quick scan looked for",
+              "example": "AI Overviews"
+            },
+            {
+              "name": "windowLabel",
+              "description": "The scan's window in words",
+              "example": "the last 6 hours"
+            },
+            {
+              "name": "audienceClause",
+              "description": "\", written for <audience>\" when Brand knowledge names one (SEO professionals for Semrush), else empty",
+              "example": ", written for marketing leads"
+            }
+          ],
+          "requiredVariables": [
+            "topic",
+            "windowLabel"
+          ],
+          "requiredTerms": [],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "writingRules",
+          "label": "Writing rules",
+          "help": "How the report is written. The studio still checks every quote and post id itself.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 4000,
+          "lines": null
+        },
+        {
+          "id": "fieldGuide",
+          "label": "What each field holds",
+          "help": "One line per report field. The field names must stay.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "summary",
+            "trends",
+            "whatsHappening",
+            "whyItMatters",
+            "quotes",
+            "evidenceIds",
+            "watch",
+            "nextSteps",
+            "caveats"
+          ],
+          "maxChars": 3000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "block",
+          "blockId": "intro"
+        },
+        {
+          "kind": "fixed",
+          "label": "## RULES",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "writingRules"
+        },
+        {
+          "kind": "fixed",
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "data",
+          "label": "QUICK SCAN, TRENDS and POSTS: the scan's window, the trends it found and the posts behind them"
+        },
+        {
+          "kind": "fixed",
+          "label": "## STRUCTURED OUTPUT (required)",
+          "reason": "Explains what the studio writes itself (title, source list, links), so the AI never restates it."
+        },
+        {
+          "kind": "block",
+          "blockId": "fieldGuide"
+        }
+      ],
+      "enforced": [
+        "Quotes must appear word for word in the post they cite; others are dropped.",
+        "Only this scan's trends and posts can be cited.",
+        "The studio writes the title, the source list and the links."
+      ],
+      "viewOnly": [
+        {
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "## RULES",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "## STRUCTURED OUTPUT (required)",
+          "reason": "Explains what the studio writes itself (title, source list, links), so the AI never restates it."
         }
       ]
     },
@@ -3551,6 +3717,241 @@
       ]
     },
     {
+      "id": "video.brief",
+      "name": "Short video plan",
+      "group": "video",
+      "description": "Claude reads the trend report once and plans the short social video: what the camera sees, its first frame and the on-screen lines saved beside the clip.",
+      "powers": [
+        "Channel assets: the short social video"
+      ],
+      "stage": "video",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "video",
+        "modelSource": "kit",
+        "effort": "medium",
+        "outputTokens": 1200,
+        "taskId": "video.brief"
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "role",
+          "label": "Who the AI is",
+          "help": "The opening line. It must keep the video’s length, shape and whose it is.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "seconds",
+              "description": "How long the clip is",
+              "example": "8"
+            },
+            {
+              "name": "shape",
+              "description": "The clip’s shape",
+              "example": "vertical (9:16)"
+            },
+            {
+              "name": "owner",
+              "description": "Whose video it is",
+              "example": "Northwind Analytics"
+            }
+          ],
+          "requiredVariables": [
+            "seconds",
+            "shape",
+            "owner"
+          ],
+          "requiredTerms": [],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "sourceRule",
+          "label": "Source rule",
+          "help": "Work only from the source; invent nothing.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "instruction",
+          "label": "How to tell the story",
+          "help": "What kind of video to plan.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 2000,
+          "lines": null
+        },
+        {
+          "id": "fields",
+          "label": "What to return",
+          "help": "One line per plan field. The field names must stay.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "title",
+            "prompt",
+            "onScreenText",
+            "keyframePrompt",
+            "avoid",
+            "evidenceIds"
+          ],
+          "maxChars": 3000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "block",
+          "blockId": "role"
+        },
+        {
+          "kind": "block",
+          "blockId": "sourceRule"
+        },
+        {
+          "kind": "fixed",
+          "label": "BRAND DIRECTION (the look the video model is given)",
+          "reason": "Edit it under Brand visual direction."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "Return:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "fields"
+        },
+        {
+          "kind": "data",
+          "label": "The report’s evidence and the brand"
+        }
+      ],
+      "enforced": [
+        "On-screen lines never go to the video model; they are saved beside the clip.",
+        "Evidence IDs must come from the report."
+      ],
+      "viewOnly": [
+        {
+          "label": "BRAND DIRECTION (the look the video model is given)",
+          "reason": "Edit it under Brand visual direction."
+        },
+        {
+          "label": "Return:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        }
+      ]
+    },
+    {
+      "id": "video.clip",
+      "name": "Short video (video model)",
+      "group": "video",
+      "description": "What the video model receives: the fixed rules, the brand look, the plan’s scene, the camera and motion line, and the shape and length.",
+      "powers": [
+        "Channel assets: the short social video"
+      ],
+      "stage": "video",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "video",
+        "modelSource": "video",
+        "effort": "",
+        "outputTokens": 0,
+        "taskId": "video.social-clip"
+      },
+      "test": {
+        "kind": "none",
+        "samples": [
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "motion",
+          "label": "Camera and motion",
+          "help": "How the camera moves and how the clip feels.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 600,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "No words, captions, logos or watermarks in the frames.",
+          "reason": "Words in AI video often come out garbled; the on-screen lines are saved beside the clip instead."
+        },
+        {
+          "kind": "fixed",
+          "label": "BRAND LOOK",
+          "reason": "Edit it under Brand visual direction."
+        },
+        {
+          "kind": "data",
+          "label": "SCENE: the plan’s video prompt"
+        },
+        {
+          "kind": "block",
+          "blockId": "motion"
+        },
+        {
+          "kind": "fixed",
+          "label": "SHAPE AND LENGTH",
+          "reason": "Set in Settings, Model routing."
+        }
+      ],
+      "enforced": [
+        "Video prompts stay under 4,000 characters.",
+        "A video is opt-in and shows its estimate before anything is paid."
+      ],
+      "viewOnly": [
+        {
+          "label": "No words, captions, logos or watermarks in the frames.",
+          "reason": "Words in AI video often come out garbled; the on-screen lines are saved beside the clip instead."
+        },
+        {
+          "label": "BRAND LOOK",
+          "reason": "Edit it under Brand visual direction."
+        },
+        {
+          "label": "SHAPE AND LENGTH",
+          "reason": "Set in Settings, Model routing."
+        }
+      ]
+    },
+    {
       "id": "assistant.ask-ai",
       "name": "Ask AI",
       "group": "assistant",
@@ -3632,7 +4033,7 @@
             {
               "name": "picturesOffRule",
               "description": "What to say when pictures are off, by role",
-              "example": "explain that adding an OpenAI API key in **Settings → Image generation** turns pictures on."
+              "example": "explain that connecting a picture model in **Settings → AI connections** (an OpenAI or fal.ai key) turns pictures on."
             }
           ],
           "requiredVariables": [
@@ -3717,6 +4118,11 @@
         },
         {
           "kind": "fixed",
+          "label": "Which brand reference images go with the picture (image.family)",
+          "reason": "The studio sends only this workspace’s sets, read from Settings when the picture starts."
+        },
+        {
+          "kind": "fixed",
           "label": "PAGES and SPOTS",
           "reason": "Lists only the pages and places this person can open."
         },
@@ -3733,7 +4139,7 @@
       "enforced": [
         "Buttons are offered, never run; paid work asks again.",
         "Card numbers come from the studio, not the model.",
-        "Secrets and data from lookups are never remembered."
+        "Secrets and data from lookups are never remembered.", "A picture’s family must be one of this workspace’s reference sets, or none."
       ],
       "viewOnly": [
         {
@@ -3779,6 +4185,10 @@
         {
           "label": "PICTURES",
           "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "Which brand reference images go with the picture (image.family)",
+          "reason": "The studio sends only this workspace’s sets, read from Settings when the picture starts."
         },
         {
           "label": "PAGES and SPOTS",

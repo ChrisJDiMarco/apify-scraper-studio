@@ -194,6 +194,14 @@
 .content-studio .cs-source-modes > button[aria-pressed="true"] { border-color: var(--cs-border-accent); color: var(--cs-accent); background: var(--cs-soft); }
 .content-studio .cs-source-modes > button:hover:not(:disabled):not([aria-pressed="true"]) { background: var(--cs-soft); color: var(--cs-ink); border-color: var(--cs-border-accent); }
 .cs-source-meta { display: flex; align-items: center; justify-content: space-between; gap: 15px; color: var(--cs-muted); font-size: 10px; margin-top: -7px; }
+.cs-attached-report { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--cs-border-accent); border-radius: 9px; background: var(--cs-soft); }
+.cs-attached-body { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.cs-attached-body strong { font-size: 13px; color: var(--cs-ink); overflow-wrap: anywhere; }
+.cs-attached-body small { font-size: 10px; line-height: 1.45; color: var(--cs-muted); }
+.cs-source-chip { justify-self: start; padding: 2px 8px; font-size: 10px; font-weight: 600; color: var(--cs-accent); background: var(--cs-paper); border: 1px solid var(--cs-border-accent); border-radius: 999px; }
+.cs-attached-actions { display: flex; flex-wrap: wrap; gap: 6px; flex: none; }
+.cs-keep-attached { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 10px; }
+@media (max-width: 640px) { .cs-attached-report { flex-wrap: wrap; } .cs-attached-actions { width: 100%; } }
 .cs-report-picker { display: grid; gap: 10px; }
 .cs-report-picker > button { display: flex; gap: 10px; align-items: center; padding: 14px; background: #fff; border: 1px solid var(--cs-border); color: var(--cs-ink); border-radius: 8px; text-align: left; }
 .cs-report-picker > button > svg { color: var(--cs-accent); flex-shrink: 0; }

@@ -7,6 +7,7 @@ const researchPrompts = require('../shared/research-prompts');
 const content = require('../shared/content-studio');
 const { snapshotBlocks } = require('../shared/prompt-template');
 const reports = () => require('../shared/research-reports');
+const scanReports = () => require('../shared/research-scan-report');
 const kit = () => require('../shared/asset-kit');
 const findings = () => require('../shared/findings-chat');
 const dataPrompts = () => require('../shared/data-prompts');
@@ -20,6 +21,7 @@ const RELATED = {
   'pictures.variations': ['pictures.direction', 'pictures.kit-image'],
   'pictures.direction': ['pictures.kit-image', 'pictures.variations'],
   'pictures.content-image': ['assets.shared', 'pictures.direction', 'pictures.variations'],
+  'video.brief': ['pictures.direction'], 'video.clip': ['pictures.direction', 'video.brief'],
   'data.dataset-report': ['data.analysis-rules'], 'data.tag-items': ['data.analysis-rules'], 'data.threads': ['data.analysis-rules'], 'data.analysis-rules': ['data.dataset-report'],
 };
 function relatedIds(promptId) {
@@ -28,6 +30,9 @@ function relatedIds(promptId) {
 }
 const PICTURE_USD = 0.06; // asset-kit KIT_IMAGE_USD: one 1536×1024 picture, rounded up
 const pictureDeliverable = (editionId, prompts, id = 'brand-image') => content.buildContentPlan({ editionId, source: { id: 'picture-source', kind: 'text', title: 'Picture', text: 'Picture source.' }, deliverableIds: [id], imageVariants: 3, prompts }).deliverables[0];
+const videoDeliverable = (editionId, prompts) => content.buildContentPlan({ editionId, source: { id: 'video-source', kind: 'text', title: 'Video', text: 'Video source.' }, deliverableIds: ['social-video'], prompts }).deliverables[0];
+// A plan for previewing the video prompt when the sample has none of its own.
+const SAMPLE_VIDEO_BRIEF = { title: 'Answers move into the search results', prompt: 'A marketer at a bright desk scrolls a search results page on a laptop while answer panels slide into view above the links. The camera pushes in slowly over her shoulder, then cuts to her notebook as she circles one result. Soft daylight, calm pace.', onScreenText: ['Answers now sit above the links', 'Check which pages get cited'], keyframePrompt: 'A marketer at a bright desk looking at a laptop showing a search results page.', avoid: ['Real brand logos', 'Charts without numbers'], evidenceIds: [] };
 const batchOf = (sample, posts, stage) => ({ id: `batch-${stage}-sample`, runId: sample.runId, stage, index: 1, totalBatches: 1, platform: posts[0]?.platform || 'x', platformBatchNumber: 1, items: posts, evidenceIds: posts.map((post) => post.id) });
 const firstPlatform = (posts) => { const platform = ['x', 'linkedin', 'reddit'].find((p) => posts.some((post) => post.platform === p)); return posts.filter((post) => post.platform === platform); };
 // A run's saved brand knowledge is used as it is; the bundled sample's made-up brand becomes Semrush in that edition.
@@ -35,7 +40,9 @@ const brandOf = (sample, editionId) => (sample.brandKnowledge?.editionId === edi
 
 // build(promptId, { editionId, brandName, sample, prompts, trace, role }) → { kind: 'text'|'image'|'none', prompt, schema,
 // validate(raw) → checked output, outputTokens, pictures (image runs: the picture prompts, first one tested) }.
-function build(promptId, { editionId = 'general', brandName = '', sample, prompts = null, trace = false, role = 'admin' } = {}) {
+// references: the campaign set's reference images as roles ([{ role: 'style' | 'logo' }]); picture prompts name them as
+// their runs do. The default (none) renders exactly the prompts the goldens hold.
+function build(promptId, { editionId = 'general', brandName = '', sample, prompts = null, trace = false, role = 'admin', references = [] } = {}) {
   const blocks = snapshotBlocks(prompts, promptId); const edition = { editionId, brandName };
   switch (promptId) {
     case 'research.discovery': {
@@ -63,21 +70,38 @@ function build(promptId, { editionId = 'general', brandName = '', sample, prompt
       const request = reports().buildToolkitRequest({ theme: sample.themes[0], trendReport, trendReportMarkdown: content.renderContentExport(trendReport), metrics: selection.metrics, registryText: sample.registryText || '', products: sample.products || [], referenceDocs: (sample.referenceDocs || []).filter((doc) => doc.kind !== 'registry'), enterpriseProducts: sample.enterpriseProducts || [], editionId, brandName: sample.reportPayload?.brandName || (editionId === 'semrush' ? 'Semrush' : brandName), blocks, trace });
       return { kind: 'text', prompt: request.prompt, schema: request.schema, validate: (raw) => reports().validateToolkit(raw, request.context).output, outputTokens: 5000 };
     }
+    case 'reports.quick-scan': {
+      // A recent quick scan's trends and posts (latestPromptSample), else the bundled sample's.
+      const lib = scanReports(); const { scan, selection } = lib.samplePayload(sample);
+      const request = lib.buildScanReportRequest({ scan, selection, editionId, brandName: editionId === 'semrush' ? 'Semrush' : brandName, audience: brandOf(sample, editionId)?.audience || '', blocks, trace });
+      return { kind: 'text', prompt: request.prompt, schema: request.schema, validate: (raw) => lib.validateScanReport(raw, request.context), outputTokens: lib.OUTPUT_TOKENS };
+    }
     case 'pictures.kit-brief': {
       const deliverable = pictureDeliverable(editionId, prompts);
-      const request = kit().imageBriefRequest(deliverable, { editionId, source: sample.source, brandKnowledge: brandOf(sample, editionId), prompts }, { references: [], trace });
+      const request = kit().imageBriefRequest(deliverable, { editionId, source: sample.source, brandKnowledge: brandOf(sample, editionId), prompts }, { references, trace });
       return { kind: 'text', prompt: request.prompt, schema: kit().IMAGE_BRIEF_SCHEMA, validate: (raw) => kit().validateImageBrief(raw, request), outputTokens: 1200 };
     }
     case 'pictures.kit-image': case 'pictures.variations': case 'pictures.direction': {
       const deliverable = pictureDeliverable(editionId, prompts);
       const brief = kit().validateImageBrief(sample.brief, { evidenceIds: (sample.source?.evidence || []).map((entry) => entry.id) });
-      const picture = kit().kitImageDeliverable(deliverable, brief, { editionId, label: deliverable.label, references: [], prompts, trace });
+      const picture = kit().kitImageDeliverable(deliverable, brief, { editionId, label: deliverable.label, references, prompts, trace });
       return { kind: 'image', prompt: picture.variantPrompts.join('\n\n'), pictures: picture.variantPrompts, deliverable: picture, estimateUsd: PICTURE_USD * picture.variantPrompts.length };
     }
     case 'pictures.content-image': {
-      const plan = content.buildContentPlan({ editionId, source: sample.source, brandKnowledge: brandOf(sample, editionId), productRegistry: sample.products || [], deliverableIds: ['brand-image'], imageVariants: 3, prompts }, { trace });
+      const plan = content.buildContentPlan({ editionId, source: sample.source, brandKnowledge: brandOf(sample, editionId), productRegistry: sample.products || [], deliverableIds: ['brand-image'], imageVariants: 3, prompts, ...(references.length ? { references: { 'brand-image': references } } : {}) }, { trace });
       const deliverable = plan.deliverables[0];
       return { kind: 'image', prompt: deliverable.variantPrompts.join('\n\n'), pictures: deliverable.variantPrompts, deliverable, estimateUsd: PICTURE_USD * deliverable.variantPrompts.length };
+    }
+    case 'video.brief': {
+      const deliverable = videoDeliverable(editionId, prompts);
+      const request = kit().videoBriefRequest(deliverable, { editionId, source: sample.source, brandKnowledge: brandOf(sample, editionId), prompts }, { trace });
+      return { kind: 'text', prompt: request.prompt, schema: kit().VIDEO_BRIEF_SCHEMA, validate: (raw) => kit().validateVideoBrief(raw, request), outputTokens: kit().VIDEO_BRIEF_OUTPUT_TOKENS };
+    }
+    case 'video.clip': {
+      // A clip takes minutes and costs dollars, so it is previewed here and tried by making a video from a report.
+      const deliverable = videoDeliverable(editionId, prompts);
+      const brief = kit().validateVideoBrief(sample.videoBrief || SAMPLE_VIDEO_BRIEF, { evidenceIds: (sample.source?.evidence || []).map((entry) => entry.id) });
+      return { kind: 'none', prompt: kit().kitVideoDeliverable(deliverable, brief, { editionId, prompts, trace }).prompt };
     }
     case 'assistant.ask-ai': {
       // help-assistant.js reads these blocks once it takes { blocks, trace } (a later phase); until then this shows the defaults.

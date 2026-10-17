@@ -62,6 +62,12 @@ export function goldenCases() {
   add('reports.trends-report.semrush', () => trendRequest({ editionId: 'semrush', brandName: 'Semrush', analysisFocus: 'SEO Trends', targetAudience: 'SEO Professionals' }).prompt);
   add('reports.trends-report.general', () => trendRequest({ editionId: 'general', brandName: 'Northwind Analytics', analysisFocus: 'AI search', targetAudience: 'marketing leads' }).prompt);
   add('reports.trends-report.general-bare', () => trendRequest({ editionId: 'general' }).prompt);
+  // ── Quick scan trends report (research-scan-report.js): the frozen posts and trends as a scan's payload ──
+  const scanReport = load('src/shared/research-scan-report.js');
+  const scanPayload = () => scanReport.samplePayload({ ...input, query: 'AI answers and click loss' });
+  add('reports.quick-scan.semrush', () => scanReport.buildScanReportRequest({ ...scanPayload(), editionId: 'semrush', brandName: 'Semrush' }).prompt);
+  add('reports.quick-scan.general', () => scanReport.buildScanReportRequest({ ...scanPayload(), editionId: 'general', brandName: 'Northwind Analytics', audience: 'marketing leads' }).prompt);
+  add('reports.quick-scan.general-bare', () => scanReport.buildScanReportRequest({ ...scanPayload(), editionId: 'general' }).prompt);
   const trendReport = () => { const request = trendRequest({ editionId: 'semrush' }); return reports.validateTrendReport(input.trendReportOutput, request.context); };
   const selfServeOnly = input.products.filter((product) => product.segment === 'self-serve');
   const enterpriseOnly = input.products.filter((product) => product.segment === 'enterprise');
@@ -74,10 +80,14 @@ export function goldenCases() {
   }
 
   // ── Channel assets and pictures (content-studio.js, asset-kit.js) ──
-  const planInput = (editionId) => ({ editionId, source: input.source, brandKnowledge: editionId === 'semrush' ? { ...input.brandKnowledge, name: 'Semrush' } : input.brandKnowledge, productRegistry: input.products, deliverableIds: content.CONTENT_DELIVERABLES.filter((d) => !d.editions || d.editions.includes(editionId)).map((d) => d.id), imageVariants: 3 });
+  const planInput = (editionId) => ({ editionId, source: input.source, brandKnowledge: editionId === 'semrush' ? { ...input.brandKnowledge, name: 'Semrush' } : input.brandKnowledge, productRegistry: input.products, deliverableIds: content.CONTENT_DELIVERABLES.filter((d) => !d.kitOnly && (!d.editions || d.editions.includes(editionId))).map((d) => d.id), imageVariants: 3 });
   for (const editionId of ['semrush', 'general']) {
     add(`assets.content-plan.${editionId}`, () => joinParts(content.buildContentPlan(planInput(editionId)).deliverables.flatMap((d) => (d.kind === 'image' ? [[d.id, d.prompt], ...d.variantPrompts.map((text, i) => [`${d.id} variation ${i + 1}`, text])] : [[d.id, d.prompt]]))));
     add(`pictures.direction.${editionId}`, () => joinParts([['brand', content.brandImageDirection(editionId)], ['search-engine-land', content.brandImageDirection(editionId, { searchEngineLand: true })]]));
+    // The short social video's plan and the prompt the video model receives (Video group).
+    const video = () => content.buildContentPlan({ ...planInput(editionId), deliverableIds: ['social-video'] }).deliverables[0];
+    add(`video.brief.${editionId}`, () => kit.videoBriefRequest(video(), planInput(editionId)).prompt);
+    add(`video.clip.${editionId}`, () => kit.kitVideoDeliverable(video(), kit.validateVideoBrief({ title: 'Answers move above the links', prompt: 'A marketer at a bright desk scrolls a results page while answer panels slide into view above the links. The camera pushes in slowly, soft daylight.', onScreenText: ['Answers now sit above the links'], keyframePrompt: 'A marketer at a bright desk looking at a laptop.', avoid: ['Real brand logos'], evidenceIds: ['E1'] }, { evidenceIds: ['E1', 'E2'] }), { editionId }).prompt);
   }
   const imagePlan = (editionId, id) => content.buildContentPlan({ ...planInput(editionId), deliverableIds: [id] }).deliverables[0];
   const references = { none: [], style: [{ role: 'style' }, { role: 'style' }], 'style-logo': [{ role: 'style' }, { role: 'logo' }, { role: 'style' }, { role: 'style' }], 'one-style-logo': [{ role: 'style' }, { role: 'logo' }] };

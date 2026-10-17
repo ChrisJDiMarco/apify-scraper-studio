@@ -46,7 +46,7 @@ describe('Claude routes', () => {
   });
   it('explains exactly what to fix when nothing works', async () => {
     const missing = routes({ spawn: cli({ installed: false }) }).api;
-    await expect(missing.requireRoute()).rejects.toThrow('The Claude app (Claude Code) is not installed. Or add an Anthropic API key in Settings → Writing & research.');
+    await expect(missing.requireRoute()).rejects.toThrow('The Claude app (Claude Code) is not installed. Or add an Anthropic API key in Settings → AI connections.');
     const old = routes({ spawn: cli({ version: '1.0.3 (Claude Code)', helpText: help().replace('--effort', '') }) }).api;
     await expect(old.requireRoute()).rejects.toThrow('This Claude app (1.0.3 (Claude Code)) is too old for Scraper Studio; it lacks --effort. Run "claude update" in Terminal.');
     const signedOut = routes({ spawn: cli({ loggedIn: false }) }).api;
@@ -56,7 +56,7 @@ describe('Claude routes', () => {
     const app = routes({ provider: 'claude', spawn: cli({ loggedIn: false }), key: 'sk-ant-api03-key' }).api;
     await expect(app.requireRoute()).rejects.toThrow(/not signed in/);
     const apiOnly = routes({ provider: 'claude-api' });
-    await expect(apiOnly.api.requireRoute()).rejects.toThrow('Add an Anthropic API key in Settings → Writing & research.');
+    await expect(apiOnly.api.requireRoute()).rejects.toThrow('Add an Anthropic API key in Settings → AI connections.');
     expect(apiOnly.spawn).not.toHaveBeenCalled();
     expect((await routes({ provider: 'codex' }).api.resolve()).route).toBe('codex');
   });

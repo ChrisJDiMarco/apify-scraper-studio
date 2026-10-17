@@ -316,7 +316,8 @@ function adoptionsByTheme(adoptions, workspaceId, editionId) {
 }
 // Money, for a role without See costs: these keys (and any key ending in Usd) are removed wherever they appear.
 const MONEY_KEYS = new Set(['receipts', 'receipt', 'estimate', 'budgets', 'imageCalls']);
-const isMoneyKey = (key) => MONEY_KEYS.has(key) || /Usd$/.test(key);
+// Any key ending in usd (estimateUsd, unitUsd, a plan item's usd) is money, whatever its case.
+const isMoneyKey = (key) => MONEY_KEYS.has(key) || /usd$/i.test(key);
 // Run status text can quote a budget or an estimate ("The AI budget ($2.00) is below the estimate of $3.40…"), and a
 // scheduled program copies a run's message into lastError. Under these keys only, text with a dollar amount becomes
 // one line without it; evidence posts and report text are left alone.

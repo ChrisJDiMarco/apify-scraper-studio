@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Image as ImageIcon, KeyRound, LoaderCircle, ShieldCheck } from 'lucide-react';
+import { LoaderCircle, ShieldCheck } from 'lucide-react';
 import { readinessItems } from '../../shared/health.js';
+import { AiConnections } from './ai-connections.jsx';
 import { BrandImages } from './brand-images.jsx';
-import { DEFAULT_PROGRAM_AI } from './research-program-fields.jsx';
+import { ModelRouting } from './model-routing.jsx';
 import { SetupShare } from './setup-share.jsx';
 import { Badge, Button, JsonBlock, short, statusTone } from './ui.jsx';
 import { normalizeOrigin } from './deep-links.js';
@@ -36,43 +37,22 @@ const DRIVE_FOLDERS = [
 ];
 const driveFolders = (sheets = {}) => Object.fromEntries(DRIVE_FOLDERS.map(({ key }) => [key, sheets?.[key] || '']));
 
-const CLAUDE_ROUTES = [
-  ['auto', 'Automatic (recommended)', 'Uses the Claude app when it is installed, signed in and up to date; otherwise the API key below.'],
-  ['claude', 'Claude app (Claude Code)', "Uses this Mac's Claude Code sign-in and plan."],
-  ['claude-api', 'Anthropic API key', "Calls the API directly; usage is billed to the key's account."],
-];
-const ROUTE_BADGE = { auto: 'Automatic', claude: 'Claude app', 'claude-api': 'API key', codex: 'Codex selected' };
-function routeSummary(result) {
-  if (result.route === 'claude') return `Claude app ${result.version || ''}`.trim() + (result.loggedIn ? ' · signed in' : '');
-  if (result.route === 'claude-api') return 'Anthropic API key';
-  return result.version || 'Available';
-}
-function AiCheckResult({ result }) {
-  const models = Array.isArray(result.models) ? result.models : [];
-  return <div className={`settings-ai-result ${result.ok ? 'ok' : 'problem'}`} role="status">
-    <strong>{result.ok ? `Ready · using ${routeSummary(result)}` : result.route ? `Using ${routeSummary(result)}, with a problem` : 'Claude is not reachable yet'}</strong>
-    {result.provider === 'auto' && result.route === 'claude-api' && result.cli && <small>The Claude app was skipped: {result.cli.installed ? result.cli.missingFlags?.length ? `version ${result.cli.version} is too old` : result.cli.loggedIn ? 'it is unavailable' : 'it is not signed in' : 'it is not installed'}.</small>}
-    {models.length > 0 && <ul>{models.map((model) => <li key={model.id} className={model.available ? 'ok' : 'problem'}>{model.available ? '✓' : '✕'} {model.id}{model.available ? '' : ` — ${model.error}`}</li>)}</ul>}
-    {result.error && !result.ok && <p>{result.error}</p>}
-  </div>;
-}
-
 // The studio's connections, for admins. The Simple | Advanced layout switch lives in the sidebar now. `role` defaults to
 // admin so older callers keep everything; anyone else gets a note instead of controls the server would refuse.
-export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, meta, busy, onSaveKey, onClearKey, onSaveSettings, onTestSheetsBridge, onArchiveAndClearSheets, onImportWorkingSheets, onReplaySheetRun, onCheckAi, onCheckCodex, onTestImages, onOpenDataFolder, onOpenWorkspace, onSaveMondayBoard, onClearMondayBoard }) {
+// AI connections and Model routing (ai-connections.jsx, model-routing.jsx) talk to the studio through setupApi (the
+// renderer's API: getAiConnections, testAiConnection, listAiModels, previewAiRouting, saveAiRouting, estimateAiTaskTest,
+// testAiTask). layout ('simple' | 'classic') turns Model routing's job groups into accordions in the Simple layout.
+export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, meta, busy, layout, onSaveKey, onClearKey, onSaveSettings, onTestSheetsBridge, onArchiveAndClearSheets, onImportWorkingSheets, onReplaySheetRun, onOpenDataFolder, onOpenWorkspace, onSaveMondayBoard, onClearMondayBoard }) {
   const web = meta?.runtime === 'web'; // the browser studio: keys and the Claude connection live on the studio server
   const [token, setToken] = useState('');
   const [docsToken, setDocsToken] = useState('');
   const [mondayToken, setMondayToken] = useState('');
   const [mondayBoard, setMondayBoard] = useState(state.monday?.boardId || '');
-  const [imageKey, setImageKey] = useState('');
-  const [imageCheck, setImageCheck] = useState(null);
-  const [imageAction, setImageAction] = useState('');
-  const [imageError, setImageError] = useState('');
   const activeWorkspace = state.contentStudio?.workspaces?.find(workspace => workspace.id === state.contentStudio.activeWorkspaceId);
   const semrush = activeWorkspace?.editionId === 'semrush';
-  const imagesConfigured = Boolean(state.keys.OPENAI_API_KEY);
-  const imageBusy = busy || Boolean(imageAction);
+  const imagesConfigured = Boolean(state.contentStudio?.capabilities?.imagesConfigured ?? state.keys.OPENAI_API_KEY);
+  const [aiStatus, setAiStatus] = useState(null);
+  const [checkingAi, setCheckingAi] = useState(false);
   const [sheetWebhook, setSheetWebhook] = useState('');
   const [maxItems, setMaxItems] = useState(state.settings.maxItems || 1000);
   const [sheetForm, setSheetForm] = useState({
@@ -83,25 +63,6 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
     redditTab: state.settings.sheets?.redditTab || 'Reddit',
     ...driveFolders(state.settings.sheets),
   });
-  const [aiProvider, setAiProvider] = useState(state.settings.aiProvider || 'auto');
-  const [anthropicKey, setAnthropicKey] = useState('');
-  const [aiModel, setAiModel] = useState(state.settings.aiModel || 'claude-opus-5-5');
-  const [aiMaxBudgetUsd, setAiMaxBudgetUsd] = useState(state.settings.aiMaxBudgetUsd ?? 1);
-  const [aiChecks, setAiChecks] = useState({});
-  const [checkingAi, setCheckingAi] = useState(false);
-  const [savingAi, setSavingAi] = useState(false);
-  const [aiError, setAiError] = useState('');
-  const aiStatus = aiChecks[aiProvider] || null;
-  const aiName = aiProvider === 'codex' ? 'Codex' : 'Claude';
-  const savedProvider = state.settings.aiProvider || 'auto';
-  const validAiSettings = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$/.test(aiModel) && Number.isFinite(Number(aiMaxBudgetUsd)) && Number(aiMaxBudgetUsd) >= 0.01 && Number(aiMaxBudgetUsd) <= 100;
-
-  useEffect(() => {
-    setAiProvider(state.settings.aiProvider || 'auto');
-    setAiModel(state.settings.aiModel || 'claude-opus-5-5');
-    setAiMaxBudgetUsd(state.settings.aiMaxBudgetUsd ?? 1);
-  }, [state.settings.aiProvider, state.settings.aiModel, state.settings.aiMaxBudgetUsd]);
-
   useEffect(() => setMaxItems(state.settings.maxItems || 1000), [state.settings.maxItems]);
   useEffect(() => {
     setSheetForm({
@@ -121,77 +82,19 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
     ...DRIVE_FOLDERS.map(({ key }) => state.settings.sheets?.[key]),
   ]);
 
-  useEffect(() => { setImageCheck(null); }, [imagesConfigured]);
-
-  async function saveImageCredential() {
-    if (imageBusy || !imageKey.trim()) return;
-    setImageAction('save'); setImageError('');
-    try {
-      const saved = await onSaveKey('OPENAI_API_KEY', imageKey.trim());
-      if (!saved) throw new Error('not-saved');
-      setImageKey(''); setImageCheck(null);
-    } catch { setImageError('Could not save the image credential. Your entry is still here; please try again.'); }
-    finally { setImageAction(''); }
-  }
-  async function removeImageCredential() {
-    if (imageBusy) return;
-    setImageAction('remove'); setImageError('');
-    try {
-      const cleared = await onClearKey('OPENAI_API_KEY');
-      if (cleared === null) return; // the person kept the key
-      if (!cleared) throw new Error('not-cleared');
-      setImageCheck(null);
-    } catch { setImageError('Could not remove the saved image credential. Please try again.'); }
-    finally { setImageAction(''); }
-  }
-  async function checkImages() {
-    if (imageBusy || !onTestImages) return;
-    setImageAction('check'); setImageError(''); setImageCheck(null);
-    try {
-      const result = await onTestImages();
-      if (!result) throw new Error('No connection result was returned. Please try again.');
-      setImageCheck(result);
-    } catch (failure) { setImageError(failure?.message || 'Could not check image access. Please try again.'); }
-    finally { setImageAction(''); }
-  }
-
   function updateSheetField(key, value) {
     setSheetForm((current) => ({ ...current, [key]: value }));
   }
 
-  async function checkAi() {
-    setCheckingAi(true);
-    setAiError('');
-    try {
-      const result = onCheckAi ? await onCheckAi({ provider: aiProvider, model: aiModel, models: [...new Set([aiModel, ...Object.values(DEFAULT_PROGRAM_AI.models)])] })
-        : aiProvider === 'codex' && onCheckCodex ? await onCheckCodex()
-        : { ok: false, error: 'This app version cannot check Claude. Reopen the updated app.' };
-      setAiChecks((current) => ({ ...current, [aiProvider]: result }));
-    } catch (err) {
-      setAiChecks((current) => ({ ...current, [aiProvider]: { ok: false, error: err.message || String(err) } }));
-    } finally {
-      setCheckingAi(false);
-    }
-  }
-
-  async function saveAi() {
-    if (!validAiSettings || savingAi) return;
-    setSavingAi(true);
-    setAiError('');
-    try {
-      const result = await onSaveSettings({ aiProvider, aiModel, aiMaxBudgetUsd: Number(aiMaxBudgetUsd) });
-      if (!result) setAiError('AI settings could not be saved. Your choices are still here; please try again.');
-    } catch (err) {
-      setAiError(err.message || 'AI settings could not be saved.');
-    } finally { setSavingAi(false); }
-  }
-
   // What a saved secret's field says. In the browser studio, keys live on the studio server, never in the browser.
   const savedHere = web ? 'Saved on the studio server' : 'Stored securely on this device';
-  // Run the checks the diagnostics cards report on: the writing route (Claude or Codex) and, when a key is saved, images.
+  // The diagnostics cards read every AI connection's status (free: versions, sign-ins and saved keys).
   async function checkConnections() {
-    await Promise.all([checkAi(), imagesConfigured && onTestImages ? checkImages() : null]);
+    if (typeof setupApi?.getAiConnections !== 'function') return;
+    setCheckingAi(true);
+    try { setAiStatus(await setupApi.getAiConnections({ fresh: true })); } catch (error) { setAiStatus({ connections: [], error: error?.message || 'The connections couldn’t be checked.' }); } finally { setCheckingAi(false); }
   }
+  const openRouting = () => document.getElementById('model-routing')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
 
   const sourceSettings = (
       <div className="field-grid two">
@@ -228,38 +131,9 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
       </div>
       {/* First, in both editions: without Apify nothing new can be collected. */}
       <section className="settings-block settings-sources" aria-labelledby="settings-sources-title"><div className="panel-head"><div><h3 id="settings-sources-title">Source collection</h3><p>{semrush ? 'Connect Apify to research the accounts and communities you choose.' : 'Connect Apify to run your scrapers and research the accounts and communities you choose.'}</p></div><Badge tone={state.keys.APIFY_API_TOKEN ? 'ready' : 'warning'}>{state.keys.APIFY_API_TOKEN ? 'Credential saved' : 'Setup needed'}</Badge></div>{sourceSettings}</section>
-      <section className="settings-block" aria-labelledby="settings-ai-title">
-        <div className="panel-head"><div><h3 id="settings-ai-title">Writing & research</h3><p>Claude writes the research, reports and drafts. {web ? 'The studio server reaches it with an Anthropic API key, or Claude Code if it is installed there.' : 'Reach it through the Claude app on this Mac or an Anthropic API key.'}</p></div><Badge tone={aiChecks[savedProvider]?.ok ? 'ready' : 'neutral'}>{ROUTE_BADGE[savedProvider] || 'Claude'}</Badge></div>
-        {aiProvider !== 'codex' && <fieldset className="settings-route" disabled={busy || savingAi || checkingAi}><legend>How to reach Claude</legend>
-          {CLAUDE_ROUTES.map(([value, title, detail]) => [value, title, web && value === 'claude' ? "Uses Claude Code signed in on the studio server." : detail]).map(([value, title, detail]) => <label className="settings-route-option" key={value}><input type="radio" name="settings-ai-route" value={value} checked={aiProvider === value} onChange={() => { setAiProvider(value); setAiError(''); }} /><span><strong>{title}</strong><small>{detail}</small></span></label>)}
-        </fieldset>}
-        {(aiProvider === 'auto' || aiProvider === 'claude-api') && <div className="settings-api-key">
-          <label htmlFor="settings-anthropic-key">Anthropic API key{state.keys.ANTHROPIC_API_KEY ? <span className="settings-key-saved"> · saved</span> : null}</label>
-          <div className="inline"><input id="settings-anthropic-key" type="password" autoComplete="off" spellCheck="false" value={anthropicKey} disabled={busy} placeholder={state.keys.ANTHROPIC_API_KEY ? 'Enter a replacement key' : 'sk-ant-…'} onChange={(event) => setAnthropicKey(event.target.value)} /><Button type="button" disabled={busy || !anthropicKey.trim()} onClick={() => { onSaveKey('ANTHROPIC_API_KEY', anthropicKey.trim()).then((saved) => { if (saved) setAnthropicKey(''); }); }}>Save key</Button>{state.keys.ANTHROPIC_API_KEY && <Button type="button" className="ghost" disabled={busy} onClick={() => onClearKey('ANTHROPIC_API_KEY')}>Clear</Button>}</div>
-          <small>{aiProvider === 'auto' ? 'Used only when the Claude app is missing, signed out or out of date. ' : ''}{web ? 'Stored encrypted on the studio server' : "Stored encrypted in this Mac's keychain"} and sent only to Anthropic. Usage is billed to the key's account at list prices.</small>
-        </div>}
-        <div className="field-grid two">
-          {aiProvider !== 'codex' ? <>
-            <label>Default Claude model<input aria-label="Claude model" value={aiModel} disabled={busy || savingAi} spellCheck="false" onChange={(event) => setAiModel(event.target.value.trim())} /><small>For chat, reports and drafts. Research programs choose a model per stage.</small></label>
-            <label>Claude budget per request (USD)<input aria-label="Claude budget per request (USD)" type="number" min="0.01" max="100" step="0.01" value={aiMaxBudgetUsd} disabled={busy || savingAi} onChange={(event) => setAiMaxBudgetUsd(event.target.value)} /><small>A ceiling for a single chat, report or draft request.</small></label>
-          </> : <p>Codex uses its existing CLI configuration. Claude settings are kept for when you switch back.</p>}
-        </div>
-        <div className="settings-ai-check"><Button type="button" disabled={busy || checkingAi || savingAi} onClick={checkAi}>{checkingAi ? 'Checking…' : `Check ${aiName}`}</Button><small>{aiProvider === 'codex' ? 'Checks the Codex CLI connection.' : 'Finds the route and confirms the models research uses. Through the Claude app this sends one tiny request per model (a few cents); the API check is free.'}</small></div>
-        {aiStatus && <AiCheckResult result={aiStatus} />}
-        {aiError && <p className="error-line" role="alert">{aiError}</p>}
-        <div className="button-row"><Button type="button" disabled={busy || savingAi || !validAiSettings} onClick={saveAi}>{savingAi ? 'Saving…' : 'Save AI settings'}</Button><small>{aiProvider !== savedProvider ? 'Save to switch to this route for new requests.' : 'Save to apply these choices to new requests.'}</small></div>
-        <details className="settings-provider-options" open={aiProvider === 'codex' ? true : undefined}><summary>Advanced writing provider <span>Optional Codex CLI</span></summary><label className="cs-check settings-codex"><input type="checkbox" checked={aiProvider === 'codex'} disabled={busy || checkingAi || savingAi} onChange={(event) => { setAiProvider(event.target.checked ? 'codex' : 'auto'); setAiError(''); }} /><span>Use the OpenAI Codex CLI instead of Claude<small>Research programs are tuned for Claude; Codex ignores the per-stage models.</small></span></label></details>
-      </section>
-      <section className="settings-block settings-images" aria-labelledby="settings-images-title">
-        <div className="settings-image-heading"><span className="settings-image-icon"><ImageIcon size={21} aria-hidden="true" /></span><div><h3 id="settings-images-title">Image generation</h3><p>Create original campaign visuals with OpenAI Images.</p></div><Badge tone={imagesConfigured ? 'ready' : 'neutral'}>{imagesConfigured ? 'Credential saved' : 'Setup needed'}</Badge></div>
-        <p className="settings-image-intro">Your writing provider stays separate. Images use an OpenAI API credential and have their own API usage and billing.</p>
-        <label htmlFor="settings-image-key">OpenAI API key</label>
-        <div className="settings-image-key-row"><span className="settings-image-key-input"><KeyRound size={15} aria-hidden="true" /><input id="settings-image-key" aria-label="OpenAI API key" type="password" autoComplete="off" spellCheck="false" value={imageKey} disabled={imageBusy} placeholder={imagesConfigured ? 'Enter a replacement credential' : 'Paste your OpenAI API key'} onChange={event => { setImageKey(event.target.value); setImageError(''); }} /></span><Button type="button" disabled={imageBusy || !imageKey.trim()} onClick={saveImageCredential}>{imageAction === 'save' ? 'Saving…' : 'Save image key'}</Button>{imagesConfigured && <Button type="button" className="ghost" disabled={imageBusy} onClick={removeImageCredential}>Remove saved key</Button>}</div>
-        <p className="settings-image-storage">{web ? 'The image key is saved on the studio server and never sent to browsers.' : 'The image key is stored on this computer.'}</p>
-        <div className="settings-image-check"><Button type="button" className="ghost" disabled={imageBusy || !imagesConfigured || !onTestImages} onClick={checkImages}>{imageAction === 'check' ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <ShieldCheck size={15} aria-hidden="true" />}{imageAction === 'check' ? 'Checking image access…' : 'Check image access'}</Button><small>Checks model access without generating an image or starting a paid generation.</small></div>
-        {imageCheck && <div className={`settings-image-receipt ${imageCheck.accessVerified ? 'verified' : ''}`} role="status"><strong>{imageCheck.accessVerified ? 'Image model access confirmed' : imageCheck.configured ? 'Image access needs attention' : 'Image credential is not configured'}</strong>{imageCheck.model && <span>Model: {imageCheck.model}</span>}{imageCheck.message && <p>{imageCheck.message}</p>}<small>No image was generated by this check. Generation is verified when an image request completes.</small></div>}
-        {imageError && <p className="error-line" role="alert">{imageError}</p>}
-      </section>
+      {/* Every AI vendor and which one each job uses (Settings left nav: AI connections, Model routing). */}
+      <AiConnections state={state} meta={meta} api={setupApi} busy={busy} onSaveKey={onSaveKey} onClearKey={onClearKey} onOpenRouting={setupApi?.previewAiRouting ? openRouting : undefined} />
+      {setupApi?.previewAiRouting && <ModelRouting state={state} api={setupApi} busy={busy} role={role} layout={layout || state.settings?.uiMode} />}
       {setupApi?.addBrandImage && <BrandImages api={setupApi} workspace={activeWorkspace} busy={busy} imagesConfigured={imagesConfigured} />}
       <details className="settings-block" data-spot="settings.google-docs"><summary>Google Docs <span>Import private research documents</span></summary>
         <p>Connect a Google OAuth access token with Docs read permission for imports and Drive file creation permission for delivery. Tokens expire; reconnect when prompted. You can also upload a DOCX file without a Google connection.</p>
@@ -352,12 +226,11 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
       {!web && <StudioWebAddress settings={state.settings} busy={busy} onSaveSettings={onSaveSettings} />}
       {setupApi?.openSetupFile && <section className="settings-block settings-setup" aria-labelledby="settings-setup-title"><div className="panel-head"><div><h3 id="settings-setup-title">Share your setup</h3><p>Give a teammate this workspace's research program and knowledge in one file, or load one they shared with you.</p></div></div><SetupShare api={setupApi} web={web} onOpenPrograms={onOpenPrograms} /></section>}
       <details className="settings-health" data-spot="settings.diagnostics"><summary>Connection diagnostics</summary>
-        <div className="settings-diagnostics-check"><Button type="button" className="ghost" disabled={busy || checkingAi || savingAi || Boolean(imageAction)} onClick={checkConnections}>{checkingAi || imageAction === 'check' ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <ShieldCheck size={15} aria-hidden="true" />}{checkingAi || imageAction === 'check' ? 'Checking…' : 'Check connections'}</Button><small>{`Checks ${aiName}${imagesConfigured ? ' and image access' : ''} again.`}{aiProvider === 'codex' ? '' : ' Through the Claude app this sends one tiny request per model (a few cents); the API key check is free.'}</small></div>
+        <div className="settings-diagnostics-check"><Button type="button" className="ghost" disabled={busy || checkingAi} onClick={checkConnections}>{checkingAi ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <ShieldCheck size={15} aria-hidden="true" />}{checkingAi ? 'Checking…' : 'Check connections'}</Button><small>Reads every AI connection’s version, sign-in and saved key again. Free: nothing is sent to a model.</small></div>
         <div className="readiness-grid">
-        {readinessItems(state, meta, aiChecks.codex).map((original) => original.id === 'codex' ? { id: 'ai', label: aiProvider === 'codex' ? 'Codex CLI' : 'Claude', tone: aiStatus?.ok ? 'ready' : aiStatus?.error ? 'warning' : 'neutral', detail: aiStatus?.ok ? routeSummary(aiStatus) : aiStatus?.error || 'Not checked yet. Choose Check connections.' }
-          : original.id === 'apify' ? { ...original, detail: state.keys?.APIFY_API_TOKEN ? (web ? 'Saved on the studio server' : original.detail) : 'Not connected yet. Add the token under Source collection, at the top of this page.' }
+        {readinessItems(state, meta, aiStatus || { connections: [] }).map((original) => original.id === 'apify' ? { ...original, detail: state.keys?.APIFY_API_TOKEN ? (web ? 'Saved on the studio server' : original.detail) : 'Not connected yet. Add the token under Source collection, at the top of this page.' }
           : web && original.id === 'workspace' ? { ...original, label: 'Studio server', tone: 'ready', detail: 'Workspace data is saved on the studio server.' }
-          : original).concat(imagesConfigured ? [{ id: 'images', label: 'Images', tone: imageCheck?.accessVerified ? 'ready' : imageCheck ? 'warning' : 'neutral', detail: imageCheck ? imageCheck.message || (imageCheck.accessVerified ? `Model access confirmed${imageCheck.model ? ` · ${imageCheck.model}` : ''}` : 'Image access needs attention.') : 'Not checked yet. Choose Check connections.' }] : []).map((item) => (
+          : original).concat(aiStatus ? [] : [{ id: 'ai', label: 'AI connections', tone: 'neutral', detail: 'Not checked yet. Choose Check connections.' }]).map((item) => (
           <article className="readiness-card" key={item.id}>
             <Badge tone={item.tone}>{item.label}</Badge>
             <p>{short(item.detail, 160)}</p>

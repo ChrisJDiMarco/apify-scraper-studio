@@ -2,6 +2,9 @@
 const { createHash, randomUUID } = require('node:crypto');
 const { inflateSync } = require('node:zlib');
 const MODEL = 'gpt-image-2.5-flare';
+// The GPT Image models a picture request may name (deliverable.model, from Settings → Model routing), with the dated
+// snapshot each may answer as.
+const MODELS = Object.freeze({ 'gpt-image-2.5-flare': ['gpt-image-2.5-flare', 'gpt-image-2.5-flare-2026-09-08'], 'gpt-image-2.5-sunburst': ['gpt-image-2.5-sunburst', 'gpt-image-2.5-sunburst-2026-09-08'] });
 const ENDPOINT = 'https://api.openai.com/v1/images/generations';
 // With brand reference images a picture goes to the edits endpoint instead, the images attached as multipart image[]
 // parts in order, as the Golden Thread n8n workflow sent its style examples and logo.
@@ -87,10 +90,12 @@ async function readJson(response, limit = MAX_RESPONSE_BYTES) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch (_) { throw problem('IMAGE_RESPONSE_INVALID', 'image', 'The provider returned an unreadable image response.'); }
 }
 // Reference images checked before any paid call: each a real PNG, JPEG or WebP, marked a style example or logo.
+// Every picture request lists the brand reference images it sends, an empty list when its set has none, so a path that
+// forgets them fails here instead of silently drawing off-brand (test/brand-references.test.js).
 function validReferences(value) {
   const bad = () => invalid('deliverable.references', `Send up to ${MAX_REFERENCES} reference images, each a PNG, JPEG or WebP under 20 MB and marked as a style example or logo.`);
-  if (value == null) return [];
-  if (!Array.isArray(value) || value.length > MAX_REFERENCES) bad();
+  if (!Array.isArray(value)) invalid('deliverable.references', 'Every picture request lists the brand reference images it sends (an empty list when its set has none).');
+  if (value.length > MAX_REFERENCES) bad();
   let total = 0;
   return value.map(reference => {
     const type = REFERENCE_TYPES[reference?.mime]; const data = reference?.data instanceof Uint8Array ? Buffer.from(reference.data) : null;
@@ -100,9 +105,9 @@ function validReferences(value) {
   });
 }
 // The edits request: the same picture settings as a generation (moderation is a generations-only setting).
-function editForm(prompt, size, quality, references) {
+function editForm(prompt, size, quality, references, model = MODEL) {
   const form = new FormData();
-  for (const [name, value] of Object.entries({ model: MODEL, prompt, n: '1', size, quality, output_format: 'png', background: 'opaque' })) form.append(name, value);
+  for (const [name, value] of Object.entries({ model, prompt, n: '1', size, quality, output_format: 'png', background: 'opaque' })) form.append(name, value);
   references.forEach((reference, index) => form.append('image[]', new Blob([reference.data], { type: reference.mime }), `reference-${index + 1}.${reference.extension}`));
   return form;
 }
@@ -118,6 +123,7 @@ function decodeImage(body, dimensions) {
 // `limits` (optional, src/main/ai-limits.js): the studio-wide AI limits. Each picture request waits for a slot and is
 // refused once the daily AI budget is spent; its usage estimate counts toward the day.
 function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutMs = 180000, editTimeoutMs = 300000, quality = 'medium', limits = null } = {}) {
+  const defaultQuality = quality;
   if (typeof getApiKey !== 'function' || typeof fetchImpl !== 'function') invalid('imageConnection', 'Image generation needs a host credential provider and HTTP client.');
   for (const [field, value] of [['timeoutMs', timeoutMs], ['editTimeoutMs', editTimeoutMs]]) if (!Number.isInteger(value) || value < 1 || value > 600000) invalid(field, 'Choose an image timeout from 1 to 600,000 milliseconds.');
   if (!['low', 'medium', 'high'].includes(quality)) invalid('quality', 'Choose low, medium, or high image quality.');
@@ -160,10 +166,11 @@ function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutM
     catch (_) { throw problem('IMAGE_CANCELLED', 'image', 'Image generation was cancelled before another paid request.'); }
     finally { clearInterval(poll); }
   }
-  async function checkAccess({ signal } = {}) {
-    const credential = await key(); const result = await request(`https://api.openai.com/v1/models/${MODEL}`, { method: 'GET', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json' } }, { signal });
-    if (![MODEL, `${MODEL}-2026-09-08`].includes(result?.id)) throw problem('IMAGE_ACCESS_UNVERIFIED', 'imageConnection', 'OpenAI returned an unexpected model-access response.');
-    return { provider: 'openai', configured: true, model: result.id, requestedModel: MODEL, accessible: true, accessVerified: true, generationVerified: false, checkedAt: stamp(), message: 'Model access checked. Paid image generation and billing have not been tested.' };
+  async function checkAccess({ signal, model = MODEL } = {}) {
+    if (!MODELS[model]) invalid('model', 'Choose a GPT Image model.');
+    const credential = await key(); const result = await request(`https://api.openai.com/v1/models/${model}`, { method: 'GET', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json' } }, { signal });
+    if (!MODELS[model].includes(result?.id)) throw problem('IMAGE_ACCESS_UNVERIFIED', 'imageConnection', 'OpenAI returned an unexpected model-access response.');
+    return { provider: 'openai', configured: true, model: result.id, requestedModel: model, accessible: true, accessVerified: true, generationVerified: false, checkedAt: stamp(), message: 'Model access checked. Paid image generation and billing have not been tested.' };
   }
   async function generate({ deliverable, runId, maxBudgetUsd, isCancelled = () => false, signal, onRequest, onVariant, completedVariants = [] } = {}) {
     if (!deliverable || deliverable.kind !== 'image' || !Number.isInteger(deliverable.variants) || deliverable.variants < 1 || deliverable.variants > 3) invalid('deliverable', 'Choose one to three image variants.');
@@ -173,6 +180,10 @@ function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutM
     if (typeof isCancelled !== 'function' || (signal != null && (typeof signal.addEventListener !== 'function' || typeof signal.removeEventListener !== 'function'))) invalid('signal', 'Provide a cancellation callback or AbortSignal.');
     if (typeof maxBudgetUsd !== 'number' || !Number.isFinite(maxBudgetUsd) || maxBudgetUsd < 0 || maxBudgetUsd > 1000) invalid('maxBudgetUsd', 'Choose an image dispatch allowance from $0 to $1,000.');
     if (!['1024x1024', '1536x1024', '1024x1536'].includes(deliverable.size)) invalid('deliverable.size', 'Choose a supported square, landscape, or portrait image size.');
+    // Model and quality per request (Settings → Model routing); a request that names neither uses the provider's own.
+    const model = deliverable.model ?? MODEL; const quality = deliverable.quality ?? defaultQuality;
+    if (!MODELS[model]) invalid('deliverable.model', 'Choose a GPT Image model.');
+    if (!['low', 'medium', 'high'].includes(quality)) invalid('deliverable.quality', 'Choose low, medium, or high image quality.');
     const [width, height] = deliverable.size.split('x').map(Number); const dimensions = { width, height };
     const prompts = deliverable.variantPrompts;
     if (!Array.isArray(prompts) || prompts.length !== deliverable.variants || prompts.some(prompt => typeof prompt !== 'string' || !prompt.trim() || prompt.length > 32000)) invalid('deliverable.variantPrompts', 'Each image direction needs a prompt of 1–32,000 characters. Shorten the source brief rather than silently truncating it.');
@@ -182,7 +193,7 @@ function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutM
     const images = new Map(); const attemptReceipts = [];
     for (const image of completedVariants) {
       const index = image?.variantIndex; const receipt = image?.receipt;
-      if (!Number.isInteger(index) || index < 0 || index >= deliverable.variants || images.has(index) || receipt?.status !== 'succeeded' || receipt.variantIndex !== index || receipt.promptHash !== digest(prompts[index]) || (receipt.referencesHash ?? null) !== referencesHash || receipt.requestedModel !== MODEL || receipt.size !== deliverable.size || receipt.quality !== quality || receipt.runId !== runId) invalid('completedVariants', 'A saved image does not match this run, prompt, reference images, model, size, or quality.');
+      if (!Number.isInteger(index) || index < 0 || index >= deliverable.variants || images.has(index) || receipt?.status !== 'succeeded' || receipt.variantIndex !== index || receipt.promptHash !== digest(prompts[index]) || (receipt.referencesHash ?? null) !== referencesHash || receipt.requestedModel !== model || receipt.size !== deliverable.size || receipt.quality !== quality || receipt.runId !== runId) invalid('completedVariants', 'A saved image does not match this run, prompt, reference images, model, size, or quality.');
       validatePng(image.png, dimensions); images.set(index, { variantIndex: index, title: String(image.title || deliverable.label || 'Generated image').slice(0, 300), png: Buffer.from(image.png), receipt: copy(receipt) });
     }
     const remainingCount = deliverable.variants - images.size;
@@ -201,18 +212,18 @@ function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutM
         const leaveSlot = await slot({ signal, isCancelled });
         try { // the slot is held until this request settles
           underBudget();
-          const receipt = { provider: 'openai', attemptId: randomUUID(), runId, variantIndex, requestedModel: MODEL, model: MODEL, returnedModel: null, promptHash: digest(prompts[variantIndex]), size: deliverable.size, quality, status: 'dispatched', allowanceUsd: Number((remaining / (deliverable.variants - images.size)).toFixed(12)), budgetKind: 'dispatch-allowance', budgetNotice: BUDGET_NOTICE, requestId: null, startedAt: stamp(), billable: null, usage: null, costUsd: null, estimatedCostUsd: null, costBasis: 'unknown', pricingAsOf: '2026-09-27', pricingUsdPerMillion: { textInput: 5, imageInput: 8, imageOutput: 30 }, ...(references.length ? { endpoint: 'images/edits', referencesHash, references: references.map(({ role, mime, bytes, sha256 }) => ({ role, mime, bytes, sha256 })) } : {}) };
+          const receipt = { provider: 'openai', attemptId: randomUUID(), runId, variantIndex, requestedModel: model, model, returnedModel: null, promptHash: digest(prompts[variantIndex]), size: deliverable.size, quality, status: 'dispatched', allowanceUsd: Number((remaining / (deliverable.variants - images.size)).toFixed(12)), budgetKind: 'dispatch-allowance', budgetNotice: BUDGET_NOTICE, requestId: null, startedAt: stamp(), billable: null, usage: null, costUsd: null, estimatedCostUsd: null, costBasis: 'unknown', pricingAsOf: '2026-09-27', pricingUsdPerMillion: { textInput: 5, imageInput: 8, imageOutput: 30 }, ...(references.length ? { endpoint: 'images/edits', referencesHash, references: references.map(({ role, mime, bytes, sha256 }) => ({ role, mime, bytes, sha256 })) } : {}) };
           attemptReceipts.push(receipt); let dispatched = false;
           try {
             try { await onRequest(copy(receipt)); } catch (_) { throw problem('IMAGE_CHECKPOINT_FAILED', 'imageCheckpoint', 'The image request checkpoint could not be saved. No new request was sent.'); }
             if (signal?.aborted || isCancelled()) throw problem('IMAGE_CANCELLED', 'image', 'Image generation was cancelled before the request was sent.');
             const call = references.length
-              ? { url: EDITS_ENDPOINT, waitMs: editTimeoutMs, options: { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json' }, body: editForm(prompts[variantIndex], deliverable.size, quality, references) } }
-              : { url: ENDPOINT, waitMs: timeoutMs, options: { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: MODEL, prompt: prompts[variantIndex], n: 1, size: deliverable.size, quality, output_format: 'png', background: 'opaque', moderation: 'auto' }) } };
+              ? { url: EDITS_ENDPOINT, waitMs: editTimeoutMs, options: { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json' }, body: editForm(prompts[variantIndex], deliverable.size, quality, references, model) } }
+              : { url: ENDPOINT, waitMs: timeoutMs, options: { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ model, prompt: prompts[variantIndex], n: 1, size: deliverable.size, quality, output_format: 'png', background: 'opaque', moderation: 'auto' }) } };
             dispatched = true;
             const body = await request(call.url, call.options, { signal, isCancelled, receipt, waitMs: call.waitMs });
             receipt.usage = normalizedUsage(body?.usage); receipt.costUsd = usageCost(receipt.usage); receipt.estimatedCostUsd = receipt.costUsd; receipt.costBasis = receipt.costUsd == null ? 'unknown' : 'usage-estimate'; receipt.billable = true;
-            if (body?.model != null && ![MODEL, `${MODEL}-2026-09-08`].includes(body.model)) throw problem('IMAGE_MODEL_MISMATCH', 'image', 'The provider returned an unexpected image model.');
+            if (body?.model != null && !MODELS[model].includes(body.model)) throw problem('IMAGE_MODEL_MISMATCH', 'image', 'The provider returned an unexpected image model.');
             receipt.returnedModel = body?.model || null;
             const png = decodeImage(body, dimensions); receipt.status = 'succeeded'; receipt.completedAt = stamp();
             const image = { variantIndex, title: `${String(deliverable.label || 'Generated image').slice(0, 250)} · ${variantIndex + 1}`, png, receipt: copy(receipt) }; images.set(variantIndex, image);
@@ -242,4 +253,4 @@ function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutM
   }
   return { generateImage, checkAccess };
 }
-module.exports = { createImageProvider, validatePng, MODEL, MIN_DISPATCH_ALLOWANCE_USD, MAX_PNG_BYTES, MAX_RESPONSE_BYTES };
+module.exports = { createImageProvider, validatePng, MODEL, MODELS, MIN_DISPATCH_ALLOWANCE_USD, MAX_PNG_BYTES, MAX_RESPONSE_BYTES };

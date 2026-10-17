@@ -1,11 +1,19 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, BookOpen, Brain, Check, CircleAlert, Download, Ellipsis, FileText, History, Image as ImageIcon, LoaderCircle, MessagesSquare, MousePointerClick, Pencil, Pin, PinOff, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, X } from 'lucide-react';
-import { MarkdownContent } from './markdown-content.jsx';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ArrowRight, Brain, Check, CircleAlert, Download, Ellipsis, History, Image as ImageIcon, LoaderCircle, MessagesSquare, MousePointerClick, Pencil, Pin, PinOff, Plus, RefreshCw, RotateCcw, Search, Sparkles, Trash2, X } from 'lucide-react';
 import { ChatCards, MemoryCard, cardActionIndexes } from './chat-cards.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { aiActionAllowed } from './studio-actions.js';
 import { PREVIEW_TITLE, formatDay, formatTime, useCan, useViewer, writeProps } from './viewer.js';
+import { firstSentence, studioLinks } from './ask-markdown.js';
+import { createAskStreamStore, isFinal, usePrefersReducedMotion } from './ask-stream.js';
+import { AskThread } from './ask-thread.jsx';
+import { AskComposer, askCostLine, attachOptionsFrom } from './ask-composer.jsx';
+import { REF_LABEL, SLASH_COMMANDS, currentStudioDrag, dragHasFiles, dragHasStudioRef, parseSlash, readStudioRef, slashAction, slashCommandsFor } from './ask-slash.js';
+import { DEFAULT_STARTERS, smartStarters } from './ask-starters.js';
 import './help-assistant.css';
+import './ask-chat.css';
+
+export { studioLinks };
 
 // "Ask AI": questions about the app and the person's studio, answered from the app guide and live state, with buttons
 // for work it can do (nothing runs until the person clicks and confirms), cards built from real studio data, "Show me"
@@ -13,29 +21,40 @@ import './help-assistant.css';
 // so a thread survives a reload, a layout switch and a role change; Ask AI also keeps a small long-term memory the
 // person can read, pin, edit and forget. Against an older server (no conversation methods) it keeps the thread in the
 // page and sends the history itself, as before.
-const STARTERS = [
-  'How do I run my first research program?',
-  'What will a research run cost?',
-  'Why did my last run stop?',
-  'Create a hero image for my latest trend',
-];
-const money = (value) => (Number.isFinite(value) ? `$${value < 0.01 ? value.toFixed(3) : value.toFixed(2)}` : '');
+//
+// Answers stream: each question is a request (requestId) the main process reports on as it works (api.onAskStream,
+// ask-stream.js), and its answer is written into the thread as it arrives (ask-thread.jsx). The reply from askHelp and
+// the stream's "done" both finish the same turn in place, whichever comes first. Stop, Retry, Edit of the last question,
+// / commands, dropped reports and two questions at once (in two conversations) all live here; the thread, the steps
+// line and the question box are their own files.
+const STARTERS = DEFAULT_STARTERS;
 const ratio = (size) => String(size || '1536x1024').replace('x', ' / ');
 const list = (value) => (Array.isArray(value) ? value : []);
+const money = (value) => (Number.isFinite(value) ? `$${value < 0.01 ? value.toFixed(3) : value.toFixed(2)}` : '');
 const errorText = (failure) => String(failure?.message || failure || 'Something went wrong. Try again.');
 const clip = (value, max = 60) => { const text = String(value || '').trim(); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
 // The server registers each question as job "help-<requestId>", so Stop can cancel it; ids are uuids (job ids allow [a-z0-9-]).
 const newRequestId = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`);
+const nowMs = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
 const isLocal = (id) => !id || String(id).startsWith('local-');
 const rowsOf = (result) => list(Array.isArray(result) ? result : result?.conversations).filter((row) => row?.id);
 const memoryOf = (result) => list(Array.isArray(result) ? result : result?.items).filter((row) => row?.id && row.status !== 'forgotten');
 const savedOf = (result) => (result?.item?.id ? result.item : result?.id ? result : null);
 const byPinThenNewest = (a, b) => (Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
 const when = (value) => { const date = new Date(value || 0); if (!value || Number.isNaN(date.getTime())) return ''; return date.toDateString() === new Date().toDateString() ? formatTime(value) : formatDay(value); };
+// A call that never reached the server's answer (the connection dropped, a proxy cut a long call): the answer may still
+// be coming, so the panel keeps following it rather than calling it failed.
+const dropped = (failure) => [0, 502, 504, 524].includes(Number(failure?.status));
+const isField = (target) => Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"], [role="textbox"]'));
 // Which conversation was open, per person, for this window's session: a layout switch or reload reopens it.
 const threadKey = (identity) => `ask.thread.${identity}`;
 function readThread(identity) { try { return sessionStorage.getItem(threadKey(identity)) || ''; } catch { return ''; } }
 function keepThread(identity, id) { try { if (id) sessionStorage.setItem(threadKey(identity), id); else sessionStorage.removeItem(threadKey(identity)); } catch { /* a convenience only */ } }
+// When this browser last looked at each conversation, so one the studio posted a follow-up into (row.lastFollowUpAt)
+// stays marked after a reload. A per-browser convenience: without storage, only this session's marks show.
+const seenKey = (identity) => `ask.seenFollowUps.${identity}`;
+function readSeen(identity) { try { const value = JSON.parse(localStorage.getItem(seenKey(identity)) || 'null'); if (value && typeof value === 'object') return value; } catch { /* starts fresh */ } return { _since: new Date().toISOString() }; }
+function keepSeen(identity, seen) { try { const ids = Object.keys(seen).filter((key) => key !== '_since').slice(-200); localStorage.setItem(seenKey(identity), JSON.stringify(Object.fromEntries([['_since', seen._since], ...ids.map((key) => [key, seen[key]])]))); } catch { /* a convenience only */ } }
 function useMedia(query) {
   const [match, setMatch] = useState(() => { try { return Boolean(window.matchMedia?.(query).matches); } catch { return false; } });
   useEffect(() => {
@@ -52,7 +71,8 @@ function useMedia(query) {
 // without (the app closed while drawing) offers Try again rather than paying for it unasked.
 function imageFrom(image, { stored = false } = {}) {
   if (!image || typeof image !== 'object' || (!image.prompt && !image.imageId)) return null;
-  const base = { title: image.title || 'Ask AI picture', prompt: image.prompt || '', size: image.size || '1536x1024' };
+  // family: which brand reference set goes with the picture (Ask AI chooses it; 'none' sends no reference images).
+  const base = { title: image.title || 'Ask AI picture', prompt: image.prompt || '', size: image.size || '1536x1024', family: image.family || 'none' };
   const imageId = image.imageId || '';
   if (imageId) return { ...base, id: imageId, imageId, status: image.dataUrl ? 'ready' : 'loading', dataUrl: image.dataUrl || '', costUsd: image.costUsd ?? null };
   return stored ? { ...base, status: 'failed', error: image.error || 'It wasn’t finished.' } : { ...base, status: 'creating' };
@@ -62,6 +82,7 @@ function assistantFrom(message = {}, options = {}) {
     id: message.id, role: 'assistant', content: String(message.content ?? message.answer ?? ''), pages: list(message.pages), followUps: list(message.followUps).filter(Boolean), actions: list(message.actions),
     receipt: message.receipt || null, read: list(message.read), show: message.show?.steps?.length ? message.show : null, image: imageFrom(message.image, options), cards: list(message.cards),
     remembered: list(message.remembered).filter((row) => row?.id && row.text), createdAt: message.createdAt || '',
+    ...(message.stopped ? { stopped: true } : {}), ...(list(message.versions).length ? { versions: list(message.versions) } : {}), ...(message.followUp ? { followUp: message.followUp } : {}),
   };
 }
 // A stored conversation as the panel shows it, plus the outcomes recorded for its buttons. A plan step that was skipped
@@ -69,7 +90,7 @@ function assistantFrom(message = {}, options = {}) {
 function threadFrom(messages) {
   const states = {};
   const rows = list(messages).map((message) => {
-    if (message?.role === 'user') return { id: message.id, role: 'user', content: String(message.content || ''), context: String(message.context || '') };
+    if (message?.role === 'user') return { id: message.id, role: 'user', content: String(message.content || ''), context: String(message.context || ''), attachments: list(message.attachments), createdAt: message.createdAt || '', ...(message.editedAt ? { editedAt: message.editedAt } : {}) };
     list(message?.actions).forEach((action, index) => {
       const outcome = action?.outcome || message?.outcomes?.[index];
       if (outcome && ['done', 'failed'].includes(outcome.status)) states[`${message.id}:${index}`] = { status: outcome.status, text: outcome.text || (outcome.status === 'done' ? 'Done.' : 'That didn’t work.'), ...(outcome.runId ? { runId: outcome.runId } : {}) };
@@ -81,18 +102,9 @@ function threadFrom(messages) {
 }
 // What an older server needs: the conversation so far, with picture prompts so "make it bluer" can revise them.
 const legacyHistory = (messages) => messages.flatMap(({ role, content, image, context: earlier }) => [...(earlier ? [{ role: 'user', content: earlier }] : []), { role, content: image?.prompt ? `${content}\n[Picture created from this prompt: ${image.prompt}]` : content }]);
-// In-app links in an answer, [label](studio:<kind>/<id>) (the server writes them from [[Exact title]] and drops any it
-// can't find): the words stay in the text, in bold, and each link becomes a button under the answer.
-const STUDIO_LINK = /\[([^\]\n]{1,160})\]\(studio:(report|trend|folder|run|prompt|program|page)\/([A-Za-z0-9][A-Za-z0-9_.:~-]{0,299})\)/g;
-export function studioLinks(content) {
-  const links = []; const seen = new Set();
-  const text = String(content || '').replace(STUDIO_LINK, (all, label, kind, id) => {
-    const key = `${kind}:${id}`;
-    if (!seen.has(key) && links.length < 6) { seen.add(key); links.push({ label: label.replace(/\*/g, ''), kind, id }); }
-    return `**${label.replace(/\*/g, '')}**`;
-  });
-  return { text, links };
-}
+// Rows that are part of the conversation (not an answer still coming, or one that failed and was never saved).
+const settledRow = (message) => !message.pending && !message.failed;
+
 // What needs this person now, from the pushed state and the board's rules, as free one-click starters (no AI call):
 // trends waiting for an OK, an asset set that needs another try, a run that didn't finish. Each is a button the
 // shared runner takes, so it is gated and confirmed like any other. Opening Trends needs no method, so the trends row
@@ -129,7 +141,7 @@ function Picture({ image, onRetry, onDownload, onEnlarge, onOpenAssets }) {
 }
 
 // The ⋯ menu on a conversation: pin, rename, delete. Arrow keys move, Esc closes and returns to the button.
-function RowMenu({ title, pinned, open, onOpenChange, onPin, onRename, onDelete }) {
+function RowMenu({ title, pinned, open, onOpenChange, onPin, onRename, onDelete, deleteDisabled = false }) {
   const id = useId(); const buttonRef = useRef(null); const menuRef = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
@@ -139,7 +151,7 @@ function RowMenu({ title, pinned, open, onOpenChange, onPin, onRename, onDelete 
     return () => document.removeEventListener('pointerdown', away);
   }, [open]);
   function keys(event) {
-    const items = [...(menuRef.current?.querySelectorAll('[role="menuitem"]') || [])]; const at = items.indexOf(document.activeElement);
+    const items = [...(menuRef.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') || [])]; const at = items.indexOf(document.activeElement);
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onOpenChange(false); buttonRef.current?.focus(); }
     else if (event.key === 'ArrowDown') { event.preventDefault(); items[(at + 1) % items.length]?.focus(); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); items[(at - 1 + items.length) % items.length]?.focus(); }
@@ -151,13 +163,15 @@ function RowMenu({ title, pinned, open, onOpenChange, onPin, onRename, onDelete 
     {open && <div ref={menuRef} id={id} className="help-menu" role="menu" aria-label={`Options for “${clip(title)}”`} onKeyDown={keys}>
       <button type="button" role="menuitem" onClick={pick(onPin)}>{pinned ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}{pinned ? 'Unpin' : 'Pin to top'}</button>
       <button type="button" role="menuitem" onClick={pick(onRename)}><Pencil size={14} aria-hidden="true" />Rename</button>
-      <button type="button" role="menuitem" className="is-danger" onClick={pick(onDelete)}><Trash2 size={14} aria-hidden="true" />Delete</button>
+      <button type="button" role="menuitem" className="is-danger" disabled={deleteDisabled} title={deleteDisabled ? 'Wait for the answer, or stop it' : undefined} onClick={pick(onDelete)}><Trash2 size={14} aria-hidden="true" />Delete</button>
     </div>}
   </div>;
 }
 
-// Saved conversations: New conversation, search, pinned first then newest, and each one's ⋯ menu.
-function ConversationList({ rows, status, error, note, activeId, locked, canWrite, onOpen, onNew, onRename, onPin, onDelete, onRetry }) {
+// Saved conversations: New conversation, search, pinned first then newest, and each one's ⋯ menu. A conversation with an
+// answer being written says "Answering…" (and can't be deleted until it's done); one that got an answer while it wasn't
+// open is bold until opened. `pendingRows` are new conversations whose first answer is still coming.
+function ConversationList({ rows, pendingRows = [], status, error, note, activeId, answering, unread, canWrite, onOpen, onOpenPending, onNew, onRename, onPin, onDelete, onRetry }) {
   const [query, setQuery] = useState('');
   const [menu, setMenu] = useState('');
   const [renaming, setRenaming] = useState('');
@@ -165,29 +179,32 @@ function ConversationList({ rows, status, error, note, activeId, locked, canWrit
   const want = query.trim().toLowerCase();
   const shown = rows.filter((row) => !want || `${row.title || ''} ${row.preview || ''}`.toLowerCase().includes(want));
   const pinned = shown.filter((row) => row.pinned); const recent = shown.filter((row) => !row.pinned);
-  const lockedTitle = locked ? 'Wait for the answer, or stop it' : undefined;
   function commit(row) { const next = title.trim(); setRenaming(''); if (next && next !== row.title) onRename(row, next); }
+  const line = (row) => (answering.has(row.id) ? <small className="is-answering"><span className="ask-live-dot" aria-hidden="true" />Answering…</small> : <small>{[when(row.updatedAt), row.preview].filter(Boolean).join(' · ')}</small>);
   const group = (label, items) => items.length > 0 && <section className="help-history-group" aria-label={label || 'Conversations'}>
     {label && <h3>{label}</h3>}
-    <ul>{items.map((row) => <li key={row.id} className={`help-history-row${row.id === activeId ? ' is-active' : ''}`}>
+    <ul>{items.map((row) => <li key={row.id} className={`help-history-row${row.id === activeId ? ' is-active' : ''}${unread.has(row.id) ? ' is-unread' : ''}`}>
       {renaming === row.id
         ? <form className="help-rename" onSubmit={(event) => { event.preventDefault(); commit(row); }}><input aria-label="Conversation name" value={title} maxLength={80} autoFocus onChange={(event) => setTitle(event.target.value)} onBlur={() => commit(row)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setRenaming(''); } }} /></form>
-        : <button type="button" className="help-history-open" aria-current={row.id === activeId ? 'true' : undefined} disabled={locked && row.id !== activeId} title={lockedTitle} onClick={() => onOpen(row)}>
+        : <button type="button" className="help-history-open" aria-current={row.id === activeId ? 'true' : undefined} aria-label={unread.has(row.id) ? `${row.title || 'Untitled conversation'}, new answer` : undefined} onClick={() => onOpen(row)}>
           <span className="help-history-title">{row.pinned && <Pin size={11} aria-label="Pinned" />}{row.title || 'Untitled conversation'}</span>
-          <small>{[when(row.updatedAt), row.preview].filter(Boolean).join(' · ')}</small>
+          {line(row)}
         </button>}
-      {canWrite && renaming !== row.id && <RowMenu title={row.title || 'Untitled conversation'} pinned={Boolean(row.pinned)} open={menu === row.id} onOpenChange={(next) => setMenu(next ? row.id : '')} onPin={() => onPin(row)} onRename={() => { setTitle(row.title || ''); setRenaming(row.id); }} onDelete={() => onDelete(row)} />}
+      {canWrite && renaming !== row.id && <RowMenu title={row.title || 'Untitled conversation'} pinned={Boolean(row.pinned)} open={menu === row.id} deleteDisabled={answering.has(row.id)} onOpenChange={(next) => setMenu(next ? row.id : '')} onPin={() => onPin(row)} onRename={() => { setTitle(row.title || ''); setRenaming(row.id); }} onDelete={() => onDelete(row)} />}
     </li>)}</ul>
   </section>;
   return <div className="help-history">
     <div className="help-history-tools">
-      <button type="button" className="help-new" disabled={locked} title={lockedTitle} onClick={onNew}><Plus size={14} aria-hidden="true" />New conversation</button>
+      <button type="button" className="help-new" onClick={onNew}><Plus size={14} aria-hidden="true" />New conversation</button>
       <label className="help-search"><Search size={14} aria-hidden="true" /><input type="search" aria-label="Search conversations" placeholder="Search conversations" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
     </div>
     <div className="help-history-list">
+      {pendingRows.length > 0 && !want && <section className="help-history-group" aria-label="Being answered"><ul>{pendingRows.map((row) => <li key={row.id} className={`help-history-row${row.active ? ' is-active' : ''}`}>
+        <button type="button" className="help-history-open" aria-current={row.active ? 'true' : undefined} onClick={() => onOpenPending(row)}><span className="help-history-title">{row.title || 'New conversation'}</span><small className="is-answering"><span className="ask-live-dot" aria-hidden="true" />Answering…</small></button>
+      </li>)}</ul></section>}
       {status === 'loading' && !rows.length ? <p className="help-history-note" role="status"><LoaderCircle className="spin" size={13} aria-hidden="true" />Loading conversations…</p>
         : status === 'error' && !rows.length ? <div className="help-history-note" role="alert"><span>Conversations couldn’t be loaded. {error}</span><button type="button" className="help-text-button" onClick={onRetry}>Try again</button></div>
-        : !rows.length ? <p className="help-history-note">No conversations yet. What you ask is saved here, for you only.</p>
+        : !rows.length ? (!pendingRows.length && <p className="help-history-note">No conversations yet. What you ask is saved here, for you only.</p>)
         : !shown.length ? <p className="help-history-note">No conversations match “{query.trim()}”.</p>
         : <>{group(pinned.length ? 'Pinned' : '', pinned)}{group(pinned.length ? 'Recent' : '', recent)}</>}
     </div>
@@ -279,8 +296,9 @@ function MemoryPanel({ api, workspaceId, onClose }) {
 }
 
 // variant "page" fills Simple mode's Ask AI tab (with a conversation rail); "drawer" is the Advanced right-hand panel
-// (with a History view). seed ({ text, context, key } or { draft, key }) asks a question sent from elsewhere, with
-// optional background (a report being read) that travels with the question but isn't shown as a bubble.
+// (with a History view). seed ({ text, context, attachments, key } or { draft, key }) asks a question sent from
+// elsewhere, with optional background (a report being read, as text or as an attachment the server reads) that travels
+// with the question but isn't shown as a bubble.
 // onAction runs a button the answer offered (studio-actions.js runAiAction) and resolves to a short result line, false
 // when the person said no, or throws; onShow starts a "Show me" tour. state (the pushed studio state) lets cards follow
 // runs live; nav (studio-actions.js StudioNav) lets cards open reports and folders. page.layout ('simple' or 'classic')
@@ -291,11 +309,15 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   const viewer = useViewer(); // an admin previewing another role sees Ask AI as they would, but can't send
   const can = useCan();
   const confirm = useConfirm();
+  const reduced = usePrefersReducedMotion();
   const inline = variant === 'page';
   const identity = viewer.id || 'local';
   const workspaceId = workspaceIn ?? state?.contentStudio?.activeWorkspaceId ?? '';
   const persisted = typeof api?.listAskConversations === 'function' && typeof api?.readAskConversation === 'function' && can('listAskConversations');
   const memoryOn = typeof api?.listAskMemory === 'function' && can('listAskMemory');
+  const liveStream = typeof api?.onAskStream === 'function';
+  const store = useMemo(() => createAskStreamStore(api), [api]);
+  useEffect(() => () => store.dispose(), [store]);
   const [messages, setMessages] = useState([]);
   const [conversation, setConversation] = useState(null); // { id, title } once the server has the thread
   const [conversations, setConversations] = useState([]);
@@ -304,73 +326,111 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   const [listNote, setListNote] = useState('');
   const [opening, setOpening] = useState(''); // the id of a conversation being read
   const [draft, setDraft] = useState('');
-  const [pending, setPending] = useState(null); // { requestId, question } while a question is out
-  const [stopping, setStopping] = useState(false);
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(null); // { question, context, requestId, localId } for Ask again
+  const [inflight, setInflight] = useState({}); // requestId → the question still being answered (see ask())
+  const [stopping, setStopping] = useState('');
   const [notice, setNotice] = useState('');
   const [enlarged, setEnlarged] = useState(null);
   const [actionState, setActionState] = useState({});
   const [panel, setPanel] = useState(''); // '' | 'history' (drawer) | 'memory'
   const [railOpen, setRailOpen] = useState(false);
+  const [viewKey, setViewKey] = useState('n:0'); // which thread is on screen: c:<conversation id>, or n:<n> for a new one
+  const [queued, setQueued] = useState(null); // { text, context, attachments, source } waiting for this thread's answer
+  const [chips, setChips] = useState([]); // [{ kind, ref, id }] attached to the next question
+  const [note, setNote] = useState(null); // { name, text } a dropped .md or .txt file, sent as the question's context
+  const [picker, setPicker] = useState(null); // { only, query } the attach popover
+  const [editingKey, setEditingKey] = useState('');
+  const [pinned, setPinned] = useState({ key: '', signal: 0 });
+  const [announcement, setAnnouncement] = useState('');
+  const [unread, setUnread] = useState(() => new Set());
+  const [seenAt, setSeenAt] = useState(() => readSeen(identity));
+  const [dropping, setDropping] = useState('');
+  const [commandsOpen, setCommandsOpen] = useState(false);
   const narrow = useMedia('(max-width: 899px)');
   const inputRef = useRef(null);
-  const listRef = useRef(null);
+  const asideRef = useRef(null);
   const seedKey = useRef(null);
-  const queuedSeed = useRef(null); // a question sent from elsewhere while an answer was still coming
-  const threadRef = useRef(0); // bumps on every New conversation or switch, so a late reply never lands in another thread
+  const threadRef = useRef(0); // bumps on every New conversation or switch, so a late read never lands in another thread
+  const viewCounter = useRef(0);
+  const viewKeyRef = useRef(viewKey);
   const conversationRef = useRef(null); conversationRef.current = conversation;
   const messagesRef = useRef(messages); messagesRef.current = messages;
-  const pendingRef = useRef(pending); pendingRef.current = pending;
-  const stoppedRef = useRef('');
+  const inflightRef = useRef(inflight);
+  const finished = useRef(new Set()); // requests already finished in place (the reply and the stream's done both arrive)
+  const stoppedRef = useRef(new Set());
+  const failedView = useRef(''); // the thread whose last question failed: a waiting question goes to the box, not the AI
+  const announced = useRef({ at: 0, text: '' });
   const listToken = useRef(0);
   const images = useRef(new Map()); // imageId -> dataUrl, so switching back to a thread doesn't read pictures again
   const seen = useRef({ identity: null, workspaceId: null });
+  const openRef = useRef(open); openRef.current = open;
+  const workspaceRef = useRef(workspaceId); workspaceRef.current = workspaceId;
+  const handlers = useRef({});
+
+  const setInflightMap = (next) => { inflightRef.current = next; setInflight(next); };
+  const addInflight = (request) => setInflightMap({ ...inflightRef.current, [request.requestId]: request });
+  const dropInflight = (requestId) => { if (!inflightRef.current[requestId]) return; const { [requestId]: _gone, ...rest } = inflightRef.current; setInflightMap(rest); };
+  const requestIn = (key) => Object.values(inflightRef.current).find((request) => request.viewKey === key) || null;
+  const viewRequest = Object.values(inflight).find((request) => request.viewKey === viewKey) || null;
+  const switchView = (key) => { viewKeyRef.current = key; setViewKey(key); };
+  const announce = (text) => { if (!text) return; announced.current = { at: Date.now(), text }; setAnnouncement(text); };
 
   useEffect(() => {
     if (!seed?.key || seed.key === seedKey.current) return;
     seedKey.current = seed.key;
     // A draft fills the box for the person to finish; text asks right away.
     if (seed.draft) { setPanel(''); setDraft(seed.draft); requestAnimationFrame(() => { const input = inputRef.current; if (input) { input.focus(); input.setSelectionRange(seed.draft.length, seed.draft.length); } }); }
-    else if (seed.text) {
-      setPanel('');
-      // While an answer is still coming, the question (and the report it came with) waits its turn instead of being lost.
-      if (pendingRef.current || opening) { queuedSeed.current = { text: seed.text, context: seed.context || '' }; setNotice('Your question will be asked as soon as this answer is done.'); }
-      else ask(seed.text, seed.context);
-    }
+    // A report sent as an attachment is read whole by the server, so its text excerpt (the fallback for older servers)
+    // stays behind rather than being paid for twice.
+    else if (seed.text) { setPanel(''); const attachments = list(seed.attachments); ask(seed.text, { context: attachments.length && liveStream ? '' : seed.context || '', attachments, source: 'seed' }); }
   }, [seed?.key]);
-  // The waiting question goes once the answer is in; after an error (or in a preview) it waits in the box instead, so the
-  // error stays readable and nothing is sent unasked.
+  // A question waiting for this thread's answer goes once the answer is in; after an error (or in a preview) it waits in
+  // the box instead, so the error stays readable and nothing is sent unasked.
   useEffect(() => {
-    if (pending || opening || !queuedSeed.current) return;
-    const next = queuedSeed.current; queuedSeed.current = null;
-    if (error || viewer.preview) { setDraft(next.text); return; }
-    ask(next.text, next.context);
-  }, [pending, opening]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!queued || opening || viewRequest) return;
+    const next = queued; setQueued(null);
+    if (failedView.current === viewKeyRef.current || viewer.preview) { failedView.current = ''; setDraft(next.text); setChips(list(next.attachments)); setNotice(''); return; }
+    ask(next.text, { context: next.context, attachments: next.attachments });
+  }, [queued, opening, viewRequest]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (open && !panel) requestAnimationFrame(() => inputRef.current?.focus()); }, [open]);
-  useEffect(() => { const box = listRef.current; if (box) box.scrollTop = box.scrollHeight; }, [messages, pending, error]);
-  // Esc: the enlarged picture, then an open panel or rail, then (drawer only) the drawer itself.
+  // Esc: the enlarged picture, then the attach popover, then a running answer (when focus is in Ask AI), then an open
+  // panel or rail, then (drawer only) the drawer itself. "/" outside a field jumps to the question box.
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (event) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      if (enlarged) { event.stopPropagation(); setEnlarged(null); }
-      else if (panel) { event.stopPropagation(); closePanel(); }
-      else if (inline && railOpen && narrow) { event.stopPropagation(); setRailOpen(false); }
-      else if (!inline) { event.stopPropagation(); onClose(); }
+      if (event.defaultPrevented) return;
+      if (event.key === 'Escape') {
+        const running = requestIn(viewKeyRef.current);
+        if (enlarged) { event.stopPropagation(); setEnlarged(null); }
+        else if (picker) { event.stopPropagation(); setPicker(null); }
+        else if (running && ((typeof api?.cancelAsk === 'function' && can('cancelAsk')) || (typeof api?.cancelJob === 'function' && can('cancelJob'))) && asideRef.current?.contains(document.activeElement)) { event.stopPropagation(); event.preventDefault(); stop(); }
+        else if (panel) { event.stopPropagation(); closePanel(); }
+        else if (inline && railOpen && narrow) { event.stopPropagation(); setRailOpen(false); }
+        else if (!inline) { event.stopPropagation(); onClose(); }
+      } else if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !panel && !isField(event.target) && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        event.preventDefault(); inputRef.current?.focus(); if (!draft) setDraft('/');
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, inline, onClose, enlarged, panel, railOpen, narrow]);
+  }); // re-bound each render: it reads the current panel, picker and answer
   // The person's saved conversations: on mount and whenever who they are, their role or the workspace changes. A
   // different person or workspace starts clean; otherwise the thread that was open in this window opens again.
   useEffect(() => {
     if (!api?.askHelp) return;
     const changed = seen.current.identity !== null && (seen.current.identity !== identity || seen.current.workspaceId !== workspaceId);
     seen.current = { identity, workspaceId };
-    if (changed) reset();
+    if (changed) { reset(); setInflightMap({}); setSeenAt(readSeen(identity)); setUnread(new Set()); }
     if (persisted) refreshList({ reopen: true });
   }, [identity, viewer.role, workspaceId, persisted]);
+  // Answers still being written when this window opened (a reload, a layout switch): follow them again.
+  useEffect(() => {
+    if (!persisted || !liveStream || typeof api?.readAskProgress !== 'function') return;
+    Promise.resolve(api.readAskProgress({})).then((result) => { for (const snapshot of list(result?.active)) handlers.current.adoptRemote?.(snapshot, { snapshot: true }); }).catch(() => {});
+  }, [store, persisted]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The stream: finishes turns, mirrors answers another tab of this person is getting here, announces steps, and
+  // shows follow-up messages the studio posts into a conversation.
+  useEffect(() => store.onAny((event, progress) => handlers.current.onStream?.(event, progress)), [store]);
+  const attachOptions = useMemo(() => attachOptionsFrom(state), [state]);
   if (!api?.askHelp) return null;
 
   const scoped = (rows) => rows.filter((row) => !workspaceId || !row.workspaceId || row.workspaceId === workspaceId).sort(byPinThenNewest);
@@ -383,20 +443,27 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
       if (token !== listToken.current) return;
       setConversations(rows); setListStatus('ready'); setListError('');
       const remembered = reopen ? readThread(identity) : '';
-      if (remembered && thread === threadRef.current && !messagesRef.current.length && !pendingRef.current && rows.some((row) => row.id === remembered)) openConversation(rows.find((row) => row.id === remembered));
+      if (remembered && thread === threadRef.current && !messagesRef.current.length && !requestIn(viewKeyRef.current) && rows.some((row) => row.id === remembered)) openConversation(rows.find((row) => row.id === remembered));
     } catch (failure) { if (token === listToken.current) { setListStatus('error'); setListError(errorText(failure)); } }
   }
-  function reset() {
-    threadRef.current += 1; queuedSeed.current = null;
-    setMessages([]); setConversation(null); setActionState({}); setError(''); setRetry(null); setNotice(''); setOpening(''); setEnlarged(null);
+  function reset(key = '') {
+    threadRef.current += 1;
+    setQueued(null); setEditingKey(''); setPinned({ key: '', signal: 0 }); setCommandsOpen(false); setPicker(null);
+    setMessages([]); messagesRef.current = []; setConversation(null); conversationRef.current = null;
+    setActionState({}); setNotice(''); setOpening(''); setEnlarged(null);
+    switchView(key || `n:${++viewCounter.current}`);
   }
   function startNew() {
-    if (pendingRef.current) return;
     reset(); keepThread(identity, ''); setPanel(''); setRailOpen(false);
     requestAnimationFrame(() => inputRef.current?.focus());
   }
   function closePanel() { setPanel(''); requestAnimationFrame(() => inputRef.current?.focus()); }
   const upsertRow = (row) => setConversations((rows) => scoped([{ ...(rows.find((item) => item.id === row.id) || {}), ...row }, ...rows.filter((item) => item.id !== row.id)]));
+  const markUnread = (id) => setUnread((current) => (current.has(id) ? current : new Set([...current, id])));
+  const markRead = (id) => {
+    setUnread((current) => { if (!current.has(id)) return current; const next = new Set(current); next.delete(id); return next; });
+    setSeenAt((current) => { const next = { ...current, [id]: new Date().toISOString() }; keepSeen(identity, next); return next; });
+  };
   const updateImage = (id, image) => setMessages((current) => current.map((message) => (message.id === id && message.image ? { ...message, image: { ...message.image, ...image } } : message)));
   function readPictures(rows, thread) {
     for (const row of rows) {
@@ -409,26 +476,50 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
       }).catch((failure) => { if (thread === threadRef.current) updateImage(row.id, { status: 'failed', error: errorText(failure) }); });
     }
   }
+  // A question still being answered, as the thread shows it: its bubble and the answer placeholder.
+  const placeholderFor = (request) => ({ key: request.turnKey, id: `pending-${request.requestId}`, role: 'assistant', pending: true, requestId: request.requestId, createdAt: request.createdAt, startedMs: request.startedMs });
+  // The stored messages of a conversation plus any of its questions still being answered (a Retry or Edit replaces the
+  // last answer; a new question goes at the end).
+  function withInflight(rows, key) {
+    let out = rows;
+    for (const request of Object.values(inflightRef.current).filter((row) => row.viewKey === key)) {
+      if (request.mode) {
+        const at = out.findIndex((row) => row.role === 'user' && row.id === request.replaces);
+        if (at >= 0) { out = [...out.slice(0, at), { ...out[at], key: request.userKey, content: request.question }, placeholderFor(request)]; continue; }
+      }
+      out = [...out, request.userMessage, placeholderFor(request)];
+    }
+    return out;
+  }
   async function openConversation(row) {
-    if (!row?.id || pendingRef.current) return;
+    if (!row?.id) return;
     setPanel(''); setRailOpen(false);
     if (conversationRef.current?.id === row.id && messagesRef.current.length) return;
-    reset(); const thread = threadRef.current;
-    setConversation({ id: row.id, title: row.title || '' }); setOpening(row.id); keepThread(identity, row.id);
+    reset(`c:${row.id}`); const thread = threadRef.current;
+    const opened = { id: row.id, title: row.title || '' }; setConversation(opened); conversationRef.current = opened;
+    setOpening(row.id); keepThread(identity, row.id); markRead(row.id);
     try {
       const result = await api.readAskConversation({ id: row.id, conversationId: row.id });
       if (thread !== threadRef.current) return;
       const record = result?.conversation?.messages ? result.conversation : result || {};
       const { rows, states } = threadFrom(record.messages);
       for (const message of rows) if (message.image?.imageId && images.current.has(message.image.imageId)) message.image = { ...message.image, dataUrl: images.current.get(message.image.imageId), status: 'ready' };
-      setConversation({ id: record.id || row.id, title: record.title || row.title || '' });
-      setMessages(rows); setActionState(states);
+      const loaded = { id: record.id || row.id, title: record.title || row.title || '' }; setConversation(loaded); conversationRef.current = loaded;
+      setMessages(withInflight(rows, `c:${loaded.id}`)); setActionState(states);
       readPictures(rows, thread);
     } catch (failure) {
       if (thread !== threadRef.current) return;
-      keepThread(identity, ''); setConversation(null);
-      setError(`That conversation couldn’t be opened. ${errorText(failure)}`);
+      keepThread(identity, ''); setConversation(null); conversationRef.current = null;
+      setNotice(`That conversation couldn’t be opened. ${errorText(failure)}`);
     } finally { if (thread === threadRef.current) setOpening(''); }
+  }
+  // A new conversation whose first answer is still coming (it has no saved id yet).
+  function openPending(row) {
+    const request = inflightRef.current[row.requestId]; if (!request) return;
+    setPanel(''); setRailOpen(false);
+    if (viewKeyRef.current === request.viewKey && messagesRef.current.length) return;
+    reset(request.viewKey);
+    setMessages([request.userMessage, placeholderFor(request)]);
   }
   async function renameConversation(row, title) {
     const next = title.slice(0, 80);
@@ -446,6 +537,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     catch (failure) { setListNote(`That couldn’t be changed. ${errorText(failure)}`); refreshList(); }
   }
   async function deleteConversation(row) {
+    if (requestIn(`c:${row.id}`)) { setListNote('Wait for the answer, or stop it, before deleting this conversation.'); return; }
     const ok = await confirm({ title: 'Delete this conversation?', lines: [`“${clip(row.title || 'Untitled conversation', 80)}” and its answers are deleted for good. Anything Ask AI remembered stays until you forget it under Memory.`], confirmLabel: 'Delete', tone: 'danger' });
     if (!ok) return;
     setListNote('');
@@ -473,73 +565,151 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     }
   }
 
-  async function ask(question = draft, context = '', again = null) {
+  // One question. options: { context, attachments, mode: 'regenerate' | 'edit', replaces (the last question's id),
+  // again (a failed turn asked again), source: 'seed' | 'typed' }. The question's bubble and an answer placeholder go
+  // in at once and the question is pinned near the top; the answer streams into the placeholder, and the reply (or the
+  // stream's done) finishes it in place. While this thread is still answering, a new question waits its turn.
+  async function ask(question = draft, options = {}) {
     if (viewer.preview) { setNotice(PREVIEW_TITLE); return; }
-    const text = String(question).trim();
+    const text = String(question ?? '').trim();
     if (!text) return;
-    if (pendingRef.current || opening) { setNotice('Ask AI is still answering. Ask again once it’s done, or press Stop.'); return; }
-    const background = String(context || '').slice(0, 3900);
-    const requestId = again?.requestId || newRequestId();
-    const localId = again?.localId || `local-${requestId}`;
-    const thread = threadRef.current;
+    const context = String(options.context ?? '').slice(0, 3900);
+    const attachments = list(options.attachments).filter((row) => row?.kind && row.ref).slice(0, 3);
+    if ((requestIn(viewKeyRef.current) || opening) && !options.again && !options.mode) {
+      setQueued({ text, context, attachments, source: options.source || 'typed' });
+      if (options.source === 'seed') setNotice('Your question will be asked as soon as this answer is done.');
+      else { setDraft(''); setChips([]); setNote(null); }
+      return;
+    }
+    const requestId = options.again?.requestId || newRequestId();
+    finished.current.delete(requestId); stoppedRef.current.delete(requestId);
     const conversationId = conversationRef.current?.id || '';
-    const before = messagesRef.current.filter((message) => message.id !== localId);
-    if (!again) setMessages((current) => [...current, { id: localId, role: 'user', content: text, context: background }]);
-    else setMessages((current) => current.map((message) => (message.id === localId ? { ...message, stopped: false } : message)));
-    const sent = { requestId, question: text };
-    pendingRef.current = sent; setPending(sent);
-    setDraft(''); setError(''); setRetry(null); setNotice(''); setStopping(false); stoppedRef.current = '';
+    const mode = conversationId && ['regenerate', 'edit'].includes(options.mode) ? options.mode : '';
+    const replaces = mode ? String(options.replaces || '') : '';
+    const createdAt = new Date().toISOString();
+    const before = messagesRef.current.filter(settledRow);
+    const editing = mode ? messagesRef.current.find((row) => row.role === 'user' && row.id === replaces) : null;
+    const userKey = options.again?.userKey || (editing ? editing.key || editing.id : `u-${requestId}`);
+    const request = {
+      requestId, viewKey: viewKeyRef.current, workspaceId: workspaceRef.current, conversationId, question: text, context, attachments, mode, replaces, userKey, turnKey: `turn-${requestId}`, startedMs: nowMs(), createdAt,
+      userMessage: { key: userKey, id: options.again?.localId || editing?.id || `local-${requestId}`, role: 'user', content: text, context, attachments, createdAt: editing?.createdAt || createdAt },
+    };
+    const placeholder = placeholderFor(request);
+    if (options.again?.turnKey) setMessages((current) => current.map((row) => (row.key === options.again.turnKey ? placeholder : row)));
+    else if (editing) setMessages((current) => { const at = current.findIndex((row) => row.role === 'user' && row.id === replaces); return at < 0 ? current : [...current.slice(0, at), { ...current[at], key: userKey, ...(mode === 'edit' ? { content: text, editedAt: createdAt } : {}) }, placeholder]; });
+    else setMessages((current) => [...current, request.userMessage, placeholder]);
+    addInflight(request);
+    store.track(requestId, { question: text, conversationId, startedAt: createdAt, mode });
+    setPinned((current) => ({ key: userKey, signal: current.signal + 1 }));
+    if (!options.again) setDraft('');
+    setChips([]); setNote(null); setNotice(''); setEditingKey(''); setPicker(null); setCommandsOpen(false); failedView.current = '';
+    const payload = { question: text, requestId, page, ...(conversationId ? { conversationId } : { history: legacyHistory(before) }), ...(context ? { context } : {}), ...(attachments.length ? { attachments: attachments.map(({ kind, ref }) => ({ kind, ref })) } : {}), ...(mode ? { mode, replaces } : {}) };
+    request.payload = payload;
     try {
-      // With a saved conversation the server builds the history itself; an older server still needs it sent.
-      const reply = await api.askHelp({ question: text, requestId, page, ...(conversationId ? { conversationId } : { history: legacyHistory(before) }), ...(background ? { context: background } : {}) });
-      if (thread !== threadRef.current) { refreshList(); return; }
-      const server = Boolean(reply?.message);
-      const message = assistantFrom(server ? reply.message : { ...reply, id: `local-a-${requestId}` });
-      if (!message.id) message.id = `local-a-${requestId}`;
-      if (message.image?.status === 'creating' && typeof api.createHelpImage !== 'function') message.image = null;
-      const convo = server && reply.conversation?.id ? reply.conversation : null;
-      if (convo) {
-        setConversation({ id: convo.id, title: convo.title || conversationRef.current?.title || '' }); conversationRef.current = { id: convo.id, title: convo.title || '' };
-        keepThread(identity, convo.id);
-        upsertRow({ id: convo.id, title: convo.title || clip(text, 60), updatedAt: convo.updatedAt || new Date().toISOString(), workspaceId, preview: clip(message.content.replace(/[#*_`>]/g, ''), 120), messageCount: messagesRef.current.length + 1 });
-      }
-      const userId = server ? reply.userMessage?.id || localId : localId;
-      setMessages((current) => [...current.map((row) => (row.id === localId ? { ...row, id: userId } : row)), message]);
-      if (message.image?.status === 'creating') drawPicture(message.id, { title: message.image.title, prompt: message.image.prompt, size: message.image.size }, convo?.id || conversationId);
-      else if (message.image?.status === 'loading') readPictures([message], thread);
-      if (onShow && message.show?.autoStart) onShow(message.show.steps);
+      const reply = await api.askHelp(payload);
+      finalize(request, reply);
     } catch (failure) {
-      if (thread !== threadRef.current) return;
-      if (stoppedRef.current === requestId) {
-        setMessages((current) => current.map((row) => (row.id === localId ? { ...row, stopped: true } : row)));
-        setNotice('Stopped. Nothing more is spent on that question.');
-        setRetry({ question: text, context: background, requestId: newRequestId(), localId });
-      } else {
-        setError(errorText(failure));
-        setRetry({ question: text, context: background, requestId, localId }); // the same id: a reply that did arrive isn't paid for twice
-      }
-    } finally {
-      if (pendingRef.current?.requestId === requestId) { pendingRef.current = null; setPending(null); }
-      setStopping(false);
+      if (finished.current.has(requestId)) return;
+      // The call was cut while the answer was still being written (a proxy's time limit, a dropped connection): keep
+      // following it, then ask once more with the same request id, which returns the saved reply without paying again.
+      if (dropped(failure) && liveStream && !isFinal(store.get(requestId)?.status) && !stoppedRef.current.has(requestId)) { recover(request); return; }
+      fail(request, failure);
     }
   }
+  async function recover(request) {
+    const { requestId } = request;
+    for (let tries = 0; tries < 90 && !finished.current.has(requestId); tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+      if (finished.current.has(requestId) || isFinal(store.get(requestId)?.status)) break;
+      try { const result = await api.readAskProgress?.({ requestId }); if (result?.progress) { store.adopt(result.progress); if (isFinal(result.progress.status)) break; } } catch { /* the next try reads it again */ }
+    }
+    if (finished.current.has(requestId)) return;
+    const progress = store.get(requestId);
+    if (progress?.final && ['done', 'stopped'].includes(progress.status)) { finalize(request, progress.final); return; }
+    try { finalize(request, await api.askHelp(request.payload)); } catch (failure) { fail(request, failure); }
+  }
+  // The reply landed: the placeholder becomes the answer under the same key (no remount, no jump), the conversation is
+  // named and listed, and a picture or tour starts. A question asked in a thread that isn't on screen any more marks its
+  // conversation unread instead.
+  function finalize(request, reply) {
+    const { requestId } = request;
+    if (finished.current.has(requestId)) return;
+    finished.current.add(requestId); dropInflight(requestId);
+    store.settle(requestId, reply?.message?.stopped ? 'stopped' : 'done', reply);
+    const server = Boolean(reply?.message);
+    const message = { ...assistantFrom(server ? reply.message : { ...reply, id: `local-a-${requestId}` }), key: request.turnKey, requestId, startedMs: request.startedMs, streamed: liveStream && Boolean(store.get(requestId)?.text) };
+    if (!message.id) message.id = `local-a-${requestId}`;
+    if (message.image?.status === 'creating' && typeof api.createHelpImage !== 'function') message.image = null;
+    const convo = server && reply.conversation?.id ? reply.conversation : null;
+    const visible = viewKeyRef.current === request.viewKey;
+    // An answer that finished after a switch to another workspace belongs to its own workspace's list, not this one.
+    const here = (request.workspaceId ?? workspaceRef.current) === workspaceRef.current;
+    if (convo && here) upsertRow({ id: convo.id, title: convo.title || clip(request.question, 60), updatedAt: convo.updatedAt || new Date().toISOString(), workspaceId: workspaceRef.current, preview: clip(message.content.replace(/[#*_`>]/g, ''), 120) });
+    if (visible) {
+      if (convo) {
+        const named = { id: convo.id, title: convo.title || conversationRef.current?.title || '' };
+        conversationRef.current = named; setConversation(named); keepThread(identity, convo.id); switchView(`c:${convo.id}`);
+      }
+      const userId = server ? reply.userMessage?.id || request.userMessage.id : request.userMessage.id;
+      setMessages((current) => current.map((row) => (row.key === request.userKey ? { ...row, id: userId, ...(server && reply.userMessage?.editedAt ? { editedAt: reply.userMessage.editedAt } : {}) } : row.key === request.turnKey ? message : row)));
+      if (message.image?.status === 'creating') drawPicture(message.id, { title: message.image.title, prompt: message.image.prompt, size: message.image.size, family: message.image.family || 'none' }, convo?.id || request.conversationId);
+      else if (message.image?.status === 'loading') readPictures([message], threadRef.current);
+      if (onShow && message.show?.autoStart) onShow(message.show.steps);
+      announce(message.stopped ? 'Stopped. What was written so far is kept.' : `Answer ready. ${firstSentence(message.content)}`);
+    } else if (convo && here) markUnread(convo.id);
+    if (!openRef.current && !inline) { try { window.dispatchEvent(new CustomEvent('ask-answer-ready', { detail: { conversationId: convo?.id || '' } })); } catch { /* a courtesy */ } }
+  }
+  // No answer: the turn keeps what was written so far (greyed) with the reason and Try again. Nothing was saved.
+  function fail(request, failure) {
+    const { requestId } = request;
+    if (finished.current.has(requestId)) return;
+    finished.current.add(requestId); dropInflight(requestId);
+    const stopped = stoppedRef.current.has(requestId); stoppedRef.current.delete(requestId); setStopping((current) => (current === requestId ? '' : current));
+    store.settle(requestId, stopped ? 'stopped' : 'failed');
+    const text = errorText(failure);
+    // Errors are asked again with the same id, so a reply that did arrive isn't paid for twice; a stop or a busy refusal
+    // gets a new one.
+    const retry = { question: request.question, context: request.context, attachments: request.attachments, mode: request.mode, replaces: request.replaces, requestId: stopped || failure?.code === 'askBusy' ? newRequestId() : requestId, userKey: request.userKey, turnKey: request.turnKey, localId: request.userMessage.id };
+    const visible = viewKeyRef.current === request.viewKey;
+    if (visible) {
+      setMessages((current) => current.map((row) => (row.key === request.turnKey ? { ...row, pending: false, failed: true, stoppedEmpty: stopped, error: stopped ? '' : text, code: failure?.code || '', retry } : row)));
+      failedView.current = request.viewKey;
+      announce(stopped ? 'Stopped. Nothing more is spent on that question.' : `Ask AI couldn’t answer. ${text}`);
+    } else setNotice(stopped ? '' : `A question in another conversation didn’t get an answer: ${text}`);
+  }
   async function stop() {
-    const current = pendingRef.current;
-    if (!current || stopping || typeof api.cancelJob !== 'function') return;
-    setStopping(true); stoppedRef.current = current.requestId;
-    try { await api.cancelJob(`help-${current.requestId}`); }
-    catch { stoppedRef.current = ''; setStopping(false); setNotice('It’s nearly done, so it couldn’t be stopped. The answer will appear in a moment.'); }
+    const request = requestIn(viewKeyRef.current);
+    if (!request || stopping === request.requestId) return;
+    stoppedRef.current.add(request.requestId); setStopping(request.requestId);
+    try {
+      if (typeof api.cancelAsk === 'function') { const result = await api.cancelAsk({ requestId: request.requestId }); if (result && result.stopped === false) throw new Error('Nearly done.'); }
+      else await api.cancelJob(`help-${request.requestId}`);
+    } catch {
+      stoppedRef.current.delete(request.requestId); setStopping('');
+      setNotice('It’s nearly done, so it couldn’t be stopped. The answer will appear in a moment.');
+    }
+  }
+  // Ask again: a saved last answer is replaced (mode regenerate, keeping the old one as an earlier version); a turn that
+  // failed before anything was saved is simply asked again.
+  function retryAnswer(message, user) {
+    if (message.failed && message.retry) { ask(message.retry.question, { context: message.retry.context, attachments: message.retry.attachments, again: message.retry, mode: message.retry.mode, replaces: message.retry.replaces }); return; }
+    if (user && !isLocal(user.id)) ask(user.content, { mode: 'regenerate', replaces: user.id });
+  }
+  function editQuestion(user, text) {
+    if (!user || isLocal(user.id)) return;
+    if (text.trim() === String(user.content || '').trim()) { setEditingKey(''); ask(user.content, { mode: 'regenerate', replaces: user.id }); return; }
+    ask(text, { mode: 'edit', replaces: user.id });
   }
   async function download(image) {
     try { const saved = await api.saveHelpImage({ id: image.id || image.imageId }); if (saved && !saved.cancelled) setNotice(`Saved ${saved.fileName || 'the picture'}.`); }
-    catch (failure) { setError(errorText(failure)); }
+    catch (failure) { setNotice(errorText(failure)); }
   }
   async function runAction(message, index) {
     const action = message.actions[index]; if (!action || !onAction) return;
     const key = `${message.id}:${index}`; const conversationId = conversationRef.current?.id || '';
     // A plan's "ask" step asks its question here (a normal Ask AI answer, with its own cost line).
     if (action.kind === 'ask') {
-      if (pendingRef.current || opening || viewer.preview || !String(action.target || '').trim()) { setNotice(viewer.preview ? PREVIEW_TITLE : 'Ask AI is still answering. Try this step once it’s done.'); return; }
+      if (requestIn(viewKeyRef.current) || opening || viewer.preview || !String(action.target || '').trim()) { setNotice(viewer.preview ? PREVIEW_TITLE : 'Ask AI is still answering. Try this step once it’s done.'); return; }
       const done = { status: 'done', text: 'Asked.' };
       setActionState((current) => ({ ...current, [key]: done })); record(conversationId, message.id, { index, outcome: done });
       ask(action.target);
@@ -547,8 +717,10 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     }
     setActionState((current) => ({ ...current, [key]: { status: 'running' } }));
     try {
-      // A prompt edit is credited to this conversation (the Prompts page's History links back to it).
-      const result = await onAction(action.kind === 'edit-prompt' ? { ...action, conversationId } : action);
+      // A prompt edit is credited to this conversation (the Prompts page's History links back to it), and work started
+      // from an answer names where it came from (`ask`), so a scan or research run can post its follow-up back here.
+      const from = conversationId && !isLocal(message.id) ? { ask: { conversationId, messageId: message.id, actionIndex: index } } : {};
+      const result = await onAction(action.kind === 'edit-prompt' ? { ...action, conversationId, ...from } : { ...action, ...from });
       const done = result === false ? undefined : { status: 'done', text: typeof result === 'string' ? result : 'Done.' };
       setActionState((current) => ({ ...current, [key]: done }));
       record(conversationId, message.id, { index, outcome: done ? { status: 'done', text: done.text } : { status: 'cancelled', text: '' } });
@@ -584,73 +756,214 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     try { const result = await onAction(request); if (typeof result === 'string') setNotice(result); }
     catch (failure) { setNotice(errorText(failure)); }
   }
-  const needs = onAction && !messages.length ? attentionStarters(state, can).filter((row) => aiActionAllowed(row.request.kind, can)) : [];
 
-  const last = messages[messages.length - 1];
-  const busy = Boolean(pending) || Boolean(opening);
-  const canStop = Boolean(pending) && typeof api.cancelJob === 'function' && can('cancelJob');
+  // ── The stream, follow-ups and answers from another tab ──
+  // A question this person is getting an answer to in another tab (or that was running before a reload): followed
+  // here, finished from the stream (there is no call of ours to wait for).
+  function adoptRemote(progress, { snapshot = false } = {}) {
+    const requestId = progress?.requestId;
+    if (!requestId || inflightRef.current[requestId] || finished.current.has(requestId) || isFinal(progress.status)) return;
+    const key = progress.conversationId ? `c:${progress.conversationId}` : `r:${requestId}`;
+    const createdAt = progress.startedAt || new Date().toISOString();
+    const request = { requestId, viewKey: key, conversationId: progress.conversationId || '', question: progress.question || '', context: '', attachments: [], mode: progress.mode || '', replaces: '', userKey: `u-${requestId}`, turnKey: `turn-${requestId}`, startedMs: nowMs(), createdAt, remote: true, userMessage: { key: `u-${requestId}`, id: `local-${requestId}`, role: 'user', content: progress.question || '', createdAt } };
+    if (request.mode) { const last = [...messagesRef.current].reverse().find((row) => row.role === 'user'); if (last) { request.replaces = last.id; request.userKey = last.key || last.id; } }
+    // Listed first, so the events the store replays below find it as a known request.
+    addInflight(request);
+    if (snapshot) store.adopt(progress);
+    store.track(requestId, { question: progress.question, conversationId: progress.conversationId });
+    if (viewKeyRef.current === key && !opening) setMessages((current) => withInflight(current.filter(settledRow), key));
+  }
+  async function showFollowUp(event) {
+    const id = event.conversationId; if (!id) return;
+    refreshList();
+    if (conversationRef.current?.id !== id || opening) { markUnread(id); return; }
+    try {
+      const thread = threadRef.current;
+      const result = await api.readAskConversation({ id, conversationId: id });
+      if (thread !== threadRef.current) return;
+      const recordRow = result?.conversation?.messages ? result.conversation : result || {};
+      const { rows, states } = threadFrom(recordRow.messages);
+      const have = new Set(messagesRef.current.map((row) => row.id));
+      const fresh = rows.filter((row) => !have.has(row.id));
+      if (!fresh.length) return;
+      setMessages((current) => [...current.filter(settledRow), ...fresh, ...current.filter((row) => !settledRow(row))]);
+      setActionState((current) => ({ ...states, ...current }));
+      readPictures(fresh, thread); markRead(id);
+      announce('A new message from the studio.');
+    } catch { markUnread(id); }
+  }
+  function onStream(event, progress) {
+    if (event?.type === 'followup') { showFollowUp(event); return; }
+    const requestId = event?.requestId; if (!requestId || !progress) return;
+    const request = inflightRef.current[requestId];
+    if (!request) {
+      // Another tab of this person asked in the conversation open here: mirror it.
+      if (!isFinal(progress.status) && progress.conversationId && progress.conversationId === conversationRef.current?.id && !finished.current.has(requestId)) adoptRemote(progress);
+      return;
+    }
+    if (progress.final && ['done', 'stopped'].includes(progress.status)) { finalize(request, progress.final); return; }
+    if (request.remote && isFinal(progress.status)) { fail(request, progress.error || { message: 'That answer didn’t finish.' }); return; }
+    // Steps, for screen readers: at most one every 2 s.
+    if (viewKeyRef.current === request.viewKey && !isFinal(progress.status)) {
+      const running = [...list(progress.steps)].reverse().find((step) => step.status === 'running' && step.kind !== 'thinking');
+      if (running?.label && running.label !== announced.current.text && Date.now() - announced.current.at > 2000) announce(running.label);
+    }
+  }
+  handlers.current = { onStream, adoptRemote };
+
+  // ── / commands, attachments and drops ──
+  const slashCommands = slashCommandsFor({ can, imagesReady, memoryOn });
+  const addChip = (item) => {
+    if (!item?.ref) return;
+    setChips((current) => (current.some((row) => row.kind === item.kind && row.ref.toLowerCase() === item.ref.toLowerCase()) ? current : [...current, { kind: item.kind, ref: item.ref, id: item.id || '' }].slice(-3)));
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  function runSlash(parsed) {
+    const action = slashAction(parsed, { attached: chips[0]?.ref || '' });
+    if (!action) return false;
+    setNotice(''); setCommandsOpen(false);
+    if (action.needs) { setDraft(`/${parsed.command.id} `); setNotice(action.needs); return true; }
+    if (action.ask) { setDraft(''); ask(action.ask, { context: note?.text || '', attachments: chips }); return true; }
+    if (action.attach) {
+      setDraft('');
+      const want = action.attach.query.toLowerCase();
+      const exact = want && list(attachOptions[action.attach.kind]).find((row) => row.ref.toLowerCase() === want);
+      if (exact) addChip(exact); else setPicker({ only: action.attach.kind, query: action.attach.query });
+      return true;
+    }
+    if (action.remember) {
+      setDraft('');
+      if (typeof api.saveAskMemory !== 'function') { setNotice('Memory isn’t available here.'); return true; }
+      Promise.resolve(api.saveAskMemory({ text: action.remember, scope: 'me', kind: 'preference', workspaceId: '' })).then(() => setNotice('Remembered. Ask AI uses it from your next question.')).catch((failure) => setNotice(errorText(failure)));
+      return true;
+    }
+    if (action.open === 'memory') { setDraft(''); setPanel('memory'); return true; }
+    if (action.reset) { setDraft(''); startNew(); return true; }
+    if (action.help) { setDraft(''); setCommandsOpen(true); return true; }
+    return false;
+  }
+  function onSlashPick(command) {
+    if (command.attach) { setDraft(''); setPicker({ only: command.attach, query: '' }); return; }
+    if (command.arg) { setDraft(`/${command.id} `); requestAnimationFrame(() => { const input = inputRef.current; if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } }); return; }
+    runSlash({ command, rest: '' });
+  }
+  function submit() {
+    const text = draft.trim(); if (!text) return;
+    const parsed = parseSlash(text, slashCommands);
+    if (parsed && runSlash(parsed)) return;
+    if (text.startsWith('/') && !parsed && /^\/[a-z]+$/i.test(text) && SLASH_COMMANDS.some((row) => row.id === text.slice(1).toLowerCase())) { setNotice('That command isn’t available to you here.'); return; }
+    ask(text, { context: note?.text || '', attachments: chips });
+  }
+  function onDragOver(event) {
+    const studioRef = dragHasStudioRef(event.dataTransfer); const files = dragHasFiles(event.dataTransfer);
+    if (!studioRef && !files) return;
+    event.preventDefault();
+    try { event.dataTransfer.dropEffect = 'copy'; } catch { /* read-only in some browsers */ }
+    const item = currentStudioDrag();
+    const label = item ? `Drop to ask about “${clip(item.ref, 60)}”` : files ? 'Drop a .md or .txt file to ask about it' : 'Drop to ask about it';
+    if (label !== dropping) setDropping(label);
+  }
+  function onDragLeave(event) { if (!event.currentTarget.contains(event.relatedTarget)) setDropping(''); }
+  async function onDrop(event) {
+    setDropping('');
+    const item = readStudioRef(event.dataTransfer);
+    if (item) { event.preventDefault(); setPanel(''); addChip(item); return; }
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) return;
+    event.preventDefault();
+    if (!/\.(md|markdown|txt)$/i.test(file.name || '') && !/^text\/(plain|markdown)/.test(file.type || '')) { setNotice('Ask AI can take reports, folders and trends from the studio, or a .md or .txt file.'); return; }
+    try {
+      const text = typeof file.text === 'function' ? await file.text() : await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || '')); reader.onerror = () => reject(reader.error); reader.readAsText(file); });
+      setNote({ name: file.name || 'notes.txt', text: text.slice(0, 3900) }); setPanel('');
+      requestAnimationFrame(() => inputRef.current?.focus());
+    } catch (failure) { setNotice(`That file couldn’t be read. ${errorText(failure)}`); }
+  }
+
+  // ── What the panel shows ──
+  const allNeeds = onAction && !messages.length ? attentionStarters(state, can).filter((row) => aiActionAllowed(row.request.kind, can)) : [];
+  const questions = starters === STARTERS ? smartStarters({ state, can, fallback: STARTERS, imagesReady }) : starters.filter((question) => imagesReady || !/image/i.test(question));
+  const running = Boolean(viewRequest);
+  const canStop = running && ((typeof api.cancelAsk === 'function' && can('cancelAsk')) || (typeof api.cancelJob === 'function' && can('cancelJob')));
   const canEditList = !viewer.preview && can('renameAskConversation') && typeof api.renameAskConversation === 'function' && typeof api.deleteAskConversation === 'function';
+  const canRedo = persisted && !viewer.preview && can('askHelp') && Boolean(conversation?.id);
   const title = conversation?.title || '';
-  const settingsError = onOpenSettings && /claude|codex|api key|signed in|sign in|update|openai/i.test(error);
-  const history = persisted && <ConversationList rows={conversations} status={listStatus} error={listError} note={listNote} activeId={conversation?.id || ''} locked={Boolean(pending)} canWrite={canEditList}
-    onOpen={openConversation} onNew={startNew} onRename={renameConversation} onPin={pinConversation} onDelete={deleteConversation} onRetry={() => refreshList()} />;
+  const seesCosts = viewer.base === 'admin' || viewer.role === 'admin' || !Array.isArray(viewer.capabilities) || viewer.capabilities.includes('seeCosts');
+  const followedUp = conversations.filter((row) => row.id !== conversation?.id && row.lastFollowUpAt && row.lastFollowUpAt > (seenAt[row.id] || '') && row.lastFollowUpAt > (seenAt._since || '')).map((row) => row.id);
+  const unreadIds = followedUp.length ? new Set([...unread, ...followedUp]) : unread;
+  const answeringIds = new Set(Object.values(inflight).map((request) => (request.viewKey.startsWith('c:') ? request.viewKey.slice(2) : '')).filter(Boolean));
+  const pendingRows = Object.values(inflight).filter((request) => !request.viewKey.startsWith('c:') && request.question).map((request) => ({ id: `pending:${request.requestId}`, requestId: request.requestId, title: clip(request.question, 60), active: request.viewKey === viewKey }));
+  const history = persisted && <ConversationList rows={conversations} pendingRows={pendingRows} status={listStatus} error={listError} note={listNote} activeId={conversation?.id || ''} answering={answeringIds} unread={unreadIds} canWrite={canEditList}
+    onOpen={openConversation} onOpenPending={openPending} onNew={startNew} onRename={renameConversation} onPin={pinConversation} onDelete={deleteConversation} onRetry={() => refreshList()} />;
   const memoryButton = memoryOn && <button type="button" data-spot="ask.memory" className={inline ? 'help-tool' : 'help-icon'} aria-pressed={panel === 'memory'} onClick={() => setPanel((current) => (current === 'memory' ? '' : 'memory'))} aria-label="What Ask AI remembers" title="Memory"><Brain size={inline ? 14 : 16} aria-hidden="true" />{inline && <span>Memory</span>}</button>;
+
+  const welcome = <div className="help-welcome">
+    {inline && <span className="help-welcome-mark" aria-hidden="true"><Sparkles size={24} /></span>}
+    <h3>{copy.title || 'What can I help with?'}</h3>
+    <p>{copy.intro || 'Ask about your trends, reports and runs, or how anything in the studio works. Answers use the app guide and your current setup.'} {imagesReady ? 'Ask for a picture and it appears right here.' : copy.noPictures || 'Add an OpenAI key in Settings → Image generation to make pictures here too.'}</p>
+    {allNeeds.length > 0 && <div className="help-starters help-needs" role="group" aria-label="Needs you now">{allNeeds.map((row) => <button type="button" key={row.label} {...writeProps(viewer)} onClick={() => runStarter(row.request)}><span>{row.label}</span><CircleAlert size={14} aria-hidden="true" /></button>)}</div>}
+    <div className="help-starters" role="group" aria-label="Try asking">{questions.map((question) => <button type="button" key={question} {...writeProps(viewer)} onClick={() => ask(question)}><span>{question}</span>{/image|picture/i.test(question) ? <ImageIcon size={14} aria-hidden="true" /> : <ArrowRight size={14} aria-hidden="true" />}</button>)}</div>
+  </div>;
+  // Under a finished answer: in-answer links, cards, what was remembered, Show me, the picture, buttons and pages.
+  const renderExtras = (message, { links = [] } = {}) => {
+    const carded = cardActionIndexes(message.cards, message.actions);
+    const plain = onAction ? message.actions.map((action, index) => [action, index]).filter(([action, index]) => action && !carded.has(index)) : [];
+    const memoryCarded = message.cards.some((card) => card?.type === 'memory');
+    let rise = 0; const riseStyle = () => ({ '--i': rise++ });
+    return <>
+      {links.length > 0 && <div className="help-pages help-links ask-rise" style={riseStyle()} aria-label="In this answer">{links.map((link) => <button type="button" key={`${link.kind}:${link.id}`} onClick={() => openLink(link)}>{link.label}<ArrowRight size={13} aria-hidden="true" /></button>)}</div>}
+      {message.cards.length > 0 && <div className="ask-rise" style={riseStyle()}><ChatCards cards={message.cards} actions={message.actions} actionState={statesFor(message)} onAction={onAction ? (index) => runAction(message, index) : undefined} onRunAction={onAction} onOutcome={(index, outcome) => cardOutcome(message, index, outcome)} onAsk={(text) => ask(text)} onNav={nav || {}} api={api} state={state} conversationId={conversation?.id || conversationRef.current?.id || ''} messageId={isLocal(message.id) ? '' : message.id} /></div>}
+      {message.remembered.length > 0 && !memoryCarded && <div className="ask-rise" style={riseStyle()}><MemoryCard card={{ type: 'memory', title: 'Remembered', data: { items: message.remembered } }} api={api} /></div>}
+      {message.show && onShow && <div className="help-show ask-rise" style={riseStyle()}><button type="button" onClick={() => onShow(message.show.steps)}><MousePointerClick size={14} aria-hidden="true" />{message.show.steps.length > 1 ? `Show me · ${message.show.steps.length} steps` : 'Show me'}</button></div>}
+      {message.image && <div className="ask-rise" style={riseStyle()}><Picture image={message.image} onRetry={typeof api.createHelpImage === 'function' && !viewer.preview ? () => drawPicture(message.id, { title: message.image.title, prompt: message.image.prompt, size: message.image.size, family: message.image.family || 'none' }, conversation?.id || '') : null} onDownload={() => download(message.image)} onEnlarge={() => setEnlarged(message.image)} onOpenAssets={onOpenAssets} /></div>}
+      {plain.length > 0 && <div className="help-actions ask-rise" style={riseStyle()}>{plain.map(([action, index]) => { const status = actionState[`${message.id}:${index}`]; return <div className="help-action" key={`${action.kind}-${index}`}>{status?.status === 'done' ? <span className="help-action-done"><Check size={13} aria-hidden="true" />{status.text}</span> : <button type="button" disabled={status?.status === 'running'} onClick={() => runAction(message, index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}{action.label}</button>}{status?.status === 'failed' && <small role="alert">{status.text}</small>}{!status && list(action.problems).length > 0 && <small className="help-action-note">{action.problems[0]}</small>}</div>; })}</div>}
+      {message.pages.length > 0 && <div className="help-pages ask-rise" style={riseStyle()}>{message.pages.map((link) => <button type="button" key={link.page} onClick={() => onOpenPage(link.page)}>{link.label}<ArrowRight size={13} aria-hidden="true" /></button>)}</div>}
+    </>;
+  };
+  const renderFollowUps = (message) => (message.followUps.length > 0 && !running ? <div className="help-followups ask-rise">{message.followUps.map((question) => <button type="button" key={question} {...writeProps(viewer)} onClick={() => ask(question)}>{question}</button>)}</div> : null);
+  const renderFailure = (message) => {
+    const settingsError = onOpenSettings && !message.stoppedEmpty && /claude|codex|api key|signed in|sign in|update|openai|openrouter|connection/i.test(message.error || '');
+    if (message.stoppedEmpty) return <div className="help-notice ask-stopped" role="status"><p>Stopped before answering. Nothing more is spent on that question.</p>{message.retry && <button type="button" className="help-text-button" {...writeProps(viewer, running)} onClick={() => retryAnswer(message)}><RotateCcw size={13} aria-hidden="true" />Ask again</button>}</div>;
+    return <div className="help-error" role="alert"><p>{message.error}</p><div className="help-error-buttons">{message.retry && <button type="button" {...writeProps(viewer, running)} onClick={() => retryAnswer(message)}><RotateCcw size={13} aria-hidden="true" />Try again</button>}{settingsError && <button type="button" onClick={onOpenSettings}>Open Settings<ArrowRight size={13} aria-hidden="true" /></button>}</div></div>;
+  };
+  const lastUser = [...messages].reverse().find((row) => row.role === 'user');
+  const editableUser = (user) => canRedo && !isLocal(user?.id) && !running;
+  const chipRows = [
+    ...chips.map((chip) => ({ key: `${chip.kind}:${chip.ref}`, kind: chip.kind, label: chip.ref, title: `${REF_LABEL[chip.kind] || 'item'}: ${chip.ref}`, onRemove: () => setChips((current) => current.filter((row) => row !== chip)) })),
+    ...(note ? [{ key: 'note', kind: 'note', label: `${note.name} · first 3,900 characters`, onRemove: () => setNote(null) }] : []),
+  ];
+  const placeholder = chips.length ? `Ask about “${clip(chips[0].ref, 40)}”…` : copy.placeholder || (imagesReady ? 'Ask anything, describe a picture, or type / for commands' : 'Ask anything, or type / for commands');
 
   const thread = <>
     {panel === 'memory' && <MemoryPanel api={api} workspaceId={workspaceId} onClose={closePanel} />}
     {panel === 'history' && !inline && <section className="help-sheet" aria-label="Conversations"><div className="help-sheet-head"><h3><History size={16} aria-hidden="true" />Conversations</h3><button type="button" className="help-icon" onClick={closePanel} aria-label="Back to the conversation" title="Back (Esc)"><X size={16} aria-hidden="true" /></button></div>{history}</section>}
-    <div className="help-messages" ref={listRef} role="log" aria-live="polite" aria-busy={busy} hidden={Boolean(panel)}>
-      {opening && !messages.length && <p className="help-thinking" role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" />Opening the conversation…</p>}
-      {!messages.length && !opening && <div className="help-welcome">
-        {inline && <span className="help-welcome-mark" aria-hidden="true"><Sparkles size={24} /></span>}
-        <h3>{copy.title || 'Ask anything about Scraper Studio'}</h3>
-        <p>{copy.intro || 'How a page works, what a run will cost, why something stopped, or what to do next. Answers use the app guide and your current setup.'} {imagesReady ? 'Ask for a picture and it appears right here.' : copy.noPictures || 'Add an OpenAI key in Settings → Image generation to make pictures here too.'}</p>
-        {needs.length > 0 && <div className="help-starters help-needs" role="group" aria-label="Needs you now">{needs.map((row) => <button type="button" key={row.label} {...writeProps(viewer)} onClick={() => runStarter(row.request)}><span>{row.label}</span><CircleAlert size={14} aria-hidden="true" /></button>)}</div>}
-        <div className="help-starters">{starters.filter((question) => imagesReady || !/image/i.test(question)).map((question) => <button type="button" key={question} {...writeProps(viewer)} onClick={() => ask(question)}><span>{question}</span>{/image/i.test(question) ? <ImageIcon size={14} aria-hidden="true" /> : <ArrowRight size={14} aria-hidden="true" />}</button>)}</div>
-      </div>}
-      {messages.map((message) => {
-        if (message.role === 'user') return <div className="help-question" key={message.id}>{message.context && <small className="help-context"><FileText size={12} aria-hidden="true" />With the report you had open</small>}{message.content}{message.stopped && <small className="help-stopped">Stopped before answering</small>}</div>;
-        const carded = cardActionIndexes(message.cards, message.actions);
-        const plain = onAction ? message.actions.map((action, index) => [action, index]).filter(([action, index]) => action && !carded.has(index)) : [];
-        const memoryCarded = message.cards.some((card) => card?.type === 'memory');
-        const shown = studioLinks(message.content);
-        return <article className="help-answer" key={message.id} aria-label="Answer">
-          {message.read.length > 0 && <small className="help-read"><BookOpen size={12} aria-hidden="true" />Read {message.read.map((row) => `“${row.title}”`).join(', ')}</small>}
-          <MarkdownContent>{shown.text}</MarkdownContent>
-          {shown.links.length > 0 && <div className="help-pages help-links" aria-label="In this answer">{shown.links.map((link) => <button type="button" key={`${link.kind}:${link.id}`} onClick={() => openLink(link)}>{link.label}<ArrowRight size={13} aria-hidden="true" /></button>)}</div>}
-          {message.cards.length > 0 && <ChatCards cards={message.cards} actions={message.actions} actionState={statesFor(message)} onAction={onAction ? (index) => runAction(message, index) : undefined} onRunAction={onAction} onOutcome={(index, outcome) => cardOutcome(message, index, outcome)} onAsk={(text) => ask(text)} onNav={nav || {}} api={api} state={state} conversationId={conversation?.id || conversationRef.current?.id || ''} />}
-          {message.remembered.length > 0 && !memoryCarded && <MemoryCard card={{ type: 'memory', title: 'Remembered', data: { items: message.remembered } }} api={api} />}
-          {message.show && onShow && <div className="help-show"><button type="button" onClick={() => onShow(message.show.steps)}><MousePointerClick size={14} aria-hidden="true" />{message.show.steps.length > 1 ? `Show me · ${message.show.steps.length} steps` : 'Show me'}</button></div>}
-          {message.image && <Picture image={message.image} onRetry={typeof api.createHelpImage === 'function' && !viewer.preview ? () => drawPicture(message.id, { title: message.image.title, prompt: message.image.prompt, size: message.image.size }, conversation?.id || '') : null} onDownload={() => download(message.image)} onEnlarge={() => setEnlarged(message.image)} onOpenAssets={onOpenAssets} />}
-          {plain.length > 0 && <div className="help-actions">{plain.map(([action, index]) => { const status = actionState[`${message.id}:${index}`]; return <div className="help-action" key={`${action.kind}-${index}`}>{status?.status === 'done' ? <span className="help-action-done"><Check size={13} aria-hidden="true" />{status.text}</span> : <button type="button" disabled={status?.status === 'running'} onClick={() => runAction(message, index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}{action.label}</button>}{status?.status === 'failed' && <small role="alert">{status.text}</small>}{!status && list(action.problems).length > 0 && <small className="help-action-note">{action.problems[0]}</small>}</div>; })}</div>}
-          {message.pages.length > 0 && <div className="help-pages">{message.pages.map((link) => <button type="button" key={link.page} onClick={() => onOpenPage(link.page)}>{link.label}<ArrowRight size={13} aria-hidden="true" /></button>)}</div>}
-          {message === last && message.followUps.length > 0 && !pending && <div className="help-followups">{message.followUps.map((question) => <button type="button" key={question} {...writeProps(viewer)} onClick={() => ask(question)}>{question}</button>)}</div>}
-          {message.receipt && <small className="help-receipt">{[message.receipt.route === 'codex' ? 'Codex (not metered)' : message.receipt.model, money(message.receipt.costUsd)].filter(Boolean).join(' · ')}</small>}
-        </article>;
-      })}
-      {pending && <div className="help-thinking" role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" /><span>{stopping ? 'Stopping…' : 'Looking at your studio…'}</span>{canStop && <button type="button" className="help-stop" disabled={stopping} onClick={stop}><Square size={11} aria-hidden="true" />Stop</button>}</div>}
-      {notice && <div className="help-notice" role="status"><p>{notice}</p>{retry && !error && <button type="button" className="help-text-button" {...writeProps(viewer, busy)} onClick={() => ask(retry.question, retry.context, retry)}><RotateCcw size={13} aria-hidden="true" />Ask again</button>}</div>}
-      {error && <div className="help-error" role="alert"><p>{error}</p><div className="help-error-buttons">{retry && <button type="button" {...writeProps(viewer, busy)} onClick={() => ask(retry.question, retry.context, retry)}><RotateCcw size={13} aria-hidden="true" />Ask again</button>}{settingsError && <button type="button" onClick={onOpenSettings}>Open Settings<ArrowRight size={13} aria-hidden="true" /></button>}</div></div>}
-    </div>
+    <AskThread messages={messages} store={store} liveStream={liveStream} reduced={reduced} hidden={Boolean(panel)} busy={running || Boolean(opening)} opening={Boolean(opening)} welcome={welcome}
+      pinnedKey={pinned.key} pinSignal={pinned.signal} editingKey={editingKey} canEdit={editableUser} onEditStart={(user) => setEditingKey(user.key || user.id)} onEditCancel={() => { setEditingKey(''); requestAnimationFrame(() => inputRef.current?.focus()); }} onEditSend={editQuestion}
+      canRetry={(message, user) => !running && !viewer.preview && (message.failed ? Boolean(message.retry) : canRedo && Boolean(user) && !isLocal(user.id) && !isLocal(message.id))} onRetry={retryAnswer} retryTitle="Ask again"
+      renderExtras={renderExtras} renderFollowUps={renderFollowUps} renderFailure={renderFailure} announcement={announcement} />
     {!panel && <>
-      <form className="help-composer" data-spot="ask.box" onSubmit={(event) => { event.preventDefault(); ask(); }}>
-        <textarea ref={inputRef} rows={2} value={draft} aria-label="Question about Scraper Studio" placeholder={copy.placeholder || (imagesReady ? 'Ask how something works, or describe a picture…' : 'Ask how something works…')} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); ask(); } }} />
-        <button type="submit" {...writeProps(viewer, !draft.trim() || busy)} aria-label="Send question"><ArrowUp size={16} /></button>
-      </form>
-      <p className="help-foot">{persisted ? 'Saved for you only. ' : ''}Answers use the studio’s AI connection, about $0.15 each on Claude (a little more when it reads a report).{imagesReady ? ' Pictures use OpenAI and cost a few cents each.' : ''} AI can be mistaken.</p>
+      {(notice || commandsOpen) && <div className="ask-notices">
+        {notice && <div className="help-notice" role="status"><p>{notice}</p><button type="button" className="help-icon ask-notice-close" aria-label="Dismiss" onClick={() => setNotice('')}><X size={13} aria-hidden="true" /></button></div>}
+        {commandsOpen && <div className="ask-commands" role="region" aria-label="Commands"><ul>{slashCommands.map((command) => <li key={command.id}><code>{command.usage}</code><span>{command.label}</span></li>)}</ul><button type="button" className="help-icon ask-notice-close" aria-label="Close the command list" onClick={() => setCommandsOpen(false)}><X size={13} aria-hidden="true" /></button></div>}
+      </div>}
+      <AskComposer inputRef={inputRef} value={draft} onChange={(value) => { setDraft(value); if (notice && value) setNotice(''); }} onSubmit={submit} onStop={stop} running={running} stopping={Boolean(stopping) && stopping === viewRequest?.requestId} canStop={canStop}
+        sendDisabled={viewer.preview || Boolean(opening)} sendTitle={viewer.preview ? PREVIEW_TITLE : undefined} placeholder={placeholder} chips={chipRows} queued={queued && queued.source !== 'seed' ? queued.text : ''} onCancelQueued={() => setQueued(null)}
+        slash={slashCommands} onSlash={onSlashPick} attachOptions={attachOptions} picker={picker} onPicker={setPicker} onAttach={addChip}
+        onArrowUp={lastUser && editableUser(lastUser) ? () => setEditingKey(lastUser.key || lastUser.id) : undefined} compact={!inline || narrow} spot="ask.box"
+        foot={askCostLine({ persisted, seesCosts, route: state?.capabilities?.aiProvider || '', imagesReady, estimate: state?.help?.estimate || null })} />
     </>}
   </>;
 
   const railHidden = narrow && !railOpen;
-  return <aside id={inline ? 'help-page' : 'help-drawer'} className={`help-drawer${inline ? ' help-page' : ''}${inline && persisted ? ' has-rail' : ''}${open || inline ? ' open' : ''}`} aria-label="Ask AI about Scraper Studio" aria-hidden={!open && !inline} inert={!open && !inline}>
+  return <aside ref={asideRef} id={inline ? 'help-page' : 'help-drawer'} className={`help-drawer${inline ? ' help-page' : ''}${inline && persisted ? ' has-rail' : ''}${open || inline ? ' open' : ''}${dropping ? ' is-dropping' : ''}`} aria-label="Ask AI about Scraper Studio" aria-hidden={!open && !inline} inert={!open && !inline}
+    onDragOver={onDragOver} onDragEnter={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
     {inline ? <>
       {persisted && <nav className={`help-rail${railOpen ? ' is-open' : ''}`} data-spot={narrow ? undefined : 'ask.conversations'} aria-label="Ask AI conversations" aria-hidden={railHidden || undefined} inert={railHidden || undefined}>{history}</nav>}
       {persisted && narrow && railOpen && <button type="button" className="help-rail-scrim" aria-label="Close conversations" tabIndex={-1} onClick={() => setRailOpen(false)} />}
       <div className="help-main">
         <div className="help-page-tools">
-          {persisted && narrow && <button type="button" data-spot="ask.conversations" className="help-tool" aria-expanded={railOpen} onClick={() => setRailOpen((value) => !value)}><MessagesSquare size={14} aria-hidden="true" /><span>Conversations</span></button>}
+          {persisted && narrow && <button type="button" data-spot="ask.conversations" className="help-tool" aria-expanded={railOpen} onClick={() => setRailOpen((value) => !value)}><MessagesSquare size={14} aria-hidden="true" /><span>Conversations</span>{unreadIds.size > 0 && <span className="ask-unread-dot" aria-label="New answers" />}</button>}
           {title && <span className="help-thread-title" title={title}>{title}</span>}
-          <span className="help-tools-end">{memoryButton}{messages.length > 0 && <button type="button" className="help-tool" disabled={Boolean(pending)} onClick={startNew}><RotateCcw size={14} aria-hidden="true" /><span>New conversation</span></button>}</span>
+          <span className="help-tools-end">{memoryButton}{messages.length > 0 && <button type="button" className="help-tool" onClick={startNew}><RotateCcw size={14} aria-hidden="true" /><span>New conversation</span></button>}</span>
         </div>
         {thread}
       </div>
@@ -658,16 +971,18 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
       <header className="help-head">
         <span className="help-mark" aria-hidden="true"><Sparkles size={17} /></span>
         <div><h2>Ask AI</h2><p title={title || undefined}>{title || copy.subtitle || 'Questions about the app, or ask for a picture'}</p></div>
-        {persisted && <button type="button" data-spot="ask.conversations" className="help-icon" aria-pressed={panel === 'history'} onClick={() => { setPanel((current) => (current === 'history' ? '' : 'history')); if (panel !== 'history') refreshList(); }} aria-label="Conversations" title="Conversations"><History size={16} aria-hidden="true" /></button>}
+        {persisted && <button type="button" data-spot="ask.conversations" className="help-icon" aria-pressed={panel === 'history'} onClick={() => { setPanel((current) => (current === 'history' ? '' : 'history')); if (panel !== 'history') refreshList(); }} aria-label={unreadIds.size ? 'Conversations, new answers' : 'Conversations'} title="Conversations"><History size={16} aria-hidden="true" />{unreadIds.size > 0 && <span className="ask-unread-dot" aria-hidden="true" />}</button>}
         {memoryButton}
-        {messages.length > 0 && <button type="button" className="help-icon" disabled={Boolean(pending)} onClick={startNew} aria-label="Start a new conversation" title="New conversation"><RotateCcw size={15} /></button>}
+        {messages.length > 0 && <button type="button" className="help-icon" onClick={startNew} aria-label="Start a new conversation" title="New conversation"><RotateCcw size={15} /></button>}
         <button type="button" className="help-icon" onClick={onClose} aria-label="Close Ask AI" title="Close (Esc)"><X size={17} /></button>
       </header>
       {thread}
     </>}
+    {dropping && <div className="ask-drop" aria-hidden="true"><p>{dropping}</p></div>}
     {enlarged && <div className="help-lightbox" role="dialog" aria-modal="true" aria-label={enlarged.title} onClick={() => setEnlarged(null)}>
       <img src={enlarged.dataUrl} alt={enlarged.title} />
       <button type="button" className="help-icon" onClick={() => setEnlarged(null)} aria-label="Close picture"><X size={18} /></button>
     </div>}
   </aside>;
 }
+

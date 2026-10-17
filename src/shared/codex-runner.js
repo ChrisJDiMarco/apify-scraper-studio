@@ -179,7 +179,14 @@ function codexExecSupport(helpText = '') {
 // isolated: how the studio runs Codex. The prompt arrives on stdin (prompt '-'), the sandbox is read-only, the tools above
 // are off, and with `support` (codexExecSupport) nothing about the call is kept. ignoreUserConfig also skips the CLI's own
 // config file, for a shared server.
-function buildCodexCommand({ workspaceDir, schemaPath, outputPath, prompt, isolated = false, support = {}, ignoreUserConfig = false }) {
+// model and effort come from Settings → Model routing: '-m <model>' only when one is chosen (otherwise Codex uses its own
+// default model) and the reasoning level only when set. Codex reports no cost either way.
+const CODEX_MODEL = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,80}$/;
+const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+function buildCodexCommand({ workspaceDir, schemaPath, outputPath, prompt, isolated = false, support = {}, ignoreUserConfig = false, model = '', effort = '' }) {
+  if (model && !CODEX_MODEL.test(model)) throw new Error('Choose a valid Codex model ID.');
+  if (effort && !CODEX_EFFORTS.includes(effort)) throw new Error('Choose a Codex reasoning level.');
+  const choice = [...(model ? ['-m', model] : []), ...(effort ? ['-c', `model_reasoning_effort="${effort}"`] : [])];
   const guard = isolated ? [
     '--sandbox', 'read-only',
     ...CODEX_TOOLS_OFF.flatMap((feature) => ['-c', `features.${feature}=false`]),
@@ -198,6 +205,7 @@ function buildCodexCommand({ workspaceDir, schemaPath, outputPath, prompt, isola
       // Prompt tests, Ask AI and research runs work in folders that aren't git repos; Codex refuses those without it.
       '--skip-git-repo-check',
       ...guard,
+      ...choice,
       '--json',
       '--output-schema',
       schemaPath,
@@ -242,6 +250,7 @@ function validateAiOutput(kind, output) {
 }
 
 module.exports = {
+  CODEX_EFFORTS,
   CODEX_TOOLS_OFF,
   REPORT_PRESETS,
   SCHEMAS,

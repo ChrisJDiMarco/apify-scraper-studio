@@ -21,6 +21,8 @@ const { markdownToHtml, splitTitle } = require('./markdown-html');
 const { createPromptStore } = require('./prompt-store');
 const { snapshotBlocks, REGISTRY: PROMPT_REGISTRY } = require('../shared/prompt-template');
 const promptLabModule = () => require('./prompt-lab');
+// The written channel assets that have their own task in Model routing (src/shared/ai-tasks.json).
+const KIT_TEXT_TASKS = new Set(require('../shared/ai-tasks.json').tasks.filter(task => task.group === 'assets').map(task => task.id));
 // Refusals people read (copy lives in the roles policy data so every screen and doc says the same thing).
 const { copy: COPY } = require('../shared/roles.json');
 const say = (key, vars = {}) => COPY[key].replace(/\{(\w+)\}/g, (_, name) => (vars[name] == null ? '' : String(vars[name])));
@@ -56,8 +58,18 @@ const LEGACY_SEMRUSH_BRAND_FIELDS = Object.freeze({
 // host's job tray ({ id, kind, title, cancellable } → { finish(patch), fail(error), cancelled() }) for prompt test runs.
 // getCallerCapabilities (optional) lists the caller's capability ids ('*' = all): a Prompt Library preview or test uses a
 // recent run's data only when the caller may read it. Without it the caller holds everything.
-function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, trackJob } = {}) {
+// onRunEvent (optional) hears when a run started from an Ask AI conversation reaches a point worth posting there (a quick
+// scan's trends report, trends waiting for an OK, reports written, a stop): { type, key, identityId, conversationId, run,
+// report?, error?, attempt? } → { messageId } | null (src/main/ask-followups.js). It never fails a run.
+function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, trackJob, onRunEvent, routing: routingHost = null, generateVideo = null } = {}) {
   if (!root || typeof runAI !== 'function') throw new Error('Studio storage and AI host are required.');
+  // Model routing (src/main/ai-routing.js): which connection, model and effort each AI task uses. The host passes its
+  // studio routing; without one (tests, older hosts) the same rules run on the capabilities' text route and model.
+  const routing = routingHost || localRouting();
+  function localRouting() {
+    const local = require('./ai-routing').createAiRouting({ getSettings: () => { const extra = capabilities(); return { aiProvider: extra.aiProvider || 'auto', aiModel: extra.textModel || 'claude-opus-5-5' }; }, programs: () => routingPrograms() });
+    return { resolve: local.resolve, snapshot: local.snapshot, current: local.current, taskIdForPrompt: local.taskIdForPrompt, priceFor: () => ({ basis: 'none', known: false }), unitsFor: () => 1, mediaProblem: () => '' };
+  }
   const stamp = () => new Date(clock()).toISOString();
   const who = () => { let value = null; try { value = actor(); } catch (_) { value = null; } return { id: String(value?.id || SYSTEM.id).slice(0, 320), name: String(value?.name || SYSTEM.name).slice(0, 120) }; };
   fs.mkdirSync(root, { recursive: true });
@@ -98,8 +110,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // The prompts channel assets (kit) or Create content drafts are written with. Kit pictures go through a brief; Create
   // content pictures use the content-image prompt.
   function assetPromptIds(deliverableIds = [], { kit: isKit = false } = {}) {
-    const pictures = deliverableIds.some(id => !isTextDeliverable(id));
-    return ['assets.shared', ...deliverableIds.filter(isTextDeliverable).map(id => `assets.${id}`), ...(pictures ? ['pictures.direction', 'pictures.variations', ...(isKit ? ['pictures.kit-brief', 'pictures.kit-image'] : ['pictures.content-image'])] : []), ...(isKit ? ['system.repair'] : [])].filter(id => PROMPT_IDS.has(id));
+    const kindOf = id => content.CONTENT_DELIVERABLES.find(d => d.id === id)?.kind;
+    const pictures = deliverableIds.some(id => kindOf(id) === 'image'); const video = isKit && deliverableIds.some(id => kindOf(id) === 'video');
+    return ['assets.shared', ...deliverableIds.filter(isTextDeliverable).map(id => `assets.${id}`), ...(pictures || video ? ['pictures.direction'] : []), ...(pictures ? ['pictures.variations', ...(isKit ? ['pictures.kit-brief', 'pictures.kit-image'] : ['pictures.content-image'])] : []), ...(video ? ['video.brief', 'video.clip'] : []), ...(isKit ? ['system.repair'] : [])].filter(id => PROMPT_IDS.has(id));
   }
   const promptSnapshot = (w, ids) => prompts.snapshot(w.id, w.editionId, ids);
   const pickPrompts = (snapshot, ids) => Object.fromEntries(Object.entries(snapshot || {}).filter(([promptId]) => ids.includes(promptId)));
@@ -139,22 +152,35 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // reads a report's text or page goes through assetFile or assetResult, so drafts, kits, exports, Drive and Ask AI all
   // use the edit; the original .json stays the data (evidence register, theme) behind it.
   function editedFile(asset, extension) { return file(asset.runId, `${safeId(asset.id)}.edited.${extension}`); }
+  const videoExtensions = asset => ['mp4', ...['srt', 'poster.png'].filter(extension => fs.existsSync(file(asset.runId, `${asset.id}.${extension}`)))];
   function assetFile(asset, extension) { return asset.edited && ['md', 'html'].includes(extension) && fs.existsSync(editedFile(asset, extension)) ? editedFile(asset, extension) : file(asset.runId, `${asset.id}.${extension}`); }
   const editedOf = asset => (asset.edited?.at ? { at: asset.edited.at, byName: asset.edited.by?.name || '' } : null);
+  const MAX_VIDEO_RESULT_BYTES = 60 * 1024 * 1024;
   function assetResult(asset) {
+    if (asset.kind === 'video') {
+      // The clip travels as base64 to the page (a Blob URL there); a very long one is opened from the file instead.
+      const mp4 = file(asset.runId, `${asset.id}.mp4`); const bytes = fs.statSync(mp4).size;
+      const poster = file(asset.runId, `${asset.id}.poster.png`);
+      const extra = { captions: Array.isArray(asset.captions) ? [...asset.captions] : [], ...(fs.existsSync(poster) ? { posterDataUrl: `data:image/png;base64,${fs.readFileSync(poster).toString('base64')}` } : {}) };
+      if (bytes > MAX_VIDEO_RESULT_BYTES) return { asset: copy(asset), tooLarge: true, ...extra };
+      return { asset: copy(asset), video: { mime: 'video/mp4', bytes, base64: fs.readFileSync(mp4).toString('base64') }, ...extra };
+    }
     if (asset.kind !== 'text') return { asset: copy(asset), imageDataUrl: `data:image/png;base64,${fs.readFileSync(file(asset.runId, `${asset.id}.png`)).toString('base64')}` };
     const output = read(file(asset.runId, `${asset.id}.json`)); const original = read(file(asset.runId, 'input.json')).source;
     const generated = content.renderContentExport(output); const edits = assetFile(asset, 'md') === editedFile(asset, 'md');
     return { asset: copy(asset), output, markdown: edits ? fs.readFileSync(editedFile(asset, 'md'), 'utf8') : generated, ...(edits ? { originalMarkdown: generated } : {}), edited: edits ? editedOf(asset) : null, evidence: content.normalizeSource(original).evidence, aggregateMetrics: original.aggregateMetrics };
   }
-  function publicRun(run) { const value = copy(run); if (run.type === 'research') { value.ownCostUsd = run.costUsd; value.costUsd += (run.reportRunIds || []).reduce((sum, entry) => sum + (state.contentRuns.find(child => child.id === entry.runId)?.costUsd || 0), 0); } return value; }
+  // The Ask AI conversation a run was started from stays on the server; only followUpAt (a follow-up was posted) is shown.
+  const withoutAsk = value => { if (value && typeof value === 'object') { delete value.ask; if (value.quickScan && typeof value.quickScan === 'object') delete value.quickScan.ask; } return value; };
+  // A research run's cost includes its report runs and a quick scan's trends report (ownCostUsd is its own).
+  function publicRun(run) { const value = withoutAsk(copy(run)); if (run.type === 'research') { value.ownCostUsd = run.costUsd; value.costUsd += [...(run.reportRunIds || []).map(entry => entry.runId), ...(run.scanReport?.runId ? [run.scanReport.runId] : [])].reduce((sum, childId) => sum + (state.contentRuns.find(child => child.id === childId)?.costUsd || 0), 0); } return value; }
   function publicState() {
     const scoped = list => copy(list.filter(row => row.workspaceId === state.activeWorkspaceId));
     const datasets = getDatasets().filter(d => (state.datasetOwners[d.id] || d.workspaceId || 'general') === state.activeWorkspaceId).map(d => ({ id: d.id, name: d.name, platform: d.platform, itemCount: d.itemCount, createdAt: d.createdAt }));
     // Reference documents can be long; state carries their metadata and readReferenceDoc returns the text.
     // Brand reference images arrive grouped by picture set; readBrandImage returns a picture's bytes.
     const activeView = w => ({ ...w, referenceDocs: (w.referenceDocs || []).map(({ text, ...doc }) => ({ ...doc, characters: String(text || '').length })), brandImageSets: brandImages().brandImageFamilies(w.editionId).map(family => ({ ...family, images: (w.brandImages || []).filter(image => image.family === family.id) })) });
-    return { activeWorkspaceId: state.activeWorkspaceId, workspaces: copy(state.workspaces.map(w => w.id === state.activeWorkspaceId ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() }, promptChanges: recentPromptChanges() };
+    return { activeWorkspaceId: state.activeWorkspaceId, workspaces: copy(state.workspaces.map(w => w.id === state.activeWorkspaceId ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit', 'scan-report'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() }, promptChanges: recentPromptChanges() };
   }
   function updateScheduledRun(run) {
     if (!run.scheduledFor) return;
@@ -173,13 +199,18 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       for (const job of run.jobs || []) if (job.status === 'running') { job.status = job.assetIds?.length ? 'partial' : 'failed'; job.error = 'Interrupted before completion.'; }
       updateScheduledRun(run);
     }
+    // A quick scan whose trends report was being written (or retried) when the app stopped: Retry report finishes it.
+    for (const run of state.researchRuns) if (run.scanReport && ['queued', 'running'].includes(run.scanReport.status)) {
+      const child = state.contentRuns.find(row => row.id === run.scanReport.runId);
+      run.scanReport = { ...run.scanReport, status: child?.status === 'succeeded' ? 'succeeded' : 'failed', error: child?.status === 'succeeded' ? '' : 'The app stopped while the trends report was being written.' };
+    }
     save();
   }
   function check(run) { if (stopped.has(run.id)) throw new Error('Run cancelled.'); }
   function launch(run, task) {
     if (active.has(run.id)) return copy(run);
     stopped.delete(run.id); run.status = 'queued'; run.updatedAt = stamp(); save();
-    const work = Promise.resolve().then(async () => { check(run); run.status = 'running'; updateScheduledRun(run); save(); await task(); }).catch(error => { run.status = stopped.has(run.id) ? 'cancelled' : (run.jobs || []).some(j => j.status === 'succeeded' || j.assetIds?.length) ? 'partial' : 'failed'; run.message = safeError(error); }).finally(() => { active.delete(run.id); run.updatedAt = stamp(); updateScheduledRun(run); save(); });
+    const work = Promise.resolve().then(async () => { check(run); run.status = 'running'; updateScheduledRun(run); save(); await task(); }).catch(error => { run.status = stopped.has(run.id) ? 'cancelled' : (run.jobs || []).some(j => j.status === 'succeeded' || j.assetIds?.length) ? 'partial' : 'failed'; run.message = safeError(error); if (run.status !== 'cancelled' && askOf(run)) { const ask = askOf(run); ask.stops = (Number(ask.stops) || 0) + 1; runEvent(run, 'run-stopped', { attempt: ask.stops }); } }).finally(() => { active.delete(run.id); run.updatedAt = stamp(); updateScheduledRun(run); save(); });
     active.set(run.id, work); return copy(run);
   }
   // One Claude call. Research stages size the per-call spending cap from the call's own estimate
@@ -188,8 +219,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   async function ai(run, key, schema, prompt, remainingSteps, options = {}) {
     check(run); const remaining = Math.round((run.maxBudgetUsd - run.reservedUsd) * 100) / 100;
     // Codex reports no cost and takes no spending cap (it bills the person's Codex plan or OpenAI key), so its calls
-    // reserve nothing and the run's budget can't stop them.
-    const unmetered = capabilities().aiProvider === 'codex';
+    // reserve nothing and the run's budget can't stop them. options.task (a resolved AI task) says which connection runs it.
+    const task = options.task || null;
+    const unmetered = task ? task.metered === false : capabilities().aiProvider === 'codex';
     if (!unmetered && remaining < .01) throw new Error('Run budget exhausted. Increase the budget before retrying.');
     let allowance;
     if (unmetered) allowance = 0;
@@ -208,7 +240,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const onWait = position => { run.message = `Waiting for a free AI slot (${position === 1 ? 'next in line' : `${position} in line`}) · ${working}`; save(); };
     const onStart = () => { if (run.message !== working) { run.message = working; save(); } };
     try {
-      const result = await runAI({ runId: run.id, schema, prompt, maxBudgetUsd: allowance, workspaceDir: path.dirname(file(run.id, 'receipt.json')), outputPath: file(run.id, `${safeId(key)}.raw.json`), ...(options.model ? { model: options.model } : {}), ...(options.effort ? { effort: options.effort } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}), onWait, onStart });
+      const result = await runAI({ runId: run.id, schema, prompt, maxBudgetUsd: allowance, workspaceDir: path.dirname(file(run.id, 'receipt.json')), outputPath: file(run.id, `${safeId(key)}.raw.json`), ...(task ? { task } : {}), ...(options.model ? { model: options.model } : {}), ...(options.effort ? { effort: options.effort } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}), onWait, onStart });
       const receipt = result.receipt || {};
       if (Number.isFinite(receipt.costUsd) && receipt.costUsd >= 0) { run.reservedUsd += Math.max(0, receipt.costUsd) - allowance; run.costUsd += receipt.costUsd; }
       run.receipts.push({ stage: key, allowanceUsd: allowance, ...receipt, ...(unmetered && !Number.isFinite(receipt.costUsd) ? { costBasis: 'Codex reports no cost; it uses the Codex plan or OpenAI key' } : {}) }); save(); check(run); return result.output;
@@ -223,7 +255,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const call = async (callKey, text) => {
       try { return await ai(run, callKey, schema, text, 1, options); }
       catch (error) {
-        if (error?.code !== 'CLAUDE_BUDGET_EXCEEDED' || !Number.isFinite(options.estimateUsd)) throw error;
+        if (!['CLAUDE_BUDGET_EXCEEDED', 'AI_BUDGET_EXCEEDED'].includes(error?.code) || !Number.isFinite(options.estimateUsd)) throw error;
         return ai(run, `${callKey}-retry`, schema, text, 1, { ...options, headroom: (options.headroom || 3) * 3 });
       }
     };
@@ -246,13 +278,17 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const asset = owned(state.assets, source.id || source.assetId); const result = assetResult(asset);
     if (!result.output) throw new Error('Choose a written report.');
     const original = read(file(asset.runId, 'input.json')).source;
+    // The title and text the person sees in Create content win (they may have edited the brief there); the report's own
+    // fill in when they sent none. The evidence always comes from the saved report.
+    const title = typeof source.title === 'string' && source.title.trim() ? source.title.trim().slice(0, 240) : asset.title;
+    const text = typeof source.text === 'string' && source.text.trim() ? source.text : result.markdown;
     if (original.kind === 'research-theme') {
       // A research report already carries its 500-post selection; follow-up content only needs the
       // report text and the posts it cites (the full selection would exceed the content budget).
       const cited = (result.output.evidenceRegister || []).filter(record => record?.id && record.text).slice(0, 120).map(record => ({ id: record.id, text: String(record.text).slice(0, 4000), url: record.url || '', platform: record.platform || '', author: record.author || '', publishedAt: record.publishedAt || '' }));
-      return { kind: 'report', id: asset.id, title: asset.title, text: result.markdown, evidence: cited };
+      return { kind: 'report', id: asset.id, title, text, evidence: cited };
     }
-    return { kind: 'report', id: asset.id, title: asset.title, text: result.markdown, evidence: content.normalizeSource(original).evidence, aggregateMetrics: original.aggregateMetrics };
+    return { kind: 'report', id: asset.id, title, text, evidence: content.normalizeSource(original).evidence, aggregateMetrics: original.aggregateMetrics };
   }
   // `by` is who started the run; a research run's report runs inherit the research run's.
   function newContentRun(payload, internalWorkspace, by = null) {
@@ -273,9 +309,18 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save(); return run;
     }
     const snapshot = promptSnapshot(w, assetPromptIds((Array.isArray(payload.deliverableIds) ? payload.deliverableIds : []).filter(key => typeof key === 'string')));
-    const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds: payload.deliverableIds, imageVariants: payload.imageVariants, prompts: snapshot };
-    const plan = content.buildContentPlan(input); const run = { id: id('content'), workspaceId: w.id, type: 'content', title: source.title || 'Content campaign', ...(source.kind === 'report' && source.id ? { sourceAssetId: source.id } : {}), ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, prompts: promptRecord(snapshot), jobs: plan.deliverables.map(d => ({ id: d.id, label: d.label, kind: d.kind, status: 'queued' })) };
-    write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save(); return run;
+    const chosen = (Array.isArray(payload.deliverableIds) ? payload.deliverableIds : []).map(key => content.CONTENT_DELIVERABLES.find(d => d.id === key)).filter(Boolean);
+    if (chosen.some(d => d.kitOnly)) throw new Error('Short videos are made in a set of channel assets.');
+    // Pictures keep the brand reference images in Settings when the run starts (a copy in the run folder), so a retry
+    // sends the same ones; the prompts number them. The run also keeps the AI it resolved (Model routing) now.
+    const runId = id('content'); const pictures = chosen.filter(d => d.kind === 'image');
+    let references = { summary: {}, roles: {} };
+    try {
+      if (pictures.length) references = snapshotRunReferences({ id: runId }, w, pictures);
+      const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds: payload.deliverableIds, imageVariants: payload.imageVariants, prompts: snapshot, ...(Object.keys(references.roles).length ? { references: references.roles } : {}) };
+      const plan = content.buildContentPlan(input); const run = { id: runId, workspaceId: w.id, type: 'content', title: source.title || 'Content campaign', ...(source.kind === 'report' && source.id ? { sourceAssetId: source.id } : {}), ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, prompts: promptRecord(snapshot), ai: { version: 2, routing: routing.snapshot(['create.drafts', ...(pictures.length ? ['pictures.content-image'] : [])]) }, ...(Object.keys(references.summary).length ? { references: references.summary } : {}), jobs: plan.deliverables.map(d => ({ id: d.id, label: d.label, kind: d.kind, status: 'queued' })) };
+      write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save(); return run;
+    } catch (error) { if (pictures.length) fs.rmSync(path.join(root, 'runs', runId), { recursive: true, force: true }); throw error; }
   }
   // ---------- Asset kits (n8n Golden Thread v2: every channel asset from one report) ----------
   // The report a kit is made from. A trend's toolkit and comprehensive report are written as a pair, so the kit reads
@@ -312,28 +357,64 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const title = kit().cleanTitle(input.title) || kit().titleFromText(text) || 'Pasted report';
     return { source: { id: 'brief', kind, title, text, ...(url ? { url } : {}) }, key: doc ? `gdoc:${doc[1]}` : `${kind === 'upload' ? 'file' : 'text'}:${createHash('sha256').update(text).digest('hex').slice(0, 16)}`, kind: doc ? 'google-doc' : kind === 'upload' ? 'file' : 'text', ...(url ? { url } : {}) };
   }
+  // The AI tasks a kit deliverable runs: a written asset its channel's task (or Every channel asset), a picture set its art
+  // direction and pictures, the short video its plan, clip and (for models that start from a picture) a first frame.
+  const kitTextTask = deliverableId => (KIT_TEXT_TASKS.has(`assets.${deliverableId}`) ? `assets.${deliverableId}` : 'assets.default');
+  function kitTaskIds(deliverables) {
+    const ids = [];
+    for (const deliverable of deliverables) {
+      if (deliverable.kind === 'image') ids.push('pictures.kit-brief', 'pictures.kit-image');
+      else if (deliverable.kind === 'video') { ids.push('video.brief', 'video.social-clip'); if (routing.resolve('video.social-clip').video?.input === 'image') ids.push('video.keyframe'); }
+      else ids.push(kitTextTask(deliverable.id));
+    }
+    return [...new Set(ids)];
+  }
+  // Each deliverable's routed tasks for the estimate (asset-kit estimateKit tasks).
+  function kitEstimateTasks(deliverables, resolve = taskId => routing.resolve(taskId), references = {}) {
+    return Object.fromEntries(deliverables.map(deliverable => {
+      if (deliverable.kind === 'image') return [deliverable.id, { brief: resolve('pictures.kit-brief'), image: resolve('pictures.kit-image') }];
+      if (deliverable.kind === 'video') { const clip = resolve('video.social-clip'); return [deliverable.id, { brief: resolve('video.brief'), clip, ...(clip.video?.input === 'image' ? { keyframe: resolve('video.keyframe'), keyframeReferences: references['brand-image'] || 0 } : {}) }]; }
+      return [deliverable.id, { text: resolve(kitTextTask(deliverable.id)) }];
+    }));
+  }
   function kitPlan(payload = {}) {
     const w = workspace(payload.workspaceId); const picked = kitSource(payload.source);
-    const imagesReady = picturesReady();
+    const imagesReady = picturesReady(); const videoReady = videosReady();
     const offered = kit().kitDeliverableIds(w.editionId); const kindOf = id => content.CONTENT_DELIVERABLES.find(d => d.id === id).kind;
-    let deliverableIds = offered.filter(id => imagesReady || kindOf(id) !== 'image');
+    // A short video is never in the default set: it takes minutes and costs dollars, so someone ticks it on purpose.
+    let deliverableIds = offered.filter(id => kindOf(id) !== 'video' && (imagesReady || kindOf(id) !== 'image'));
     if (payload.deliverableIds != null) {
       if (!Array.isArray(payload.deliverableIds) || payload.deliverableIds.some(id => !offered.includes(id))) throw new Error('Choose assets from this kit.');
       deliverableIds = offered.filter(id => payload.deliverableIds.includes(id));
     }
     if (!deliverableIds.length) throw new Error('Choose at least one asset to make.');
     if (!imagesReady && deliverableIds.some(id => kindOf(id) === 'image')) throw new Error('Turn on pictures in Settings first, or leave the pictures out.');
+    if (!videoReady && deliverableIds.some(id => kindOf(id) === 'video')) throw new Error('Connect fal.ai in Settings, AI connections to make videos, or leave the video out.');
     // One snapshot of every offered asset's prompts prices the plan and becomes the run's copy (only the chosen ones), so
     // the estimate someone approves is built from the same text the run writes with.
     const promptsAll = promptSnapshot(w, assetPromptIds(offered, { kit: true }));
     const input = { editionId: w.editionId, source: picked.source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds, imageVariants: 3, prompts: pickPrompts(promptsAll, assetPromptIds(deliverableIds, { kit: true })) };
     const plan = content.buildContentPlan(input);
-    const ai = kit().kitAi(state.programs.filter(program => program.workspaceId === w.id));
+    const ai = kitAiNow(w);
     const references = kitReferenceCounts(w);
-    return { w, picked, input, plan, ai, imagesReady, offered, references, promptsAll, estimate: kit().estimateKit({ plan, ai, references }) };
+    return { w, picked, input, plan, ai, imagesReady, videoReady, offered, references, promptsAll, estimate: kit().estimateKit({ plan, ai, references, tasks: kitEstimateTasks(plan.deliverables, undefined, references) }) };
+  }
+  // Every channel asset's model and effort (Model routing's assets.default), and how many a kit writes at once (the newest
+  // program's batches at once, as before).
+  function kitAiNow(w) {
+    const legacy = kit().kitAi(state.programs.filter(program => program.workspaceId === w.id));
+    const task = routing.resolve('assets.default');
+    return { ...legacy, model: task.model || legacy.model, effort: task.route === 'codex' ? legacy.effort : task.effort, route: task.route, metered: task.metered };
   }
   // Pictures need an image provider on this host and a key in Settings (publicState's capabilities, without building it).
   function picturesReady() { const extra = capabilities(); return Boolean(generateImage) && Boolean(extra.imagesConfigured ?? true); }
+  // Videos need the host's video maker and a ready connection for the video task (fal.ai).
+  function videosReady() { const extra = capabilities(); return typeof generateVideo === 'function' && Boolean(extra.videosConfigured ?? false); }
+  // The active workspace's research programs as Model routing reads them (their own stage choices; the newest one's report
+  // model seeds a studio whose routing was never saved).
+  function routingPrograms() {
+    return (state?.programs || []).filter(program => program.workspaceId === state.activeWorkspaceId).map(program => ({ id: program.id, name: program.name, updatedAt: program.updatedAt || '', createdAt: program.createdAt || '', ai: program.ai }));
+  }
   // ---------- Brand reference images (Settings → Brand reference images) ----------
   // Up to six per picture set and workspace, kept as files beside the studio state.
   const sha256 = data => createHash('sha256').update(data).digest('hex');
@@ -355,7 +436,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // the run folder, so a retry sends the same pictures and its saved variants still match, whatever changes in Settings
   // later. Copy-on-write clones take no extra space where the disk supports them (APFS). Never hard links: the run
   // folder is the Codex CLI's writable workspace, and a write there must not reach Settings or other runs.
-  function snapshotKitReferences(run, w, deliverables) {
+  function snapshotKitReferences(run, w, deliverables) { return snapshotRunReferences(run, w, deliverables).summary; }
+  // Any run's copy of its pictures' reference images: { summary: { [id]: { style, logo } }, roles: { [id]: [{ role }] } }.
+  function snapshotRunReferences(run, w, deliverables) {
     const sets = {};
     for (const deliverable of deliverables.filter(d => d.kind === 'image')) {
       const family = brandImages().familyForDeliverable(deliverable.id);
@@ -371,12 +454,26 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       });
     }
     write(file(run.id, 'brand-references.json'), { takenAt: stamp(), sets });
-    return Object.fromEntries(Object.entries(sets).map(([deliverableId, images]) => [deliverableId, brandImages().referenceSummary(images)]));
+    return { summary: Object.fromEntries(Object.entries(sets).map(([deliverableId, images]) => [deliverableId, brandImages().referenceSummary(images)])), roles: Object.fromEntries(Object.entries(sets).map(([deliverableId, images]) => [deliverableId, images.map(image => ({ role: image.role }))])) };
+  }
+  // The brand reference set a picture family sends now, read from Settings (with each picture's bytes when data is true).
+  // A missing or changed file stops before anything is spent. 'none' or a family this edition doesn't have sends none.
+  function currentReferenceSet(w, familyId, { data = true } = {}) {
+    const family = brandImages().brandImageFamilies(w?.editionId || 'general').find(entry => entry.id === familyId);
+    if (!family) return { family: 'none', label: '', images: [] };
+    const images = brandImages().orderedReferences((w.brandImages || []).filter(image => image.family === family.id)).map(image => {
+      const entry = { id: image.id, name: image.name, role: image.role, mime: image.mime, extension: image.extension, sha256: image.sha256 };
+      if (!data) return entry;
+      let bytes; try { bytes = fs.readFileSync(brandImageFile(w.id, image)); } catch (_) { throw new Error(`The reference image “${image.name}” is missing from the studio’s data folder. Remove it in Settings → Brand reference images and add it again.`); }
+      if (sha256(bytes) !== image.sha256) throw new Error(`The reference image “${image.name}” changed on disk. Remove it in Settings → Brand reference images and add it again.`);
+      return { ...entry, data: bytes };
+    });
+    return { family: family.id, label: family.label, images };
   }
   // The reference images a kit picture set started with; none for runs made before Settings kept them.
   function kitReferences(run, deliverableId) {
     const snapshot = file(run.id, 'brand-references.json'); if (!fs.existsSync(snapshot)) return [];
-    const damaged = () => new Error('A reference image saved with this run is missing or damaged, so its pictures were not drawn. Make a new set of channel assets to use the reference images in Settings.');
+    const damaged = () => new Error(`A reference image saved with this run is missing or damaged, so its pictures were not drawn. ${run.kit ? 'Make a new set of channel assets' : 'Start a new run'} to use the reference images in Settings.`);
     return (read(snapshot).sets?.[deliverableId] || []).map(ref => {
       if (!/^reference-[a-zA-Z0-9_-]+-\d+\.(?:png|jpg|webp)$/.test(String(ref?.file)) || !brandImages().BRAND_IMAGE_ROLES.includes(ref.role)) throw damaged();
       let data; try { data = fs.readFileSync(file(run.id, ref.file)); } catch (_) { throw damaged(); }
@@ -503,7 +600,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     job.imageCalls.push(call); imageAccounting(run, job); save();
     let failure;
     try {
-      const images = await generateImage({ deliverable, runId: run.id, input, maxBudgetUsd: allowance, isCancelled: () => stopped.has(run.id), completedVariants: completed,
+      const images = await generateImage({ task: runTask(run, run.kit ? 'pictures.kit-image' : 'pictures.content-image'), deliverable, runId: run.id, input, maxBudgetUsd: allowance, isCancelled: () => stopped.has(run.id), completedVariants: completed,
         onRequest: async receipt => {
           check(run);
           if (completedIndices.has(receipt?.variantIndex)) throw new Error('This image variant is already saved and must not be generated again.');
@@ -539,19 +636,25 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   async function performContent(run) {
     const input = read(file(run.id, 'input.json'));
     if (input.research) return performResearchReports(run, input);
+    if (input.scanReport) return performScanReport(run, input);
     const plan = content.buildContentPlan(input);
     const perform = async job => {
       check(run); job.status = 'running'; delete job.error; save();
       const deliverable = plan.deliverables.find(d => d.id === job.id);
       try {
         if (deliverable.kind === 'image') {
-          await performImages(run, job, run.kit ? await kitPicture(run, job, deliverable, input) : deliverable, input);
+          // Every picture sends its set's brand reference images (an empty list when the set has none).
+          await performImages(run, job, run.kit ? await kitPicture(run, job, deliverable, input) : contentPicture(run, job, deliverable), input);
+        } else if (deliverable.kind === 'video') {
+          if (!run.kit) throw new Error('Short videos are made in a set of channel assets.');
+          await performVideo(run, job, deliverable, input);
         } else {
           const validate = raw => content.validateContentOutput(raw, { deliverable, source: input.source, productRegistry: input.productRegistry, editionId: input.editionId });
           // A kit asset gets one repair attempt when its draft fails the checks, as research stages do.
+          const task = runTask(run, run.kit ? kitTextTask(job.id) : 'create.drafts');
           const output = run.kit
-            ? await aiValidated(run, `output-${job.id}`, deliverable.schema, deliverable.prompt, validate, { model: run.ai.model, effort: run.ai.effort, estimateUsd: kit().kitCallEstimate(deliverable, run.ai), message: `Writing ${job.label}` })
-            : validate(await ai(run, `output-${job.id}`, deliverable.schema, deliverable.prompt, run.jobs.filter(j => j.status !== 'succeeded' && j.kind !== 'image').length));
+            ? await aiValidated(run, `output-${job.id}`, deliverable.schema, deliverable.prompt, validate, { model: task.model, effort: task.effort, task, estimateUsd: kit().kitCallEstimate(deliverable, run.ai, task), message: `Writing ${job.label}` })
+            : validate(await ai(run, `output-${job.id}`, deliverable.schema, deliverable.prompt, run.jobs.filter(j => j.status !== 'succeeded' && j.kind === 'text').length, { task }));
           job.assetId = saveTextAsset(run, deliverable, output).id;
         }
         job.status = 'succeeded';
@@ -562,7 +665,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     if (run.kit) {
       // n8n wrote every channel at once; a kit writes a few at a time, with the pictures in their own lane.
       const open = run.jobs.filter(job => job.status !== 'succeeded');
-      const lanes = await Promise.allSettled([pool(open.filter(job => job.kind !== 'image'), run.kit.concurrency || 3, perform), pool(open.filter(job => job.kind === 'image'), 2, perform)]);
+      // A short video takes minutes at fal.ai, so it has a lane of its own.
+      const lanes = await Promise.allSettled([pool(open.filter(job => job.kind === 'text'), run.kit.concurrency || 3, perform), pool(open.filter(job => job.kind === 'image'), 2, perform), pool(open.filter(job => job.kind === 'video'), 1, perform)]);
       const halted = lanes.find(lane => lane.status === 'rejected'); if (halted) throw halted.reason;
     } else for (const job of run.jobs) { if (job.status !== 'succeeded') await perform(job); }
     run.status = run.jobs.every(j => j.status === 'succeeded') ? 'succeeded' : run.jobs.some(j => j.status === 'succeeded' || j.assetIds?.length) ? 'partial' : 'failed';
@@ -576,20 +680,140 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     let brief = fs.existsSync(briefPath) ? read(briefPath) : null;
     if (!brief) {
       const request = kit().imageBriefRequest(deliverable, input, { references });
-      brief = await aiValidated(run, `brief-${job.id}`, kit().IMAGE_BRIEF_SCHEMA, request.prompt, raw => kit().validateImageBrief(raw, request), { model: run.ai.model, effort: kit().BRIEF_EFFORT, estimateUsd: kit().kitBriefEstimate(deliverable, run.ai), message: `Planning ${job.label}` });
+      const task = runTask(run, 'pictures.kit-brief');
+      brief = await aiValidated(run, `brief-${job.id}`, kit().IMAGE_BRIEF_SCHEMA, request.prompt, raw => kit().validateImageBrief(raw, request), { model: task.model, effort: task.effort, task, estimateUsd: kit().kitBriefEstimate(deliverable, run.ai, task), message: `Planning ${job.label}` });
       write(briefPath, brief); save();
     }
     const picture = kit().kitImageDeliverable(deliverable, brief, { editionId: input.editionId, label: job.label, references, prompts: input.prompts });
-    // The pictures themselves, in the order the prompt numbers them.
-    return references.length ? { ...picture, references: references.map(ref => ({ role: ref.role, mime: ref.mime, data: ref.data })) } : picture;
+    // The pictures themselves, in the order the prompt numbers them (an empty list when the set has none).
+    return { ...picture, references: references.map(ref => ({ role: ref.role, mime: ref.mime, data: ref.data })) };
+  }
+  // A Create content picture with the reference images its run started with (none for runs made before they were kept).
+  function contentPicture(run, job, deliverable) {
+    return { ...deliverable, references: kitReferences(run, job.id).map(ref => ({ role: ref.role, mime: ref.mime, data: ref.data })) };
+  }
+  // ---------- Short social video (a kit's social-video deliverable, made with fal.ai) ----------
+  // The plan is written once from the report (saved, so a retry reuses it and never pays twice); when the routed video
+  // model starts from a picture, a first frame is drawn with the campaign set's reference images; then the clip is made.
+  const VIDEO_SIZE = { '9:16': '1024x1536', '16:9': '1536x1024', '1:1': '1024x1024' };
+  async function kitVideo(run, job, deliverable, input) {
+    const briefPath = file(run.id, `${safeId(job.id)}.video-brief.json`);
+    const clipTask = runTask(run, 'video.social-clip');
+    let brief = fs.existsSync(briefPath) ? read(briefPath) : null;
+    if (!brief) {
+      const task = runTask(run, 'video.brief');
+      const request = kit().videoBriefRequest(deliverable, input, { durationSeconds: clipTask.video?.durationSeconds, aspectRatio: clipTask.video?.aspectRatio });
+      brief = await aiValidated(run, `video-brief-${job.id}`, kit().VIDEO_BRIEF_SCHEMA, request.prompt, raw => kit().validateVideoBrief(raw, request), { model: task.model, effort: task.effort, task, estimateUsd: research.callCost(task.model || run.ai.model, task.effort || kit().BRIEF_EFFORT, research.estimateTokens(request.prompt.length), kit().VIDEO_BRIEF_OUTPUT_TOKENS, priceOptions(task)), message: `Planning ${job.label}` });
+      write(briefPath, brief); save();
+    }
+    const plan = kit().kitVideoDeliverable(deliverable, brief, { editionId: input.editionId, prompts: input.prompts, durationSeconds: clipTask.video?.durationSeconds, aspectRatio: clipTask.video?.aspectRatio, sound: clipTask.video?.sound });
+    const keyframe = clipTask.video?.input === 'image' ? await kitKeyframe(run, job, plan) : null;
+    return { plan, brief, keyframe, clipTask };
+  }
+  // The first frame, as a picture of the campaign set (its reference images go with it), saved as <job>.keyframe.png.
+  async function kitKeyframe(run, job, plan) {
+    const target = file(run.id, `${safeId(job.id)}.keyframe.png`);
+    if (fs.existsSync(target)) { const bytes = fs.readFileSync(target); if (validPng(bytes)) return bytes; }
+    job.keyframeCalls ||= [];
+    if (job.keyframeCalls.some(call => call.attempts.some(attempt => ['dispatched', 'unknown'].includes(attempt.status)))) throw new Error('An earlier first-frame request may have been billed but has no saved picture. Automatic repeat is blocked; check the provider receipts before starting a new set.');
+    const references = kitReferences(run, 'brand-image').map(ref => ({ role: ref.role, mime: ref.mime, data: ref.data }));
+    const allowance = Math.min(1, Math.max(.25, Math.floor((run.maxBudgetUsd - run.reservedUsd) * 100) / 100));
+    if (run.maxBudgetUsd - run.reservedUsd < .05) throw new Error('Not enough of the budget is left for the video’s first frame. Raise the budget and retry.');
+    const call = { id: id('keyframe-call'), status: 'running', allowanceUsd: allowance, attempts: [] }; job.keyframeCalls.push(call);
+    run.reservedUsd += allowance; save();
+    let spent = null;
+    try {
+      const [image] = await generateImage({ task: runTask(run, 'video.keyframe'), deliverable: { id: `${job.id}-keyframe`, kind: 'image', label: `${job.label} · first frame`, variants: 1, size: VIDEO_SIZE[plan.aspectRatio] || '1024x1536', variantPrompts: [plan.keyframePrompt], references }, runId: run.id, maxBudgetUsd: allowance, isCancelled: () => stopped.has(run.id),
+        onRequest: async receipt => { check(run); call.attempts.push({ ...copy(receipt), status: 'dispatched' }); save(); } });
+      if (!image?.png || !validPng(image.png)) throw new Error('The first frame came back damaged.');
+      writeBytes(target, image.png);
+      spent = Number.isFinite(image.receipt?.costUsd) ? image.receipt.costUsd : null;
+      Object.assign(call.attempts.at(-1) || {}, copy(image.receipt || {}), { status: 'succeeded' }); call.status = 'succeeded';
+      return image.png;
+    } catch (error) {
+      for (const receipt of error.attemptReceipts || []) { const attempt = call.attempts.find(row => row.attemptId === receipt.attemptId); if (attempt) Object.assign(attempt, copy(receipt)); }
+      call.status = 'failed';
+      const attempt = call.attempts.at(-1);
+      if (attempt && Number.isFinite(attempt.costUsd)) spent = attempt.costUsd; else if (!attempt || error.beforeDispatch) spent = 0;
+      throw error;
+    } finally {
+      if (spent != null) { run.reservedUsd += spent - allowance; run.costUsd += spent; }
+      run.receipts.push({ stage: `keyframe-${job.id}`, callId: call.id, allowanceUsd: allowance, status: call.status, attempts: copy(call.attempts), costUsd: spent }); save();
+    }
+  }
+  async function performVideo(run, job, deliverable, input) {
+    if (state.assets.some(asset => asset.runId === run.id && asset.deliverableId === job.id && asset.kind === 'video')) return;
+    if (typeof generateVideo !== 'function') throw new Error('Videos aren’t available on this studio.');
+    job.videoCalls ||= [];
+    // A request fal took (it has a request id) is checked again, never sent twice; one without an id may or may not have
+    // reached fal, so it blocks an automatic repeat.
+    const pending = job.videoCalls.flatMap(call => call.attempts.map(attempt => ({ call, attempt }))).find(({ attempt }) => ['dispatched', 'unknown'].includes(attempt.status));
+    if (pending && !pending.attempt.requestId) throw new Error('An earlier video request may have been billed but has no saved result. Automatic repeat is blocked; check fal.ai’s request history before starting a new set.');
+    const { plan, brief, keyframe, clipTask } = await kitVideo(run, job, deliverable, input);
+    const price = clipTask.price || {};
+    const seconds = plan.durationSeconds; const unit = String(price.unit || 'second').toLowerCase();
+    const estimate = Number.isFinite(price.unitUsd) ? Math.round(price.unitUsd * (/second/.test(unit) ? seconds : 1) * 100) / 100 : null;
+    if (estimate == null) throw new Error(`fal.ai didn’t return a price for ${clipTask.modelLabel || clipTask.model}, so the studio can’t estimate the video. Nothing was started.`);
+    let call = pending?.call; let resume = null;
+    if (pending) resume = { requestId: pending.attempt.requestId, statusUrl: pending.attempt.statusUrl, responseUrl: pending.attempt.responseUrl, receipt: pending.attempt };
+    else {
+      const left = Math.round((run.maxBudgetUsd - run.reservedUsd) * 100) / 100;
+      if (left < estimate) throw new Error(`This video needs about $${estimate.toFixed(2)} but $${left.toFixed(2)} of the budget is left. Raise the budget and retry; finished assets are kept.`);
+      call = { id: id('video-call'), status: 'running', allowanceUsd: estimate, attempts: [], startedAt: stamp() }; job.videoCalls.push(call);
+      run.reservedUsd += estimate; save();
+    }
+    const label = job.label; let lastSaved = 0;
+    const progress = ({ status, queuePosition, elapsedMs }) => {
+      const message = status === 'IN_QUEUE' && Number.isInteger(queuePosition) ? `Making the video · ${queuePosition} ahead in line` : `Making the video · ${Math.floor(elapsedMs / 60000)}:${String(Math.floor(elapsedMs / 1000) % 60).padStart(2, '0')}`;
+      if (Date.now() - lastSaved > 4000) { lastSaved = Date.now(); run.message = `${message} · ${label}`; save(); }
+    };
+    let result; let failure = null;
+    try {
+      result = await generateVideo({ task: clipTask, prompt: plan.prompt, imageDataUri: keyframe ? `data:image/png;base64,${Buffer.from(keyframe).toString('base64')}` : '', runId: run.id, maxBudgetUsd: estimate, resume, isCancelled: () => stopped.has(run.id),
+        onRequest: async receipt => { check(run); call.attempts.push({ ...copy(receipt), status: 'dispatched' }); save(); },
+        onSubmitted: async receipt => { const attempt = call.attempts.find(row => row.attemptId === receipt.attemptId); if (attempt) Object.assign(attempt, { requestId: receipt.requestId, statusUrl: receipt.statusUrl, responseUrl: receipt.responseUrl, cancelUrl: receipt.cancelUrl }); save(); },
+        onProgress: progress });
+    } catch (error) { failure = error; }
+    const receipt = result?.receipt || failure?.receipt || null;
+    const attempt = receipt ? call.attempts.find(row => row.attemptId === receipt.attemptId) : call.attempts.at(-1);
+    if (attempt && receipt) Object.assign(attempt, copy(receipt));
+    if (attempt && failure && !receipt) attempt.status = failure.beforeDispatch ? 'failed' : 'unknown';
+    const cost = Number.isFinite(attempt?.costUsd) ? attempt.costUsd : attempt?.status === 'failed' ? 0 : null;
+    if (cost != null && !['dispatched', 'unknown'].includes(attempt?.status)) { run.reservedUsd = Math.max(0, run.reservedUsd + cost - call.allowanceUsd); run.costUsd += cost; call.allowanceUsd = cost; }
+    call.status = result ? 'succeeded' : stopped.has(run.id) ? 'cancelled' : 'failed';
+    const existing = run.receipts.findIndex(row => row.callId === call.id);
+    const row = { stage: `video-${job.id}`, callId: call.id, allowanceUsd: call.allowanceUsd, status: call.status, attempts: copy(call.attempts), costUsd: cost };
+    if (existing < 0) run.receipts.push(row); else run.receipts[existing] = row;
+    save();
+    if (failure) throw failure;
+    persistVideo(run, job, deliverable, plan, brief, result, keyframe);
+  }
+  function persistVideo(run, job, deliverable, plan, brief, result, keyframe) {
+    const assetId = `video-${createHash('sha256').update(`${run.id}:${job.id}:0`).digest('hex').slice(0, 32)}`;
+    writeBytes(file(run.id, `${assetId}.mp4`), result.mp4);
+    if (keyframe) writeBytes(file(run.id, `${assetId}.poster.png`), keyframe);
+    const srt = kit().captionsSrt(brief.onScreenText, plan.durationSeconds); if (srt) fs.writeFileSync(file(run.id, `${assetId}.srt`), srt);
+    const asset = { id: assetId, workspaceId: run.workspaceId, runId: run.id, deliverableId: deliverable.id, variantIndex: 0, kind: 'video', format: 'mp4', channel: deliverable.channel, title: brief.title || job.label, durationSeconds: plan.durationSeconds, aspectRatio: plan.aspectRatio, resolution: runTask(run, 'video.social-clip').video?.resolution || '', sound: Boolean(plan.sound), ...(Number.isFinite(result.width) ? { width: result.width } : {}), ...(Number.isFinite(result.height) ? { height: result.height } : {}), hasPoster: Boolean(keyframe), captions: [...brief.onScreenText], bytes: result.mp4.length, createdAt: stamp(), receipt: copy(result.receipt || {}), reviewStatus: 'draft' };
+    state.assets = state.assets.filter(row => row.id !== assetId); state.assets.unshift(asset);
+    job.assetId = asset.id; job.assetIds = [asset.id]; save();
+    return asset;
   }
   // ---------- Research pipeline (n8n Golden Thread phases 2–5) ----------
   const STAGE_OUTPUT_TOKENS = { discovery: 3500, synthesis: 6000, matching: 2500, report: 8000, toolkit: 5000 };
+  // A research stage's AI: the task its run snapshotted when it started (run.ai.routing), else, for runs made before Model
+  // routing, the run's own models. Quick scans use their own tasks for discovery and synthesis.
+  const stageTaskId = (run, stage) => (run.origin === 'quick-scan' && (stage === 'discovery' || stage === 'synthesis') ? `quickScans.${stage}` : run.origin === 'quick-scan' && stage === 'reports' ? 'quickScans.report' : stage === 'reports' ? 'reports.trends-report' : `research.${stage}`);
   function stageAi(run, stage) {
     const ai = run.ai || read(file(run.id, 'input.json')).program?.ai || research.DEFAULT_RESEARCH_AI;
-    return { model: ai.models?.[stage] || research.DEFAULT_RESEARCH_AI.models[stage], effort: ai.effort?.[stage] || research.DEFAULT_RESEARCH_AI.effort[stage], concurrency: ai.concurrency || research.DEFAULT_RESEARCH_AI.concurrency };
+    const task = runTask(run.ai ? run : { ...run, ai }, stageTaskId(run, stage));
+    return { model: task.model, effort: task.effort, concurrency: ai.concurrency || research.DEFAULT_RESEARCH_AI.concurrency, task };
   }
-  const estimateCall = ({ model, effort }, prompt, outputTokens) => research.callCost(model, effort, research.estimateTokens(prompt.length), outputTokens);
+  // The resolved AI task a run uses for taskId: its snapshot, the run's own models for an older run, else what Model
+  // routing says now (a content run started before routing kept no AI choice and followed the studio default).
+  function runTask(run, taskId) { return routing.resolve(taskId, run?.ai ? { run } : {}); }
+  // Planning cost of one call with a resolved task's price (an OpenRouter model's live price, say).
+  const priceOptions = (task) => (task?.price?.basis === 'tokens' && task.price.known ? { price: task.price, reasoning: task.price.reasoning !== false } : {});
+  const estimateCall = ({ model, effort, task }, prompt, outputTokens) => research.callCost(model, effort, research.estimateTokens(prompt.length), outputTokens, priceOptions(task));
   function editionFor(run) {
     const w = state.workspaces.find(row => row.id === run.workspaceId) || {};
     return { editionId: w.editionId || 'general', brandName: w.knowledge?.name || w.name || '', workspace: w };
@@ -608,7 +832,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const input = read(file(run.id, 'input.json')); const program = runProgram(input);
     // A quick scan stops after synthesis: status 'succeeded', stage 'scan-complete', themes only in discoveredThemes.
     const quick = run.origin === 'quick-scan';
-    const scanDone = (message, themes = []) => { run.themes = []; run.discoveredThemes = copy(themes); run.decisions = {}; run.stage = 'scan-complete'; run.status = 'succeeded'; run.message = message; save(); };
+    // A scan started from Ask AI says so in that conversation (scan-empty: nothing to read or found; scan-finished: trends
+    // found with the report turned off). A scan that writes its report posts once the report is done (settleScan).
+    const scanDone = (message, themes = []) => { run.themes = []; run.discoveredThemes = copy(themes); run.decisions = {}; run.stage = 'scan-complete'; run.status = 'succeeded'; run.message = message; save(); runEvent(run, themes.length ? 'scan-finished' : 'scan-empty'); };
     const scanWindow = run.quickScan?.lookbackHours ? `the last ${run.quickScan.lookbackHours === 1 ? 'hour' : `${run.quickScan.lookbackHours} hours`}` : 'this window';
     let evidence;
     if (fs.existsSync(file(run.id, 'evidence.json'))) evidence = read(file(run.id, 'evidence.json'));
@@ -649,7 +875,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const merged = research.mergeCandidates(candidates);
     run.candidateCount = { raw: candidates.length, merged: merged.length };
     if (!merged.length && quick) return scanDone(`The scan read ${evidence.items.length} posts from ${scanWindow} but found no specific, evidence-backed trends.`);
-    if (!merged.length) { run.themes = []; run.discoveredThemes = []; run.stage = 'theme-review'; run.status = 'succeeded'; run.message = 'Discovery found no specific, evidence-backed trends in this window.'; save(); return; }
+    if (!merged.length) { run.themes = []; run.discoveredThemes = []; run.stage = 'theme-review'; run.status = 'succeeded'; run.message = 'Discovery found no specific, evidence-backed trends in this window.'; save(); runEvent(run, 'no-trends'); return; }
     const w = edition.workspace; const taxonomy = w.taxonomy || null;
     const synthesisCache = file(run.id, 'theme-synthesis.validated.json'); let synthesized;
     if (fs.existsSync(synthesisCache)) synthesized = read(synthesisCache);
@@ -686,7 +912,15 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // n8n "Calculate Trend Velocity": count, velocity tier, taxonomy cross-reference, priority tier.
     themes = themes.map(theme => ({ ...theme, scoring: intel.scoreTheme({ theme, detectionCount: detectionCount(run.workspaceId, theme.id, run.id), taxonomy }) }));
     recordDetections(run, themes);
-    if (quick) return scanDone(themes.length ? `Found ${themes.length} ${themes.length === 1 ? 'trend' : 'trends'} in ${evidence.items.length} posts from ${scanWindow}.` : `The scan read ${evidence.items.length} posts from ${scanWindow} but found no specific, evidence-backed trends.`, themes);
+    if (quick) {
+      const found = themes.length ? `Found ${themes.length} ${themes.length === 1 ? 'trend' : 'trends'} in ${evidence.items.length} posts from ${scanWindow}.` : `The scan read ${evidence.items.length} posts from ${scanWindow} but found no specific, evidence-backed trends.`;
+      // Scans priced with the trends report write it now (a child report run, so its spend, receipts and retries are its
+      // own); older scans and scans with the report turned off stop here, as before.
+      if (!themes.length || run.quickScan?.report !== true) return scanDone(found, themes);
+      run.themes = []; run.discoveredThemes = copy(themes); run.decisions = {}; run.message = `${found} Writing a short trends report…`; save();
+      await writeScanReport(run, { evidence, themes, input });
+      return settleScan(run, found);
+    }
     run.themes = themes; run.discoveredThemes = copy(themes); run.decisions = {}; run.stage = 'theme-review';
     if (program.autoApproveThemes) {
       run.decisions = Object.fromEntries(themes.map(theme => [theme.id, 'approved'])); run.approvedAt = stamp(); run.autoApproved = true;
@@ -694,6 +928,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       return performClassification(run);
     }
     run.status = 'awaiting-review'; run.message = 'Review and approve themes before classifying evidence and generating reports.'; save();
+    runEvent(run, 'trends-ready'); // a run started from Ask AI posts its trends there for Yes or Skip
   }
   // Every detection names its origin. A quick scan's are pulse observations for trend history: they never join the tracked
   // repository (matching, velocity, the Trend board) unless someone promotes a theme.
@@ -758,7 +993,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const estimate = reportEstimate(reportSettings, selection);
       const allocation = Math.floor(Math.min(run.maxBudgetUsd - run.reservedUsd, Math.max(estimate * 2.5, (run.maxBudgetUsd - run.reservedUsd) / remainingThemes)) * 100) / 100;
       if (allocation < Math.min(estimate, 1)) throw new Error(`Not enough AI budget remains for the paired reports (about $${estimate.toFixed(2)} each). Increase the run budget before retrying.`);
-      const reportRun = newContentRun({ source, maxBudgetUsd: allocation, researchRunId: run.id, themeId: theme.id, ai: { model: reportSettings.model, effort: reportSettings.effort } }, w, run.createdBy || null);
+      const reportRun = newContentRun({ source, maxBudgetUsd: allocation, researchRunId: run.id, themeId: theme.id, ai: { model: reportSettings.model, effort: reportSettings.effort, version: 2, routing: { 'reports.trends-report': reportSettings.task, 'reports.editorial-toolkit': runTask(run, 'reports.editorial-toolkit') } } }, w, run.createdBy || null);
       run.reportRunIds.push({ themeId: theme.id, runId: reportRun.id }); run.reservedUsd += allocation; save(); await launchAndWait(reportRun, () => performContent(reportRun)); check(run);
       // Unused report budget returns to the research run.
       run.reservedUsd -= Math.max(0, allocation - reportRun.reservedUsd); save();
@@ -768,13 +1003,18 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       try { await publishRun(run); run.message = 'Reports are ready and published to Google Drive.'; }
       catch (error) { run.warnings = [...new Set([...(run.warnings || []), `Google Drive publishing needs attention: ${safeError(error)}`])]; }
     }
+    // A run started from Ask AI posts its finished reports there: each trend's trends report (else its first document).
+    const written = (run.reportRunIds || []).map(entry => ({ entry, child: state.contentRuns.find(r => r.id === entry.runId) })).filter(({ child }) => child?.status === 'succeeded');
+    if (written.length) runEvent(run, 'reports-ready', { reports: written.map(({ entry, child }) => { const own = state.assets.filter(asset => asset.runId === child.id && asset.kind === 'text'); const asset = own.find(row => row.deliverableId === 'evidence-report') || own[0]; return asset ? { assetId: asset.id, title: asset.title, themeId: entry.themeId, themeName: (run.themes || []).find(theme => theme.id === entry.themeId)?.name || child.title || '', createdAt: asset.createdAt } : null; }).filter(Boolean) });
   }
   function reportEstimate(settings, selection) {
     const characters = (selection.posts || []).reduce((sum, post) => sum + String(post.text || '').length + 260, 0) + 12000;
-    return research.callCost(settings.model, settings.effort, research.estimateTokens(characters), STAGE_OUTPUT_TOKENS.report) + research.callCost(settings.model, settings.effort, 38000, STAGE_OUTPUT_TOKENS.toolkit);
+    return research.callCost(settings.model, settings.effort, research.estimateTokens(characters), STAGE_OUTPUT_TOKENS.report, priceOptions(settings.task)) + research.callCost(settings.model, settings.effort, 38000, STAGE_OUTPUT_TOKENS.toolkit, priceOptions(settings.task));
   }
   async function performResearchReports(run, input) {
-    const settings = { model: run.ai?.model || research.DEFAULT_RESEARCH_AI.models.reports, effort: run.ai?.effort || research.DEFAULT_RESEARCH_AI.effort.reports };
+    // The report and toolkit tasks the research run handed this run (an older report run keeps its own model and effort).
+    const settingsFor = (taskId) => { const task = runTask(run, taskId); return { model: task.model, effort: task.effort, task }; };
+    const reportSettings = settingsFor('reports.trends-report'); const toolkitSettings = settingsFor('reports.editorial-toolkit');
     const { research: payload } = input.source; const lib = reports();
     for (const job of run.jobs) {
       if (job.status === 'succeeded') continue; check(run); job.status = 'running'; delete job.error; save();
@@ -783,14 +1023,14 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         let output;
         if (job.id === 'evidence-report') {
           const request = lib.buildTrendReportRequest({ theme: payload.theme, selection: payload.selection, editionId: input.editionId, brandName: payload.brandName, analysisFocus: payload.analysisFocus, targetAudience: payload.targetAudience, blocks: snapshotBlocks(input.prompts, 'reports.trends-report') });
-          output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, raw => lib.validateTrendReport(raw, request.context), { ...settings, estimateUsd: estimateCall(settings, request.prompt, STAGE_OUTPUT_TOKENS.report), message: `Writing the trends report · ${payload.theme.name}`, timeoutMs: 2400000 });
+          output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, raw => lib.validateTrendReport(raw, request.context), { ...reportSettings, estimateUsd: estimateCall(reportSettings, request.prompt, STAGE_OUTPUT_TOKENS.report), message: `Writing the trends report · ${payload.theme.name}`, timeoutMs: 2400000 });
         } else {
           const reportJob = run.jobs.find(entry => entry.id === 'evidence-report');
           if (reportJob?.status !== 'succeeded' || !reportJob.assetId) throw new Error('The editorial toolkit is built from the trends report. Generate the report first.');
           const trendReport = read(file(run.id, `${reportJob.assetId}.json`));
           const registryDoc = (input.referenceDocs || []).find(doc => doc.kind === 'registry');
           const request = lib.buildToolkitRequest({ theme: payload.theme, trendReport, trendReportMarkdown: content.renderContentExport(trendReport), metrics: payload.selection.metrics, registryText: registryDoc?.text || '', products: input.productRegistry || [], referenceDocs: (input.referenceDocs || []).filter(doc => doc.kind !== 'registry'), enterpriseProducts: input.enterpriseProducts || [], editionId: input.editionId, brandName: payload.brandName, blocks: snapshotBlocks(input.prompts, 'reports.editorial-toolkit') });
-          output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, raw => lib.validateToolkit(raw, request.context).output, { ...settings, estimateUsd: estimateCall(settings, request.prompt, STAGE_OUTPUT_TOKENS.toolkit), message: `Writing the editorial toolkit · ${payload.theme.name}`, timeoutMs: 2400000 });
+          output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, raw => lib.validateToolkit(raw, request.context).output, { ...toolkitSettings, estimateUsd: estimateCall(toolkitSettings, request.prompt, STAGE_OUTPUT_TOKENS.toolkit), message: `Writing the editorial toolkit · ${payload.theme.name}`, timeoutMs: 2400000 });
         }
         job.assetId = saveTextAsset(run, deliverable, output).id; job.status = 'succeeded';
       } catch (error) { job.status = stopped.has(run.id) ? 'cancelled' : 'failed'; job.error = safeError(error); }
@@ -798,6 +1038,167 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     }
     run.status = run.jobs.every(j => j.status === 'succeeded') ? 'succeeded' : run.jobs.some(j => j.status === 'succeeded') ? 'partial' : 'failed';
     run.message = run.status === 'succeeded' ? 'Trends report and editorial toolkit ready to review.' : 'Some outputs need attention. Completed reports are saved.';
+  }
+  // ---------- Quick scan trends report and Ask AI follow-ups (SPEC-3) ----------
+  const scanReports = () => require('../shared/research-scan-report');
+  const ASK_CONVERSATION = /^ask-[0-9a-f-]{36}$/; const ASK_MESSAGE = /^msg-[0-9a-f-]{36}$/;
+  const cents = value => Math.round((Number(value) || 0) * 100) / 100;
+  const centsDown = value => Math.floor((Number(value) || 0) * 100) / 100;
+  const centsUp = value => Math.ceil((Number(value) || 0) * 100) / 100;
+  const dollars = value => `$${cents(value).toFixed(2)}`;
+  // The Ask AI conversation a start came from ({ conversationId, messageId?, actionIndex? }), checked; a bad link is
+  // dropped, so a paid start never fails because of it. Follow-ups go to whoever started the run (`by`), never to a person
+  // the payload names, so a made-up conversation id can only reach the caller's own conversations.
+  function askLink(value, by) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !by?.id || by.id === SYSTEM.id) return null;
+    const conversationId = typeof value.conversationId === 'string' && ASK_CONVERSATION.test(value.conversationId) ? value.conversationId : '';
+    if (!conversationId) return null;
+    const messageId = typeof value.messageId === 'string' && ASK_MESSAGE.test(value.messageId) ? value.messageId : '';
+    const actionIndex = Number.isInteger(value.actionIndex) && value.actionIndex >= 0 && value.actionIndex < 50 ? value.actionIndex : -1;
+    return { identityId: by.id, conversationId, messageId, actionIndex, posted: {} };
+  }
+  // Quick scans keep the link with their scan settings (quickScan.ask); full research runs on the run itself (ask).
+  function askOf(run) { const ask = run?.quickScan?.ask || run?.ask; return ask && typeof ask === 'object' && ask.conversationId ? ask : null; }
+  // One follow-up per event (key: the event, plus the attempt when it can happen again), posted through the host. A host
+  // failure is logged and never fails the run; a run with no conversation, or a host without onRunEvent, posts nothing.
+  function runEvent(run, type, extra = {}) {
+    const ask = askOf(run); if (!ask || typeof onRunEvent !== 'function') return null;
+    const key = extra.attempt ? `${type}:${extra.attempt}` : type;
+    if (!ask.posted || typeof ask.posted !== 'object') ask.posted = {};
+    if (ask.posted[key]) return null;
+    const record = result => {
+      if (!result?.messageId) return null;
+      ask.posted[key] = { messageId: String(result.messageId).slice(0, 80), at: stamp() };
+      run.followUpAt = ask.posted[key].at; save(); return result;
+    };
+    const skip = error => { console.error(`The Ask AI follow-up for ${run.id} (${key}) wasn’t posted: ${safeError(error)}`); return null; };
+    try {
+      const programName = state.programs.find(program => program.id === run.programId && program.workspaceId === run.workspaceId)?.name || '';
+      const result = onRunEvent({ type, key, identityId: ask.identityId, conversationId: ask.conversationId, messageId: ask.messageId || '', actionIndex: Number.isInteger(ask.actionIndex) ? ask.actionIndex : -1, workspaceId: run.workspaceId, programName, run: publicRun(run), ...extra });
+      return result && typeof result.then === 'function' ? result.then(record, skip) : record(result);
+    } catch (error) { return skip(error); }
+  }
+  // The report's model and effort, as the scan priced them (quickScanPlan puts the routed ones in the run's reports stage).
+  const scanReportAi = run => { const settings = stageAi(run, 'reports'); return { model: settings.model, effort: settings.effort, task: settings.task }; };
+  // A quick scan's trends report: a child report run (run.scanReport.runId) the scan's AI cap pays for. The scan calls this
+  // when it finds trends, and a retry of the scan calls it again, which relaunches only a report that didn't finish. One
+  // try and one repair fit the allowance; when the cap can't cover even one try, nothing is called and the report waits
+  // for Retry report, whose confirmation names what it may spend.
+  async function writeScanReport(run, { evidence, themes, input }) {
+    const lib = scanReports(); const settings = scanReportAi(run);
+    const unmetered = settings.task ? settings.task.metered === false : capabilities().aiProvider === 'codex';
+    let child = run.scanReport?.runId ? state.contentRuns.find(row => row.id === run.scanReport.runId) || null : null;
+    if (child?.status === 'succeeded') return finishScanReport(run, child);
+    if (child && active.has(child.id)) { await active.get(child.id); check(run); return finishScanReport(run, child); }
+    const left = cents(run.maxBudgetUsd - run.reservedUsd);
+    let allocation = 0;
+    if (!child) {
+      const w = workspace(run.workspaceId, false); const edition = editionFor(run);
+      const scan = lib.scanSummary({ run, themes, postCount: evidence.items.length });
+      const selection = lib.selectScanEvidence({ themes: themes.slice(0, scan.themes.length), items: evidence.items });
+      const prompts = pickPrompts(input.prompts, [lib.PROMPT_ID, 'system.repair']);
+      const audience = w.editionId === 'semrush' ? '' : String(w.knowledge?.audience || '');
+      const request = lib.buildScanReportRequest({ scan, selection, editionId: edition.editionId, brandName: edition.brandName, audience, blocks: snapshotBlocks(prompts, lib.PROMPT_ID) });
+      const estimate = estimateCall(settings, request.prompt, lib.OUTPUT_TOKENS); const enough = Math.max(.6, estimate * 4);
+      const short = !unmetered && left < Math.max(.01, estimate);
+      const reason = short ? `Not enough of the ${dollars(run.maxBudgetUsd)} AI cap is left for the trends report (about ${dollars(Math.max(.01, estimate))}).` : '';
+      allocation = short ? 0 : unmetered ? Math.max(.01, centsDown(Math.min(Math.max(left, .01), enough))) : centsDown(Math.min(left, enough));
+      child = {
+        id: id('content'), workspaceId: run.workspaceId, type: 'content', title: lib.scanReportTitle(scan.topic, run.createdAt), researchRunId: run.id, scanReport: true,
+        ...(run.createdBy ? { createdBy: { id: run.createdBy.id, name: run.createdBy.name } } : {}), status: short ? 'failed' : 'queued', stage: 'content', createdAt: stamp(),
+        // Short of budget, the allowance is what one try needs; it is only spent after Retry report is confirmed.
+        maxBudgetUsd: short ? Math.min(1000, centsUp(enough)) : allocation, reservedUsd: 0, costUsd: 0, receipts: [], warnings: [], ...(short ? { message: reason } : {}),
+        ai: { model: settings.model, effort: settings.effort, ...(unmetered ? { route: 'codex' } : {}), ...(settings.task ? { version: 2, routing: { 'quickScans.report': settings.task } } : {}) }, prompts: promptRecord(prompts),
+        jobs: [{ id: lib.SCAN_REPORT_DELIVERABLE.id, label: 'Quick scan trends report', kind: 'text', status: short ? 'failed' : 'queued', ...(short ? { error: reason } : {}) }],
+      };
+      write(file(child.id, 'input.json'), { editionId: edition.editionId, scanReport: true, source: lib.scanSource(scan, selection), scan, selection, brandName: edition.brandName, audience, prompts });
+      state.contentRuns.unshift(child);
+      run.scanReport = { runId: child.id, status: child.status, assetId: '', title: '', estimateUsd: cents(Math.max(.01, estimate)), attempts: 0, error: reason, ...(short ? { reason: 'budget' } : {}) };
+      if (short) { save(); return run.scanReport; }
+    } else {
+      // The scan is being tried again: the report run gets back to one full try from what is left of the scan's cap.
+      const room = cents(child.maxBudgetUsd - child.reservedUsd); const enough = Math.max(.6, (Number(run.scanReport?.estimateUsd) || .1) * 4);
+      if (!unmetered && room < enough && left > 0) { allocation = centsDown(Math.min(left, enough - room)); child.maxBudgetUsd = cents(child.maxBudgetUsd + allocation); }
+      for (const job of child.jobs || []) if (job.status !== 'succeeded') { job.status = 'queued'; delete job.error; }
+    }
+    run.reservedUsd += allocation;
+    run.stage = 'scan-report'; run.message = `Writing the trends report · ${run.quickScan?.topic || run.title}`;
+    run.scanReport = { ...run.scanReport, status: 'running', attempts: (Number(run.scanReport.attempts) || 0) + 1, error: '' }; delete run.scanReport.reason; save();
+    const before = child.reservedUsd;
+    await launchAndWait(child, () => performContent(child));
+    // What the try didn't use goes back to the scan; a report that didn't finish keeps room for one more try (Retry report).
+    run.reservedUsd = Math.max(0, cents(run.reservedUsd - Math.max(0, allocation - (child.reservedUsd - before))));
+    if (child.status !== 'succeeded') roomForRetry(child, run.scanReport.estimateUsd);
+    save(); check(run);
+    return finishScanReport(run, child);
+  }
+  // A report run that didn't finish keeps an allowance of one full try, which Retry report's confirmation shows.
+  function roomForRetry(child, estimateUsd) {
+    const enough = Math.max(.6, (Number(estimateUsd) || .1) * 4);
+    if (cents(child.maxBudgetUsd - child.reservedUsd) < enough) child.maxBudgetUsd = Math.min(1000, centsUp(child.reservedUsd + enough));
+  }
+  // The report run's outcome on the scan (run.scanReport: { runId, status, assetId, title, estimateUsd, attempts, error }).
+  function finishScanReport(run, child) {
+    const job = (child.jobs || [])[0] || {}; const asset = job.assetId ? state.assets.find(row => row.id === job.assetId) : null;
+    const status = job.status === 'succeeded' && asset ? 'succeeded' : stopped.has(child.id) || child.status === 'cancelled' || job.status === 'cancelled' ? 'cancelled' : 'failed';
+    run.scanReport = { ...(run.scanReport || {}), runId: child.id, status, assetId: asset?.id || '', title: asset?.title || '', error: status === 'succeeded' ? '' : String(safeError(job.error || child.message || 'It stopped early.')).slice(0, 400) };
+    save(); return run.scanReport;
+  }
+  const reportProblem = report => (report.reason === 'budget'
+    ? `${report.error} Retry report writes it; you’ll see what it can spend first.`
+    : report.status === 'cancelled' ? 'The trends report was stopped. Retry report writes it; the posts aren’t collected again.'
+      : `The trends report didn’t finish: ${String(report.error || 'it stopped early').replace(/[.\s]+$/, '')}. Retry report writes only the report; the posts aren’t collected again.`);
+  // What the conversation is told about a finished report.
+  function scanReportFacts(run) {
+    const asset = state.assets.find(row => row.id === run.scanReport?.assetId) || null; const child = state.contentRuns.find(row => row.id === run.scanReport?.runId) || null;
+    let summary = ''; try { summary = asset ? String(read(file(asset.runId, `${asset.id}.json`)).summary || '') : ''; } catch (_) { summary = ''; }
+    return { assetId: asset?.id || '', title: asset?.title || '', summary: summary.slice(0, 600), childRunId: child?.id || '', costUsd: Number(child?.costUsd) || 0, model: child?.ai?.model || '', route: child?.ai?.route || '' };
+  }
+  // The scan found its trends, so it is done either way; the message, and the follow-up posted in Ask AI, say whether the
+  // report is ready. A report that didn't finish is retried on its own (Retry report). Stopping the scan stops both.
+  function settleScan(run, found) {
+    if (stopped.has(run.id)) throw new Error('Run cancelled.');
+    run.stage = 'scan-complete'; run.status = 'succeeded'; run.scanReport = { ...(run.scanReport || {}), found };
+    announceScanReport(run);
+  }
+  function announceScanReport(run) {
+    const report = run.scanReport || {}; const found = report.found || '';
+    if (report.status === 'succeeded') { run.message = `${found} The trends report is ready.`.trim(); save(); runEvent(run, 'scan-report-ready', { report: scanReportFacts(run) }); return; }
+    run.message = `${found} ${reportProblem(report)}`.trim(); save();
+    // Each try that fails is said once (a skip for budget is its own), so a Retry report that fails again is still told.
+    if (report.status !== 'cancelled') runEvent(run, 'scan-report-failed', { attempt: report.reason === 'budget' ? 'budget' : Number(report.attempts) || 1, error: report.error || '' });
+  }
+  // Retry report: the report run alone tries again (the scan stays done), within the allowance its confirmation showed;
+  // the scan's record and its conversation hear how it went.
+  function retryScanReportRun(child) {
+    const parent = state.researchRuns.find(row => row.id === child.researchRunId && row.workspaceId === child.workspaceId) || null;
+    if (parent && active.has(parent.id)) throw new Error('The quick scan is still running; it writes its report when it finishes.');
+    for (const job of child.jobs || []) if (job.status !== 'succeeded') { job.status = 'queued'; delete job.error; }
+    delete child.message;
+    if (parent) { parent.scanReport = { ...(parent.scanReport || {}), runId: child.id, status: 'running', error: '', attempts: (Number(parent.scanReport?.attempts) || 0) + 1 }; delete parent.scanReport.reason; parent.message = `${parent.scanReport.found || ''} Writing the trends report again…`.trim(); save(); }
+    return launch(child, async () => {
+      try { await performContent(child); }
+      finally { if (parent) { if (child.status !== 'succeeded') roomForRetry(child, parent.scanReport.estimateUsd); finishScanReport(parent, child); announceScanReport(parent); } }
+    });
+  }
+  // The report run's one job: the request built from what the scan saved (input.scan, input.selection) and the prompt copy
+  // it started with, checked by validateScanReport (one repair), saved as a report asset.
+  async function performScanReport(run, input) {
+    const lib = scanReports(); const job = (run.jobs || [])[0];
+    if (!job) throw new Error('This report run has nothing to write.');
+    const routedTask = run.ai?.routing?.['quickScans.report'] || null; // the scan's report task, kept with the report run
+    const settings = { model: routedTask?.model ?? (run.ai?.model || research.DEFAULT_RESEARCH_AI.models.synthesis), effort: routedTask ? routedTask.effort : run.ai?.effort || '', ...(routedTask ? { task: routedTask } : {}) };
+    if (job.status !== 'succeeded') {
+      check(run); job.status = 'running'; delete job.error; save();
+      try {
+        const request = lib.buildScanReportRequest({ scan: input.scan, selection: input.selection, editionId: input.editionId, brandName: input.brandName || '', audience: input.audience || '', blocks: snapshotBlocks(input.prompts, lib.PROMPT_ID) });
+        const output = await aiValidated(run, 'output-scan-report', request.schema, request.prompt, raw => lib.validateScanReport(raw, request.context), { ...settings, estimateUsd: estimateCall(settings, request.prompt, lib.OUTPUT_TOKENS), message: `Writing the trends report · ${input.scan?.topic || ''}`, timeoutMs: 900000 });
+        job.assetId = saveTextAsset(run, lib.SCAN_REPORT_DELIVERABLE, output).id; job.status = 'succeeded';
+      } catch (error) { job.status = stopped.has(run.id) ? 'cancelled' : 'failed'; job.error = safeError(error); }
+      save(); check(run);
+    }
+    run.status = job.status === 'succeeded' ? 'succeeded' : 'failed';
+    run.message = job.status === 'succeeded' ? 'Trends report ready.' : `The trends report needs another try: ${job.error || 'it stopped early.'}`;
   }
   // A file Drive was sent never changes (both delivery routes refuse a changed asset under the same id), so an edited
   // report or draft is delivered as its own file next to the original, under an id stamped with the edit's time. Each
@@ -835,7 +1236,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     try {
       // Trend reports first, so each toolkit's "Full evidence" line can link its report doc (n8n order).
       const toolkits = assets.filter(asset => asset.deliverableId === 'editorial-toolkit');
-      let receipt = await deliver(assets.filter(asset => asset.deliverableId !== 'editorial-toolkit').map(asset => deliveryAsset(asset, undefined, run)));
+      // Videos aren't published to Drive yet; the downloaded set has them.
+      if (assets.some(asset => asset.kind === 'video')) run.warnings = [...new Set([...(run.warnings || []), 'Videos aren’t published to Drive yet; download the set instead.'])];
+      let receipt = await deliver(assets.filter(asset => asset.deliverableId !== 'editorial-toolkit' && asset.kind !== 'video').map(asset => deliveryAsset(asset, undefined, run)));
       if (toolkits.length) {
         // A toolkit links the first trends doc Drive got for its report and keeps that link, so a later edit of the report
         // (delivered as a new file) never changes a toolkit Drive already has.
@@ -861,8 +1264,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   async function launchAndWait(run, fn) { launch(run, fn); await active.get(run.id); }
   // `by` is the person who started it; schedules start as the system. A quick scan passes { origin: 'quick-scan', quickScan }
   // with its derived program, which is written only to the run's input.json: the saved program and its schedule never change.
-  function startResearchRun(program, datasetIds = [], scheduledFor = '', by = SYSTEM, { origin = '', quickScan = null } = {}) {
+  function startResearchRun(program, datasetIds = [], scheduledFor = '', by = SYSTEM, { origin = '', quickScan = null, ask = null } = {}) {
     const scan = origin === 'quick-scan';
+    // A scan that writes its trends report prices it with discovery and synthesis (quickScan.reportUsd, from its plan).
+    const reportUsd = scan && quickScan?.report === true ? Math.max(0, Number(quickScan.reportUsd) || 0) : 0;
     const snapshot = copy(program);
     const recurring = program.schedule && program.schedule.frequency !== 'manual';
     // A saved window wins; schedules search their rolling window; otherwise the n8n default:
@@ -870,11 +1275,15 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const window = recurring ? { ...researchScheduleWindow(program.schedule, scheduledFor || stamp()), resolvedFrom: 'schedule' } : research.resolveResearchWindow(research.validateResearchProgram(program), clock());
     snapshot.window = { startDate: window.startDate, endDate: window.endDate || '', ...(window.startAt ? { startAt: window.startAt } : {}) };
     const validated = research.validateResearchProgram(snapshot);
-    const fullEstimate = research.estimateResearchCost(validated);
+    // What each stage runs on, resolved now and kept with the run (run.ai.routing): a retry never changes provider or price.
+    const taskIds = scan ? ['quickScans.discovery', 'quickScans.synthesis', 'quickScans.report'] : ['research.discovery', 'research.synthesis', 'research.matching', 'research.tagging', 'reports.trends-report', 'reports.editorial-toolkit'];
+    const routed = routing.snapshot(taskIds, { program: validated });
+    const stageTask = (stage) => routed[stageTaskId({ origin }, stage)] || (stage === 'reports' ? routed['reports.trends-report'] : routed[`research.${stage}`]);
+    const fullEstimate = research.estimateResearchCost(validated, { stages: Object.fromEntries(research.RESEARCH_STAGES.map((stage) => { const task = stageTask(stage); return [stage, task?.metered && task.model ? { model: task.model, effort: task.effort, ...(task.price?.known ? { price: task.price } : {}) } : null]; }).filter(([, entry]) => entry)) });
     // Before review only discovery → matching is spent; unattended runs need the whole estimate. A quick scan stops after
-    // synthesis, so only discovery and synthesis are priced (and shown on the run).
-    const beforeReview = Math.round((fullEstimate.stages.discovery + fullEstimate.stages.synthesis + (scan ? 0 : fullEstimate.stages.matching)) * 100) / 100;
-    const estimate = scan ? { ...fullEstimate, stages: { ...fullEstimate.stages, matching: 0, tagging: 0, reports: 0 }, totalUsd: beforeReview } : fullEstimate;
+    // synthesis (and its short trends report), so only those are priced (and shown on the run).
+    const beforeReview = Math.round((fullEstimate.stages.discovery + fullEstimate.stages.synthesis + (scan ? reportUsd : fullEstimate.stages.matching)) * 100) / 100;
+    const estimate = scan ? { ...fullEstimate, stages: { ...fullEstimate.stages, matching: 0, tagging: 0, reports: reportUsd }, totalUsd: beforeReview } : fullEstimate;
     const required = validated.autoApproveThemes && !scan ? estimate.totalUsd : beforeReview;
     if (!datasetIds.length && required > 0 && validated.budgets.aiUsd < required * 0.5) throw new Error(`This ${scan ? 'scan' : 'program'}’s AI budget ($${validated.budgets.aiUsd.toFixed(2)}) is far below the estimated $${required.toFixed(2)} ${validated.autoApproveThemes && !scan ? 'for a full unattended run' : 'to discover themes'} from about ${estimate.posts.total.toLocaleString('en-US')} posts with the selected models. Raise the AI budget or choose lighter models, then start again.`);
     const warnings = validated.budgets.aiUsd < estimate.totalUsd ? [`The AI budget ($${validated.budgets.aiUsd.toFixed(2)}) is below the estimate of $${estimate.totalUsd.toFixed(2)}; the run stops when it is used up and can resume with a higher budget.`] : [];
@@ -884,10 +1293,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       try { require('../shared/research-collection').buildCollectionPlan(validated, { now: clock() }); }
       catch (error) { throw Object.assign(new Error(`${safeError(error)} Nothing was started.`), { field: error.field, status: 400 }); }
     }
-    const run = { id: id('research'), workspaceId: program.workspaceId, type: 'research', title: scan && quickScan?.topic ? `Quick scan · ${quickScan.topic}` : program.name, programId: program.id, createdBy: { id: by.id, name: by.name }, status: 'queued', stage: 'collecting', createdAt: stamp(), maxBudgetUsd: program.budgets.aiUsd, reservedUsd: 0, costUsd: 0, receipts: [], themes: [], window, ai: { ...copy(validated.ai), ...(capabilities().aiProvider === 'codex' ? { route: 'codex' } : {}) }, estimate, warnings, ...(scheduledFor ? { scheduledFor } : {}), ...(origin ? { origin } : {}), ...(quickScan ? { quickScan: copy(quickScan) } : {}) };
+    const run = { id: id('research'), workspaceId: program.workspaceId, type: 'research', title: scan && quickScan?.topic ? `Quick scan · ${quickScan.topic}` : program.name, programId: program.id, createdBy: { id: by.id, name: by.name }, status: 'queued', stage: 'collecting', createdAt: stamp(), maxBudgetUsd: program.budgets.aiUsd, reservedUsd: 0, costUsd: 0, receipts: [], themes: [], window, ai: { ...copy(validated.ai), ...(Object.values(routed).some((task) => task.route === 'codex') ? { route: 'codex' } : {}), version: 2, routing: routed }, estimate, warnings, ...(scheduledFor ? { scheduledFor } : {}), ...(origin ? { origin } : {}), ...(quickScan ? { quickScan: copy(quickScan) } : {}), ...(ask && !scan ? { ask: copy(ask) } : {}) };
     // The prompts this run writes with, copied now so an edit made while it runs never changes it (a retry may opt in). A
-    // quick scan stops after synthesis, so it keeps only those.
-    const promptCopy = promptSnapshot(workspace(program.workspaceId, false), scan ? ['research.discovery', 'research.synthesis', 'system.repair'] : RESEARCH_PROMPTS); run.prompts = promptRecord(promptCopy);
+    // quick scan stops after synthesis (and its trends report), so it keeps only those.
+    const promptCopy = promptSnapshot(workspace(program.workspaceId, false), scan ? ['research.discovery', 'research.synthesis', ...(quickScan?.report === true ? ['reports.quick-scan'] : []), 'system.repair'] : RESEARCH_PROMPTS); run.prompts = promptRecord(promptCopy);
     write(file(run.id, 'input.json'), { program: { ...validated, workspaceId: program.workspaceId }, datasetIds: [...new Set(datasetIds)], prompts: promptCopy });
     if (scheduledFor) {
       // The occurrence and the queued run are committed together before launch can
@@ -940,7 +1349,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const saved = scanProgram(normalized.programId);
     const ranking = rank ? rankFor(saved, normalized.topic) : [];
     const derived = lib.deriveQuickScanProgram(saved, normalized, { ranking, now: clock() });
-    return { scan: { ...normalized, programId: saved.id }, saved, derived, selection: lib.selectQuickScanTargets(saved, normalized, ranking), fingerprint: lib.scanFingerprint(derived) };
+    // The short trends report is on unless the plan turned it off (scan.report false); the fingerprint covers the choice,
+    // so a plan priced with the report never starts without it, or the other way round.
+    const report = asked.report !== false && asked.report !== 'false';
+    return { scan: { ...normalized, report, programId: saved.id }, saved, derived, selection: lib.selectQuickScanTargets(saved, normalized, ranking), fingerprint: lib.scanFingerprint({ ...derived, quickScanReport: report }) };
   }
   const activeQuickScan = (workspaceId, exceptId = '') => state.researchRuns.find(run => run.id !== exceptId && run.workspaceId === workspaceId && run.origin === 'quick-scan' && (active.has(run.id) || ['queued', 'running'].includes(run.status)));
   const quickScanBusy = busy => Object.assign(new Error(`${busy.createdBy?.name || 'Someone'} started a quick scan at ${when(busy.createdAt)} that is still running. One quick scan runs at a time in a workspace; wait for it or stop it first.`), { status: 409, code: 'quickScanRunning' });
@@ -953,9 +1365,12 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     if (busy) throw quickScanBusy(busy);
   }
   // A quick scan stops after synthesis, so only discovery and synthesis are priced.
-  function quickScanAiEstimate(program) {
-    const estimate = research.estimateResearchCost(program); const stages = { discovery: estimate.stages.discovery, synthesis: estimate.stages.synthesis };
-    return { totalUsd: Math.round((stages.discovery + stages.synthesis) * 100) / 100, stages, capUsd: program.budgets.aiUsd, posts: estimate.posts, models: { discovery: program.ai.models.discovery, synthesis: program.ai.models.synthesis }, effort: { discovery: program.ai.effort.discovery, synthesis: program.ai.effort.synthesis }, basis: estimate.basis };
+  // With the trends report on, its estimate is part of the total the plan shows (stages.report, report: { on, usd, model }).
+  function quickScanAiEstimate(program, { report = false } = {}) {
+    const estimate = research.estimateResearchCost(program);
+    const reportUsd = report ? Math.max(.01, cents(scanReports().scanReportEstimate({ model: program.ai.models.reports, effort: program.ai.effort.reports, themes: program.maxThemes }))) : 0;
+    const stages = { discovery: estimate.stages.discovery, synthesis: estimate.stages.synthesis, report: reportUsd };
+    return { totalUsd: Math.round((stages.discovery + stages.synthesis + reportUsd) * 100) / 100, stages, capUsd: program.budgets.aiUsd, posts: estimate.posts, models: { discovery: program.ai.models.discovery, synthesis: program.ai.models.synthesis, report: program.ai.models.reports }, effort: { discovery: program.ai.effort.discovery, synthesis: program.ai.effort.synthesis, report: program.ai.effort.reports }, report: { on: Boolean(report), usd: reportUsd, model: program.ai.models.reports }, basis: estimate.basis };
   }
   // The AI route the next call takes. The host resolves "auto" (getAiProvider); without it the saved setting decides.
   async function aiRouteNow() {
@@ -974,6 +1389,12 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const quick = run.origin === 'quick-scan';
       ids = [...(run.approvedAt ? [] : ['research.discovery', 'research.synthesis', ...(quick ? [] : ['research.matching'])]), ...(quick || fs.existsSync(runPath(run.id, 'assignments.json')) ? [] : ['research.tagging']), ...(quick ? [] : ['reports.trends-report', 'reports.editorial-toolkit']), 'system.repair'];
       for (const entry of run.reportRunIds || []) { const child = state.contentRuns.find(row => row.id === entry.runId); if (child && child.status !== 'succeeded' && !active.has(child.id)) refreshRunPrompts(child); }
+      // A quick scan's trends report not written yet takes the newer prompt too (its own run, or the copy it starts from).
+      if (quick && run.quickScan?.report === true && run.scanReport?.status !== 'succeeded') {
+        ids.splice(ids.length - 1, 0, 'reports.quick-scan');
+        const child = run.scanReport?.runId ? state.contentRuns.find(row => row.id === run.scanReport.runId) : null;
+        if (child && child.status !== 'succeeded' && !active.has(child.id)) refreshRunPrompts(child);
+      }
     } else {
       const open = (run.jobs || []).filter(job => job.status !== 'succeeded'); const text = open.filter(job => job.kind !== 'image');
       const picturesStarted = (run.jobs || []).some(job => job.kind === 'image' && (job.assetIds?.length || job.imageCalls?.length));
@@ -981,6 +1402,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       // Create content pictures carry the shared rules in their prompt, so those freeze with the pictures; kit pictures don't.
       const sharedOpen = run.kit ? text.length > 0 : open.length > 0 && !picturesStarted;
       if (input.research) ids = [...text.map(job => (job.id === 'evidence-report' ? 'reports.trends-report' : 'reports.editorial-toolkit')), 'system.repair'];
+      else if (input.scanReport) ids = open.length ? ['reports.quick-scan', 'system.repair'] : [];
       else ids = [...text.map(job => `assets.${job.id}`), ...(sharedOpen ? ['assets.shared'] : []), ...(open.length > text.length && !picturesStarted ? pictureIds : []), ...(run.kit ? ['system.repair'] : [])];
     }
     ids = ids.filter(promptId => PROMPT_IDS.has(promptId));
@@ -1044,6 +1466,17 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       }
       return null;
     }
+    // A quick scan's trends report reads the trends the newest scan found and the posts behind them.
+    if (promptId === 'reports.quick-scan') {
+      const lib = scanReports();
+      for (const run of researchRuns.filter(row => row.origin === 'quick-scan' && (row.discoveredThemes || []).length)) {
+        const items = readSafe(runPath(run.id, 'evidence.json'))?.items || []; if (!items.length) continue;
+        const themes = copy(run.discoveredThemes).slice(0, 6); const selection = lib.selectScanEvidence({ themes, items });
+        if (!selection.posts.length) continue;
+        return found({ scanReportPayload: { scan: lib.scanSummary({ run, themes, postCount: items.length }), selection } }, `The ${count(themes.length, 'trend', 'trends')} from “${run.title}” (${day(run)})`);
+      }
+      return null;
+    }
     if (promptId.startsWith('assets.') || promptId.startsWith('pictures.')) {
       const needsBrief = ['pictures.kit-image', 'pictures.variations', 'pictures.direction'].includes(promptId);
       for (const run of newest(state.contentRuns.filter(row => row.workspaceId === w.id && !row.researchRunId && /^[a-zA-Z0-9_-]{1,180}$/.test(row.id || '')))) {
@@ -1070,6 +1503,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     programs: () => state.programs.filter(program => program.workspaceId === state.activeWorkspaceId), kitAi: () => kit().kitAi(state.programs.filter(program => program.workspaceId === state.activeWorkspaceId)),
     settingsModel: () => capabilities().textModel || 'claude-opus-5-5', aiRoute: aiRouteNow, runAI, generateImage, imagesReady: picturesReady, trackJob, latestSample: latestPromptSample,
     testsRoot: path.join(root, 'prompt-tests'), emit: () => emit(),
+    // Model routing decides each prompt's model (its task); picture tests send the campaign set's reference images.
+    routing, referenceSet: (familyId, options) => currentReferenceSet(state.workspaces.find(w => w.id === state.activeWorkspaceId), familyId, options),
   }));
   // The latest prompt saves in this workspace (newest first) for the Inbox. Never fails the state.
   function recentPromptChanges() { try { return promptLab().recentChanges(20); } catch (_) { return []; } }
@@ -1141,7 +1576,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   }
   const api = {
     publicState, recoverInterrupted, checkDueResearchSchedules, startResearchScheduler, stopResearchScheduler,
-    contentCatalog: () => ({ editions: copy(content.CONTENT_EDITIONS), deliverables: copy(content.CONTENT_DELIVERABLES) }),
+    // Create content offers every deliverable but the kit-only short video.
+    contentCatalog: () => ({ editions: copy(content.CONTENT_EDITIONS), deliverables: copy(content.CONTENT_DELIVERABLES.filter(d => !d.kitOnly)) }),
     selectContentWorkspace(workspaceId) { workspace(workspaceId, false); state.activeWorkspaceId = workspaceId; save(); return publicState(); },
     // baseUpdatedAt (optional, here and on saveResearchProgram): the updatedAt the form opened with. A save over a newer
     // one made since is refused, so two admins editing the same record never silently replace each other's changes.
@@ -1268,18 +1704,20 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     },
     // A program's run that is still queued, running or waiting for review isn't started twice by accident: the person is
     // told who started it and when, and the screen asks before sending again: true. Schedules keep their own rule.
-    startResearchRun({ programId, datasetIds = [], again = false } = {}) {
+    // ask ({ conversationId, messageId?, actionIndex? }, optional): the Ask AI conversation it was started from, where the
+    // trends that need an OK and the finished reports are posted.
+    startResearchRun({ programId, datasetIds = [], again = false, ask = null } = {}) {
       const by = who();
       const program = owned(state.programs, programId); if (!Array.isArray(datasetIds) || datasetIds.length > 50) throw new Error('Choose up to 50 datasets.'); const allowed = new Set(publicState().availableDatasets.map(d => d.id)); if (datasetIds.some(key => !allowed.has(key))) throw new Error('Choose datasets from this workspace.');
       api.checkResearchIdle({ programId, again });
-      return startResearchRun(program, datasetIds, '', by);
+      return withoutAsk(startResearchRun(program, datasetIds, '', by, { ask: askLink(ask, by) }));
     },
     // Quick scan cost check (the chat's scan-plan card): the accounts it would read and why, the AI estimate against its cap
     // and the collection worst case against its cap, for the same derived run startQuickScan would start. Reads only.
     async estimateQuickScan(payload = {}) {
       const { scan, saved, derived, selection, fingerprint } = quickScanPlan(payload);
       const route = await aiRouteNow(); const uncapped = route === 'codex';
-      const ai = quickScanAiEstimate(derived); const warnings = [...selection.warnings]; let blocked = false;
+      const ai = quickScanAiEstimate(derived, { report: scan.report }); const warnings = [...selection.warnings]; let blocked = false;
       let collection;
       try {
         const receipt = require('../shared/research-collection').buildCollectionPlan(derived, { now: clock() }).receipt;
@@ -1299,11 +1737,14 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // Starts the scan the card priced. The plan is derived again and must match what the person saw (fingerprint);
     // startResearchRun checks the collection plan before the run exists. The saved program, its schedule and nextRunAt
     // are never touched: the derived program goes only into the run's input.json.
+    // payload.ask ({ conversationId, messageId?, actionIndex? }): the Ask AI conversation the plan was started from, where
+    // the trends report is posted when the scan finishes (never part of the plan or its fingerprint).
     startQuickScan(payload = {}) {
       const by = who(); const { scan, saved, derived, selection, fingerprint } = quickScanPlan(payload);
       guardQuickScan(payload, fingerprint);
-      const quickScan = { topic: scan.topic, depth: scan.depth, platforms: selection.platforms, lookbackHours: scan.lookbackHours, targets: selection.targets.map(({ platform, target }) => ({ platform, target })), itemsPerPlatform: scan.itemsPerPlatform, commentsPerPost: scan.commentsPerPost, fingerprint };
-      return startResearchRun({ ...derived, workspaceId: saved.workspaceId }, [], '', by, { origin: 'quick-scan', quickScan });
+      const link = askLink(payload?.ask, by); const reportUsd = scan.report ? quickScanAiEstimate(derived, { report: true }).report.usd : 0;
+      const quickScan = { topic: scan.topic, depth: scan.depth, platforms: selection.platforms, lookbackHours: scan.lookbackHours, targets: selection.targets.map(({ platform, target }) => ({ platform, target })), itemsPerPlatform: scan.itemsPerPlatform, commentsPerPost: scan.commentsPerPost, fingerprint, report: scan.report, reportUsd, ...(link ? { ask: link } : {}) };
+      return withoutAsk(startResearchRun({ ...derived, workspaceId: saved.workspaceId }, [], '', by, { origin: 'quick-scan', quickScan }));
     },
     // The `ai` block a quick scan will use, for the host's model check before startQuickScan. Given the start payload
     // (with its fingerprint) it also refuses a changed plan or a second scan first, so neither pays for that check.
@@ -1355,19 +1796,28 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     createContentRun(payload) { const by = who(); const run = newContentRun(payload, null, by); return launch(run, () => performContent(run)); },
     // Asset kits: what a kit from this source would make and cost, before anything is spent.
     planAssetKit(payload = {}) {
-      const { w, picked, input, plan, ai, imagesReady, offered, references, estimate, promptsAll } = kitPlan(payload);
+      const { w, picked, input, plan, ai, imagesReady, videoReady, offered, references, estimate, promptsAll } = kitPlan(payload);
       const chosen = new Set(plan.deliverables.map(d => d.id));
       // Every offered asset is priced, so ticking one back on shows what it adds.
-      const priced = new Map(kit().estimateKit({ plan: content.buildContentPlan({ ...input, prompts: promptsAll, deliverableIds: offered.filter(id => imagesReady || content.CONTENT_DELIVERABLES.find(d => d.id === id).kind !== 'image') }), ai, references }).items.map(item => [item.id, item.usd]));
-      const text = plan.deliverables.filter(d => d.kind !== 'image').length; const sets = plan.deliverables.length - text;
+      const pricedPlan = content.buildContentPlan({ ...input, prompts: promptsAll, deliverableIds: offered.filter(id => { const kind = content.CONTENT_DELIVERABLES.find(d => d.id === id).kind; return kind === 'video' ? videoReady : imagesReady || kind !== 'image'; }) });
+      const pricedItems = kit().estimateKit({ plan: pricedPlan, ai, references, tasks: kitEstimateTasks(pricedPlan.deliverables, undefined, references) }).items;
+      const priced = new Map(pricedItems.map(item => [item.id, item.usd])); const videoOf = new Map(pricedItems.filter(item => item.video).map(item => [item.id, item.video]));
+      const text = plan.deliverables.filter(d => d.kind === 'text').length; const sets = plan.deliverables.filter(d => d.kind === 'image').length;
+      // Which connection writes, draws and films this set, and the jobs on connections that report no cost.
+      const tasks = Object.fromEntries(kitTaskIds(pricedPlan.deliverables.concat(plan.deliverables)).map(taskId => [taskId, routing.resolve(taskId)]));
+      const labelOf = task => (task ? `${task.routeLabel}${task.modelLabel ? ` · ${task.modelLabel}` : ''}` : '');
+      const writes = plan.deliverables.find(d => d.kind === 'text'); const writer = writes ? tasks[kitTextTask(writes.id)] : routing.resolve('assets.default');
       // What each picture set would send the image model now: { style, logo } from Settings → Brand reference images.
       const referencesFor = id => { const family = brandImages().familyForDeliverable(id); return brandImages().referenceSummary((w.brandImages || []).filter(image => image.family === family?.id)); };
       return {
         title: picked.source.title, sourceKey: picked.key, sourceKind: picked.kind, characters: picked.source.text.length, evidenceCount: (picked.source.evidence || []).length,
         earlierRuns: state.contentRuns.filter(run => run.workspaceId === w.id && run.kit?.sourceKey === picked.key).length,
-        folders: kit().kitFolders(w.editionId).map(folder => ({ id: folder.id, name: folder.name, items: folder.deliverableIds.map(id => { const kind = content.CONTENT_DELIVERABLES.find(d => d.id === id).kind; return { id, label: kit().kitFileLabel(id, w.editionId), kind, ...(kind === 'image' ? { pictures: 3, references: referencesFor(id) } : {}), selected: chosen.has(id), available: kind !== 'image' || imagesReady, usd: priced.get(id) ?? null }; }) })),
+        folders: kit().kitFolders(w.editionId).map(folder => ({ id: folder.id, name: folder.name, items: folder.deliverableIds.map(id => { const kind = content.CONTENT_DELIVERABLES.find(d => d.id === id).kind; return { id, label: kit().kitFileLabel(id, w.editionId), kind, ...(kind === 'image' ? { pictures: 3, references: referencesFor(id) } : {}), ...(kind === 'video' ? { video: { seconds: videoOf.get(id)?.seconds || routing.resolve('video.social-clip').video?.durationSeconds || 8, modelLabel: videoOf.get(id)?.modelLabel || '' }, optIn: true, references: referencesFor('brand-image') } : {}), selected: chosen.has(id), available: kind === 'video' ? videoReady : kind !== 'image' || imagesReady, ...(kind === 'video' && !videoReady ? { unavailable: routing.mediaProblem?.('video.social-clip') || 'Connect fal.ai in Settings, AI connections to make videos.' } : {}), usd: priced.get(id) ?? null }; }) })),
         // On Codex the writing uses the person's Codex plan or OpenAI key, and nothing reports what it cost.
-        route: capabilities().aiProvider === 'codex' ? 'codex' : 'claude', estimate, imagesReady, warnings: plan.warnings, edited: picked.edited || null,
+        route: writer.route === 'codex' ? 'codex' : 'claude',
+        routes: { writes: labelOf(writer), draws: labelOf(tasks['pictures.kit-image'] || routing.resolve('pictures.kit-image')), films: labelOf(tasks['video.social-clip'] || routing.resolve('video.social-clip')) },
+        uncappedTasks: [...new Set(Object.values(tasks).filter(task => task.metered === false).map(task => task.label))],
+        estimate, imagesReady, videosReady: videoReady, warnings: plan.warnings, edited: picked.edited || null,
         // About 3 minutes per written asset at the report model's effort, a few at a time; pictures run alongside.
         minutes: Math.max(5, Math.round(Math.max(Math.ceil(text / ai.concurrency) * 3, Math.ceil(sets / 2) * 4))),
       };
@@ -1384,7 +1834,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       }
       const run = { id: id('content'), workspaceId: w.id, type: 'content', title: picked.source.title, ...(picked.reportAssetId ? { sourceAssetId: picked.reportAssetId } : {}), createdBy: by,
         kit: { version: 1, sourceKey: picked.key, sourceKind: picked.kind, sourceTitle: picked.source.title, folderName: kit().kitRunFolderName({ title: picked.source.title, editionId: w.editionId, createdAt }), concurrency: ai.concurrency, estimateUsd: estimate.totalUsd, ...(picked.reportAssetId ? { reportAssetId: picked.reportAssetId } : {}), ...(picked.themeId ? { themeId: picked.themeId } : {}), ...(picked.url ? { sourceUrl: picked.url } : {}) },
-        ai: { model: ai.model, effort: ai.effort, ...(capabilities().aiProvider === 'codex' ? { route: 'codex' } : {}) }, prompts: promptRecord(input.prompts), status: 'queued', stage: 'content', createdAt, maxBudgetUsd: budget(payload.maxBudgetUsd ?? estimate.capUsd), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, progress: { completed: 0, total: plan.deliverables.length },
+        ai: { model: ai.model, effort: ai.effort, ...(ai.route === 'codex' ? { route: 'codex' } : {}), version: 2, routing: routing.snapshot(kitTaskIds(plan.deliverables)) }, prompts: promptRecord(input.prompts), status: 'queued', stage: 'content', createdAt, maxBudgetUsd: budget(payload.maxBudgetUsd ?? estimate.capUsd), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, progress: { completed: 0, total: plan.deliverables.length },
         jobs: plan.deliverables.map(d => ({ id: d.id, label: kit().kitFileLabel(d.id, w.editionId), kind: d.kind, folder: kit().kitFolderFor(d.id, w.editionId).name, status: 'queued' })) };
       try { const references = snapshotKitReferences(run, w, plan.deliverables); if (Object.keys(references).length) run.kit.references = references; }
       catch (error) { fs.rmSync(path.join(root, 'runs', run.id), { recursive: true, force: true }); throw error; }
@@ -1412,7 +1862,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         const dir = path.join(top, kit().safeFileName(kit().kitFolderFor(asset.deliverableId, editionId).name)); fs.mkdirSync(dir, { recursive: true });
         const base = path.join(dir, kit().safeFileName(kit().kitFileName({ deliverableId: asset.deliverableId, editionId, title: run.kit.sourceTitle, createdAt: run.createdAt, variant: Number.isInteger(asset.variantIndex) ? asset.variantIndex + 1 : 0 })));
         // Pictures as PNG plus an SVG wrapper for Figma, the landing page as a web page, everything else as Markdown and HTML.
-        for (const extension of asset.kind === 'image' ? ['png', 'svg'] : asset.deliverableId === 'landingpage' ? ['html', 'md'] : ['md', 'html']) fs.copyFileSync(assetFile(asset, extension), `${base}.${extension}`);
+        // A video goes with its on-screen lines (.srt) and first frame (.poster.png) when it has them.
+        for (const extension of asset.kind === 'video' ? videoExtensions(asset) : asset.kind === 'image' ? ['png', 'svg'] : asset.deliverableId === 'landingpage' ? ['html', 'md'] : ['md', 'html']) fs.copyFileSync(assetFile(asset, extension), `${base}.${extension}`);
       }
       // The source the set was made from. A channel owner's export leaves it out unless it is the team's trend brief, so a
       // pasted text or private document never reaches them; everyone else's folder keeps it.
@@ -1421,8 +1872,16 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (!into && !temporary) recordExport(result);
       return result;
     },
-    assetKitAi: () => kit().kitAi(state.programs.filter(program => program.workspaceId === state.activeWorkspaceId)),
-    async cancelStudioRun({ runId }) { const run = runRecord(runId); if (!active.has(run.id) && run.status !== 'awaiting-review') return copy(run); stopped.add(run.id); await cancelProvider(run.id); for (const child of run.reportRunIds || []) { stopped.add(child.runId); await cancelProvider(child.runId); } run.status = 'cancelled'; run.message = 'Cancelled. Completed outputs are retained.'; updateScheduledRun(run); save(); return copy(run); },
+    assetKitAi: () => kitAiNow(workspace(state.activeWorkspaceId, false)),
+    async cancelStudioRun({ runId }) {
+      let run = runRecord(runId);
+      // A quick scan's report run stops with its scan while the scan is waiting on it (Retry report runs it alone).
+      if (run.scanReport === true) { const scan = state.researchRuns.find(row => row.id === run.researchRunId && row.workspaceId === run.workspaceId); if (scan && active.has(scan.id)) run = scan; }
+      if (!active.has(run.id) && run.status !== 'awaiting-review') return withoutAsk(copy(run));
+      stopped.add(run.id); await cancelProvider(run.id);
+      for (const childId of [...(run.reportRunIds || []).map(entry => entry.runId), ...(run.scanReport?.runId ? [run.scanReport.runId] : [])]) { stopped.add(childId); await cancelProvider(childId); }
+      run.status = 'cancelled'; run.message = 'Cancelled. Completed outputs are retained.'; updateScheduledRun(run); save(); return withoutAsk(copy(run));
+    },
     // refreshPrompts: true takes the prompts saved since the run started, for the stages it hasn't finished (see
     // refreshRunPrompts); otherwise a retry writes with the run's own copy.
     retryStudioRun({ runId, maxBudgetUsd, refreshPrompts }) {
@@ -1434,7 +1893,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       // The files about to be tried again wait as queued (files already made stay), so no screen reads them as failed while
       // the retry runs; a channel whose own files are settled in a shared set is told it's finished (channel-view.js).
       if (run.type === 'content') for (const job of run.jobs || []) if (job.status !== 'succeeded') { job.status = 'queued'; delete job.error; }
-      return launch(run, () => run.type === 'content' ? performContent(run) : run.approvedAt ? performClassification(run) : performDiscovery(run));
+      // Retry report: a quick scan's trends report tries again on its own, and its scan hears how it went.
+      if (run.type === 'content' && run.scanReport === true) return retryScanReportRun(run);
+      return withoutAsk(launch(run, () => run.type === 'content' ? performContent(run) : run.approvedAt ? performClassification(run) : performDiscovery(run)));
     },
     readStudioRun({ runId }) { return publicRun(runRecord(runId)); },
     readStudioAsset({ assetId }) { return assetResult(owned(state.assets, assetId)); },
@@ -1496,7 +1957,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     exportStudioRun({ runId } = {}, { temporary = false } = {}) {
       const run = runRecord(runId); const ids = new Set([run.id, ...(run.reportRunIds || []).map(r => r.runId)]); const assets = state.assets.filter(a => a.workspaceId === run.workspaceId && ids.has(a.runId)); if (!assets.length) throw new Error('Generate at least one asset before exporting.');
       const exportId = id('export'); const dir = path.join(root, 'exports', exportId); fs.mkdirSync(dir, { recursive: true });
-      for (const asset of assets) { const channel = asset.channel.replace(/[^a-zA-Z0-9_-]/g, '-'); const dest = path.join(dir, channel); fs.mkdirSync(dest, { recursive: true }); for (const extension of asset.kind === 'image' ? ['png', 'svg'] : ['md', 'html', 'json']) fs.copyFileSync(assetFile(asset, extension), path.join(dest, `${asset.deliverableId}-${asset.id}.${extension}`)); }
+      for (const asset of assets) { const channel = asset.channel.replace(/[^a-zA-Z0-9_-]/g, '-'); const dest = path.join(dir, channel); fs.mkdirSync(dest, { recursive: true }); for (const extension of asset.kind === 'video' ? videoExtensions(asset) : asset.kind === 'image' ? ['png', 'svg'] : ['md', 'html', 'json']) fs.copyFileSync(assetFile(asset, extension), path.join(dest, `${asset.deliverableId}-${asset.id}.${extension}`)); }
       write(path.join(dir, 'manifest.json'), { exportedAt: stamp(), workspaceId: run.workspaceId, run: copy(run), assets, notice: 'Drafts require editorial review. SVG files embed raster images; they are not editable vectors.' });
       for (const childId of ids) fs.copyFileSync(file(childId, 'input.json'), path.join(dir, `${childId}-source.json`));
       const result = { id: exportId, workspaceId: run.workspaceId, runId, path: dir, assetCount: assets.length, createdAt: stamp() }; if (!temporary) recordExport(result); return result;
@@ -1652,6 +2113,28 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // For the host: the Claude models a test run needs (model preflight), and a prompt's saved text for the callers that
     // build their prompts live (Ask AI, Ask your datasets, dataset analysis, the Workflows asset pack). blocks null = defaults.
     promptTestModels: payload => promptLab().testModels(payload),
+    // ---------- Model routing reads for the host (preflight before spending, Settings → Model routing tests) ----------
+    routingPrograms,
+    // The tasks a run will use when it continues or retries: its snapshot (or, for an older run, what its models resolve to).
+    runTasks(runId) {
+      let run; try { run = runRecord(runId); } catch (_) { return []; }
+      if (run.ai?.routing) return Object.values(run.ai.routing);
+      if (run.type === 'research') return ['discovery', 'synthesis', 'matching', 'tagging', 'reports'].map(stage => runTask(run, stageTaskId(run, stage)));
+      return [runTask(run, run.kit ? 'assets.default' : run.researchRunId ? 'reports.trends-report' : 'create.drafts')];
+    },
+    contentRunTasks(payload = {}) {
+      const ids = Array.isArray(payload.deliverableIds) ? payload.deliverableIds : [];
+      const pictures = ids.some(key => content.CONTENT_DELIVERABLES.find(d => d.id === key)?.kind === 'image');
+      return ['create.drafts', ...(pictures ? ['pictures.content-image'] : [])].map(taskId => routing.resolve(taskId));
+    },
+    kitTasks(payload = {}) {
+      try { const { plan } = kitPlan(payload); return kitTaskIds(plan.deliverables).map(taskId => routing.resolve(taskId)); } catch (_) { return []; }
+    },
+    promptTestTasks: payload => promptLab().testTasks(payload),
+    estimateAiTaskTest: payload => promptLab().estimateTaskTest(payload),
+    testAiTask: payload => promptLab().testTask(payload),
+    // The brand reference set a picture family sends now (Ask AI pictures read it at request start; that read is the copy).
+    brandReferenceSet({ family = 'none', data = true } = {}) { return currentReferenceSet(state.workspaces.find(w => w.id === state.activeWorkspaceId), family, { data }); },
     promptEffective(promptId) {
       const w = state.workspaces.find(row => row.id === state.activeWorkspaceId);
       try { return w ? prompts.effective(w.id, w.editionId, promptId) : { version: 0, custom: false, blocks: null }; } catch (_) { return { version: 0, custom: false, blocks: null }; }

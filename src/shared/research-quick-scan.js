@@ -223,8 +223,8 @@ function deriveQuickScanProgram(savedProgram, scan, { ranking = [], now = new Da
   const lite = s.depth === 'lite'; const cheap = lite ? cheapestDiscoveryModel() : '';
   const used = { discovery: cheap || saved.ai.models.discovery, synthesis: cheap || saved.ai.models.synthesis, matching: cheap || saved.ai.models.matching };
   const ai = {
-    // Tagging and reports never run in a quick scan; they mirror the synthesis model so the host's model check before the
-    // start only asks about models the scan calls.
+    // Tagging never runs in a quick scan, and its short trends report (when on) writes with the synthesis model; both mirror
+    // it so the host's model check before the start only asks about models the scan calls.
     models: { ...used, tagging: used.synthesis, reports: used.synthesis },
     effort: lite ? Object.fromEntries(research.RESEARCH_STAGES.map((stage) => [stage, 'low'])) : { ...saved.ai.effort },
     concurrency: clamp(Math.floor(s.aiBudgetUsd / MIN_CALL_RESERVE_USD), 1, saved.ai.concurrency),
@@ -266,10 +266,15 @@ function describeScan(scan, plan = {}) {
     if (parts.length) lines.push(`${LABELS[p]}: ${parts.join(' and ')}.`);
   }
   lines.push(scan.commentsPerPost ? `Keeps up to ${scan.itemsPerPlatform} posts and comments from each platform, with up to ${scan.commentsPerPost} comments per LinkedIn or Reddit post.` : `Keeps up to ${scan.itemsPerPlatform} posts from each platform, without comments.`);
-  if (plan.ai) lines.push(plan.uncapped ? `AI: about ${money(plan.ai.totalUsd)}. Codex doesn't report cost, so the ${money(scan.aiBudgetUsd)} cap can't stop it.` : `AI: about ${money(plan.ai.totalUsd)}, capped at ${money(scan.aiBudgetUsd)}.`);
+  // With the trends report on (estimateQuickScan's ai.report), its share is named inside the AI total.
+  const report = plan.ai?.report?.on ? plan.ai.report : null;
+  const includes = report && Number(report.usd) > 0 ? ` (includes a short trends report, about ${money(report.usd)})` : '';
+  if (plan.ai) lines.push(plan.uncapped ? `AI: about ${money(plan.ai.totalUsd)}${includes}. Codex doesn't report cost, so the ${money(scan.aiBudgetUsd)} cap can't stop it.` : `AI: about ${money(plan.ai.totalUsd)}${includes}, capped at ${money(scan.aiBudgetUsd)}.`);
   else lines.push(`AI capped at ${money(scan.aiBudgetUsd)}${plan.uncapped ? ' (Codex spend is not capped)' : ''}.`);
   lines.push(plan.collection && !plan.collection.error ? `Apify: up to ${money(plan.collection.worstCaseUsd)} in the worst case, capped at ${money(scan.collectionBudgetUsd)}.` : `Apify capped at ${money(scan.collectionBudgetUsd)}.`);
-  lines.push('Stops once trends are found: no review, tagging or reports, and the saved program is not changed.');
+  lines.push(report || (scan.report === true && !plan.ai)
+    ? 'When it finds trends, it writes a short trends report and posts it in Ask AI. No review or tagging, and the saved program is not changed.'
+    : 'Stops once trends are found: no review, tagging or reports, and the saved program is not changed.');
   return lines;
 }
 

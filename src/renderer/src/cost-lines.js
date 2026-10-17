@@ -54,6 +54,14 @@ export async function reportCostLines({ api, runs = [], codex = false } = {}) {
   return lines;
 }
 
+// The jobs an estimate runs on a connection that reports no cost (Model routing: Codex), as one sentence; an older
+// estimate that only says route 'codex' gets the general Codex line.
+export function uncappedLine(estimate = {}) {
+  const tasks = [...new Set(list(estimate?.uncappedTasks).filter(Boolean))].map((label) => label.charAt(0).toLowerCase() + label.slice(1));
+  if (tasks.length) return `On Codex the studio can’t cap spend for ${tasks.length > 1 ? `${tasks.slice(0, -1).join(', ')} and ${tasks.at(-1)}` : tasks[0]}, so the AI cap is a guide there.`;
+  return estimate?.route === 'codex' ? CODEX_UNCAPPED : '';
+}
+
 // Room for what's left of a run: finished work is never paid for twice (studio-actions' rule, for every panel).
 export const retryCap = sharedRetryCap;
 

@@ -14,17 +14,18 @@ const count = (value) => new Intl.NumberFormat().format(Number(value) || 0);
 const plural = (value, word, many = `${word}s`) => `${count(value)} ${Number(value) === 1 ? word : many}`;
 const ACTIVE = new Set(['queued', 'running']);
 const WAITING = new Set(['queued', 'running', 'awaiting-review']);
-const REPORT_TYPES = { 'evidence-report': 'trend-report', 'editorial-toolkit': 'toolkit' };
+const REPORT_TYPES = { 'evidence-report': 'trend-report', 'editorial-toolkit': 'toolkit', 'scan-report': 'scan-report' };
 const TIER_RANK = { 'FAST-TRACK': 0, STRONG: 1, MONITOR: 2, LOW: 3 };
 
 export const LIBRARY_TYPES = Object.freeze([
   { id: 'trend-report', label: 'Trends reports' },
   { id: 'toolkit', label: 'Editorial toolkits' },
+  { id: 'scan-report', label: 'Quick scan reports' },
   { id: 'channel-asset', label: 'Channel assets' },
   { id: 'draft', label: 'Drafts' },
   { id: 'picture', label: 'Pictures' },
 ]);
-export const TYPE_LABEL = Object.freeze({ 'trend-report': 'Trends report', toolkit: 'Editorial toolkit', 'channel-asset': 'Channel asset', draft: 'Draft', picture: 'Picture', legacy: 'Earlier board item' });
+export const TYPE_LABEL = Object.freeze({ 'trend-report': 'Trends report', toolkit: 'Editorial toolkit', 'scan-report': 'Quick scan report', 'channel-asset': 'Channel asset', draft: 'Draft', picture: 'Picture', video: 'Video', legacy: 'Earlier board item' });
 // Reports aren't channel assets, but the channel filter still finds them under the deliverable channel they carry.
 export const REPORT_CHANNELS = Object.freeze([{ id: 'research', name: 'Research' }, { id: 'strategy', name: 'Strategy' }]);
 export const SOURCE_LABEL = Object.freeze({ trend: 'From a trends report', report: 'From a report', 'google-doc': 'From a Google Doc', file: 'From a document', text: 'From pasted text' });
@@ -48,7 +49,7 @@ export function channelName(channelId, editionId = 'general') {
 export function libraryChannels(editionId = 'general') {
   return [...KIT.folders.filter((folder) => folder.deliverables.some((id) => offered(id, editionId))).map((folder) => ({ id: folder.id, name: folder[editionKey(editionId)] })), ...REPORT_CHANNELS];
 }
-const channelOfFile = (deliverableId, editionId) => (deliverableId === 'evidence-report' ? 'research' : deliverableId === 'editorial-toolkit' ? 'strategy' : channelOf(deliverableId, editionId));
+const channelOfFile = (deliverableId, editionId) => (deliverableId === 'evidence-report' || deliverableId === 'scan-report' ? 'research' : deliverableId === 'editorial-toolkit' ? 'strategy' : channelOf(deliverableId, editionId));
 
 // Research reports carry "TREND:" and "— Comprehensive Trends Report" around the trend's name (as asset-kit.js cleanTitle).
 export function cleanTitle(value) {
@@ -82,7 +83,7 @@ const windowLabel = (run) => {
 };
 export const isQuickScan = (run) => run?.origin === 'quick-scan';
 
-function emptyCounts() { return { trends: 0, files: 0, written: 0, pictures: 0, kits: 0, done: 0, total: 0 }; }
+function emptyCounts() { return { trends: 0, files: 0, written: 0, pictures: 0, videos: 0, kits: 0, done: 0, total: 0 }; }
 
 export function buildLibraryTree({ researchRuns = [], contentRuns = [], assets = [], themes = [], programs = [], editionId = '', helpImages = [], legacyAssets = [], adoptionsByTheme = {}, now = Date.now() } = {}) {
   const nodes = {}; const items = []; const itemsByKey = {}; const bySourceKey = {}; const byAssetId = {}; const rootIds = new Set();
@@ -112,11 +113,12 @@ export function buildLibraryTree({ researchRuns = [], contentRuns = [], assets =
     const key = `studio:${asset.id}`;
     let item = itemsByKey[key];
     if (!item) {
-      const image = asset.kind === 'image' || asset.kind === 'video';
-      const types = role === 'report' ? [REPORT_TYPES[asset.deliverableId] || 'draft'] : role === 'kit' ? (image ? ['channel-asset', 'picture'] : ['channel-asset']) : image ? (role === 'draft' ? ['draft', 'picture'] : ['picture']) : ['draft'];
+      // A short video is its own kind (a clip with a poster), filed like a picture but never counted as one.
+      const video = asset.kind === 'video'; const image = asset.kind === 'image'; const visual = image ? 'picture' : 'video';
+      const types = role === 'report' ? [REPORT_TYPES[asset.deliverableId] || 'draft'] : role === 'kit' ? (image || video ? ['channel-asset', visual] : ['channel-asset']) : image || video ? (role === 'draft' ? ['draft', visual] : [visual]) : ['draft'];
       const channelId = channelOfFile(asset.deliverableId, groupEdition);
       item = {
-        key, source: 'studio', id: asset.id, kind: image ? 'image' : 'text', type: image ? 'picture' : types[0], types, title: asset.title || (image ? 'Campaign visual' : 'Untitled draft'),
+        key, source: 'studio', id: asset.id, kind: image ? 'image' : video ? 'video' : 'text', type: image ? 'picture' : video ? 'video' : types[0], types, title: asset.title || (image ? 'Campaign visual' : video ? 'Short video' : 'Untitled draft'),
         deliverableId: asset.deliverableId || '', channelId, channelName: context.channelName || (REPORT_TYPES[asset.deliverableId] ? REPORT_CHANNELS.find((row) => row.id === channelId)?.name : named(channelId)) || text(asset.channel),
         label: context.label || (role === 'report' ? TYPE_LABEL[REPORT_TYPES[asset.deliverableId]] : text(asset.channel)) || '', createdAt: asset.createdAt || '', edited: asset.edited?.at ? asset.edited : null, reviewStatus: asset.reviewStatus || 'draft',
         runId: asset.runId || '', kitRunId: role === 'kit' ? asset.runId : '', trendNodeId: context.trendNodeId || '', variantIndex: Number.isInteger(asset.variantIndex) ? asset.variantIndex : null,
@@ -138,7 +140,7 @@ export function buildLibraryTree({ researchRuns = [], contentRuns = [], assets =
     const quick = isQuickScan(run); const program = programName.get(run.programId) || '';
     const topic = text(run.quickScan?.topic).trim();
     const title = quick ? (topic ? `Quick scan · ${topic}` : run.title || 'Quick scan') : `${dayLabel(run.createdAt, now) || 'Undated'} · ${program || run.title || 'Research run'}`;
-    return node(id, 'research-run', title, '', { subtitle: [quick ? dayLabel(run.createdAt, now) : program && run.title && run.title !== program ? run.title : '', windowLabel(run)].filter(Boolean).join(' · '), date: run.createdAt || '', status: run.status || '', meta: { researchRunId: run.id, programId: run.programId || '', programName: program, origin: quick ? 'quick-scan' : 'research', quickScan: quick ? run.quickScan || null : null } });
+    return node(id, 'research-run', title, '', { subtitle: [quick ? dayLabel(run.createdAt, now) : program && run.title && run.title !== program ? run.title : '', windowLabel(run)].filter(Boolean).join(' · '), date: run.createdAt || '', status: run.status || '', meta: { researchRunId: run.id, programId: run.programId || '', programName: program, origin: quick ? 'quick-scan' : 'research', quickScan: quick ? run.quickScan || null : null, ...(quick ? { themeCount: list(run.discoveredThemes).length, scanReportAssetId: '' } : {}) } });
   }
   const earlierRoot = () => node('earlier', 'earlier', 'Earlier research', '', { subtitle: 'Trends whose research run is no longer in this workspace' });
   const trendNodes = new Map(); // `${researchRunId}:${themeId}` → node
@@ -184,6 +186,33 @@ export function buildLibraryTree({ researchRuns = [], contentRuns = [], assets =
   }
   const newestTrendFor = (themeId) => [...trendNodes.values()].filter((trend) => trend.meta.themeId === themeId).sort((a, b) => time(b.date) - time(a.date))[0]?.id || '';
 
+  // ---- Quick scan trends reports: filed under their scan (drafts made from one sit there too; channel asset sets
+  // made from one stay under Other sources, where both layouts list sets by their source) -------------------------
+  const scanOfReport = new Map(); // quick scan report asset id → its scan's node id
+  for (const run of research.filter((row) => isQuickScan(row))) {
+    const children = runs.filter((row) => row.scanReport && row.researchRunId === run.id).sort(newestFirst);
+    const own = children.flatMap((child) => assetsByRun.get(child.id) || []).sort(newestFirst);
+    const writing = children.some((child) => ACTIVE.has(child.status)) || (ACTIVE.has(run.status) && run.stage === 'scan-report');
+    if (!own.length && !writing) continue;
+    const folder = researchNode(run);
+    if (writing) { folder.live = true; folder.liveText ||= 'Writing the trends report…'; }
+    for (const asset of own) {
+      place(folder, asset, 'report', { words: [folder.title, 'quick scan report'] });
+      scanOfReport.set(asset.id, folder.id);
+      folder.meta.scanReportAssetId ||= asset.id;
+    }
+  }
+  // A file made from a quick scan report (a draft, or a draft of that draft) belongs to its scan: up to three hops.
+  function scanFor(assetId) {
+    let id = assetId;
+    for (let hop = 0; hop < 3 && id; hop += 1) {
+      const found = scanOfReport.get(id); if (found) return found;
+      const run = runById.get(assetById.get(id)?.runId);
+      id = run ? run.kit?.reportAssetId || run.sourceAssetId || '' : '';
+    }
+    return '';
+  }
+
   // ---- Channel assets (kits) ---------------------------------------------------------------------------------
   const kits = runs.filter((run) => run.kit).sort(newestFirst);
   for (const run of kits) {
@@ -217,20 +246,22 @@ export function buildLibraryTree({ researchRuns = [], contentRuns = [], assets =
   }
 
   // ---- Create content drafts ---------------------------------------------------------------------------------
-  for (const run of runs.filter((row) => !row.kit && !row.themeId).sort(newestFirst)) {
+  for (const run of runs.filter((row) => !row.kit && !row.themeId && !row.scanReport).sort(newestFirst)) {
     const own = (assetsByRun.get(run.id) || []).sort(newestFirst); const live = ACTIVE.has(run.status);
     if (!own.length && !live) continue;
     const trendId = run.sourceAssetId ? trendFor(run.sourceAssetId) : '';
+    const scanId = !trendId && run.sourceAssetId ? scanFor(run.sourceAssetId) : '';
     let folder;
     if (trendId) folder = node(`drafts:${trendId}`, 'drafts', 'Drafts', trendId, { subtitle: 'Made with Create content', meta: { trendNodeId: trendId, runIds: [] } });
+    else if (scanId) folder = node(`drafts:${scanId}`, 'drafts', 'Drafts', scanId, { subtitle: 'Made with Create content', meta: { trendNodeId: '', runIds: [] } });
     else { const root = node('loose-drafts', 'orphans', 'Drafts without a trend', '', { subtitle: 'Create content runs from a brief, a document or pasted text' }); folder = node(`draft-run:${run.id}`, 'draft-run', cleanTitle(run.title) || 'Content campaign', root.id, { subtitle: dayLabel(run.createdAt, now), date: run.createdAt || '', status: run.status || '', meta: { runIds: [] } }); }
     folder.meta.runIds.push(run.id);
     if (live) { folder.live = true; folder.liveText ||= 'Writing drafts…'; }
-    const words = trendId ? [nodes[trendId].title, nodes[nodes[trendId].parentId]?.title, run.title] : [run.title];
+    const words = trendId ? [nodes[trendId].title, nodes[nodes[trendId].parentId]?.title, run.title] : scanId ? [nodes[scanId].title, run.title] : [run.title];
     for (const asset of own) place(folder, asset, 'draft', { trendNodeId: trendId, words });
   }
 
-  // ---- Quick scans: a folder only when something was made from them ------------------------------------------
+  // ---- Quick scans: a folder only when something was made from them (their own files) -------------------------
   for (const run of research.filter((row) => isQuickScan(row))) {
     const own = assetsByRun.get(run.id) || [];
     if (!own.length) continue;
@@ -294,7 +325,7 @@ export function buildLibraryTree({ researchRuns = [], contentRuns = [], assets =
     for (const child of value.children) { for (const key of gather(child)) keys.add(key); const below = nodes[child]; if (below.live) { value.live = true; value.liveText ||= below.liveText; } value.counts.trends += below.counts.trends + (below.type === 'trend' ? 1 : 0); value.counts.kits += below.counts.kits + (below.type === 'kit-run' ? 1 : 0); }
     if (value.type === 'research-run' && ACTIVE.has(value.status)) { value.live = true; value.liveText ||= 'Writing reports…'; }
     const rows = [...keys].map((key) => itemsByKey[key]);
-    value.counts.files = rows.length; value.counts.pictures = rows.filter((item) => item.kind === 'image').length; value.counts.written = value.counts.files - value.counts.pictures;
+    value.counts.files = rows.length; value.counts.pictures = rows.filter((item) => item.kind === 'image').length; value.counts.videos = rows.filter((item) => item.kind === 'video').length; value.counts.written = value.counts.files - value.counts.pictures - value.counts.videos;
     value.cover = rows.filter((item) => item.source === 'studio' && item.kind === 'image').sort(newestFirst).slice(0, 3).map((item) => item.id);
     if (!value.date) value.date = rows.map((item) => item.createdAt).sort((a, b) => time(b) - time(a))[0] || '';
     keysUnder.set(id, keys);
@@ -339,11 +370,20 @@ export function filterLibrary(tree, { query = '', types = [], channels = [], fro
   return { active, items: matches.map((item) => ({ ...item, path: pathTo(tree, item.location) })), counts, expand };
 }
 
-// Simple Reports: one entry per trend (its Trends report and Editorial toolkit together), in Library order.
+// Simple Reports: one entry per trend (its Trends report and Editorial toolkit together, kind 'trend') and one per quick
+// scan with a trends report (kind 'scan'), in Library order.
 export function groupReports(tree) {
   const entries = [];
   function visit(id, group) {
     const value = tree?.nodes?.[id]; if (!value) return;
+    if (value.type === 'research-run' && value.meta.origin === 'quick-scan' && value.meta.scanReportAssetId) {
+      const docs = value.itemKeys.map((key) => tree.itemsByKey[key]).filter((item) => item?.type === 'scan-report');
+      const report = docs.find((item) => item.id === value.meta.scanReportAssetId) || docs[0];
+      if (report) {
+        const kits = tree.nodes[`kits:${value.id}`]; const edits = docs.map((item) => item.edited).filter((row) => row?.at).sort((a, b) => time(b.at) - time(a.at));
+        entries.push({ kind: 'scan', key: value.id, nodeId: value.id, title: value.title, themeId: '', priorityTier: '', groupId: value.id, groupTitle: value.title, groupDate: value.date || '', reportId: report.id, toolkitId: '', primaryId: report.id, assetIds: docs.map((item) => item.id), createdAt: report.createdAt || value.date, edited: edits[0] || null, status: value.status, live: value.live, channelAssets: { nodeId: kits?.id || '', files: kits?.counts.files || 0, kits: kits?.counts.kits || 0, live: Boolean(kits?.live) } });
+      }
+    }
     if (value.type === 'trend') {
       const docs = value.itemKeys.map((key) => tree.itemsByKey[key]).filter((item) => item && ['trend-report', 'toolkit'].includes(item.type));
       if (!docs.length) return;
@@ -351,7 +391,7 @@ export function groupReports(tree) {
       const toolkit = docs.find((item) => item.id === value.meta.toolkitAssetId) || docs.find((item) => item.type === 'toolkit') || null;
       const kits = tree.nodes[`kits:${value.id}`];
       const edits = docs.map((item) => item.edited).filter((row) => row?.at).sort((a, b) => time(b.at) - time(a.at));
-      entries.push({ key: value.id, nodeId: value.id, title: value.title, themeId: value.meta.themeId || '', priorityTier: value.meta.priorityTier || '', groupId: group?.id || '', groupTitle: group?.title || 'Earlier research', groupDate: group?.date || '', reportId: report?.id || '', toolkitId: toolkit?.id || '', primaryId: (report || toolkit).id, assetIds: docs.map((item) => item.id), createdAt: [report, toolkit].filter(Boolean).map((item) => item.createdAt).sort((a, b) => time(b) - time(a))[0] || value.date, edited: edits[0] || null, status: value.status, live: value.live, channelAssets: { nodeId: kits?.id || '', files: kits?.counts.files || 0, kits: kits?.counts.kits || 0, live: Boolean(kits?.live) } });
+      entries.push({ kind: 'trend', key: value.id, nodeId: value.id, title: value.title, themeId: value.meta.themeId || '', priorityTier: value.meta.priorityTier || '', groupId: group?.id || '', groupTitle: group?.title || 'Earlier research', groupDate: group?.date || '', reportId: report?.id || '', toolkitId: toolkit?.id || '', primaryId: (report || toolkit).id, assetIds: docs.map((item) => item.id), createdAt: [report, toolkit].filter(Boolean).map((item) => item.createdAt).sort((a, b) => time(b) - time(a))[0] || value.date, edited: edits[0] || null, status: value.status, live: value.live, channelAssets: { nodeId: kits?.id || '', files: kits?.counts.files || 0, kits: kits?.counts.kits || 0, live: Boolean(kits?.live) } });
       return;
     }
     if (value.type === 'research-run' || value.type === 'earlier') for (const child of value.children) visit(child, value);
@@ -365,7 +405,10 @@ export function folderSummary(value, now = Date.now()) {
   if (!value) return '';
   const c = value.counts;
   switch (value.type) {
-    case 'research-run': return [plural(c.trends, 'trend'), plural(c.files, 'file'), c.pictures ? plural(c.pictures, 'picture') : '', value.meta.origin === 'quick-scan' ? '' : dayLabel(value.date, now)].filter(Boolean).join(' · ');
+    case 'research-run':
+      // A quick scan's trends aren't folders of their own; its count comes from the scan, with its trends report.
+      if (value.meta.origin === 'quick-scan') return [plural(value.meta.themeCount ?? c.trends, 'trend'), value.meta.scanReportAssetId ? 'Quick scan report' : '', plural(c.files, 'file'), c.pictures ? plural(c.pictures, 'picture') : ''].filter(Boolean).join(' · ');
+      return [plural(c.trends, 'trend'), plural(c.files, 'file'), c.pictures ? plural(c.pictures, 'picture') : '', dayLabel(value.date, now)].filter(Boolean).join(' · ');
     case 'trend': { const docs = [value.meta.reportAssetId, value.meta.toolkitAssetId].filter(Boolean).length; return [docs === 2 ? 'Report + toolkit' : value.meta.reportAssetId ? 'Trends report' : value.meta.toolkitAssetId ? 'Editorial toolkit' : 'Report not written yet', c.kits ? plural(c.kits, 'asset set') : '', plural(c.files, 'file')].filter(Boolean).join(' · '); }
     case 'kits': return [plural(c.kits, 'set'), plural(c.files, 'file')].join(' · ');
     case 'kit-run': return value.meta.summary || '';

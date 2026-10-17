@@ -108,6 +108,11 @@ async function call(method, channel, payload) {
 // at most.
 const stateListeners = new Set(); let events = null; let parked = false; let retryMs = 0;
 const notify = (next) => { for (const fn of stateListeners) fn(next); };
+// Ask AI's streamed answers and follow-ups ride the same stream as `event: ask` (only this person's). A stream that
+// dropped or stalled can't say what it missed, so its listeners hear { type: 'resync' } and read the answers back.
+const askListeners = new Set();
+const notifyAsk = (event) => { for (const fn of askListeners) { try { fn(event); } catch { /* one listener never stops the rest */ } } };
+const listening = () => stateListeners.size > 0 || askListeners.size > 0;
 const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
 const refreshState = () => postJson('/api/rpc', { channel: 'state' }).then(({ result }) => { if (result && stateListeners.size) notify(result); }).catch(() => {});
 // catchUp: this stream replaces one that dropped, so its hello also fetches what was missed.
@@ -120,10 +125,12 @@ function openEvents(catchUp = false) {
     noteBuild(info.build); refused = Boolean(info.busy); retryMs = 0;
     if (info.busy) { setLive(false, 'busy'); refreshState(); }
     else if (info.restarting) setLive(false, 'restarting');
-    else { if (dropped) refreshState(); setLive(true); }
+    else { if (dropped) { refreshState(); notifyAsk({ type: 'resync' }); } setLive(true); }
     dropped = false;
   });
   source.addEventListener('state-changed', (event) => { let next; try { next = JSON.parse(event.data); } catch { return; } setLive(true); notify(next); });
+  source.addEventListener('ask', (event) => { let next; try { next = JSON.parse(event.data); } catch { return; } if (next && typeof next === 'object') notifyAsk(next); });
+  source.addEventListener('ask-resync', () => notifyAsk({ type: 'resync' }));
   // The same person opened more tabs than the server streams to, and this is the oldest: stop instead of reconnecting
   // (which would only push out the next one). It opens again the next time this tab reads the state.
   source.addEventListener('replaced', () => { source.close(); if (events === source) events = null; });
@@ -136,12 +143,13 @@ function openEvents(catchUp = false) {
       events = null;
       const { result } = await postJson('/api/rpc', { channel: 'state' });
       if (result && stateListeners.size) notify(result);
+      notifyAsk({ type: 'resync' });
     }).catch((error) => {
       // Signed out: the sign-in screen takes over. Otherwise the server is down or restarting; a proxy's 502 meanwhile
       // closes EventSource for good, so open a new stream shortly, waiting longer each time (up to a minute).
       if (error instanceof SignedOut || source.readyState !== EventSource.CLOSED || events !== source) return;
       retryMs = Math.min(60000, retryMs ? retryMs * 2 : 5000);
-      setTimeout(() => { if (events === source && stateListeners.size) { events = null; openEvents(true); } }, retryMs);
+      setTimeout(() => { if (events === source && listening()) { events = null; openEvents(true); } }, retryMs);
     });
   });
 }
@@ -154,12 +162,18 @@ if (typeof document !== 'undefined') document.addEventListener('visibilitychange
     return;
   }
   clearTimeout(hiddenTimer); hiddenTimer = null;
-  if (parked) { parked = false; if (stateListeners.size && !events) { openEvents(); refreshState(); } }
+  if (parked) { parked = false; if (listening() && !events) { openEvents(); refreshState(); notifyAsk({ type: 'resync' }); } }
 });
 function onStateChanged(listener) {
   stateListeners.add(listener);
   if (!events) openEvents();
-  return () => { stateListeners.delete(listener); if (!stateListeners.size && events) { events.close(); events = null; } };
+  return () => { stateListeners.delete(listener); if (!listening() && events) { events.close(); events = null; } };
+}
+function onAskStream(listener) {
+  if (typeof listener !== 'function') return () => {};
+  askListeners.add(listener);
+  if (!events && !hidden()) openEvents();
+  return () => { askListeners.delete(listener); if (!listening() && events) { events.close(); events = null; } };
 }
 
 export function createWebApi() {
@@ -172,6 +186,7 @@ export function createWebApi() {
         : (...args) => call(method, channel, Object.fromEntries(entry.args.map((name, index) => [name, args[index]])));
   }
   api.onStateChanged = onStateChanged;
+  api.onAskStream = onAskStream;
   api.signOut = async () => { await postJson('/api/logout', {}).catch(() => {}); window.location.reload(); };
   return api;
 }

@@ -54,7 +54,7 @@ describe('Settings → Brand reference images', () => {
     const bridge = api({ addBrandImage: vi.fn(async () => { throw new Error('Choose a PNG, JPEG or WebP picture.'); }), readBrandImage: vi.fn(async () => { throw new Error('The reference image “example.png” is missing from the studio’s data folder. Remove it and add it again.'); }) });
     const full = Array.from({ length: 6 }, (_, index) => image(`style-${index}`, 'style', `example-${index}.png`));
     render(<BrandImages api={bridge} workspace={workspace(full)} imagesConfigured={false} />);
-    expect(screen.getByText(/Pictures are drawn once an OpenAI key is saved/)).toBeInTheDocument();
+    expect(screen.getByText(/Pictures are drawn once a picture model is connected under AI connections/)).toBeInTheDocument();
     const editorial = setNamed('Search Engine Land editorial heroes');
     expect(within(editorial).getByRole('button', { name: /Add style example/ })).toBeDisabled(); expect(within(editorial).getByText(/This set is full/)).toBeInTheDocument();
     expect(await within(editorial).findAllByText('File missing')).toHaveLength(6);

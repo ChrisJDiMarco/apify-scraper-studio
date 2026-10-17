@@ -1,6 +1,7 @@
 // Portable content contracts. Source documents are data; this module performs no I/O.
 // Prompt Library: editable instruction blocks and their defaults. A plan reads a run's snapshot (request.prompts).
 const { defaultText, promptBlocks, snapshotBlocks, traceMark } = require('./prompt-template');
+const brandImages = require('./brand-images');
 const MAX_SOURCE_CHARS = 250000;
 const MAX_CONTEXT_CHARS = 400000;
 // Research-theme sources carry the theme's full evidence selection (up to 500 posts) for the paired reports.
@@ -39,12 +40,16 @@ const CONTENT_DELIVERABLES = [
   { id: 'brand-image', label: 'Brand campaign graphic', channel: 'Design', kind: 'image', variants: 3, size: '1536x1024' },
   { id: 'sel-social-image', label: 'SEL social data graphics', channel: 'Search Engine Land', kind: 'image', editions: ['semrush'], variants: 3, size: '1536x1024' },
   { id: 'sel-image', label: 'SEL editorial heroes', channel: 'Search Engine Land', kind: 'image', editions: ['semrush'], variants: 3, size: '1536x1024' },
+  // The first video deliverable: a short social clip made from a trends report in a set of channel assets (kitOnly: Create
+  // content doesn't offer it). Its plan and prompt come from asset-kit.js (video.brief, video.clip); words in AI video
+  // often come out garbled, so the clip has none and its on-screen lines are saved beside it.
+  { id: 'social-video', label: 'Short social video', channel: 'Social', kind: 'video', kitOnly: true, variants: 1, durationSeconds: 8, aspectRatio: '9:16', resolution: '720p', sound: false },
 ];
 // Each written deliverable's instruction and each picture set's three variation directions are Prompt Library defaults
 // (prompt-defaults.json: assets.<id> instruction, pictures.variations <id>), so the catalog and the prompts read one text.
 for (const descriptor of CONTENT_DELIVERABLES) {
   if (descriptor.kind === 'text') descriptor.instruction = defaultText(`assets.${descriptor.id}`, 'instruction');
-  else descriptor.directions = defaultText('pictures.variations', descriptor.id).split('\n');
+  else if (descriptor.kind === 'image') descriptor.directions = defaultText('pictures.variations', descriptor.id).split('\n');
 }
 const DELIVERABLE_BY_ID = new Map(CONTENT_DELIVERABLES.map(value => [value.id, value]));
 const SEMRUSH_KNOWLEDGE_PRESET = Object.freeze({
@@ -140,6 +145,13 @@ function outputSchema(deliverable) {
 }
 // request.prompts is the run's Prompt Library snapshot ({ [promptId]: { blocks } }); without it the defaults apply. It is
 // never part of the context the model sees. trace (previews only) marks where each editable block's text sits.
+// request.references: { [deliverableId]: [{ role: 'style' | 'logo' }] } (at most 16 per picture deliverable).
+function referenceRoles(references, deliverableId) {
+  const list = references && typeof references === 'object' && !Array.isArray(references) ? references[deliverableId] : null;
+  if (list == null) return [];
+  if (!Array.isArray(list) || list.length > 16 || list.some((entry) => !['style', 'logo'].includes(entry?.role))) invalid('references', 'Send up to 16 reference images per picture, each a style example or logo.');
+  return list.map((entry) => ({ role: entry.role }));
+}
 function buildContentPlan(request = {}, { trace = false } = {}) {
   object(request, 'request'); const editionId = edition(request.editionId); const source = normalizeSource(request.source);
   const prompts = request.prompts && typeof request.prompts === 'object' && !Array.isArray(request.prompts) ? request.prompts : null;
@@ -156,12 +168,20 @@ function buildContentPlan(request = {}, { trace = false } = {}) {
     const descriptor = DELIVERABLE_BY_ID.get(id);
     if (!descriptor || (descriptor.editions && !descriptor.editions.includes(editionId))) invalid('deliverableIds', 'A selected deliverable is not available in this edition.');
     const label = editionId === 'semrush' ? descriptor.semrushLabel || descriptor.label : descriptor.label;
+    if (descriptor.kind === 'video') {
+      // Sized for the estimate only; the video's real prompt is written by its brief (asset-kit.js videoBriefRequest).
+      return { id, label, channel: descriptor.channel, kind: 'video', extension: 'mp4', schema: null, prompt: `${rules}\n${editionRules}\nCreate a ${descriptor.durationSeconds}-second ${descriptor.aspectRatio} social video.\nUNTRUSTED_SOURCE_AND_BRAND_DATA:\n${context}`, variants: 1, durationSeconds: descriptor.durationSeconds, aspectRatio: descriptor.aspectRatio, resolution: descriptor.resolution, sound: descriptor.sound };
+    }
     if (descriptor.kind === 'image') {
       const variants = request.imageVariants == null ? descriptor.variants : request.imageVariants;
       if (!Number.isInteger(variants) || variants < 1 || variants > 3) invalid('imageVariants', 'Choose 1, 2, or 3 image variations.');
       const isSel = id.startsWith('sel-');
       const brandDirection = brandImageDirection(editionId, { searchEngineLand: isSel, blocks: snapshotBlocks(prompts, 'pictures.direction'), trace });
-      const prompt = `${rules}\n${editionRules}\nCreate a ${descriptor.size} landscape editorial image. ${brandDirection} ${blocks('pictures.content-image').put('imageRules')}\nUNTRUSTED_SOURCE_AND_BRAND_DATA:\n${context}`;
+      // The brand reference images this picture sends (request.references[id], roles only: style | logo), in the order
+      // the image model receives them. Without any the prompt is exactly what it always was.
+      const refs = referenceRoles(request.references, id);
+      const referenceLines = brandImages.referencePromptLines(refs, { owner: isSel ? 'Search Engine Land ' : editionId === 'semrush' ? 'Semrush ' : '', sel: isSel, dataRule: true });
+      const prompt = `${rules}\n${editionRules}\nCreate a ${descriptor.size} landscape editorial image. ${brandDirection} ${blocks('pictures.content-image').put('imageRules')}${referenceLines.length ? `\n${referenceLines.join('\n')}` : ''}\nUNTRUSTED_SOURCE_AND_BRAND_DATA:\n${context}`;
       return { id, label, channel: descriptor.channel, kind: 'image', extension: 'png', schema: null, prompt, size: descriptor.size, variants, variantPrompts: pictureDirections(id, editionId, prompts, { trace }).slice(0, variants).map((direction, i) => `${prompt}\nVARIATION ${i + 1} OF ${variants}: ${direction}`), referencePolicy: { optional: true, preserveApprovedLogo: true, omitLogoWithoutAsset: true } };
     }
     const sectionRules = descriptor.sections.map(section => `${section.id}: ${section.heading}${section.minItems != null ? `; ${section.minItems === section.maxItems ? `exactly ${section.minItems}` : `${section.minItems}–${section.maxItems}`} structured items` : '; narrative body, empty items allowed'}${section.itemMaxChars ? `; item text at most ${section.itemMaxChars} characters` : ''}`).join('\n');

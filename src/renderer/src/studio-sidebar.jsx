@@ -10,6 +10,7 @@ import { Dialog, DialogClose, MoreMenu, focusables, trapTab, useNarrow } from '.
 import { MAX_FOCUS_CHANNELS, ariaKeys, isChannelViewer, isRealAdmin, itemName, viewAsChoice } from './nav-model.js';
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts.jsx';
 import { WorkingPopover } from './working-popover.jsx';
+import { dragHasStudioRef } from './ask-slash.js';
 import './studio-sidebar.css';
 
 // One left sidebar for every layout and role. App renders it once inside .studio-frame and never remounts it, so focus
@@ -174,6 +175,26 @@ function NavGroups({ groups, activeId, rail, onNavigate, onToggleDataTools }) {
   </nav>;
 }
 
+// The Ask AI item: a dot when an answer finished while Ask AI was closed (help-assistant.jsx sends 'ask-answer-ready'),
+// and, in Simple where Ask AI is a page, holding a dragged report, folder or trend over it for 600 ms opens that page so
+// it can be dropped into the chat.
+function useAskItem(onAsk, springLoaded) {
+  const [dot, setDot] = useState(false);
+  const timer = useRef(null);
+  useEffect(() => {
+    const ready = () => setDot(true);
+    window.addEventListener('ask-answer-ready', ready);
+    return () => { window.removeEventListener('ask-answer-ready', ready); clearTimeout(timer.current); };
+  }, []);
+  const cancel = () => { clearTimeout(timer.current); timer.current = null; };
+  const dragProps = springLoaded && onAsk ? {
+    onDragEnter: (event) => { if (!dragHasStudioRef(event.dataTransfer) || timer.current) return; timer.current = setTimeout(() => { timer.current = null; onAsk(); }, 600); },
+    onDragOver: (event) => { if (dragHasStudioRef(event.dataTransfer)) event.preventDefault(); },
+    onDragLeave: cancel, onDrop: cancel,
+  } : {};
+  return { dot, clear: () => setDot(false), dragProps };
+}
+
 function MyChannelsDialog({ channels, selected, onSave, onClose }) {
   const titleId = useId();
   const [chosen, setChosen] = useState(() => selected.filter((id) => channels.some((row) => row.id === id)).slice(0, MAX_FOCUS_CHANNELS));
@@ -255,6 +276,7 @@ export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: 
   const close = () => { if (drawer) closeRef.current?.(); };
   const [dialog, setDialog] = useState('');
   const { tip, handlers } = useRailTip(railed);
+  const askItem = useAskItem(onAsk, nav?.actions?.ask?.mode === 'page');
   const groups = Array.isArray(nav?.groups) ? nav.groups : [];
   const actions = nav?.actions || {};
   const create = Array.isArray(actions.create) ? actions.create : [];
@@ -337,8 +359,8 @@ export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: 
           <Search size={16} aria-hidden="true" /><span className="sb-text">{search.label}</span><kbd className="sb-kbd" aria-hidden="true">⌘K</kbd>
         </button>}
         {ask && onAsk && <button type="button" className="sb-ask" data-spot={ask.spot} aria-keyshortcuts="Meta+J" title={railed ? undefined : `${ask.label} (⌘J)`} data-tip={railed ? 'Ask AI · ⌘J' : undefined}
-          {...(ask.mode === 'page' ? { 'aria-current': askCurrent ? 'page' : undefined } : { 'aria-expanded': askExpanded, 'aria-controls': 'help-drawer' })} onClick={() => { close(); onAsk(); }}>
-          <Sparkles size={17} strokeWidth={1.9} aria-hidden="true" /><span className="sb-text">{ask.label}</span><kbd className="sb-kbd" aria-hidden="true">⌘J</kbd>
+          {...(ask.mode === 'page' ? { 'aria-current': askCurrent ? 'page' : undefined } : { 'aria-expanded': askExpanded, 'aria-controls': 'help-drawer' })} {...askItem.dragProps} onClick={() => { close(); askItem.clear(); onAsk(); }}>
+          <Sparkles size={17} strokeWidth={1.9} aria-hidden="true" /><span className="sb-text">{ask.label}</span>{askItem.dot && !askCurrent && !askExpanded && <span className="sb-ask-dot" role="img" aria-label="A new answer is ready" />}<kbd className="sb-kbd" aria-hidden="true">⌘J</kbd>
         </button>}
       </div>}
       <NavGroups groups={groups} activeId={activeId} rail={railed} onNavigate={go} onToggleDataTools={onToggleDataTools} />
