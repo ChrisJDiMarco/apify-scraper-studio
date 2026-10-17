@@ -120,8 +120,8 @@ const SCAN_SCHEMA = { type: 'object', additionalProperties: false, required: ['t
   itemsPerPlatform: I, commentsPerPost: I, lookbackHours: I, aiBudgetUsd: N, collectionBudgetUsd: N, programId: S,
 } };
 // Flat on purpose: one object type for every card keeps the schema valid on the API, the Claude app and Codex (no anyOf).
-const cardSchema = (types = CARD_TYPES) => ({ type: 'object', additionalProperties: false, required: ['type', 'ref', 'title', 'note', 'items', 'fields', 'columns', 'rows', 'actionIndexes'], properties: {
-  type: { type: 'string', enum: types }, ref: S, title: S, note: S,
+const cardSchema = () => ({ type: 'object', additionalProperties: false, required: ['type', 'ref', 'title', 'note', 'items', 'fields', 'columns', 'rows', 'actionIndexes'], properties: {
+  type: S, ref: S, title: S, note: S,
   items: { type: 'array', maxItems: 8, items: S },
   fields: { type: 'array', maxItems: 4, items: { type: 'object', additionalProperties: false, required: ['label', 'value'], properties: { label: S, value: S } } },
   columns: { type: 'array', maxItems: 5, items: S },
@@ -129,24 +129,26 @@ const cardSchema = (types = CARD_TYPES) => ({ type: 'object', additionalProperti
   actionIndexes: { type: 'array', maxItems: 4, items: I },
 } });
 // edit-prompt's proposal. Every action carries it once edits are on (strict schema); other actions send "" everywhere.
-const promptEditSchema = (editionId) => ({ type: 'object', additionalProperties: false, required: ['promptId', 'blockId', 'text', 'note'], properties: { promptId: { type: 'string', enum: ['', ...editablePrompts(editionId).map((entry) => entry.id)] }, blockId: S, text: S, note: S } });
+const promptEditSchema = () => ({ type: 'object', additionalProperties: false, required: ['promptId', 'blockId', 'text', 'note'], properties: { promptId: S, blockId: S, text: S, note: S } });
 
 // `promptAccess` (see promptRights) adds the prompt lookup, the Prompts page and spots, and for people who can save
 // prompts the edit-prompt action with its prompt field and the prompt-change card.
+// Long lists of allowed values (spots, pages, prompt ids, action kinds, card types) are plain strings here: the API compiles
+// the schema into a grammar and refuses one that grows too large. The prompt lists the valid values and cleanReply drops
+// anything else, so the reply is checked just as strictly. Keep enums to short, fixed lists.
 function helpSchema(imageSizes = IMAGE_SIZES, { role = 'admin', promptAccess = null, access = null } = {}) {
-  const rights = promptRights(promptAccess); const reach = reachOf(access);
-  const spotIds = spotsFor(role, rights).map((spot) => spot.id);
-  const action = { kind: { type: 'string', enum: Object.keys(actionsFor(rights, reach)) }, label: S, target: S, scan: SCAN_SCHEMA, ...(rights.edit ? { prompt: promptEditSchema(rights.editionId) } : {}) };
+  const rights = promptRights(promptAccess);
+  const action = { kind: S, label: S, target: S, scan: SCAN_SCHEMA, ...(rights.edit ? { prompt: promptEditSchema() } : {}) };
   return { type: 'object', additionalProperties: false, required: ['answer', 'pages', 'followUps', 'image', 'actions', 'show', 'lookups', 'cards', 'remember', 'summary', 'title'], properties: {
     answer: S,
     // A picture to create for this reply (create: false for ordinary answers).
     image: { type: 'object', additionalProperties: false, required: ['create', 'title', 'prompt', 'size'], properties: { create: { type: 'boolean' }, title: S, prompt: S, size: { type: 'string', enum: imageSizes } } },
-    pages: { type: 'array', maxItems: 3, items: { type: 'object', additionalProperties: false, required: ['page', 'label'], properties: { page: { type: 'string', enum: pagesFor(role, rights, reach) }, label: S } } },
+    pages: { type: 'array', maxItems: 3, items: { type: 'object', additionalProperties: false, required: ['page', 'label'], properties: { page: S, label: S } } },
     followUps: { type: 'array', maxItems: 3, items: S },
     actions: { type: 'array', maxItems: 4, items: { type: 'object', additionalProperties: false, required: Object.keys(action), properties: action } },
-    show: { type: 'object', additionalProperties: false, required: ['autoStart', 'steps'], properties: { autoStart: { type: 'boolean' }, steps: { type: 'array', maxItems: 5, items: { type: 'object', additionalProperties: false, required: ['target', 'item', 'say'], properties: { target: { type: 'string', enum: spotIds }, item: S, say: S } } } } },
+    show: { type: 'object', additionalProperties: false, required: ['autoStart', 'steps'], properties: { autoStart: { type: 'boolean' }, steps: { type: 'array', maxItems: 5, items: { type: 'object', additionalProperties: false, required: ['target', 'item', 'say'], properties: { target: S, item: S, say: S } } } } },
     lookups: { type: 'array', maxItems: 3, items: { type: 'object', additionalProperties: false, required: ['kind', 'target'], properties: { kind: { type: 'string', enum: lookupKindsFor(rights) }, target: S } } },
-    cards: { type: 'array', maxItems: 4, items: cardSchema(cardTypesFor(rights)) },
+    cards: { type: 'array', maxItems: 4, items: cardSchema() },
     remember: { type: 'array', maxItems: 3, items: { type: 'object', additionalProperties: false, required: ['kind', 'text', 'scope', 'replaces'], properties: { kind: { type: 'string', enum: MEMORY_KINDS }, text: S, scope: { type: 'string', enum: ['me', 'workspace'] }, replaces: S } } },
     // A fresh rolling summary when older turns are waiting to be folded in, else "".
     summary: S,

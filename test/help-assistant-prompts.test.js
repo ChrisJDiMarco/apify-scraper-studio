@@ -11,6 +11,7 @@ const EDITOR = { view: true, edit: true, admin: false, editionId: 'semrush' };
 const VIEWER = { view: true, edit: false, admin: false, editionId: 'semrush' };
 const parts = (options) => { const { prefix, body } = help.helpPromptParts({ question: 'What is rising?', history: [], guide: 'GUIDE', ...options }); return prefix + body; };
 const blank = { promptId: '', blockId: '', text: '', note: '' };
+const card = { type: 'trend', ref: 'Find candidate trends', title: '', note: '', items: [], fields: [], columns: [], rows: [], actionIndexes: [] };
 
 describe('Ask AI reads its own saved prompt', () => {
   it('is the same text with the defaults, and uses a saved block in its place', () => {
@@ -61,9 +62,11 @@ describe('prompt rules, lookups and the edit button', () => {
     const schema = help.helpSchema(undefined, { role: 'editor' });
     expect(schema.properties.actions.items.required).toEqual(['kind', 'label', 'target', 'scan']);
     expect(schema.properties.lookups.items.properties.kind.enum).not.toContain('prompt');
-    expect(schema.properties.cards.items.properties.type.enum).not.toContain('prompt-change');
-    expect(schema.properties.pages.items.properties.page.enum).not.toContain('prompts');
-    expect(schema.properties.show.properties.steps.items.properties.target.enum).not.toContain('nav.prompts');
+    // Pages, spots and card types are plain strings in the schema; the reply cleaner drops what this person can't use.
+    const reply = help.cleanReply({ answer: 'x', pages: [{ page: 'prompts', label: 'Prompts' }], cards: [{ ...card, type: 'prompt-change' }], show: { autoStart: false, steps: [{ target: 'nav.prompts', item: '', say: 'Prompts live here.' }] } }, { role: 'editor' });
+    expect(reply.pages).toEqual([]);
+    expect(reply.cards).toEqual([]);
+    expect(reply.show).toBeNull();
   });
   it('lets a reader look prompts up and open Prompts, but not propose edits', () => {
     const text = parts({ context: { layout: 'simple', role: 'editor' }, role: 'editor', promptAccess: VIEWER });
@@ -73,8 +76,9 @@ describe('prompt rules, lookups and the edit button', () => {
     expect(text).not.toContain('edit-prompt:');
     const schema = help.helpSchema(undefined, { role: 'editor', promptAccess: VIEWER });
     expect(schema.properties.lookups.items.properties.kind.enum).toContain('prompt');
-    expect(schema.properties.pages.items.properties.page.enum).toContain('prompts');
-    expect(schema.properties.actions.items.properties.kind.enum).not.toContain('edit-prompt');
+    const reply = help.cleanReply({ answer: 'x', pages: [{ page: 'prompts', label: 'Prompts' }], actions: [{ kind: 'edit-prompt', label: 'Change it', target: 'Find candidate trends', scan: {}, prompt: { promptId: 'research.discovery', blockId: 'empty', text: 'Return nothing.', note: '' } }] }, { role: 'editor', promptAccess: VIEWER });
+    expect(reply.pages).toEqual([{ page: 'prompts', label: 'Prompts' }]);
+    expect(reply.actions).toEqual([]);
   });
   it('gives an editor the edit button with a strict prompt field naming only editable prompts', () => {
     const text = parts({ context: { layout: 'simple', role: 'editor' }, role: 'editor', promptAccess: EDITOR });
@@ -87,11 +91,12 @@ describe('prompt rules, lookups and the edit button', () => {
     const action = schema.properties.actions.items;
     expect(action.required).toEqual(['kind', 'label', 'target', 'scan', 'prompt']);
     expect(action.properties.prompt).toMatchObject({ additionalProperties: false, required: ['promptId', 'blockId', 'text', 'note'] });
-    const ids = action.properties.prompt.properties.promptId.enum;
-    expect(ids[0]).toBe('');
-    expect(ids).toContain('research.discovery');
-    expect(ids).not.toContain('system.claude'); // nothing in it can change
-    expect(schema.properties.cards.items.properties.type.enum).toContain('prompt-change');
+    expect(action.properties.prompt.properties.promptId).toEqual({ type: 'string' });
+    // Only editable prompts survive the cleaner: system.claude has nothing that can change.
+    const edit = (promptId, blockId) => ({ kind: 'edit-prompt', label: '', target: '', scan: {}, prompt: { promptId, blockId, text: 'Return nothing.', note: '' } });
+    expect(help.cleanReply({ answer: 'x', actions: [edit('system.claude', 'body')] }, { role: 'editor', promptAccess: EDITOR }).actions).toEqual([]);
+    expect(help.cleanReply({ answer: 'x', actions: [edit('research.discovery', 'empty')] }, { role: 'editor', promptAccess: EDITOR }).actions).toHaveLength(1);
+    expect(help.cleanReply({ answer: 'x', cards: [{ ...card, type: 'prompt-change' }] }, { role: 'editor', promptAccess: EDITOR }).cards.map((row) => row.type)).toEqual(['prompt-change']);
   });
   it('keeps one checked edit per reply and drops the rest', () => {
     const output = { answer: 'Here is a change.', actions: [
@@ -151,5 +156,17 @@ describe('asking with prompt lookups', () => {
       generate: async () => ({ output: { answer: 'I can’t open prompts.', lookups: [{ kind: 'prompt', target: 'research.discovery' }] }, receipt: {} }),
     });
     expect(read).toEqual([]);
+  });
+});
+
+describe('the Ask AI answer schema stays small enough for the API', () => {
+  // The Anthropic API compiles the schema into a grammar and refuses a large one ("The compiled grammar is too large").
+  // Long lists of allowed values are what grow it, so they stay plain strings and the reply cleaner checks them.
+  it('keeps every list of allowed values short, for every role', () => {
+    for (const options of [{ role: 'admin', promptAccess: { ...EDITOR, admin: true } }, { role: 'editor', promptAccess: EDITOR }, { role: 'editor' }]) {
+      const lists = []; (function walk(node) { if (node && typeof node === 'object') { if (Array.isArray(node.enum)) lists.push(node.enum.length); Object.values(node).forEach(walk); } })(help.helpSchema(undefined, options));
+      expect(Math.max(...lists)).toBeLessThanOrEqual(10);
+      expect(lists.reduce((sum, n) => sum + n, 0)).toBeLessThanOrEqual(40);
+    }
   });
 });

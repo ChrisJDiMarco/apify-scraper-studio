@@ -455,7 +455,7 @@ describe('Ask AI', () => {
     expect(editor).not.toContain('knowledge = Brand knowledge'); expect(editor).toContain('open-tab: target = home, trends, reports, assets, inbox, calendar or ask.');
     const admin = help.helpPrompt({ question: 'Can I make pictures?', context: { layout: 'classic' }, guide: '' });
     expect(admin).toContain('Settings → Image generation'); expect(admin).toMatch(/^nav\.settings:/m); expect(admin).toContain('the Advanced layout');
-    expect(help.helpSchema(undefined, { role: 'editor' }).properties.pages.items.properties.page.enum).not.toContain('settings');
+    expect(help.helpSchema(undefined, { role: 'editor' }).properties.pages.items.properties.page).toEqual({ type: 'string' });
     const raw = { answer: 'Ask an admin.', pages: [{ page: 'knowledge', label: 'Brand' }, { page: 'settings', label: 'Settings' }, { page: 'research', label: 'Research' }], actions: [{ kind: 'open-tab', label: 'Settings', target: 'settings' }, { kind: 'open-tab', label: 'Trends', target: 'trends' }], show: { autoStart: true, steps: [{ target: 'nav.settings', item: '', say: 'Settings live here.' }, { target: 'settings.images', item: '', say: 'Turn pictures on.' }, { target: 'nav.people', item: '', say: 'People.' }, { target: 'nav.trends', item: '', say: 'Trends are here.' }] } };
     const reply = help.cleanReply(raw, { role: 'editor' });
     expect(reply.pages).toEqual([{ page: 'research', label: 'Research' }]);
@@ -475,7 +475,7 @@ describe('Ask AI', () => {
     expect(calls[0].stdin).toContain('PROMPTS (the instructions behind research');
     expect(calls[0].stdin).toContain('edit-prompt: target');
     expect(calls[0].stdin).toContain('"id": "research.discovery"');
-    expect(JSON.parse(calls[0].args[calls[0].args.indexOf('--json-schema') + 1]).properties.actions.items.properties.prompt.properties.promptId.enum).toContain('research.discovery');
+    expect(JSON.parse(calls[0].args[calls[0].args.indexOf('--json-schema') + 1]).properties.actions.items.properties.prompt.properties.promptId).toEqual({ type: 'string' });
     expect(calls[1].stdin).toContain('"kind": "editable"');
     // One edit per reply; nothing was saved by the answer itself.
     expect(reply.message.actions.map((action) => action.kind)).toEqual(['edit-prompt', 'open-tab']);
