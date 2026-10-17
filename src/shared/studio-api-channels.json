@@ -38,6 +38,7 @@
     "estimateQuickScan": "studio:estimateQuickScan",
     "startQuickScan": "studio:startQuickScan",
     "readTrendHistory": "studio:readTrendHistory",
+    "readTrendPosts": "studio:readTrendPosts",
     "listPrompts": "studio:listPrompts",
     "readPrompt": "studio:readPrompt",
     "previewPrompt": "studio:previewPrompt",

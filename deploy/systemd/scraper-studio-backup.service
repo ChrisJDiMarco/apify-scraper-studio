@@ -1,0 +1,17 @@
+# One backup of the studio's data folder, safe while the studio runs (scripts/studio-backup.cjs). Run by the timer.
+[Unit]
+Description=Scraper Studio backup
+After=scraper-studio.service
+
+[Service]
+Type=oneshot
+User=studio
+Group=studio
+UMask=0077
+Environment=STUDIO_DATA_DIR=/var/lib/scraper-studio STUDIO_BACKUP_DIR=/var/backups/scraper-studio STUDIO_BACKUP_KEEP=14
+ExecStart=/usr/bin/node /opt/scraper-studio/scripts/studio-backup.cjs
+# Create the folder once: sudo install -d -m 700 -o studio -g studio /var/backups/scraper-studio
+ReadWritePaths=/var/backups/scraper-studio
+ProtectSystem=strict
+ReadOnlyPaths=/var/lib/scraper-studio
+NoNewPrivileges=yes

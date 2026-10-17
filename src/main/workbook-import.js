@@ -11,6 +11,11 @@ const MAX_SHEETS = 60;
 const MAX_ROWS = 60000;
 const MAX_COLUMNS = 256;
 const MAX_CELL_CHARS = 50000;
+// The grid a sheet fills is its bounding box (A1 to the last used cell), not the cells it lists, so a few-KB file with
+// only A1 and IV60000 would ask for 15 million cells. Both budgets are checked before any grid is built; a real 60,000-row
+// tab of 50 columns still fits.
+const MAX_SHEET_CELLS = 3000000;
+const MAX_WORKBOOK_CELLS = 6000000;
 const SHEET_NS = new Set(['http://schemas.openxmlformats.org/spreadsheetml/2006/main', 'http://purl.oclc.org/ooxml/spreadsheetml/main']);
 const BUILT_IN_DATE_FORMATS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47]);
 
@@ -102,7 +107,7 @@ function formatNumber(raw, style, date1904) {
   return String(Number(value.toPrecision(15)));
 }
 
-function parseWorksheet(xml, { sharedStrings, styles, date1904 }) {
+function parseWorksheet(xml, { sharedStrings, styles, date1904 }, budget) {
   const rows = []; const parser = xmlParser(); let row = null; let rowIndex = -1; let cell = null; let capture = ''; let nextColumn = 0; let nodes = 0; let frozenColumns = 0;
   parser.on('opentag', node => {
     if (!SHEET_NS.has(node.uri)) return;
@@ -135,17 +140,21 @@ function parseWorksheet(xml, { sharedStrings, styles, date1904 }) {
     } else if (node.local === 'row' && row) { rows[rowIndex] = row; row = null; }
   });
   parser.write(xml).close();
-  return { rows: tidyRows(rows), frozenColumns };
+  return { rows: tidyRows(rows, budget), frozenColumns };
 }
 
-// Dense rectangular rows with trailing empty rows and columns removed (sheets often carry formatted blanks).
-function tidyRows(rows) {
+// Dense rectangular rows with trailing empty rows and columns removed (sheets often carry formatted blanks). `budget`
+// is the cells the whole workbook may still fill; the bounds are checked before the grid is allocated.
+function tidyRows(rows, budget = { cells: MAX_WORKBOOK_CELLS }) {
   let lastRow = -1; let width = 0;
   rows.forEach((row, index) => {
     if (!row) return;
     let last = -1; for (let i = row.length - 1; i >= 0; i--) if (row[i] !== undefined && row[i] !== '') { last = i; break; }
     if (last >= 0) { lastRow = index; width = Math.max(width, last + 1); }
   });
+  const cells = (lastRow + 1) * width;
+  if (cells > MAX_SHEET_CELLS) fail('file', `A sheet spans ${(lastRow + 1).toLocaleString('en-US')} rows × ${width} columns, more than ${MAX_SHEET_CELLS.toLocaleString('en-US')} cells. Delete the unused rows and columns at its edges, or split it, then import again.`);
+  if ((budget.cells -= cells) < 0) fail('file', 'This workbook has more cells than the studio can import at once. Split it into smaller files.');
   const out = [];
   for (let index = 0; index <= lastRow; index++) { const row = rows[index] || []; out.push(Array.from({ length: width }, (_, column) => row[column] ?? '')); }
   return out;
@@ -172,6 +181,7 @@ async function readXlsx(buffer, fileName) {
     relations.write(relationsXml).close();
   }
   const context = { sharedStrings: parseSharedStrings(await read('xl/sharedStrings.xml')), styles: parseStyles(await read('xl/styles.xml')), date1904 };
+  const budget = { cells: MAX_WORKBOOK_CELLS }; // shared by every sheet of this file
   const sheets = []; const warnings = [];
   for (const sheet of declared) {
     if (sheet.state === 'veryHidden') continue;
@@ -179,7 +189,7 @@ async function readXlsx(buffer, fileName) {
     const target = targets.get(sheet.relationship) || '';
     const partPath = target.startsWith('/') ? target.slice(1) : path.posix.normalize(path.posix.join('xl', target));
     if (!partPath.startsWith('xl/') || !entries.has(partPath)) { warnings.push(`“${sheet.name}” could not be found in the file and was skipped.`); continue; }
-    const { rows, frozenColumns } = parseWorksheet(await read(partPath), context);
+    const { rows, frozenColumns } = parseWorksheet(await read(partPath), context, budget);
     sheets.push({ name: sheet.name.slice(0, 120), hidden: sheet.state === 'hidden', rows, ...(frozenColumns ? { frozenColumns } : {}) });
   }
   if (!sheets.length) fail('file', 'This workbook has no sheets with readable cells.');
@@ -245,4 +255,4 @@ async function readWorkbookFile(filePath) {
   return parseWorkbookBuffer({ buffer: await fs.readFile(filePath), fileName: path.basename(filePath) });
 }
 
-module.exports = { MAX_WORKBOOK_BYTES, MAX_ROWS, MAX_COLUMNS, parseWorkbookBuffer, readWorkbookFile, parseDelimited, columnIndex, formatSerialDate };
+module.exports = { MAX_WORKBOOK_BYTES, MAX_ROWS, MAX_COLUMNS, MAX_SHEET_CELLS, MAX_WORKBOOK_CELLS, parseWorkbookBuffer, readWorkbookFile, parseDelimited, columnIndex, formatSerialDate };

@@ -94,11 +94,25 @@ describe('Sheets view', () => {
     fireEvent.keyDown(editor, { key: 'Enter' });
     expect(cell('EVERGREEN')).toHaveClass('edited');
     expect(nameBox()).toHaveTextContent('B3');
-    await waitFor(() => expect(bridge.saveWorkbookEdits).toHaveBeenCalledWith({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: { t1: { Novelty: 'EVERGREEN' } } } } }), { timeout: 2000 });
+    // Each save sends what the page loaded or last saved (`base`), so the server applies only what changed here.
+    await waitFor(() => expect(bridge.saveWorkbookEdits).toHaveBeenCalledWith({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: { t1: { Novelty: 'EVERGREEN' } } } }, base: { version: 1, sheets: {} } }), { timeout: 2000 });
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     expect(within(grid()).queryByText('EVERGREEN')).not.toBeInTheDocument();
     expect(cell('NEW ANGLE')).not.toHaveClass('edited');
-    await waitFor(() => expect(bridge.saveWorkbookEdits).toHaveBeenLastCalledWith({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: {} } } }), { timeout: 2000 });
+    // The revert is saved against that base, so it lands even when the server has restarted since.
+    await waitFor(() => expect(bridge.saveWorkbookEdits).toHaveBeenLastCalledWith({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: {} } }, base: { version: 1, sheets: { themes: { t1: { Novelty: 'EVERGREEN' } } } } }), { timeout: 2000 });
+  });
+
+  it('says which edits weren’t saved because someone else changed those cells', async () => {
+    const bridge = await open({ api: api({ saveWorkbookEdits: vi.fn(async () => ({ savedAt: 'now', edits: { version: 1, sheets: {} }, conflicts: [{ sheetId: 'themes', rowKey: 't1', columnKey: 'Novelty', stored: 'EVERGREEN', by: 'Riley' }] })) }) });
+    fireEvent.mouseDown(cell('NEW ANGLE'), { button: 0 });
+    fireEvent.keyDown(grid(), { key: 'E' });
+    const editor = screen.getByLabelText('Edit Novelty');
+    fireEvent.change(editor, { target: { value: 'NEW TOPIC' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    await waitFor(() => expect(bridge.saveWorkbookEdits).toHaveBeenCalled(), { timeout: 2000 });
+    expect(await screen.findByText(/Someone else changed 1 cell you edited, so their value was kept\. Reopen the sheet/)).toBeInTheDocument();
+    expect(screen.getByText('Not saved')).toBeInTheDocument();
   });
 
   it('copies a selection as tab-separated cells that paste straight into Google Sheets', async () => {

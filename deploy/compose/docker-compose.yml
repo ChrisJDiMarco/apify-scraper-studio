@@ -1,0 +1,90 @@
+# Scraper Studio behind company sign-in, on one host:
+#   browser ──TLS──▶ caddy :443 ──▶ oauth2-proxy :4180 (Google Workspace or Okta) ──▶ studio :4174
+# Only oauth2-proxy can reach the studio: they share the internal "backend" network, and the studio believes the
+# signed-in email header only from oauth2-proxy's fixed address there (STUDIO_TRUSTED_PROXY_CIDRS).
+#
+# Setup (see README.md in this folder):
+#   cp studio.env.example studio.env                 # domain, allowed email domain, admin emails
+#   cp oauth2-proxy.env.example oauth2-proxy.env     # OAuth client id/secret and cookie secret
+#   cp oauth2-proxy.cfg.example oauth2-proxy.cfg
+#   sudo install -m 400 -o root -g root secrets.env.example secrets.env   # then edit: STUDIO_SECRET_KEY
+#   STUDIO_DOMAIN=studio.example.com docker compose up -d --build
+name: scraper-studio
+
+services:
+  studio:
+    build: ../..
+    image: scraper-studio:latest
+    restart: unless-stopped
+    env_file: studio.env
+    environment:
+      # Read once at start, as root, before the server switches to the node user (who can't open it again).
+      STUDIO_SECRETS_FILE: /run/secrets/studio
+      STUDIO_TRUSTED_EMAIL_HEADER: x-forwarded-email
+      STUDIO_TRUSTED_PROXY_CIDRS: 172.30.10.10/32
+      STUDIO_DRAIN_SECONDS: "120"
+    secrets:
+      - source: studio
+        target: studio
+    volumes:
+      - studio-data:/data
+      - ./backups:/backups # docker compose exec studio node scripts/studio-backup.cjs --out /backups --keep 14
+    networks:
+      backend:
+        ipv4_address: 172.30.10.20
+      egress: {} # the studio calls Apify, Anthropic, OpenAI and Google; nothing else is on this network
+    # Longer than STUDIO_DRAIN_SECONDS, so running work can finish before Docker sends SIGKILL.
+    stop_grace_period: 150s
+    mem_limit: 4g
+    # No ports: nothing but oauth2-proxy reaches the studio. The image's HEALTHCHECK probes /readyz.
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+    restart: unless-stopped
+    command: ["--config=/etc/oauth2-proxy.cfg"]
+    env_file: oauth2-proxy.env
+    volumes:
+      - ./oauth2-proxy.cfg:/etc/oauth2-proxy.cfg:ro
+    networks:
+      backend:
+        ipv4_address: 172.30.10.10
+      frontend: {}
+    depends_on:
+      - studio
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    environment:
+      STUDIO_DOMAIN: ${STUDIO_DOMAIN:?Set STUDIO_DOMAIN to the studio's subdomain, for example studio.example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - frontend
+    depends_on:
+      - oauth2-proxy
+
+secrets:
+  studio:
+    # Without Swarm this is a bind mount: the host file's own owner and mode apply, so keep it root:root 0400.
+    file: ./secrets.env
+
+networks:
+  frontend: {}
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24
+  egress: {}
+
+volumes:
+  studio-data: {}
+  caddy-data: {}
+  caddy-config: {}

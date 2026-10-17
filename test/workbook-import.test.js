@@ -53,6 +53,28 @@ describe('xlsx import', () => {
     expect(['A1', 'Z9', 'AA10', 'BA2', ''].map(columnIndex)).toEqual([0, 25, 26, 52, -1]);
   });
 
+  // A few-KB file whose cells sit at the far corners would ask for a dense grid of millions of cells (fortify D1).
+  function cornersXlsx(sheets) {
+    const files = {
+      'xl/workbook.xml': `<?xml version="1.0"?><workbook ${NS}><sheets>${sheets.map((_, index) => `<sheet name="S${index + 1}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('')}</sheets></workbook>`,
+      'xl/_rels/workbook.xml.rels': `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Target="worksheets/sheet${index + 1}.xml"/>`).join('')}</Relationships>`,
+    };
+    sheets.forEach((last, index) => { files[`xl/worksheets/sheet${index + 1}.xml`] = `<?xml version="1.0"?><worksheet ${NS}><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>a</t></is></c></row><row r="${last.row}"><c r="${last.cell}${last.row}" t="inlineStr"><is><t>z</t></is></c></row></sheetData></worksheet>`; });
+    return zip(files);
+  }
+  it('refuses a sparse sheet whose used range is too large, before filling it in', async () => {
+    const buffer = cornersXlsx([{ row: 60000, cell: 'IV' }]);
+    expect(buffer.length).toBeLessThan(2000);
+    const before = process.memoryUsage().heapUsed;
+    await expect(parseWorkbookBuffer({ buffer, fileName: 'corners.xlsx' })).rejects.toMatchObject({ field: 'file', message: expect.stringMatching(/60,000 rows × 256 columns.*unused rows and columns/) });
+    expect(process.memoryUsage().heapUsed - before).toBeLessThan(60 * 1024 * 1024);
+  });
+  it('caps the cells of the whole workbook as well as each sheet', async () => {
+    // Three sheets of 60,000 × 40 = 2.4M cells each: each fits a sheet, together they pass the 6M workbook budget.
+    await expect(parseWorkbookBuffer({ buffer: cornersXlsx([{ row: 60000, cell: 'AN' }, { row: 60000, cell: 'AN' }, { row: 60000, cell: 'AN' }]), fileName: 'three.xlsx' })).rejects.toMatchObject({ field: 'file', message: expect.stringMatching(/more cells than the studio can import at once/) });
+    expect(importer.MAX_SHEET_CELLS).toBe(3000000); expect(importer.MAX_WORKBOOK_CELLS).toBe(6000000);
+  });
+
   it('refuses files it cannot read and explains how to get a usable copy', async () => {
     await expect(parseWorkbookBuffer({ buffer: Buffer.from('not a zip'), fileName: 'sheet.xlsx' })).rejects.toThrow(/Download it again/);
     await expect(parseWorkbookBuffer({ buffer: Buffer.from('a,b'), fileName: 'sheet.pdf' })).rejects.toThrow(/\.xlsx, \.csv or \.tsv/);

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import secretsModule from '../src/main/web-secrets.js';
 const { parseSecrets, readSecrets } = secretsModule;
@@ -8,12 +10,14 @@ const { parseSecrets, readSecrets } = secretsModule;
 // a process can't take back its starting environment, and on the Codex route the AI can read any same-user process's.
 const KEY = 'fixture-secret-key-0123456789abcdef0123';
 const PASSWORD = 'fixture-admin-password-123';
+// Interpolated, never written as a literal NAME=value line, so scripts/make-handoff.sh's key scan doesn't match it.
+const PROXY_SECRET = 'fixture-proxy-secret-0123';
 
 describe('the browser studio’s secrets', () => {
   it('reads NAME=value lines from the descriptor, closes it, and prefers it to the environment', () => {
     const closed = [];
     const read = readSecrets({ env: { STUDIO_SECRETS_FD: '3', STUDIO_PASSWORD: 'from-the-environment-0000' }, readFd: (fd) => (fd === 3 ? `# studio\nexport STUDIO_SECRET_KEY="${KEY}"\nSTUDIO_PASSWORD='${PASSWORD}'\nOTHER=1\n` : ''), closeFd: (fd) => closed.push(fd) });
-    expect(read).toEqual({ values: { STUDIO_SECRET_KEY: KEY, STUDIO_PASSWORD: PASSWORD }, fromEnvironment: ['STUDIO_PASSWORD'], unknown: ['OTHER'] });
+    expect(read).toEqual({ values: { STUDIO_SECRET_KEY: KEY, STUDIO_PASSWORD: PASSWORD }, fromEnvironment: ['STUDIO_PASSWORD'], unknown: ['OTHER'], source: 'fd', file: '' });
     expect(closed).toEqual([3]); // every program the server starts would inherit an open descriptor 3
     // Standard input stays open (drained), so nothing else takes descriptor 0.
     const stdin = []; readSecrets({ env: { STUDIO_SECRETS_FD: '0' }, readFd: () => '', closeFd: (fd) => stdin.push(fd) });
@@ -21,10 +25,23 @@ describe('the browser studio’s secrets', () => {
   });
 
   it('still accepts the environment, but says so, and refuses a malformed descriptor or file', () => {
-    expect(readSecrets({ env: { STUDIO_SECRET_KEY: KEY } })).toEqual({ values: { STUDIO_SECRET_KEY: KEY }, fromEnvironment: ['STUDIO_SECRET_KEY'], unknown: [] });
+    expect(readSecrets({ env: { STUDIO_SECRET_KEY: KEY } })).toEqual({ values: { STUDIO_SECRET_KEY: KEY }, fromEnvironment: ['STUDIO_SECRET_KEY'], unknown: [], source: '', file: '' });
     expect(() => readSecrets({ env: { STUDIO_SECRETS_FD: 'stdin' } })).toThrow(/number of an open file descriptor/);
     expect(() => readSecrets({ env: { STUDIO_SECRETS_FD: '9' }, readFd: () => { throw Object.assign(new Error('bad'), { code: 'EBADF' }); } })).toThrow(/STUDIO_SECRETS_FD 9 could not be read \(EBADF\)/);
     expect(() => parseSecrets('just a password')).toThrow(/NAME=value lines/);
+  });
+
+  // Compose secrets, Kubernetes Secret volumes and ECS init containers deliver a file; it survives restarts, unlike a pipe.
+  it('reads a mounted secrets file, including the proxy secret, and refuses a descriptor and a file together', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'web-secrets-test-')); const file = path.join(dir, 'studio');
+    try {
+      fs.writeFileSync(file, `STUDIO_SECRET_KEY=${KEY}\nSTUDIO_PROXY_SECRET=${PROXY_SECRET}\n`, { mode: 0o400 });
+      expect(readSecrets({ env: { STUDIO_SECRETS_FILE: file, STUDIO_SECRET_KEY: 'from-the-environment-0000000000000000' } })).toEqual({ values: { STUDIO_SECRET_KEY: KEY, STUDIO_PROXY_SECRET: PROXY_SECRET }, fromEnvironment: ['STUDIO_SECRET_KEY'], unknown: [], source: 'file', file });
+      expect(() => readSecrets({ env: { STUDIO_SECRETS_FILE: path.join(dir, 'missing') } })).toThrow(/STUDIO_SECRETS_FILE .*missing could not be read \(ENOENT\)/);
+      expect(() => readSecrets({ env: { STUDIO_SECRETS_FILE: file, STUDIO_SECRETS_FD: '0' } })).toThrow(/not both/);
+      fs.chmodSync(file, 0o600); fs.writeFileSync(file, 'not a line');
+      expect(() => readSecrets({ env: { STUDIO_SECRETS_FILE: file } })).toThrow(/STUDIO_SECRETS_FILE must hold NAME=value lines/);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
   it.runIf(['linux', 'darwin'].includes(process.platform))('keeps secrets read from standard input out of the process’s own environment block', () => {

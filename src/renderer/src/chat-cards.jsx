@@ -1,11 +1,14 @@
 import React, { useId, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Brain, Check, ChevronDown, Circle, CircleCheck, ExternalLink, FileText, FolderOpen, Gauge, Images, Info, ListChecks, LoaderCircle, Lock, MessageSquareQuote, Minus, Plus, Radar, RotateCcw, ScanSearch, ScrollText, Sparkles, Square, Table2, TrendingDown, TrendingUp, TriangleAlert, Undo2 } from 'lucide-react';
+import { ArrowRight, Brain, Check, ChevronDown, Circle, CircleCheck, Copy, ExternalLink, FileText, FolderOpen, Gauge, HelpCircle, Images, Info, Link2, ListChecks, ListOrdered, LoaderCircle, Lock, MessageSquareQuote, Minus, PenLine, Plus, Radar, RotateCcw, ScanSearch, ScrollText, SkipForward, Sparkles, Square, Table2, TrendingDown, TrendingUp, TriangleAlert, Undo2, UserPlus, Eye } from 'lucide-react';
 import QUICK_SCAN from '../../shared/quick-scan.json';
 import { safeMarkdownUrl } from './markdown-content.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { CODEX_UNCAPPED, money, quickScanBlocked, quickScanCostLines } from './studio-actions.js';
 import { adminNames, formatDay, formatTime, plural, useCan, useViewer, writeProps } from './viewer.js';
 import { PromptDiff, diffCounts } from './prompt-library.jsx';
+import { copyText } from './role-screens.jsx';
+import { routingChannels } from './trend-decision-sheet.jsx';
+import { brandFrom, checkBrand, checkSummary } from './brand-check.js';
 import './chat-cards.css';
 
 // Cards under an Ask AI answer: structured, grounded blocks. The server hydrates each card from the studio's state
@@ -14,13 +17,18 @@ import './chat-cards.css';
 // confirmation; navigation-only buttons (Open report, Open folder) call the layout's nav adapter directly. Live cards
 // (a run, a folder, a trend waiting for an OK) re-read the pushed state by id, so they follow the work as it happens.
 // Card shape (the renderer contract): { type, title, note, data, actionIndexes:[int] }; docs/design-review/SPEC.md §3.
+// Cards that take input or run steps: action (a form over one button's params: data { kind, title, fields:[{ key, type,
+// label, value, options, max }], problems, spends }), choice (data { options:[{ label, question }] }, or with pick: true
+// options [{ label, detail, ids }] that run one button on the item picked), plan (data { steps:[{ index, why }] }), draft
+// (data { kind, subject, text }) and report-change (data { assetId, section, diff, markdown, baseEditedAt, ... }).
 //
 // <ChatCards cards actions actionState onAction onRunAction onOutcome onAsk onNav api state conversationId />
 //   actions      the reply's actions (indexes refer to this array)
-//   actionState  { [index]: { status:'running'|'done'|'failed', text, runId? } } for this reply
+//   actionState  { [index]: { status:'running'|'done'|'failed'|'cancelled', text, runId? } } for this reply
 //   onAction     (index) => Promise: runs reply action `index` and records its outcome (absent: no action buttons)
 //   onRunAction  (request) => Promise<string|false>: runs a card's own request ({ kind, target, runId… }) through the same runner
-//   onOutcome    (index, { status, text, runId }) => void: records what a card did with its action (the scan plan's start)
+//   onOutcome    (index, { status, text, runId }) => void: records what a card did with its action (the scan plan's start,
+//                an action form's save, a choice, a plan step skipped)
 //   onAsk        (text) => void: asks Ask AI a seeded question (Summarize what changed)
 //   onNav        the layout's nav adapter (studio-actions.js StudioNav)
 //   conversationId  the Ask AI conversation the answer belongs to (a prompt change saved from a card names it)
@@ -79,11 +87,15 @@ export function cardActionIndexes(cards, actions = []) {
     for (const index of list(card.actionIndexes)) if (Number.isInteger(index) && actions[index]) indexes.add(index);
     if (card.type === 'scan-plan') { const index = scanActionIndex(card, actions); if (index >= 0) indexes.add(index); }
     if (card.type === 'prompt-change') { const index = promptActionIndex(card, actions); if (index >= 0) indexes.add(index); }
+    if (card.type === 'report-change') { const index = reportActionIndex(card, actions); if (index >= 0) indexes.add(index); }
   }
   return indexes;
 }
 const scanActionIndex = (card, actions) => { const named = list(card.actionIndexes).find((index) => actions[index]?.kind === 'quick-scan'); return named ?? list(actions).findIndex((row) => row?.kind === 'quick-scan'); };
 const promptActionIndex = (card, actions) => { const named = list(card.actionIndexes).find((index) => actions[index]?.kind === 'edit-prompt'); return named ?? list(actions).findIndex((row) => row?.kind === 'edit-prompt'); };
+const reportActionIndex = (card, actions) => { const named = list(card.actionIndexes).find((index) => actions[index]?.kind === 'edit-report'); return named ?? list(actions).findIndex((row) => row?.kind === 'edit-report'); };
+// An open button for this kind of item (open with type=report, or the older open-report).
+const opensAs = (row, type) => row?.kind === `open-${type}` || (row?.kind === 'open' && (row.params?.type === type || row.ref?.kind === type));
 
 export function ChatCards({ cards, actions = [], actionState = {}, onAction, onRunAction, onOutcome, onAsk, onNav = {}, api, state, conversationId = '' }) {
   const rows = list(cards).filter((card) => card && RENDERERS[card.type]);
@@ -103,8 +115,8 @@ function CardShell({ type, kicker, title, icon: Icon, note, aside, children }) {
 
 // The reply's actions a card points at, as buttons in reading order. `skip` leaves out the ones the card draws itself;
 // children are the card's own navigation buttons, shown first.
-const ACTION_TONE = { 'approve-trend': 'is-yes', 'pass-trend': 'is-quiet', 'open-report': 'is-quiet', 'open-folder': 'is-quiet', 'open-tab': 'is-quiet', 'open-tracker': 'is-quiet', 'stop-run': 'is-quiet' };
-const ACTION_ICON = { 'approve-trend': Check, 'open-report': FileText, 'open-folder': FolderOpen, 'make-assets': Images, 'retry-run': RotateCcw, 'finish-assets': RotateCcw, 'stop-run': Square, 'start-research': Radar, 'quick-scan': ScanSearch, 'open-tracker': Table2 };
+const ACTION_TONE = { 'approve-trend': 'is-yes', 'pass-trend': 'is-quiet', 'undo-trend': 'is-quiet', 'open-report': 'is-quiet', 'open-folder': 'is-quiet', open: 'is-quiet', 'open-tab': 'is-quiet', 'open-tracker': 'is-quiet', 'stop-run': 'is-quiet', copy: 'is-quiet', ask: 'is-quiet', 'view-as': 'is-quiet' };
+const ACTION_ICON = { 'approve-trend': Check, 'undo-trend': Undo2, 'open-report': FileText, 'open-folder': FolderOpen, open: ArrowRight, 'make-assets': Images, 'retry-run': RotateCcw, 'finish-assets': RotateCcw, 'stop-run': Square, 'start-research': Radar, 'quick-scan': ScanSearch, 'open-tracker': Table2, copy: Link2, 'set-status': Check, 'mark-used': Check, 'edit-report': PenLine, ask: Sparkles, 'invite-people': UserPlus, 'view-as': Eye, 'lock-prompt': Lock };
 function CardActions({ card, actions, actionState, onAction, skip, children }) {
   const rows = onAction ? list(card.actionIndexes).filter((index, at, all) => Number.isInteger(index) && actions[index] && all.indexOf(index) === at && !(skip && skip(actions[index]))) : [];
   const own = React.Children.toArray(children).filter(Boolean);
@@ -147,7 +159,7 @@ export function TrendCard({ card, actions, actionState, onAction, onNav, state }
   const stage = liveTrendStage(state, data) || data.stage;
   const momentum = MOMENTUM[data.momentum];
   const spark = list(data.spark);
-  const meta = [data.category, data.priorityTier && sentence(String(data.priorityTier).toLowerCase()), finite(data.evidenceCount) && Number(data.evidenceCount) > 0 ? plural(data.evidenceCount, 'post') : '', list(data.platforms).map(platformName).join(' · ')].filter(Boolean);
+  const meta = [data.category, data.priorityTier && sentence(String(data.priorityTier).toLowerCase()), finite(data.evidenceCount) && Number(data.evidenceCount) > 0 ? plural(data.evidenceCount, 'post') : '', list(data.platforms).map(platformName).join(' · '), stage === 'waiting' && data.runLabel ? `From ${data.runLabel}` : ''].filter(Boolean);
   const seen = [finite(data.runsSeen) && Number(data.runsSeen) > 0 ? `Seen in ${plural(data.runsSeen, 'run')}` : '', data.firstSeen ? `first ${formatDay(data.firstSeen)}` : '', data.lastSeen && data.lastSeen !== data.firstSeen ? `last ${formatDay(data.lastSeen)}` : ''].filter(Boolean).join(' · ');
   // Once decided, Yes and Skip give way to what was chosen.
   const decided = stage && stage !== 'waiting';
@@ -168,7 +180,7 @@ export function ReportCard({ card, actions, actionState, onAction, onNav }) {
   return <CardShell type="report" kicker={kind} title={card.title || data.title || 'Report'} icon={FileText} note={card.note}>
     {(data.trendName || data.date) && <p className="cc-meta">{[data.trendName && `Trend: ${data.trendName}`, formatDay(data.date)].filter(Boolean).join(' · ')}</p>}
     {data.excerpt && <p className="cc-text cc-clamp">{data.excerpt}</p>}
-    <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => row.kind === 'open-report' && opens}>
+    <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => opensAs(row, 'report') && opens}>
       {opens && <NavButton key="open" icon={FileText} label="Open" onClick={() => onNav.openReport(data.assetId)} />}
     </CardActions>
   </CardShell>;
@@ -188,15 +200,17 @@ export function AssetFolderCard({ card, actions, actionState, onAction, onNav, s
     <p className="cc-meta">{ACTIVE.has(status) && <LoaderCircle className="spin" size={12} aria-hidden="true" />}{[FOLDER_STATUS[status] || sentence(status), total ? `${ready} of ${total} ready` : ''].filter(Boolean).join(' · ')}</p>
     {total > 0 && <Progress done={ready} total={total} label={`${card.title || data.title || 'Folder'}: ${ready} of ${total} assets ready`} />}
     {channels.length > 0 && <ul className="cc-chips" aria-label="Channels">{channels.slice(0, 12).map((row) => <li key={row.name}>{row.name}{finite(row.count) && <span>{row.count}</span>}</li>)}</ul>}
-    <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => row.kind === 'open-folder' && opens}>
+    <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => opensAs(row, 'folder') && opens}>
       {opens && <NavButton key="open" icon={FolderOpen} label="Open folder" onClick={() => onNav.openFolder(data.sourceKey)} />}
     </CardActions>
   </CardShell>;
 }
 
 // Run: follows the run through pushed state; Stop while it works, Try again when it stopped, and Summarize what
-// changed (a seeded question) once it found something. A reply action of the same kind is used when there is one,
-// so its outcome is recorded with the conversation.
+// changed (a seeded question) once it found something. A finished quick scan offers a full research run with the
+// program it borrowed its accounts from: that run reads the program's whole saved setup (not only the scan's topic),
+// so the button names the program and the usual confirmation shows its estimate. A reply action of the same kind is
+// used when there is one, so its outcome is recorded with the conversation.
 export function RunCard({ card, actions, actionState, onAction, onRunAction, onAsk, onNav, state }) {
   const can = useCan(); const viewer = useViewer();
   const data = card.data || {};
@@ -207,13 +221,16 @@ export function RunCard({ card, actions, actionState, onAction, onRunAction, onA
   const topic = run.topic || text(run.title).replace(/^Quick scan · /, '');
   const indexOf = (kind) => list(card.actionIndexes).find((index) => actions[index]?.kind === kind);
   const stateOf = (kind) => { const index = indexOf(kind); return index != null ? actionState[index] : local[kind]; };
+  const programId = run.programId || data.programId || '';
+  const programName = list(studioOf(state).programs).find((row) => row.id === programId)?.name || '';
   async function act(kind) {
     const index = indexOf(kind);
     if (index != null && onAction) { onAction(index); return; }
     if (!onRunAction) return;
     setLocal((current) => ({ ...current, [kind]: { status: 'running' } }));
     try {
-      const result = await onRunAction({ kind, label: kind === 'stop-run' ? 'Stop' : 'Try again', target: run.title, runId: run.runId || data.runId });
+      const request = kind === 'start-research' ? { kind, label: 'Full research', target: programName, programId } : { kind, label: kind === 'stop-run' ? 'Stop' : 'Try again', target: run.title, runId: run.runId || data.runId };
+      const result = await onRunAction(request);
       setLocal((current) => ({ ...current, [kind]: result === false ? undefined : { status: 'done', text: typeof result === 'string' ? result : 'Done.' } }));
     } catch (failure) { setLocal((current) => ({ ...current, [kind]: { status: 'failed', text: messageOf(failure) } })); }
   }
@@ -224,7 +241,7 @@ export function RunCard({ card, actions, actionState, onAction, onRunAction, onA
     const status = stateOf(kind);
     if (status?.status !== 'done' && (!allowed || !(onRunAction || (indexOf(kind) != null && onAction)))) return null;
     if (status?.status === 'done') return <span key={kind} className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</span>;
-    return <span key={kind} className="cc-action"><button type="button" className={`cc-btn ${kind === 'stop-run' ? 'is-quiet' : 'is-primary'}`} {...writeProps(viewer, status?.status === 'running')} onClick={() => act(kind)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}{label}</button>{status?.status === 'failed' && <small className="cc-failed" role="alert">{status.text}</small>}</span>;
+    return <span key={kind} className="cc-action"><button type="button" className={`cc-btn ${kind === 'retry-run' ? 'is-primary' : 'is-quiet'}`} {...writeProps(viewer, status?.status === 'running')} onClick={() => act(kind)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}{label}</button>{status?.status === 'failed' && <small className="cc-failed" role="alert">{status.text}</small>}</span>;
   };
   const cost = finite(run.costUsd) && Number(run.costUsd) > 0 ? `${money(run.costUsd)} AI so far${finite(run.budgetUsd) && Number(run.budgetUsd) > 0 ? ` of ${money(run.budgetUsd)}` : ''}` : finite(run.budgetUsd) && Number(run.budgetUsd) > 0 ? `AI budget ${money(run.budgetUsd)}` : '';
   const kicker = quick ? 'Quick scan' : run.kind === 'kit' ? 'Channel assets' : run.kind === 'content' ? 'Report run' : 'Research run';
@@ -236,11 +253,11 @@ export function RunCard({ card, actions, actionState, onAction, onRunAction, onA
     </div>
     {(cost || run.startedAt) && <p className="cc-meta cc-faint">{[run.startedAt && `Started ${when(run.startedAt)}`, cost, run.codex ? 'Codex (not metered)' : ''].filter(Boolean).join(' · ')}</p>}
     {run.themes.length > 0 && <ul className="cc-chips" aria-label={quick ? 'Themes found' : 'Trends found'}>{run.themes.slice(0, 6).map((name) => <li key={name}>{name}</li>)}{run.themes.length > 6 && <li className="cc-more">+{run.themes.length - 6} more</li>}</ul>}
-    <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => ['stop-run', 'retry-run'].includes(row.kind)}>
+    <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => ['stop-run', 'retry-run'].includes(row.kind) || (row.kind === 'start-research' && quick && run.status === 'succeeded')}>
       {own('stop-run', 'Stop', Square, active && can('cancelStudioRun'))}
       {own('retry-run', 'Try again', RotateCcw, stopped && can('retryStudioRun'))}
       {found && onAsk && <button key="summarize" type="button" className="cc-btn is-primary" {...writeProps(viewer)} onClick={() => onAsk(quick ? `Summarize what the quick scan “${topic}” found: what people are saying, and which trends are new, rising or fading.` : `Summarize what changed in “${run.title}”: which trends are new, rising or fading since the last run.`)}><Sparkles size={13} aria-hidden="true" />Summarize what changed</button>}
-      {quick && run.status === 'succeeded' && onAsk && <button key="full" type="button" className="cc-btn is-quiet" {...writeProps(viewer)} onClick={() => onAsk(`Find full trends on “${topic}” with a normal research run.`)}><Radar size={13} aria-hidden="true" />Find full trends on this topic</button>}
+      {own('start-research', programName ? `Full research with “${programName}”` : 'Start full research', Radar, quick && run.status === 'succeeded' && Boolean(programId) && can('startResearchRun'))}
       {run.status === 'awaiting-review' && typeof onNav.openTab === 'function' && <NavButton key="review" icon={TrendingUp} label="Review the trends" onClick={() => onNav.openTab('trends')} />}
     </CardActions>
   </CardShell>;
@@ -684,5 +701,221 @@ export function PromptChangeCard({ card, actions, actionState, onOutcome, onNav,
   </CardShell>;
 }
 
-const RENDERERS = { trend: TrendCard, report: ReportCard, 'asset-folder': AssetFolderCard, run: RunCard, program: ProgramCard, metric: MetricCard, chart: ChartCard, table: TableCard, checklist: ChecklistCard, compare: CompareCard, posts: PostsCard, 'scan-plan': ScanPlanCard, 'prompt-change': PromptChangeCard, memory: MemoryCard };
+// What a card's own request came to, recorded on its reply action (help-assistant records it with the conversation): a
+// string is done, false is "they said no" (cancelled, the button comes back), and a throw is a failure with its reason.
+async function settle(work, index, onOutcome, setLocal) {
+  setLocal({ status: 'running' });
+  try {
+    const result = await work();
+    const outcome = result === false ? { status: 'cancelled', text: '' } : { status: 'done', text: typeof result === 'string' ? result : 'Done.' };
+    setLocal(outcome.status === 'done' ? outcome : null);
+    if (index != null) onOutcome?.(index, outcome);
+    return outcome;
+  } catch (failure) {
+    const outcome = { status: 'failed', text: messageOf(failure) };
+    setLocal(outcome); if (index != null) onOutcome?.(index, outcome);
+    return outcome;
+  }
+}
+const channelsOf = (state) => { const studio = studioOf(state); const workspace = list(studio.workspaces).find((row) => row.id === studio.activeWorkspaceId); return routingChannels(workspace?.editionId || 'general'); };
+// "Note: For Social first · Channels: Social, Blog": what a button will save, in words, from its checked params.
+export function paramsLine(params = {}, channels = []) {
+  const name = (id) => channels.find((row) => row.id === id)?.short || channels.find((row) => row.id === id)?.name || id;
+  const words = { note: 'Note', channels: 'Channels', channel: 'Channel', status: 'Status', link: 'Link', date: 'Planned', trends: 'Trends', emails: 'People', role: 'Role', topic: 'Topic', name: 'Name', days: 'Days back' };
+  return Object.entries(params || {}).filter(([key, value]) => words[key] && (Array.isArray(value) ? value.length : value !== '' && value != null)).map(([key, value]) => `${words[key]}: ${Array.isArray(value) ? value.map((item) => (key.startsWith('channel') ? name(item) : item)).join(', ') : key.startsWith('channel') ? name(value) : key === 'status' ? sentence(value) : text(value)}`).join(' · ');
+}
+
+// Action form: what Ask AI filled in for a button (a note and channels for a Yes, a channel, link and planned date for
+// "using it", a status and live link), as fields the person changes before anything is saved. The button runs the same
+// action through the shared runner with the edited params; nothing is saved until it is pressed.
+export function ActionFormCard({ card, actions, actionState, onRunAction, onOutcome, state }) {
+  const viewer = useViewer(); const formId = useId();
+  const data = card.data || {}; const index = list(card.actionIndexes)[0];
+  const offered = Number.isInteger(index) ? actions[index] : null;
+  const fields = list(data.fields).filter((field) => field?.key);
+  const [values, setValues] = useState(() => Object.fromEntries(fields.map((field) => [field.key, field.type === 'channels' ? list(field.value) : text(field.value)])));
+  const [local, setLocal] = useState(null);
+  const status = local || (index != null ? actionState[index] : null);
+  const channels = channelsOf(state);
+  const set = (key, value) => setValues((current) => ({ ...current, [key]: value }));
+  if (!offered) return null;
+  if (status?.status === 'done') return <p className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</p>;
+  const running = status?.status === 'running';
+  async function save(event) {
+    event.preventDefault();
+    if (running || !onRunAction) return;
+    const params = { ...(offered.params || {}) };
+    for (const field of fields) {
+      const value = values[field.key];
+      if (field.type === 'channels' ? list(value).length : String(value ?? '').trim()) params[field.key] = field.type === 'channels' ? list(value) : String(value).trim();
+      else delete params[field.key];
+    }
+    await settle(() => onRunAction({ ...offered, params }), index, onOutcome, setLocal);
+  }
+  const missing = (offered.kind === 'mark-used' && !values.channel) || (offered.kind === 'set-status' && !values.status);
+  const field = (row) => {
+    const id = `${formId}-${row.key}`; const value = values[row.key];
+    if (row.type === 'channels') {
+      const picked = list(value); const options = list(row.options).length ? row.options : channels.map((channel) => ({ value: channel.id, label: channel.name }));
+      return <fieldset key={row.key} className="cc-toggles"><legend>{row.label}</legend>
+        <label className={!picked.length ? 'is-on' : ''}><input type="checkbox" checked={!picked.length} onChange={() => set(row.key, [])} /><span>All channels</span></label>
+        {options.map((option) => { const on = picked.includes(option.value); return <label key={option.value} className={on ? 'is-on' : ''}><input type="checkbox" checked={on} onChange={() => set(row.key, on ? picked.filter((item) => item !== option.value) : [...picked, option.value])} /><span>{option.label}</span></label>; })}
+      </fieldset>;
+    }
+    if (row.type === 'channel' || row.type === 'enum') {
+      const options = list(row.options).length ? row.options : channels.map((channel) => ({ value: channel.id, label: channel.name }));
+      return <label key={row.key} className="cc-field" htmlFor={id}><span>{row.label}</span><select id={id} value={value} onChange={(event) => set(row.key, event.target.value)}>{row.type === 'channel' && <option value="">Choose a channel</option>}{row.type === 'enum' && !value && <option value="">Choose one</option>}{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
+    }
+    if (row.type === 'text') {
+      const max = Number(row.max) || 280;
+      return <label key={row.key} className="cc-field" htmlFor={id}><span>{row.label}<small className="cc-faint">{String(value || '').length} / {max}</small></span><textarea id={id} rows={2} maxLength={max} value={value} onChange={(event) => set(row.key, event.target.value)} /></label>;
+    }
+    if (row.key === 'link' && offered.kind === 'set-status' && values.status !== 'published') return null;
+    return <label key={row.key} className="cc-field" htmlFor={id}><span>{row.label}</span><input id={id} type={row.type === 'date' ? 'date' : row.type === 'url' ? 'url' : 'text'} inputMode={row.type === 'url' ? 'url' : undefined} placeholder={row.type === 'url' ? 'https://' : undefined} value={value} onChange={(event) => set(row.key, event.target.value)} /></label>;
+  };
+  return <CardShell type="action" kicker="Check before saving" title={data.title || card.title} icon={ListChecks} note={card.note}>
+    <form className="cc-plan" onSubmit={save}>
+      {fields.map(field)}
+      {list(data.problems).length > 0 && <ul className="cc-warnings">{list(data.problems).map((line) => <li key={line}><TriangleAlert size={13} aria-hidden="true" />{line}</li>)}</ul>}
+      {status?.status === 'failed' && <p className="cc-failed" role="alert">{status.text}</p>}
+      <div className="cc-actions">
+        <button type="submit" className="cc-btn is-primary" {...writeProps(viewer, running || missing || !onRunAction)}>{running ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}{running ? 'Saving…' : card.title || 'Save'}</button>
+        <small className="cc-faint">{data.spends ? 'You’ll see the cost before anything is spent.' : 'Free. Nothing is saved until you press it.'}</small>
+      </div>
+    </form>
+  </CardShell>;
+}
+
+// Choice: a question with a few answers. Picking one either sends its follow-up question (onAsk), or, when the server
+// found two things a button could mean (data.pick), runs that button on the one picked, with no AI call.
+export function ChoiceCard({ card, actions, actionState, onRunAction, onOutcome, onAsk }) {
+  const viewer = useViewer();
+  const data = card.data || {}; const index = list(card.actionIndexes)[0];
+  const offered = data.pick && Number.isInteger(index) ? actions[index] : null;
+  const options = list(data.options).filter((row) => row?.label).slice(0, 5);
+  const [local, setLocal] = useState(null);
+  const [asked, setAsked] = useState('');
+  const status = local || (offered && index != null ? actionState[index] : null);
+  if (!options.length || (data.pick && !offered)) return null;
+  if (status?.status === 'done') return <p className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</p>;
+  const running = status?.status === 'running';
+  function choose(option) {
+    if (offered) { if (onRunAction && !running) { const { candidates, ...rest } = offered; settle(() => onRunAction({ ...rest, ...(option.ids || {}), title: option.label }), index, onOutcome, setLocal); } return; }
+    if (!onAsk || asked) return;
+    setAsked(option.label); onAsk(option.question || option.label);
+  }
+  return <CardShell type="choice" kicker={offered ? offered.label : 'A quick question'} title={card.title} icon={HelpCircle} note={card.note}>
+    <div className="cc-choices" role="group" aria-label={card.title}>
+      {options.map((option) => <button key={`${option.label}-${option.detail || ''}`} type="button" className={`cc-choice${asked === option.label ? ' is-on' : ''}`} {...writeProps(viewer, running || Boolean(asked) || (offered ? !onRunAction : !onAsk))} onClick={() => choose(option)}><span>{option.label}</span>{option.detail && <small>{option.detail}</small>}</button>)}
+    </div>
+    {running && <p className="cc-meta" role="status"><LoaderCircle className="spin" size={12} aria-hidden="true" />Working on it…</p>}
+    {status?.status === 'failed' && <p className="cc-failed" role="alert">{status.text}</p>}
+  </CardShell>;
+}
+
+// Plan: steps the person runs one at a time, in order, each with its own button (paid steps still confirm their own
+// estimate). A step opens once every earlier one is done or skipped; a failed step stops the plan until it's tried
+// again. Outcomes are recorded per button, so a reopened conversation picks up where it stopped.
+export function PlanCard({ card, actions, actionState, onAction, onOutcome, state }) {
+  const viewer = useViewer();
+  const steps = list(card.data?.steps).filter((step) => Number.isInteger(step?.index) && actions[step.index]);
+  const channels = channelsOf(state);
+  if (steps.length < 2) return null;
+  const stateOf = (step) => actionState[step.index];
+  const settled = (step) => ['done', 'skipped'].includes(stateOf(step)?.status) || (stateOf(step)?.status === 'cancelled' && stateOf(step).text);
+  const current = steps.findIndex((step) => !settled(step));
+  const finished = current < 0;
+  return <CardShell type="plan" kicker={finished ? 'Plan done' : `Step ${current + 1} of ${steps.length}`} title={card.title || 'Plan'} icon={ListOrdered} note={card.note}>
+    <ol className="cc-steps">{steps.map((step, at) => {
+      const row = actions[step.index]; const status = stateOf(step); const open = at === current; const done = settled(step);
+      const details = paramsLine(row.params, channels);
+      return <li key={step.index} className={done ? 'is-done' : open ? 'is-current' : 'is-later'}>
+        <span className="cc-step-mark" aria-hidden="true">{done ? <Check size={12} /> : at + 1}</span>
+        <div className="cc-step-body">
+          <strong>{row.label}</strong>
+          {step.why && <small>{step.why}</small>}
+          {details && <small className="cc-faint">{details}</small>}
+          {status?.status === 'done' && <span className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</span>}
+          {status?.status === 'skipped' || (status?.status === 'cancelled' && status.text) ? <small className="cc-faint">Skipped</small> : null}
+          {status?.status === 'failed' && <small className="cc-failed" role="alert">{status.text}</small>}
+          {open && onAction && <div className="cc-actions">
+            <button type="button" className="cc-btn is-primary" {...writeProps(viewer, status?.status === 'running')} onClick={() => onAction(step.index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : status?.status === 'failed' ? <RotateCcw size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}{status?.status === 'failed' ? 'Try again' : row.label}</button>
+            <button type="button" className="cc-text-button" disabled={status?.status === 'running'} onClick={() => onOutcome?.(step.index, { status: 'cancelled', text: 'Skipped.' })}><SkipForward size={12} aria-hidden="true" />Skip</button>
+          </div>}
+        </div>
+      </li>;
+    })}</ol>
+  </CardShell>;
+}
+
+// Draft: a Slack update, email or post Ask AI wrote, editable here (nothing is saved or sent), with Copy, Copy for
+// Slack and a request for a shorter one.
+const DRAFT_KIND = { slack: 'Slack message', email: 'Email', linkedin: 'LinkedIn post', x: 'X post', note: 'Note' };
+// Slack's own Markdown: *bold*, • bullets and <url|label> links.
+export const forSlack = (value) => text(value).split('\n').map((line) => line.replace(/^(\s*)[-*+]\s+/, '$1• ').replace(/\*\*(.+?)\*\*/g, '*$1*').replace(/__(.+?)__/g, '*$1*').replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<$2|$1>').replace(/^#{1,6}\s+(.+)$/, '*$1*')).join('\n');
+export function DraftCard({ card, onAsk }) {
+  const viewer = useViewer(); const id = useId();
+  const data = card.data || {}; const kind = DRAFT_KIND[data.kind] ? data.kind : 'note';
+  const [value, setValue] = useState(text(data.text));
+  const [note, setNote] = useState('');
+  if (!text(data.text).trim()) return null;
+  async function copy(slack) {
+    const done = await copyText(slack ? forSlack(value) : value);
+    setNote(done ? (slack ? 'Copied for Slack.' : 'Copied.') : 'This window blocked copying. Select the text and copy it yourself.');
+  }
+  return <CardShell type="draft" kicker={`Draft · ${DRAFT_KIND[kind]}`} title={data.subject || card.title || DRAFT_KIND[kind]} icon={PenLine} note={card.note}>
+    <label className="cc-sr-only" htmlFor={id}>Draft text</label>
+    <textarea id={id} className="cc-draft" rows={Math.min(12, Math.max(4, value.split('\n').length + 1))} value={value} onChange={(event) => { setValue(event.target.value); setNote(''); }} />
+    <div className="cc-actions">
+      <button type="button" className="cc-btn is-primary" onClick={() => copy(false)}><Copy size={13} aria-hidden="true" />Copy</button>
+      {kind === 'slack' || kind === 'note' ? <button type="button" className="cc-btn is-quiet" onClick={() => copy(true)}><Copy size={13} aria-hidden="true" />Copy for Slack</button> : null}
+      {onAsk && <button type="button" className="cc-btn is-quiet" {...writeProps(viewer)} onClick={() => onAsk(`Make the ${DRAFT_KIND[kind].toLowerCase()} draft${data.subject ? ` “${data.subject}”` : ''} shorter.`)}><Sparkles size={13} aria-hidden="true" />Ask for a shorter one</button>}
+      <small className="cc-faint" role="status">{note || 'Not sent. Copy it and send it yourself.'}</small>
+    </div>
+  </CardShell>;
+}
+
+// Report change: Ask AI's new text for one section of a report it read, line by line, with the brand check on the new
+// lines. Apply saves the whole report through editStudioAsset with the edit it was based on, so a save someone made in
+// between is refused (and says who) instead of being overwritten. Open in the editor opens the report instead.
+export function ReportChangeCard({ card, actions, actionState, onOutcome, onNav, api, state }) {
+  const can = useCan(); const viewer = useViewer();
+  const data = card.data || {}; const index = reportActionIndex(card, actions);
+  const [local, setLocal] = useState(null);
+  const status = local || (index >= 0 ? actionState[index] : null);
+  const running = status?.status === 'running';
+  const lines = list(data.diff); const counts = finite(data.added) ? { added: Number(data.added), removed: Number(data.removed) || 0 } : diffCounts(lines);
+  const problems = list(data.problems).map(text).filter(Boolean);
+  const studio = studioOf(state);
+  const live = list(studio.assets).find((row) => row.id === data.assetId);
+  const newer = live && text(live.edited?.at) !== text(data.baseEditedAt) && status?.status !== 'done' ? live.edited || live.restored || {} : null;
+  const workspace = list(studio.workspaces).find((row) => row.id === studio.activeWorkspaceId);
+  const findings = useMemo(() => { const brand = brandFrom(workspace); return checkBrand(lines.filter((line) => line.op === 'add').map((line) => line.text).join('\n'), { claimsToAvoid: brand.claimsToAvoid, editionId: brand.editionId }); }, [data.diff, workspace?.id]);
+  const canSave = typeof api?.editStudioAsset === 'function' && can('editStudioAsset');
+  const ready = Boolean(data.canApply) && canSave && !newer && Boolean(data.assetId && typeof data.markdown === 'string');
+  async function apply() {
+    if (!ready || running) return;
+    await settle(async () => { await api.editStudioAsset({ assetId: data.assetId, markdown: data.markdown, baseEditedAt: text(data.baseEditedAt) }); return `Saved the new “${data.section}” in “${data.title}”.`; }, index >= 0 ? index : null, onOutcome, setLocal);
+  }
+  return <CardShell type="report-change" kicker="Suggested report change" title={card.title || data.title || 'Report'} icon={PenLine} note={card.note}>
+    <p className="cc-meta">{[data.section && `Section: ${data.section}`, `${plural(counts.added, 'line')} added`, `${plural(counts.removed, 'line')} removed`].filter(Boolean).join(' · ')}</p>
+    {data.note && <p className="cc-text">{data.note}</p>}
+    <PromptDiff lines={lines} label={`Changes to ${data.section || 'the report'}`} className="cc-diff" />
+    {finite(data.diffShortened) && <p className="cc-meta cc-faint">Showing the first {plural(lines.length, 'line')} of {Number(data.diffShortened)}. Open the report to see the rest.</p>}
+    {findings.length > 0 && <details className="cc-targets"><summary>Brand check · {checkSummary(findings)}<ChevronDown size={13} aria-hidden="true" /></summary><ul className="cc-warnings">{findings.slice(0, 5).map((row) => <li key={row.id}><Info size={13} aria-hidden="true" />{row.message}</li>)}</ul></details>}
+    {problems.length > 0 && <ul className="cc-warnings" aria-label="Why it can’t be applied yet">{problems.map((line) => <li key={line}><TriangleAlert size={13} aria-hidden="true" />{line}</li>)}</ul>}
+    {newer && <p className="cc-note-line" role="status"><Info size={13} aria-hidden="true" />{newer.by?.name || 'Someone'} changed this report after the suggestion. Ask again for one based on it, or open the report.</p>}
+    {data.canApply && !canSave && <p className="cc-meta cc-faint">Your role can read reports but not edit them.</p>}
+    {status?.status === 'failed' && <p className="cc-failed" role="alert">{status.text}</p>}
+    <div className="cc-actions">
+      {status?.status === 'done'
+        ? <span className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</span>
+        : data.canApply && canSave && <span className="cc-action"><button type="button" className="cc-btn is-primary" {...writeProps(viewer, !ready || running)} onClick={apply}>{running ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}{running ? 'Saving…' : 'Apply'}</button></span>}
+      {typeof onNav.openReport === 'function' && data.assetId && <NavButton icon={FileText} label="Open in the editor" onClick={() => onNav.openReport(data.assetId)} />}
+    </div>
+    {!status && ready && <p className="cc-meta cc-faint">Free. Everything made from the report afterwards uses the new text, and Restore the original undoes all edits.</p>}
+  </CardShell>;
+}
+
+const RENDERERS = { trend: TrendCard, report: ReportCard, 'asset-folder': AssetFolderCard, run: RunCard, program: ProgramCard, metric: MetricCard, chart: ChartCard, table: TableCard, checklist: ChecklistCard, compare: CompareCard, posts: PostsCard, 'scan-plan': ScanPlanCard, 'prompt-change': PromptChangeCard, 'report-change': ReportChangeCard, action: ActionFormCard, choice: ChoiceCard, plan: PlanCard, draft: DraftCard, memory: MemoryCard };
 export const CARD_TYPES = Object.keys(RENDERERS);

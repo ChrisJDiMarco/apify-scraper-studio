@@ -1,5 +1,9 @@
 # Scraper Studio design review: October 2026
 
+> **Status: historical design record** (written with commit `eaa700d`, 2026-10-17). Page names in the "Before" tables
+> are the names at the time. The current verification status lives in [`HANDOFF.md`](../../HANDOFF.md#status); the
+> section at the end of this file is kept as it was, with dated corrections.
+
 **Scope:** every screen in the Simple and Advanced layouts, reviewed as a product designer and as a front-end and platform engineer.
 
 **Method:**
@@ -64,7 +68,7 @@ The redesign answers each weakness:
 
 - **History was authored by the client.** The server trusted assistant turns sent by the page. History is now stored and authored on the server.
 - **Ask AI could not be stopped.** It now registers a cancellable job.
-- **Cost.** About 80 KB of guide was resent on every question. On the API-key route the stable prefix is now prompt-cached.
+- **Cost.** About 80 KB of guide was resent on every question (by the handoff, about 185,000 characters of instructions, spots and guide, roughly 65–70K tokens). On the API-key route the stable prefix is now prompt-cached.
 - **Theme ids are scoped to a run.** The AI matcher only links exact-same topics, so cross-run identity needs the deterministic linker in `trend-history.js`.
 - **Day-level windows.** Research windows were whole UTC days, so "last few hours" was impossible. Hour-level windows were added without changing saved programs.
 - **Quick scans spend nothing on reviews or reports.** They stop after themes, and Ask AI summarizes from the collected posts.
@@ -109,8 +113,13 @@ What was checked:
   - `copy-main-modules.mjs` covers every file main requires.
 - An adversarial review across security, contracts, data, AI routes, UX and regressions found 28 issues. 25 were confirmed and fixed; 3 were refuted.
 
-What was not checked:
-- **The vitest suite was not run.** Many suites were updated or added and checked against a stand-in runner, but several older expectations will still fail until they are refreshed for the new nav, Reports grouping and confirmation wording. Run `npm test` first.
-- No AI or Apify calls were made. The sandbox had AI blocked, so quick scans, prompt test runs and Ask AI answers still need checking against a real Claude route, an API key and Codex.
+What was not checked (dated corrections; the live status is in [`HANDOFF.md`](../../HANDOFF.md#status)):
+- ~~The vitest suite was not run.~~ Superseded: commit `3d11204` (2026-10-17) refreshed the stale expectations and
+  reports `npm test` passing (111 files, 1,537 tests). Later commits changed Ask AI's schema and the final build-out
+  added tests; see HANDOFF.md for what was run after that.
+- No AI or Apify calls were made in the review sandbox. Since then, Ask AI's structured output was tried against the
+  Anthropic API, which refused the schema as a too-large grammar; `62cb9da` flattened it and added a one-time retry
+  with the schema written into the prompt. That fix, quick scans, prompt test runs, the Claude CLI and Codex routes and
+  Apify runs have not been confirmed live.
 - The X operator `since_time:` used for hour-level quick-scan windows has not been tried on a live run.
 - Dark mode is defined in tokens but not switched on anywhere yet.

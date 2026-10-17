@@ -135,6 +135,9 @@ function historyTurns(message) {
   if (cards.length) notes.push(`[Cards shown: ${cards.join(', ')}]`);
   const remembered = list(message.remembered).map((item) => item?.text).filter(Boolean);
   if (remembered.length) notes.push(`[Remembered: ${remembered.join(' | ')}]`);
+  // Buttons dropped because their target matched nothing, so the next answer asks which one they meant.
+  const missing = list(message.unresolved).map((text) => String(text || '').slice(0, 160)).filter(Boolean);
+  if (missing.length) notes.push(`[Couldn’t find, so no button was offered: ${missing.join(' | ')}]`);
   return [{ role: 'assistant', content: [String(message.content || ''), ...notes].join('\n') }];
 }
 
@@ -457,8 +460,9 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     return pool.map((item, index) => ({ item, score: scores[index] })).filter((row) => row.score > 0).sort((a, b) => b.score - a.score).slice(0, limit).map(({ item }) => ({ id: item.id, kind: item.kind, text: item.text, scope: item.scope, updatedAt: item.updatedAt }));
   }
   // The `conversation` lookup: "what did we decide about X last week". Scores each stored message (and each title and
-  // summary) and returns the best conversations with their best passages.
-  function searchConversations(identityId, query, limit = 5, { workspaceId = '', exclude = '' } = {}) {
+  // summary) and returns the best conversations with their best passages. `minScore` keeps only conversations that match
+  // well (Ask AI's related conversations), not any shared word.
+  function searchConversations(identityId, query, limit = 5, { workspaceId = '', exclude = '', minScore = 0 } = {}) {
     const terms = tokens(query);
     if (!terms.length) return [];
     const metas = loadIndex(identityId).conversations.filter((row) => row.id !== exclude && (!workspaceId || row.workspaceId === workspaceId)).sort((a, b) => time(b.updatedAt) - time(a.updatedAt)).slice(0, 100);
@@ -478,6 +482,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     const raw = String(query).toLowerCase().split(/\s+/).filter((word) => word.length > 2);
     return [...best.values()].map((entry) => ({ ...entry, hits: entry.hits.sort((a, b) => b.score - a.score) }))
       .map((entry) => ({ ...entry, score: entry.hits.slice(0, 2).reduce((sum, hit) => sum + hit.score, 0) }))
+      .filter((entry) => entry.score >= (Number(minScore) || 0))
       .sort((a, b) => b.score - a.score).slice(0, Math.max(1, Math.min(10, Number(limit) || 5)))
       .map(({ conversation, hits }) => ({ id: conversation.id, title: conversation.title, updatedAt: conversation.updatedAt, summary: clip(conversation.summary, 400), matches: hits.filter((hit) => hit.doc.message).slice(0, 2).map(({ doc }) => ({ role: doc.message.role, text: snippet(doc.message.content, raw), createdAt: doc.message.createdAt })) }));
   }

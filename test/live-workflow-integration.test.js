@@ -6,6 +6,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it } from 'vitest';
+import rolesStudio from './helpers/roles-studio.js';
 
 const projectRoot = path.resolve(new URL('..', import.meta.url).pathname);
 const mainPath = path.join(projectRoot, 'src/main/index.js');
@@ -26,12 +27,14 @@ function claudeSuccess(output) {
 }
 
 // Load the real main-process handlers while replacing only the external services.
-function mainHarness({ failedActors = [], cliResults = [], seed = {}, actorItems = {}, env = {} } = {}) {
+// prepare(root): writes more files (a content studio, a team) into the data folder before the main process loads.
+function mainHarness({ failedActors = [], cliResults = [], seed = {}, actorItems = {}, env = {}, prepare = null } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'apify-live-workflow-'));
   temporaryRoots.push(root);
   const app = Object.assign(new EventEmitter(), { getPath: () => root, whenReady: () => ({ then() {} }), getVersion: () => 'test' });
   fixtureApps.push(app);
   fs.writeFileSync(path.join(root, 'data.json'), JSON.stringify(seed));
+  if (typeof prepare === 'function') prepare(root);
   const handlers = new Map();
   const dialogs = { save: null, open: null }; // file paths the next Save/Open panel returns
   const apifyStarts = [];
@@ -418,7 +421,7 @@ describe('Ask AI', () => {
   });
   it('reads what a question needs, then answers from it with a Show me tour and buttons', async () => {
     const first = { answer: 'Checking that run.', pages: [], followUps: [], actions: [], show: { autoStart: false, steps: [] }, lookups: [{ kind: 'run', target: 'Weekly listening' }] };
-    const second = { answer: 'It stopped at its budget. **Retry** it from Home.', pages: [], followUps: [], actions: [{ kind: 'retry-run', label: 'Try it again', target: 'Weekly listening' }, { kind: 'delete-everything', label: 'Bad', target: '' }], show: { autoStart: true, steps: [{ target: 'home.working', item: '', say: 'Runs in progress show here.' }, { target: 'nowhere', item: '', say: 'Dropped' }] }, lookups: [{ kind: 'report', target: 'ignored on the second pass' }] };
+    const second = { answer: 'It stopped at its budget. **Retry** it from Home.', pages: [], followUps: [], actions: [{ kind: 'retry-run', label: 'Try it again', target: 'Weekly listening' }, { kind: 'open-tab', label: 'Open Home', target: 'home' }, { kind: 'delete-everything', label: 'Bad', target: '' }], show: { autoStart: true, steps: [{ target: 'home.working', item: '', say: 'Runs in progress show here.' }, { target: 'nowhere', item: '', say: 'Dropped' }] }, lookups: [{ kind: 'report', target: 'ignored on the second pass' }] };
     const app = mainHarness({ cliResults: [{ stdout: claudeSuccess(first) }, { stdout: claudeSuccess(second) }] });
     const reply = await app.invoke('help:ask', { question: 'Why did my last run stop?', page: { id: 'simple-mode', label: 'Simple mode', tab: 'home' } });
     const calls = app.spawns.filter((spawn) => spawn.args.includes('--print'));
@@ -428,7 +431,9 @@ describe('Ask AI', () => {
     expect(calls[1].stdin).toContain('"target": "Weekly listening"');
     expect(calls[0].stdin).toContain('"tab": "home"');
     expect(reply.answer).toBe('It stopped at its budget. **Retry** it from Home.');
-    expect(reply.actions).toEqual([{ kind: 'retry-run', label: 'Try it again', target: 'Weekly listening' }]);
+    // Nothing called "Weekly listening" stopped in this studio, so the server drops that button rather than offer one
+    // that can't work; an unknown kind is dropped too.
+    expect(reply.actions).toEqual([{ kind: 'open-tab', label: 'Open Home', target: 'home' }]);
     expect(reply.show).toEqual({ autoStart: true, steps: [{ target: 'home.working', item: '', say: 'Runs in progress show here.' }] });
     expect(reply.receipt.costUsd).toBeCloseTo(0.008);
   });
@@ -475,7 +480,7 @@ describe('Ask AI', () => {
     expect(calls[0].stdin).toContain('PROMPTS (the instructions behind research');
     expect(calls[0].stdin).toContain('edit-prompt: target');
     expect(calls[0].stdin).toContain('"id": "research.discovery"');
-    expect(JSON.parse(calls[0].args[calls[0].args.indexOf('--json-schema') + 1]).properties.promptEdit.properties.promptId).toEqual({ type: 'string' });
+    expect(JSON.parse(calls[0].args[calls[0].args.indexOf('--json-schema') + 1]).properties.edit.properties.ref).toEqual({ type: 'string' });
     expect(calls[1].stdin).toContain('"kind": "editable"');
     // One edit per reply; nothing was saved by the answer itself.
     expect(reply.message.actions.map((action) => action.kind)).toEqual(['edit-prompt', 'open-tab']);
@@ -503,6 +508,101 @@ describe('Ask AI', () => {
     const readOnly = help.helpPrompt({ question: 'Change a prompt', context: { layout: 'simple', role: 'editor' }, guide: '', promptAccess: { view: true, edit: false } });
     expect(readOnly).toContain('They can read prompts here but not change them.');
     expect(readOnly).not.toContain('edit-prompt:');
+  });
+  // A Semrush studio (test/helpers/roles-studio.js) where two research runs both found "AI Overviews" and wait for review.
+  function askStudio(cliResults) {
+    return mainHarness({ cliResults, prepare: (root) => {
+      rolesStudio.seedStudio(root, { settings: {} });
+      const file = path.join(root, 'content-studio', 'state.json'); const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const overviews = { id: 'theme-overviews', name: 'AI Overviews', description: 'Clicks fall when AI answers the query.', evidenceCount: 9 };
+      Object.assign(state.researchRuns[0], { discoveredThemes: [overviews], themes: [overviews] });
+      state.researchRuns.unshift({ ...state.researchRuns[0], id: 'research-review-2', title: 'AI search pulse', programId: 'program-pulse', createdAt: '2026-10-16T09:00:00.000Z' });
+      fs.writeFileSync(file, JSON.stringify(state));
+    } });
+  }
+  it('finds every button’s item on the server, asks which one when two match, and drops one that matches nothing', async () => {
+    const output = {
+      answer: 'Both runs found [[AI Overviews]]. The report is [[AI Citation Tracking — Comprehensive Trends Report]]; [[Something missing]] isn’t here. More at [this page](https://unknown.example.com/a).',
+      pages: [], followUps: [], show: { autoStart: false, steps: [] }, lookups: [],
+      actions: [
+        { kind: 'approve-trend', label: 'Yes to AI Overviews', target: 'AI Overviews', params: [] },
+        { kind: 'approve-trend', label: 'Yes, for Social and Blog', target: 'AI Overviews', params: ['run=Weekly listening', 'note=Lead with the click loss', 'channels=Social|Blog'] },
+        { kind: 'make-assets', label: 'Make Social assets', target: 'AI Citation Tracking — Comprehensive Trends Report', params: ['channels=Social'] },
+        { kind: 'set-status', label: 'Publish it', target: 'A report that does not exist', params: ['status=published'] },
+        { kind: 'open', label: 'Open the report', target: 'Comprehensive Trends Report', params: ['type=report'] },
+      ],
+      cards: [{ type: 'trend', ref: 'AI Overviews', title: '', note: '', items: [], actionIndexes: [1] }],
+    };
+    const app = askStudio([{ stdout: claudeSuccess({ ok: true }) }, { stdout: claudeSuccess(output) }]);
+    const reply = await app.invoke('help:ask', { question: 'Approve AI Overviews from Weekly listening for Social and Blog', page: { id: 'simple-mode', layout: 'simple', tab: 'trends' }, requestId: 'req-resolve-1234' });
+    const call = app.spawns.filter((spawn) => spawn.args.includes('--print') && spawn.stdin.includes('You are Ask AI'))[0];
+    // LIVE CONTEXT names each waiting trend's run, what needs attention and the channels.
+    expect(call.stdin).toContain('"run": "Weekly listening · 2026-10-15"');
+    expect(call.stdin).toContain('"attention"');
+    expect(call.stdin).toContain('"name": "Semrush Social Team"');
+    const { actions, cards, content, unresolved } = reply.message;
+    expect(actions.map((action) => action.kind)).toEqual(['approve-trend', 'approve-trend', 'make-assets', 'open']);
+    expect(actions[0].runId).toBeUndefined();
+    expect(actions[0].candidates.map((row) => [row.ids, row.detail])).toEqual([[{ runId: 'research-review-2', themeId: 'theme-overviews' }, 'AI search pulse · 2026-10-16'], [{ runId: 'research-review', themeId: 'theme-overviews' }, 'Weekly listening · 2026-10-15']]);
+    expect(actions[1]).toMatchObject({ runId: 'research-review', themeId: 'theme-overviews', title: 'AI Overviews', params: { run: 'Weekly listening', note: 'Lead with the click loss', channels: ['social', 'blog'] } });
+    expect(actions[2]).toMatchObject({ assetId: 'asset-report', params: { channels: ['social'] } });
+    expect(actions[3]).toMatchObject({ ref: { kind: 'report', id: 'asset-report' }, assetId: 'asset-report' });
+    expect(unresolved).toEqual(['A report that does not exist']);
+    // The trend card shows the run its button decides; the note and channels move to a form card, the ambiguity to a choice.
+    const trend = cards.find((card) => card.type === 'trend');
+    expect(trend.data).toMatchObject({ runId: 'research-review', stage: 'waiting', runLabel: 'Weekly listening · 2026-10-15' });
+    expect(trend.actionIndexes).toEqual([]);
+    expect(cards.find((card) => card.type === 'action')).toMatchObject({ actionIndexes: [1], data: { kind: 'approve-trend', fields: expect.arrayContaining([expect.objectContaining({ key: 'note', value: 'Lead with the click loss' }), expect.objectContaining({ key: 'channels', value: ['social', 'blog'] })]) } });
+    expect(cards.find((card) => card.type === 'choice')).toMatchObject({ actionIndexes: [0], data: { pick: true, options: [expect.objectContaining({ label: 'AI Overviews', detail: 'AI search pulse · 2026-10-16' }), expect.objectContaining({ detail: 'Weekly listening · 2026-10-15' })] } });
+    // [[Title]] became an in-app link; an unknown name and an address it wasn't given became plain text.
+    expect(content).toContain('[AI Overviews](studio:trend/theme-overviews)');
+    expect(content).toContain('[AI Citation Tracking — Comprehensive Trends Report](studio:report/asset-report)');
+    expect(content).toContain('[[Something missing]]'.slice(2, -2));
+    expect(content).not.toContain('[[');
+    expect(content).not.toContain('unknown.example.com');
+    // The next question tells Ask AI what it couldn't find.
+    const stored = await app.invoke('help:conversation', { conversationId: reply.conversation.id });
+    expect(stored.conversation.messages[1].unresolved).toEqual(['A report that does not exist']);
+  });
+  it('places a trend card in the same stage the Trend board does, while assets are being made from its report', async () => {
+    const output = { answer: 'Here it is.', pages: [], followUps: [], show: { autoStart: false, steps: [] }, lookups: [], actions: [], cards: [{ type: 'trend', ref: 'AI Citation Tracking', title: '', note: '', items: [], actionIndexes: [] }] };
+    let state;
+    const app = mainHarness({ cliResults: [{ stdout: claudeSuccess({ ok: true }) }, { stdout: claudeSuccess(output) }], prepare: (root) => {
+      rolesStudio.seedStudio(root, { settings: {} });
+      const file = path.join(root, 'content-studio', 'state.json'); state = JSON.parse(fs.readFileSync(file, 'utf8'));
+      state.contentRuns[0].status = 'running'; // the Social set made from the trend's report is still writing
+      fs.writeFileSync(file, JSON.stringify(state));
+    } });
+    const reply = await app.invoke('help:ask', { question: 'Where is AI Citation Tracking?', page: { layout: 'simple' }, requestId: 'req-stage-1234' });
+    const { buildTrendBoard } = await import('../src/shared/trend-board.js');
+    const board = buildTrendBoard({ researchRuns: state.researchRuns, contentRuns: state.contentRuns, assets: state.assets, programs: state.programs });
+    expect(board.cards.find((card) => card.name === 'AI Citation Tracking').stage).toBe('production');
+    expect(reply.message.cards.find((card) => card.type === 'trend').data.stage).toBe('writing'); // Being written on both
+  });
+  it('reads a report, proposes one section on a report-change card, and saves it only through Apply with the edit it was based on', async () => {
+    const first = { answer: 'Reading it.', pages: [], followUps: [], actions: [], show: { autoStart: false, steps: [] }, cards: [], lookups: [{ kind: 'report', target: 'AI Citation Tracking — Comprehensive Trends Report' }, { kind: 'spend', target: 'month' }, { kind: 'find', target: 'citation toolkit' }] };
+    const second = { answer: 'Here is a tighter section.', pages: [], followUps: [], show: { autoStart: false, steps: [] }, lookups: [],
+      actions: [{ kind: 'edit-report', label: 'Review the new section', target: 'AI Citation Tracking — Comprehensive Trends Report', params: [] }],
+      edit: { ref: 'AI Citation Tracking — Comprehensive Trends Report', part: 'What happened', text: 'Teams still can’t tie AI citations to revenue, so they can’t prove ROI.', note: 'Shorter and clearer.' },
+      cards: [{ type: 'report-change', ref: 'AI Citation Tracking — Comprehensive Trends Report', title: '', note: '', items: [], actionIndexes: [0] }] };
+    const app = askStudio([{ stdout: claudeSuccess({ ok: true }) }, { stdout: claudeSuccess(first) }, { stdout: claudeSuccess(second) }]);
+    const reply = await app.invoke('help:ask', { question: 'Tighten What happened in the citation report', page: { layout: 'classic' }, requestId: 'req-report-1234' });
+    const calls = app.spawns.filter((spawn) => spawn.args.includes('--print') && spawn.stdin.includes('You are Ask AI'));
+    expect(JSON.parse(calls[0].args[calls[0].args.indexOf('--json-schema') + 1]).properties.edit.required).toEqual(['ref', 'part', 'text', 'note']);
+    // The spend and find lookups answer from the studio's own runs and titles.
+    expect(calls[1].stdin).toContain('"kind": "spend"');
+    expect(calls[1].stdin).toContain('"byKind"');
+    expect(calls[1].stdin).toContain('"type": "report"');
+    const card = reply.message.cards.find((row) => row.type === 'report-change');
+    expect(card).toMatchObject({ actionIndexes: [0], data: { assetId: 'asset-report', section: 'What happened', baseEditedAt: '', canApply: true, problems: [] } });
+    expect(card.data.diff.map((line) => line.op)).toEqual(['del', 'add']);
+    expect(card.data.markdown).toContain('## What happened\n\nTeams still can’t tie AI citations to revenue');
+    expect(card.data.markdown).toContain('## Evidence register');
+    // Nothing was saved by the answer; Apply saves it, and a second Apply on the same base is refused.
+    expect((await app.invoke('studio:readStudioAsset', { assetId: 'asset-report' })).edited).toBeNull();
+    await app.invoke('studio:editStudioAsset', { assetId: 'asset-report', markdown: card.data.markdown, baseEditedAt: card.data.baseEditedAt });
+    expect((await app.invoke('studio:readStudioAsset', { assetId: 'asset-report' })).markdown).toContain('so they can’t prove ROI');
+    await expect(app.invoke('studio:editStudioAsset', { assetId: 'asset-report', markdown: card.data.markdown, baseEditedAt: '' })).rejects.toMatchObject({ status: 409 });
   });
   it('turns away empty or oversized questions without calling Claude', async () => {
     const app = mainHarness();

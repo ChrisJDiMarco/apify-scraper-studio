@@ -238,3 +238,31 @@
 .chat-cards .pdiff-empty { color: var(--cc-muted); }
 .cc-status.is-locked { color: var(--cc-ink); background: var(--cc-surface); box-shadow: inset 0 0 0 1px var(--cc-line-strong); }
 @container (max-width: 360px) { .chat-cards .pdiff { font-size: .88em; } }
+
+/* Action form (ActionFormCard): reuses the plan's chips and fields; the note box and its counter. */
+.chat-cards .cc-field textarea { width: 100%; min-height: 56px; padding: 6px 10px; font: inherit; font-size: 1.04em; font-weight: 500; line-height: 1.5; color: var(--cc-ink); background: var(--cc-surface); border: 1px solid var(--cc-line-strong); border-radius: 8px; resize: vertical; }
+.chat-cards .cc-field textarea:focus { outline: 2px solid var(--cc-accent); outline-offset: 1px; }
+.cc-field > span { display: flex; justify-content: space-between; gap: 8px; }
+.cc-field > span small { font-weight: 500; font-variant-numeric: tabular-nums; }
+/* Choice (ChoiceCard): one answer per row; the picked one stays marked. */
+.cc-choices { display: grid; gap: 6px; }
+.chat-cards .cc-choice { display: grid; gap: 1px; justify-items: start; width: 100%; min-height: 36px; padding: 7px 12px; font: inherit; font-weight: 600; text-align: left; color: var(--cc-ink); background: var(--cc-surface-soft); border: 1px solid var(--cc-line); border-radius: 10px; box-shadow: none; transform: none; }
+.chat-cards .cc-choice:hover:not(:disabled) { color: var(--cc-ink); background: var(--cc-hover); border-color: var(--cc-line-strong); }
+.chat-cards .cc-choice small { font-size: .88em; font-weight: 500; color: var(--cc-muted); }
+.chat-cards .cc-choice.is-on { background: var(--cc-soft); border-color: var(--cc-accent-line); }
+.chat-cards .cc-choice:disabled:not(.is-on) { opacity: .55; cursor: not-allowed; }
+/* Plan (PlanCard): numbered steps; only the current one has its buttons. */
+.cc-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.cc-steps li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; }
+.cc-step-mark { display: grid; place-items: center; width: 22px; height: 22px; font-size: .82em; font-weight: 700; color: var(--cc-muted); background: var(--cc-hover); border-radius: 999px; font-variant-numeric: tabular-nums; }
+.cc-steps .is-current .cc-step-mark { color: var(--cc-action-ink); background: var(--cc-action); }
+.cc-steps .is-done .cc-step-mark { color: var(--cc-ok); background: var(--cc-ok-soft); }
+.cc-step-body { display: grid; gap: 3px; min-width: 0; }
+.cc-step-body strong { font-weight: 650; overflow-wrap: anywhere; }
+.cc-step-body small { font-size: .9em; line-height: 1.45; color: var(--cc-muted); overflow-wrap: anywhere; }
+.cc-steps .is-later .cc-step-body strong { color: var(--cc-muted); }
+.cc-step-body .cc-actions { margin-top: 4px; }
+.cc-step-body .cc-text-button { display: inline-flex; align-items: center; gap: 4px; }
+/* Draft (DraftCard): the text to copy, editable in place. */
+.chat-cards .cc-draft { width: 100%; padding: 8px 10px; font: inherit; font-size: 1em; line-height: 1.55; color: var(--cc-ink); background: var(--cc-surface-soft); border: 1px solid var(--cc-line); border-radius: 10px; resize: vertical; }
+.chat-cards .cc-draft:focus { outline: 2px solid var(--cc-accent); outline-offset: 1px; }

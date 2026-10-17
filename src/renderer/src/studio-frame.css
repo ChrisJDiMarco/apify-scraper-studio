@@ -2,7 +2,7 @@
    App.jsx imports this file before the global CSS loads, so rules here carry .app-shell.studio-frame (and a class or
    two more) to win over premium.css, semrush-shell.css and styles.css without !important. */
 .studio-frame {
-  --s-ink: #181e15; --s-muted: #62685e; --s-faint: #8a9088; --s-line: #e3e8e4; --s-line-strong: #cfd6d0; --s-bg: #f4f6f5; --s-card: #ffffff;
+  --s-ink: #181e15; --s-muted: #62685e; --s-faint: #6a7068; /* 4.68:1 on --s-bg, 5.08:1 on --s-card (WCAG AA) */ --s-line: #e3e8e4; --s-line-strong: #cfd6d0; --s-bg: #f4f6f5; --s-card: #ffffff;
   --s-accent: #c190ff; --s-accent-strong: #a873f2; --s-soft: #f1eaff; --s-soft-ink: #5a2fa0; --s-mint: #dceeeb; --s-mint-ink: #1f5a4c;
   --s-warn: #fff4dc; --s-warn-ink: #6b5413; --s-danger: #8a2f1c; --s-danger-soft: #fbe7df;
   --s-radius: 20px; --s-radius-row: 16px; --s-radius-control: 12px;
@@ -18,7 +18,7 @@
 /* Dark values for the frame tokens. Nothing turns them on yet: an app-wide pass sets data-theme="dark" on the root or
    the frame once every page reads these tokens (help-assistant.css and chat-cards.css switch the same way). */
 :root[data-theme="dark"] .studio-frame, .studio-frame[data-theme="dark"] {
-  --s-ink: #eef2ee; --s-muted: #a3aaa1; --s-faint: #7d857b; --s-line: #2b322b; --s-line-strong: #3a423a; --s-bg: #121611; --s-card: #1a1f19;
+  --s-ink: #eef2ee; --s-muted: #a3aaa1; --s-faint: #868e84; --s-line: #2b322b; --s-line-strong: #3a423a; --s-bg: #121611; --s-card: #1a1f19;
   --s-soft: #2a2140; --s-soft-ink: #d9c6ff; --s-mint: #16302a; --s-mint-ink: #8fe0c8; --s-warn: #3a2f12; --s-warn-ink: #f0d58a; --s-danger: #f0a08e; --s-danger-soft: #3b1d16;
   --s-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 12px 32px rgba(0, 0, 0, .35); --s-shadow-pop: 0 30px 80px rgba(0, 0, 0, .6);
   --s-sidebar-bg: #151a14; --s-nav-active: var(--s-soft);
@@ -248,4 +248,4 @@
   .studio-page, .studio-dialog, .studio-dialog-backdrop, .studio-menu, .studio-toast, .studio-scrim { animation: none; }
   .studio-skeleton span, .studio-shimmer { animation: none; }
 }
-@media (prefers-contrast: more) { .studio-frame { --s-line: #b8c4bd; --s-muted: #4d534a; } }
+@media (prefers-contrast: more) { .studio-frame { --s-line: #b8c4bd; --s-muted: #4d534a; --s-faint: #5d6359; } }

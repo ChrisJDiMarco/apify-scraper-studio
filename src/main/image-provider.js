@@ -115,7 +115,9 @@ function decodeImage(body, dimensions) {
 }
 // A picture with reference images takes longer; n8n gave those requests 300 seconds. A timeout leaves the spend
 // unknown and blocks an automatic repeat, so the wait is generous.
-function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutMs = 180000, editTimeoutMs = 300000, quality = 'medium' } = {}) {
+// `limits` (optional, src/main/ai-limits.js): the studio-wide AI limits. Each picture request waits for a slot and is
+// refused once the daily AI budget is spent; its usage estimate counts toward the day.
+function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutMs = 180000, editTimeoutMs = 300000, quality = 'medium', limits = null } = {}) {
   if (typeof getApiKey !== 'function' || typeof fetchImpl !== 'function') invalid('imageConnection', 'Image generation needs a host credential provider and HTTP client.');
   for (const [field, value] of [['timeoutMs', timeoutMs], ['editTimeoutMs', editTimeoutMs]]) if (!Number.isInteger(value) || value < 1 || value > 600000) invalid(field, 'Choose an image timeout from 1 to 600,000 milliseconds.');
   if (!['low', 'medium', 'high'].includes(quality)) invalid('quality', 'Choose low, medium, or high image quality.');
@@ -147,6 +149,16 @@ function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutM
       if (error?.code?.startsWith('IMAGE_')) throw error;
       throw problem('IMAGE_NETWORK_ERROR', 'image', 'OpenAI could not complete the connection. The paid request was not automatically retried.');
     } finally { clearTimeout(timer); clearInterval(poll); signal?.removeEventListener('abort', cancel); }
+  }
+  function underBudget() { if (!limits) return; try { limits.checkBudget(); } catch (error) { throw problem('IMAGE_DAILY_BUDGET', 'image', error.message); } }
+  // A free slot under the studio's concurrency limit; a cancel while waiting leaves the line before anything is sent.
+  async function slot({ signal, isCancelled }) {
+    if (!limits) return () => {};
+    let leave = null;
+    const poll = setInterval(() => { try { if (signal?.aborted || isCancelled()) leave?.(); } catch (_) { leave?.(); } }, 100);
+    try { return await limits.acquire({ register: (cancel) => { leave = cancel; } }); }
+    catch (_) { throw problem('IMAGE_CANCELLED', 'image', 'Image generation was cancelled before another paid request.'); }
+    finally { clearInterval(poll); }
   }
   async function checkAccess({ signal } = {}) {
     const credential = await key(); const result = await request(`https://api.openai.com/v1/models/${MODEL}`, { method: 'GET', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json' } }, { signal });
@@ -184,33 +196,39 @@ function createImageProvider({ getApiKey, fetchImpl = globalThis.fetch, timeoutM
         const remaining = maxBudgetUsd - spent;
         if (unknownSpend) throw problem('IMAGE_USAGE_UNKNOWN', 'maxBudgetUsd', 'An image completed without usable billing data. Its allowance remains reserved; review or increase the allowance before generating more variants.');
         if (remaining + 1e-10 < MIN_DISPATCH_ALLOWANCE_USD) throw problem('IMAGE_ALLOWANCE_EXHAUSTED', 'maxBudgetUsd', 'The image dispatch allowance is exhausted. Completed variants are preserved; increase the allowance to continue.');
+        underBudget();
         const credential = await key();
-        const receipt = { provider: 'openai', attemptId: randomUUID(), runId, variantIndex, requestedModel: MODEL, model: MODEL, returnedModel: null, promptHash: digest(prompts[variantIndex]), size: deliverable.size, quality, status: 'dispatched', allowanceUsd: Number((remaining / (deliverable.variants - images.size)).toFixed(12)), budgetKind: 'dispatch-allowance', budgetNotice: BUDGET_NOTICE, requestId: null, startedAt: stamp(), billable: null, usage: null, costUsd: null, estimatedCostUsd: null, costBasis: 'unknown', pricingAsOf: '2026-09-27', pricingUsdPerMillion: { textInput: 5, imageInput: 8, imageOutput: 30 }, ...(references.length ? { endpoint: 'images/edits', referencesHash, references: references.map(({ role, mime, bytes, sha256 }) => ({ role, mime, bytes, sha256 })) } : {}) };
-        attemptReceipts.push(receipt); let dispatched = false;
-        try {
-          try { await onRequest(copy(receipt)); } catch (_) { throw problem('IMAGE_CHECKPOINT_FAILED', 'imageCheckpoint', 'The image request checkpoint could not be saved. No new request was sent.'); }
-          if (signal?.aborted || isCancelled()) throw problem('IMAGE_CANCELLED', 'image', 'Image generation was cancelled before the request was sent.');
-          const call = references.length
-            ? { url: EDITS_ENDPOINT, waitMs: editTimeoutMs, options: { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json' }, body: editForm(prompts[variantIndex], deliverable.size, quality, references) } }
-            : { url: ENDPOINT, waitMs: timeoutMs, options: { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: MODEL, prompt: prompts[variantIndex], n: 1, size: deliverable.size, quality, output_format: 'png', background: 'opaque', moderation: 'auto' }) } };
-          dispatched = true;
-          const body = await request(call.url, call.options, { signal, isCancelled, receipt, waitMs: call.waitMs });
-          receipt.usage = normalizedUsage(body?.usage); receipt.costUsd = usageCost(receipt.usage); receipt.estimatedCostUsd = receipt.costUsd; receipt.costBasis = receipt.costUsd == null ? 'unknown' : 'usage-estimate'; receipt.billable = true;
-          if (body?.model != null && ![MODEL, `${MODEL}-2026-09-08`].includes(body.model)) throw problem('IMAGE_MODEL_MISMATCH', 'image', 'The provider returned an unexpected image model.');
-          receipt.returnedModel = body?.model || null;
-          const png = decodeImage(body, dimensions); receipt.status = 'succeeded'; receipt.completedAt = stamp();
-          const image = { variantIndex, title: `${String(deliverable.label || 'Generated image').slice(0, 250)} · ${variantIndex + 1}`, png, receipt: copy(receipt) }; images.set(variantIndex, image);
-          if (receipt.costUsd == null) unknownSpend = true; else spent += receipt.costUsd;
-          if (onVariant) { try { await onVariant(image); } catch (_) { throw problem('IMAGE_CHECKPOINT_FAILED', 'imageCheckpoint', 'A completed image could not be saved. No further image request was sent.'); } }
-        } catch (error) {
-          if (receipt.status !== 'succeeded') {
-            if (!dispatched || error.definitiveRejected) { receipt.status = 'failed'; receipt.billable = false; receipt.costUsd = 0; receipt.estimatedCostUsd = 0; receipt.costBasis = 'not-dispatched-or-rejected'; }
-            else if (receipt.costUsd != null) { receipt.status = 'failed'; receipt.billable = true; }
-            else { receipt.status = 'unknown'; receipt.billable = null; }
-            receipt.completedAt = stamp(); receipt.errorCode = error.code || 'IMAGE_GENERATION_FAILED';
+        const leaveSlot = await slot({ signal, isCancelled });
+        try { // the slot is held until this request settles
+          underBudget();
+          const receipt = { provider: 'openai', attemptId: randomUUID(), runId, variantIndex, requestedModel: MODEL, model: MODEL, returnedModel: null, promptHash: digest(prompts[variantIndex]), size: deliverable.size, quality, status: 'dispatched', allowanceUsd: Number((remaining / (deliverable.variants - images.size)).toFixed(12)), budgetKind: 'dispatch-allowance', budgetNotice: BUDGET_NOTICE, requestId: null, startedAt: stamp(), billable: null, usage: null, costUsd: null, estimatedCostUsd: null, costBasis: 'unknown', pricingAsOf: '2026-09-27', pricingUsdPerMillion: { textInput: 5, imageInput: 8, imageOutput: 30 }, ...(references.length ? { endpoint: 'images/edits', referencesHash, references: references.map(({ role, mime, bytes, sha256 }) => ({ role, mime, bytes, sha256 })) } : {}) };
+          attemptReceipts.push(receipt); let dispatched = false;
+          try {
+            try { await onRequest(copy(receipt)); } catch (_) { throw problem('IMAGE_CHECKPOINT_FAILED', 'imageCheckpoint', 'The image request checkpoint could not be saved. No new request was sent.'); }
+            if (signal?.aborted || isCancelled()) throw problem('IMAGE_CANCELLED', 'image', 'Image generation was cancelled before the request was sent.');
+            const call = references.length
+              ? { url: EDITS_ENDPOINT, waitMs: editTimeoutMs, options: { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json' }, body: editForm(prompts[variantIndex], deliverable.size, quality, references) } }
+              : { url: ENDPOINT, waitMs: timeoutMs, options: { method: 'POST', headers: { Authorization: `Bearer ${credential}`, Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: MODEL, prompt: prompts[variantIndex], n: 1, size: deliverable.size, quality, output_format: 'png', background: 'opaque', moderation: 'auto' }) } };
+            dispatched = true;
+            const body = await request(call.url, call.options, { signal, isCancelled, receipt, waitMs: call.waitMs });
+            receipt.usage = normalizedUsage(body?.usage); receipt.costUsd = usageCost(receipt.usage); receipt.estimatedCostUsd = receipt.costUsd; receipt.costBasis = receipt.costUsd == null ? 'unknown' : 'usage-estimate'; receipt.billable = true;
+            if (body?.model != null && ![MODEL, `${MODEL}-2026-09-08`].includes(body.model)) throw problem('IMAGE_MODEL_MISMATCH', 'image', 'The provider returned an unexpected image model.');
+            receipt.returnedModel = body?.model || null;
+            const png = decodeImage(body, dimensions); receipt.status = 'succeeded'; receipt.completedAt = stamp();
+            const image = { variantIndex, title: `${String(deliverable.label || 'Generated image').slice(0, 250)} · ${variantIndex + 1}`, png, receipt: copy(receipt) }; images.set(variantIndex, image);
+            if (receipt.costUsd == null) unknownSpend = true; else spent += receipt.costUsd;
+            limits?.record(receipt.costUsd);
+            if (onVariant) { try { await onVariant(image); } catch (_) { throw problem('IMAGE_CHECKPOINT_FAILED', 'imageCheckpoint', 'A completed image could not be saved. No further image request was sent.'); } }
+          } catch (error) {
+            if (receipt.status !== 'succeeded') {
+              if (!dispatched || error.definitiveRejected) { receipt.status = 'failed'; receipt.billable = false; receipt.costUsd = 0; receipt.estimatedCostUsd = 0; receipt.costBasis = 'not-dispatched-or-rejected'; }
+              else if (receipt.costUsd != null) { receipt.status = 'failed'; receipt.billable = true; limits?.record(receipt.costUsd); }
+              else { receipt.status = 'unknown'; receipt.billable = null; }
+              receipt.completedAt = stamp(); receipt.errorCode = error.code || 'IMAGE_GENERATION_FAILED';
+            }
+            throw error;
           }
-          throw error;
-        }
+        } finally { leaveSlot(); }
       }
       return [...images.values()].sort((a, b) => a.variantIndex - b.variantIndex);
     } catch (error) {

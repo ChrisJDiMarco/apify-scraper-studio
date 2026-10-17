@@ -1,0 +1,21 @@
+# Weekly dependency updates. Related packages are grouped so one PR moves them together.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      electron:
+        patterns: ['electron', 'electron-builder', 'electron-vite', 'electron-updater']
+      react:
+        patterns: ['react', 'react-dom', '@testing-library/*', 'lucide-react', 'react-markdown', 'remark-gfm']
+      build-and-test:
+        patterns: ['vite', 'vitest', '@vitest/*', '@vitejs/*', 'jsdom']
+      lint:
+        patterns: ['eslint', 'eslint-plugin-*', 'globals']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -1,8 +1,9 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, BookOpen, Brain, Check, Download, Ellipsis, FileText, History, Image as ImageIcon, LoaderCircle, MessagesSquare, MousePointerClick, Pencil, Pin, PinOff, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, BookOpen, Brain, Check, CircleAlert, Download, Ellipsis, FileText, History, Image as ImageIcon, LoaderCircle, MessagesSquare, MousePointerClick, Pencil, Pin, PinOff, Plus, RefreshCw, RotateCcw, Search, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import { ChatCards, MemoryCard, cardActionIndexes } from './chat-cards.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
+import { aiActionAllowed } from './studio-actions.js';
 import { PREVIEW_TITLE, formatDay, formatTime, useCan, useViewer, writeProps } from './viewer.js';
 import './help-assistant.css';
 
@@ -63,7 +64,8 @@ function assistantFrom(message = {}, options = {}) {
     remembered: list(message.remembered).filter((row) => row?.id && row.text), createdAt: message.createdAt || '',
   };
 }
-// A stored conversation as the panel shows it, plus the outcomes recorded for its buttons.
+// A stored conversation as the panel shows it, plus the outcomes recorded for its buttons. A plan step that was skipped
+// was recorded as cancelled with its words; a plain "no" (cancelled, no words) brings the button back.
 function threadFrom(messages) {
   const states = {};
   const rows = list(messages).map((message) => {
@@ -71,6 +73,7 @@ function threadFrom(messages) {
     list(message?.actions).forEach((action, index) => {
       const outcome = action?.outcome || message?.outcomes?.[index];
       if (outcome && ['done', 'failed'].includes(outcome.status)) states[`${message.id}:${index}`] = { status: outcome.status, text: outcome.text || (outcome.status === 'done' ? 'Done.' : 'That didn’t work.'), ...(outcome.runId ? { runId: outcome.runId } : {}) };
+      else if (outcome?.status === 'cancelled' && outcome.text) states[`${message.id}:${index}`] = { status: 'cancelled', text: outcome.text };
     });
     return assistantFrom(message, { stored: true });
   }).filter((row) => row.id);
@@ -78,6 +81,41 @@ function threadFrom(messages) {
 }
 // What an older server needs: the conversation so far, with picture prompts so "make it bluer" can revise them.
 const legacyHistory = (messages) => messages.flatMap(({ role, content, image, context: earlier }) => [...(earlier ? [{ role: 'user', content: earlier }] : []), { role, content: image?.prompt ? `${content}\n[Picture created from this prompt: ${image.prompt}]` : content }]);
+// In-app links in an answer, [label](studio:<kind>/<id>) (the server writes them from [[Exact title]] and drops any it
+// can't find): the words stay in the text, in bold, and each link becomes a button under the answer.
+const STUDIO_LINK = /\[([^\]\n]{1,160})\]\(studio:(report|trend|folder|run|prompt|page)\/([A-Za-z0-9][A-Za-z0-9_.:~-]{0,299})\)/g;
+export function studioLinks(content) {
+  const links = []; const seen = new Set();
+  const text = String(content || '').replace(STUDIO_LINK, (all, label, kind, id) => {
+    const key = `${kind}:${id}`;
+    if (!seen.has(key) && links.length < 6) { seen.add(key); links.push({ label: label.replace(/\*/g, ''), kind, id }); }
+    return `**${label.replace(/\*/g, '')}**`;
+  });
+  return { text, links };
+}
+// What needs this person now, from the pushed state and the board's rules, as free one-click starters (no AI call):
+// trends waiting for an OK, an asset set that needs another try, a run that didn't finish. Each is a button the
+// shared runner takes, so it is gated and confirmed like any other. Opening Trends needs no method, so the trends row
+// asks `can` for Approve trends itself.
+export function attentionStarters(state, can = () => true) {
+  const studio = state?.contentStudio || {}; const workspaceId = studio.activeWorkspaceId;
+  const mine = (row) => !workspaceId || !row.workspaceId || row.workspaceId === workspaceId;
+  const research = list(studio.researchRuns).filter(mine); const content = list(studio.contentRuns).filter(mine);
+  const themesOf = (run) => (list(run.discoveredThemes).length ? run.discoveredThemes : list(run.themes));
+  const out = [];
+  const waiting = research.filter((run) => run.status === 'awaiting-review' && run.origin !== 'quick-scan').reduce((sum, run) => sum + themesOf(run).filter((theme) => !run.decisions?.[theme.id]).length, 0);
+  if (waiting && can('decideResearchTheme')) out.push({ label: `Review ${waiting} ${waiting === 1 ? 'trend' : 'trends'} waiting for your OK`, request: { kind: 'open-tab', label: 'Open Trends', target: 'trends' } });
+  const seen = new Set();
+  for (const run of [...content].filter((row) => row.kit).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))) {
+    if (seen.has(run.kit.sourceKey)) continue; seen.add(run.kit.sourceKey);
+    const left = list(run.jobs).filter((job) => job.status !== 'succeeded').length;
+    if (['partial', 'failed'].includes(run.status) && left) { out.push({ label: `${left} ${left === 1 ? 'asset' : 'assets'} in “${run.kit.sourceTitle}” need another try`, request: { kind: 'finish-assets', label: 'Finish them', target: run.kit.sourceTitle, folderKey: run.kit.sourceKey } }); break; }
+  }
+  const week = Date.now() - 7 * 86400000;
+  const failed = [...research, ...content.filter((row) => !row.kit)].filter((row) => ['failed', 'partial'].includes(row.status) && Date.parse(row.updatedAt || row.createdAt || '') >= week).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
+  if (failed) out.push({ label: `“${failed.title}” didn’t finish. Try it again`, request: { kind: 'retry-run', label: 'Try again', target: failed.title, runId: failed.id } });
+  return out.slice(0, 3);
+}
 
 function Picture({ image, onRetry, onDownload, onEnlarge, onOpenAssets }) {
   if (image.status === 'creating') return <div className="help-picture help-picture-pending" style={{ aspectRatio: ratio(image.size) }} role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><span>Creating the picture… usually under a minute</span></div>;
@@ -279,6 +317,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   const inputRef = useRef(null);
   const listRef = useRef(null);
   const seedKey = useRef(null);
+  const queuedSeed = useRef(null); // a question sent from elsewhere while an answer was still coming
   const threadRef = useRef(0); // bumps on every New conversation or switch, so a late reply never lands in another thread
   const conversationRef = useRef(null); conversationRef.current = conversation;
   const messagesRef = useRef(messages); messagesRef.current = messages;
@@ -293,8 +332,21 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     seedKey.current = seed.key;
     // A draft fills the box for the person to finish; text asks right away.
     if (seed.draft) { setPanel(''); setDraft(seed.draft); requestAnimationFrame(() => { const input = inputRef.current; if (input) { input.focus(); input.setSelectionRange(seed.draft.length, seed.draft.length); } }); }
-    else if (seed.text) { setPanel(''); ask(seed.text, seed.context); }
+    else if (seed.text) {
+      setPanel('');
+      // While an answer is still coming, the question (and the report it came with) waits its turn instead of being lost.
+      if (pendingRef.current || opening) { queuedSeed.current = { text: seed.text, context: seed.context || '' }; setNotice('Your question will be asked as soon as this answer is done.'); }
+      else ask(seed.text, seed.context);
+    }
   }, [seed?.key]);
+  // The waiting question goes once the answer is in; after an error (or in a preview) it waits in the box instead, so the
+  // error stays readable and nothing is sent unasked.
+  useEffect(() => {
+    if (pending || opening || !queuedSeed.current) return;
+    const next = queuedSeed.current; queuedSeed.current = null;
+    if (error || viewer.preview) { setDraft(next.text); return; }
+    ask(next.text, next.context);
+  }, [pending, opening]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (open && !panel) requestAnimationFrame(() => inputRef.current?.focus()); }, [open]);
   useEffect(() => { const box = listRef.current; if (box) box.scrollTop = box.scrollHeight; }, [messages, pending, error]);
   // Esc: the enlarged picture, then an open panel or rail, then (drawer only) the drawer itself.
@@ -335,7 +387,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     } catch (failure) { if (token === listToken.current) { setListStatus('error'); setListError(errorText(failure)); } }
   }
   function reset() {
-    threadRef.current += 1;
+    threadRef.current += 1; queuedSeed.current = null;
     setMessages([]); setConversation(null); setActionState({}); setError(''); setRetry(null); setNotice(''); setOpening(''); setEnlarged(null);
   }
   function startNew() {
@@ -485,6 +537,14 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   async function runAction(message, index) {
     const action = message.actions[index]; if (!action || !onAction) return;
     const key = `${message.id}:${index}`; const conversationId = conversationRef.current?.id || '';
+    // A plan's "ask" step asks its question here (a normal Ask AI answer, with its own cost line).
+    if (action.kind === 'ask') {
+      if (pendingRef.current || opening || viewer.preview || !String(action.target || '').trim()) { setNotice(viewer.preview ? PREVIEW_TITLE : 'Ask AI is still answering. Try this step once it’s done.'); return; }
+      const done = { status: 'done', text: 'Asked.' };
+      setActionState((current) => ({ ...current, [key]: done })); record(conversationId, message.id, { index, outcome: done });
+      ask(action.target);
+      return;
+    }
     setActionState((current) => ({ ...current, [key]: { status: 'running' } }));
     try {
       // A prompt edit is credited to this conversation (the Prompts page's History links back to it).
@@ -504,6 +564,24 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     record(conversationRef.current?.id || '', message.id, { index, outcome });
   }
   const statesFor = (message) => Object.fromEntries(message.actions.map((_, index) => [index, actionState[`${message.id}:${index}`]]).filter(([, value]) => value));
+  // An in-answer link: the layout opens the item (openTarget), else the nearest place it has.
+  function openLink(link) {
+    try {
+      if (typeof nav?.openTarget === 'function') { nav.openTarget({ kind: link.kind, id: link.id, ...(link.kind === 'page' ? { page: link.id } : {}) }); return; }
+      const ways = { report: () => nav?.openReport?.(link.id), folder: () => nav?.openFolder?.(link.id), prompt: () => nav?.openPrompt?.(link.id), page: () => onOpenPage?.(link.id), trend: () => nav?.openTab?.('trends'), run: () => nav?.openTab?.('home') };
+      const way = { report: nav?.openReport, folder: nav?.openFolder, prompt: nav?.openPrompt, page: onOpenPage, trend: nav?.openTab, run: nav?.openTab }[link.kind];
+      if (typeof way !== 'function') { setNotice('That isn’t available in this layout.'); return; }
+      ways[link.kind]();
+    } catch (failure) { setNotice(errorText(failure)); }
+  }
+  // A "needs you now" starter runs its button straight away (no AI call); its result or error shows as a note.
+  async function runStarter(request) {
+    if (!onAction || viewer.preview) return;
+    setNotice('');
+    try { const result = await onAction(request); if (typeof result === 'string') setNotice(result); }
+    catch (failure) { setNotice(errorText(failure)); }
+  }
+  const needs = onAction && !messages.length ? attentionStarters(state, can).filter((row) => aiActionAllowed(row.request.kind, can)) : [];
 
   const last = messages[messages.length - 1];
   const busy = Boolean(pending) || Boolean(opening);
@@ -524,6 +602,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
         {inline && <span className="help-welcome-mark" aria-hidden="true"><Sparkles size={24} /></span>}
         <h3>{copy.title || 'Ask anything about Scraper Studio'}</h3>
         <p>{copy.intro || 'How a page works, what a run will cost, why something stopped, or what to do next. Answers use the app guide and your current setup.'} {imagesReady ? 'Ask for a picture and it appears right here.' : copy.noPictures || 'Add an OpenAI key in Settings → Image generation to make pictures here too.'}</p>
+        {needs.length > 0 && <div className="help-starters help-needs" role="group" aria-label="Needs you now">{needs.map((row) => <button type="button" key={row.label} {...writeProps(viewer)} onClick={() => runStarter(row.request)}><span>{row.label}</span><CircleAlert size={14} aria-hidden="true" /></button>)}</div>}
         <div className="help-starters">{starters.filter((question) => imagesReady || !/image/i.test(question)).map((question) => <button type="button" key={question} {...writeProps(viewer)} onClick={() => ask(question)}><span>{question}</span>{/image/i.test(question) ? <ImageIcon size={14} aria-hidden="true" /> : <ArrowRight size={14} aria-hidden="true" />}</button>)}</div>
       </div>}
       {messages.map((message) => {
@@ -531,14 +610,16 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
         const carded = cardActionIndexes(message.cards, message.actions);
         const plain = onAction ? message.actions.map((action, index) => [action, index]).filter(([action, index]) => action && !carded.has(index)) : [];
         const memoryCarded = message.cards.some((card) => card?.type === 'memory');
+        const shown = studioLinks(message.content);
         return <article className="help-answer" key={message.id} aria-label="Answer">
           {message.read.length > 0 && <small className="help-read"><BookOpen size={12} aria-hidden="true" />Read {message.read.map((row) => `“${row.title}”`).join(', ')}</small>}
-          <MarkdownContent>{message.content}</MarkdownContent>
+          <MarkdownContent>{shown.text}</MarkdownContent>
+          {shown.links.length > 0 && <div className="help-pages help-links" aria-label="In this answer">{shown.links.map((link) => <button type="button" key={`${link.kind}:${link.id}`} onClick={() => openLink(link)}>{link.label}<ArrowRight size={13} aria-hidden="true" /></button>)}</div>}
           {message.cards.length > 0 && <ChatCards cards={message.cards} actions={message.actions} actionState={statesFor(message)} onAction={onAction ? (index) => runAction(message, index) : undefined} onRunAction={onAction} onOutcome={(index, outcome) => cardOutcome(message, index, outcome)} onAsk={(text) => ask(text)} onNav={nav || {}} api={api} state={state} conversationId={conversation?.id || conversationRef.current?.id || ''} />}
           {message.remembered.length > 0 && !memoryCarded && <MemoryCard card={{ type: 'memory', title: 'Remembered', data: { items: message.remembered } }} api={api} />}
           {message.show && onShow && <div className="help-show"><button type="button" onClick={() => onShow(message.show.steps)}><MousePointerClick size={14} aria-hidden="true" />{message.show.steps.length > 1 ? `Show me · ${message.show.steps.length} steps` : 'Show me'}</button></div>}
           {message.image && <Picture image={message.image} onRetry={typeof api.createHelpImage === 'function' && !viewer.preview ? () => drawPicture(message.id, { title: message.image.title, prompt: message.image.prompt, size: message.image.size }, conversation?.id || '') : null} onDownload={() => download(message.image)} onEnlarge={() => setEnlarged(message.image)} onOpenAssets={onOpenAssets} />}
-          {plain.length > 0 && <div className="help-actions">{plain.map(([action, index]) => { const status = actionState[`${message.id}:${index}`]; return <div className="help-action" key={`${action.kind}-${index}`}>{status?.status === 'done' ? <span className="help-action-done"><Check size={13} aria-hidden="true" />{status.text}</span> : <button type="button" disabled={status?.status === 'running'} onClick={() => runAction(message, index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}{action.label}</button>}{status?.status === 'failed' && <small role="alert">{status.text}</small>}</div>; })}</div>}
+          {plain.length > 0 && <div className="help-actions">{plain.map(([action, index]) => { const status = actionState[`${message.id}:${index}`]; return <div className="help-action" key={`${action.kind}-${index}`}>{status?.status === 'done' ? <span className="help-action-done"><Check size={13} aria-hidden="true" />{status.text}</span> : <button type="button" disabled={status?.status === 'running'} onClick={() => runAction(message, index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}{action.label}</button>}{status?.status === 'failed' && <small role="alert">{status.text}</small>}{!status && list(action.problems).length > 0 && <small className="help-action-note">{action.problems[0]}</small>}</div>; })}</div>}
           {message.pages.length > 0 && <div className="help-pages">{message.pages.map((link) => <button type="button" key={link.page} onClick={() => onOpenPage(link.page)}>{link.label}<ArrowRight size={13} aria-hidden="true" /></button>)}</div>}
           {message === last && message.followUps.length > 0 && !pending && <div className="help-followups">{message.followUps.map((question) => <button type="button" key={question} {...writeProps(viewer)} onClick={() => ask(question)}>{question}</button>)}</div>}
           {message.receipt && <small className="help-receipt">{[message.receipt.route === 'codex' ? 'Codex (not metered)' : message.receipt.model, money(message.receipt.costUsd)].filter(Boolean).join(' · ')}</small>}

@@ -32,7 +32,7 @@ describe('AssetEditor', () => {
     expect(screen.getByText('better', { selector: 'strong' })).toBeInTheDocument();
   });
 
-  it('guards unsaved edits: the shared guard, Cancel and Esc all ask first', () => {
+  it('guards unsaved edits: the shared guard, Cancel and Esc all ask first', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     const { guard, text, onCancel } = open();
     expect(guard.isDirty()).toBe(false);
@@ -44,7 +44,7 @@ describe('AssetEditor', () => {
     expect(guard.confirmLeave()).toBe(false);
     expect(confirm).toHaveBeenLastCalledWith(LEAVE_MESSAGE);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(confirm).toHaveBeenLastCalledWith('Leave without saving your edits?');
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith('Leave without saving your edits?'));
     expect(onCancel).not.toHaveBeenCalled();
     const outside = vi.fn();
     window.addEventListener('keydown', outside);
@@ -54,7 +54,7 @@ describe('AssetEditor', () => {
     expect(onCancel).not.toHaveBeenCalled();
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(onCancel).toHaveBeenCalled();
+    await waitFor(() => expect(onCancel).toHaveBeenCalled());
     cleanup();
     expect(guard.isDirty()).toBe(false);
   });
@@ -108,7 +108,7 @@ describe('AssetEditor', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
     const { services, onSaved } = open({ edited });
     fireEvent.click(screen.getByRole('button', { name: /Restore the original/ }));
-    expect(confirm).toHaveBeenCalledWith(`Restore the original? This removes Riley’s edits from ${day(edited.at)}. Drafts already made from the edited version stay as they are.`);
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(`Restore the original?\n\nThis removes Riley’s edits from ${day(edited.at)}. Drafts already made from the edited version stay as they are.`));
     expect(services.restoreStudioAsset).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /Restore the original/ }));
     await waitFor(() => expect(services.restoreStudioAsset).toHaveBeenCalledWith({ assetId: 'asset-report' }));

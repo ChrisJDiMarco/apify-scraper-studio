@@ -83,6 +83,8 @@
     { "id": "home.copy", "tab": "home", "selector": ".wb-quiet", "where": "Home, top right of the weekly briefing", "what": "Copy briefing for Slack: this week's briefing as text to paste into a channel" },
     { "id": "home.for-you", "tab": "home", "selector": ".wb-for-you", "where": "Home, the weekly briefing (once you've picked My channels)", "what": "'Ready for your channels': reports for the channels you make content for" },
     { "id": "home.shipped", "tab": "home", "selector": ".wb-shipped", "where": "Home, the weekly briefing", "what": "'Shipped': trends the channels said they used, with links to what went out" },
+    { "id": "home.next", "tab": "home", "where": "Home, under the Ask box", "what": "Next up: the one to three things to do now (approved trends waiting for reports, a run that stopped, a report with no channel assets yet, assets In review), each with one button (only when something is waiting)" },
+    { "id": "home.setup", "tab": "home", "where": "Home, under the Ask box (admins, until setup is done)", "what": "Get the studio ready: connect Apify, check Claude, save the first research program, invite people and give channels owners, turn on pictures, each with the button that does it" },
 
     { "id": "reports.search", "tab": "reports", "where": "Reports", "what": "The search box for report titles" },
     { "id": "reports.types", "tab": "reports", "where": "Reports", "what": "Filter chips: All, Trends reports, Toolkits, Drafts" },
@@ -111,6 +113,8 @@
     { "id": "trends.yes-note", "tab": "trends", "selector": ".td-yes [data-spot=\"trends.yes\"] + .td-caret-wrap .td-caret", "where": "Trends, the arrow beside Yes on a trend card", "what": "Yes, with a note…: approve with a note and choose the channels it's for (All channels unless you pick some)" },
     { "id": "trends.skip", "tab": "trends", "item": "match", "where": "Trends, on a trend card", "what": "Skip (item: trend name)" },
     { "id": "trends.write", "tab": "trends", "where": "Trends, bottom bar", "what": "Write reports for approved trends: a trends report and an editorial toolkit each (only when some are approved)" },
+    { "id": "trends.approved", "tab": "trends", "where": "Trends, List view, above Write reports", "what": "The approved trends, each with Undo until their reports are written (only when some are approved)" },
+    { "id": "trends.skipped", "tab": "trends", "where": "Trends, List view, under the approved trends", "what": "Skipped: the trends you skipped, each with Reconsider while its research run still takes decisions (only when some are skipped)" },
     { "id": "trends.writing", "tab": "trends", "where": "Trends", "what": "'Being written': reports and assets in progress" },
     { "id": "trends.ready", "tab": "trends", "where": "Trends", "what": "'Ready': trends with their reports written" },
 

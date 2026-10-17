@@ -1,0 +1,31 @@
+# oauth2-proxy in front of the studio. Copy to oauth2-proxy.cfg. The OAuth client id and secret and the cookie secret
+# go in oauth2-proxy.env (OAUTH2_PROXY_CLIENT_ID, OAUTH2_PROXY_CLIENT_SECRET, OAUTH2_PROXY_COOKIE_SECRET).
+# Checked against oauth2-proxy v7.6; check option names against the version you run.
+
+http_address = "0.0.0.0:4180"
+reverse_proxy = true                 # behind Caddy: use its X-Forwarded-* headers
+upstreams = ["http://studio:4174/"]
+
+# Google Workspace. For Okta: provider = "oidc" and oidc_issuer_url = "https://<your-org>.okta.com/oauth2/default".
+provider = "google"
+email_domains = ["semrush.com"]      # the same domain as STUDIO_ALLOWED_EMAIL_DOMAINS
+skip_provider_button = true
+
+# Sends X-Forwarded-Email to the studio, and drops any copy the browser sent.
+pass_user_headers = true
+
+# An expired session on /api/* answers 401 instead of redirecting, so the page shows "sign in again".
+api_routes = ["^/api/"]
+
+# Ask AI answers and Claude checks can take several minutes; the default upstream timeout is 30 seconds.
+upstream_timeout = "900s"
+flush_interval = "1s"                # live updates (server-sent events)
+
+cookie_secure = true
+cookie_samesite = "lax"
+cookie_expire = "168h"               # how long before people sign in again
+cookie_refresh = "1h"
+
+# Health checks from the host or a monitor, without signing in. They reveal no data.
+skip_auth_routes = ["GET=^/healthz$", "GET=^/readyz$"]
+silence_ping_logging = true

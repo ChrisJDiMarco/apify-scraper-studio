@@ -8,8 +8,10 @@ const redditOnly = process.argv.includes('--reddit-only');
 if (!reviewOnly && !process.argv.includes('--live')) { console.error('Use --review for existing workspace UI checks. Pass --live only when small paid Apify and Claude tests are authorized.'); process.exit(1); }
 app.setName('apify-scraper-studio');
 app.setPath('userData', path.join(app.getPath('appData'), 'apify-scraper-studio'));
-const dir = path.resolve(__dirname, '../docs/verification');
+// Receipts and screenshots go outside the repo (a fresh temp folder, or STUDIO_VERIFICATION_DIR), never into tracked docs.
+const dir = process.env.STUDIO_VERIFICATION_DIR ? path.resolve(process.env.STUDIO_VERIFICATION_DIR) : fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'scraper-studio-smoke-'));
 fs.mkdirSync(dir, { recursive: true });
+console.log(JSON.stringify({ step: 'output-folder', dir }));
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const receiptPath = path.join(dir, `service-smoke-${stamp}.json`);
 const receipt = { startedAt: new Date().toISOString(), limits: { resultsPerSource: 10, apifyBudgetPerSourceUsd: 0.25, apifyTotalBudgetUsd: redditOnly ? 0.25 : 1 }, steps: [] };

@@ -37,9 +37,11 @@ the No access screen.
    (`spends`) on an editor base, because paid work shows its estimate first. A channel base never needs costs.
 
 The methods are the union of the capabilities' methods (a channel base: intersected with `channelSafeMethods`). With
-no policy edits this is exactly the old fixed matrix: admin 157 methods, editor 109, channel owner 13.
+no policy edits this is exactly the old fixed matrix: admin 158 methods, editor 110, channel owner 13
+(`test/roles.test.js` and `test/docs-consistency.test.js` check these numbers).
 
-Channels are the ten asset-kit folders in `src/shared/asset-kit.js` `KIT_FOLDERS`: `blog, newsletter, paidmedia, pr,
+Channels are the ten asset-kit folders in `src/shared/kit-folders.json` `folders` (main reads them through
+`asset-kit.js` `KIT_FOLDERS`, a frozen copy; the renderer and `library-tree.js` import the JSON directly): `blog, newsletter, paidmedia, pr,
 social, affiliate, enterprise, backlinko, explodingtopics, searchengineland`. Display names come from the active
 workspace's edition (`kitFolders(editionId)` returns `{ id, name, short, deliverableIds }`); members store only the id.
 A file's channel is `kitFolderFor(asset.deliverableId, editionId).id`, and a kit run's channels are derived from its job
@@ -75,7 +77,7 @@ ids (`kitChannelIds`), never stored.
 | `src/main/channel-view.js` | What a channel owner sees: `readyTrends`, `publicKitRun`, `buildChannelView`, `kitChannelIds`. |
 | `src/main/team-analytics.js` | `buildTrendAnalytics` for the Analytics page. |
 | `src/main/markdown-html.js` | Safe Markdown → HTML for edited reports. |
-| `src/main/web-secrets.js` | Reads `STUDIO_SECRET_KEY` and `STUDIO_PASSWORD` from `STUDIO_SECRETS_FD`. |
+| `src/main/web-secrets.js` | Reads `STUDIO_SECRET_KEY`, `STUDIO_PASSWORD` and `STUDIO_PROXY_SECRET` from `STUDIO_SECRETS_FD` or `STUDIO_SECRETS_FILE` (environment values still work, with a warning). |
 | `src/renderer/src/viewer.js` | `ViewerContext`, `can`, `canRun`, `hasCapability`, `isChannelBase`, `writeProps`, `roleLabel`, `previewWho`. The renderer never imports CommonJS policy. |
 | `src/renderer/src/studio-sidebar.jsx` | The one left sidebar for every layout: workspace, View as, Simple/Advanced, navs, drawer under 860px. |
 | `src/renderer/src/channel-owner.jsx` | Channel owner screens: Trends and My assets. |
@@ -173,7 +175,7 @@ of role may ever hold it. “Spends” marks paid work (it needs See costs on an
 | Group | Capability | Defaults | Bases | Requires | Methods |
 | --- | --- | --- | --- | --- | --- |
 | Everyone | `core` Open the studio (lock `always`) | A E C | editor, channel | | `appMeta, state, contentCatalog, openSourceUrl, setViewPrefs` |
-| Research | `readResearch` See research and evidence | A E | editor | | `readStudioRun, readTrendHistory, readResearchReview, searchEvidence, readEvidence, readReferenceDoc` |
+| Research | `readResearch` See research and evidence | A E | editor | | `readStudioRun, readTrendHistory, readTrendPosts, readResearchReview, searchEvidence, readEvidence, readReferenceDoc` |
 | | `startResearch` Start research (spends) | A E | editor | readResearch | `startResearchRun, continueResearchRun, estimateResearchProgram` |
 | | `quickScans` Run quick scans (spends) | A E | editor | readResearch | `estimateQuickScan, startQuickScan` |
 | | `approveTrends` Approve trends | A E | editor | readResearch | `approveResearchThemes, decideResearchTheme, setThemeStatus` |
@@ -222,36 +224,49 @@ studio-server's checks keep working; `teamStore.identityFor` fills both, and an 
 **Sign-in limits.** Admin-password tries are limited to ten a minute per client address; with `STUDIO_TRUST_PROXY=1`
 the client address is the last `X-Forwarded-For` entry (what the proxy appended). Link tokens aren't rate limited:
 they're 32 random bytes, and counting them against a shared limiter would let anyone lock every link user out behind
-the proxy. Each person gets at most five live-update streams (the oldest is told it was replaced and closes); the
-server keeps 50 in all.
+the proxy. Each person gets at most `STUDIO_MAX_STREAMS_PER_PERSON` (default 5) live-update streams (the oldest is
+told it was replaced and closes); the server keeps `STUDIO_MAX_EVENT_STREAMS` (default 200) in all, and a tab past that
+is told live updates are paused and catches up every 30 seconds.
+
+**Company sign-in trusts the proxy only.** With `STUDIO_TRUSTED_EMAIL_HEADER`, the header is believed only from
+`STUDIO_TRUSTED_PROXY_CIDRS` and/or on requests carrying `X-Studio-Proxy-Secret` equal to `STUDIO_PROXY_SECRET`; the
+server refuses to start with neither (`studio-server.js` `proxyAllowList`).
 
 ## Environment variables
 
 | Variable | Purpose |
 | --- | --- |
-| `STUDIO_SECRETS_FD` | Descriptor (usually `0`) the server reads `STUDIO_SECRET_KEY` and `STUDIO_PASSWORD` from, as `NAME=value` lines. |
-| `STUDIO_SECRET_KEY` | 32+ characters; encrypts keys saved in Settings. Pass through `STUDIO_SECRETS_FD`. |
-| `STUDIO_PASSWORD` | The admin password (16+ characters). Pass through `STUDIO_SECRETS_FD`. |
+| `STUDIO_SECRETS_FD` | Descriptor (usually `0`) the server reads its secrets from, as `NAME=value` lines. |
+| `STUDIO_SECRETS_FILE` | A file holding the same lines (a Docker, Compose or Kubernetes secret). Set this or `STUDIO_SECRETS_FD`, not both. |
+| `STUDIO_RUN_AS` | When started as root: the user (or `user:group`) to switch to after reading the secrets. The server refuses to run as root without it; the image sets `node`. |
+| `STUDIO_SECRET_KEY` | 32+ characters; encrypts keys saved in Settings. A secret: in the secrets file. |
+| `STUDIO_PASSWORD` | The admin password (16+ characters). A secret: in the secrets file. |
+| `STUDIO_PROXY_SECRET` | Optional secret the sign-in proxy sends as `X-Studio-Proxy-Secret`. A secret: in the secrets file. |
 | `STUDIO_TRUSTED_EMAIL_HEADER`, `STUDIO_ALLOWED_EMAIL_DOMAINS` | Company sign-in through a proxy. The proxy must strip any copy of the header the browser sends. |
+| `STUDIO_TRUSTED_PROXY_CIDRS` | With the header: the addresses (IPs or CIDR ranges) the proxy connects from. Required unless `STUDIO_PROXY_SECRET` is set. |
 | `STUDIO_ADMIN_EMAILS` | Comma-separated emails that are always admins (company sign-in). Also the recovery path. |
 | `STUDIO_LINK_DAYS` | How long a new sign-in link works. Default 30, fractions allowed (0.5 = 12 hours), 0 = until replaced or turned off. |
 | `STUDIO_PUBLIC_ORIGIN` | The public https address; used for sign-in link URLs when the request has no Origin, and makes the cookie Secure. |
 | `STUDIO_TRUST_PROXY` | `1` when only the proxy reaches the server: password tries count per forwarded client. |
-| `STUDIO_SECURE_COOKIES`, `STUDIO_DATA_DIR`, `STUDIO_HOST`, `PORT` | As in `docs/web-deploy.md`. |
+| `STUDIO_SECURE_COOKIES`, `STUDIO_DATA_DIR`, `STUDIO_HOST`, `PORT`, `STUDIO_MAX_EVENT_STREAMS`, `STUDIO_MAX_STREAMS_PER_PERSON` and the rest | As in `docs/web-deploy.md` (the full table) and `HANDOFF.md`. |
 
 ## Secrets and the AI's environment
 
-On the Codex route the AI runs shell commands as the server's user, inside the data folder. Three layers keep the
-studio's secrets from it:
+On the Codex route the AI is a command-line agent running as the server's user. The studio runs it in a private, empty
+folder under the system temp directory (outside the data folder), with the prompt on standard input, a read-only
+sandbox and its tools switched off (`src/shared/codex-runner.js`), but a read-only sandbox still lets it read files its
+user can read. These layers keep the studio's secrets from it:
 
 1. `studioCliEnv()` (`src/main/studio-host.js`) gives every AI CLI an environment without `STUDIO_*` variables or
    saved-key variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `APIFY_API_TOKEN`, `MONDAY_API_TOKEN`, `GOOGLE_*TOKEN`,
    `GOOGLE_SHEETS_WEBHOOK_URL`). Test: `test/cli-env.test.js`, and the Codex spawn check in `test/roles-gate.test.js`.
 2. That can't hide the **server's own starting environment**, which any same-user process can read
    (`/proc/<pid>/environ`, `ps eww`, `sysctl KERN_PROCARGS2`; confirmed from inside the macOS Codex sandbox). So
-   `scripts/studio-web.cjs` reads the secret key and the admin password from `STUDIO_SECRETS_FD`, keeps them in memory
-   and out of `process.env`, and tells the web runtime only that password sign-in is on. Secrets still supplied as
-   environment variables work, with a startup warning. Test: `test/web-secrets.test.js` reads a child's own
+   `scripts/studio-web.cjs` reads the secrets from `STUDIO_SECRETS_FD` or `STUDIO_SECRETS_FILE`, keeps them in memory
+   and out of `process.env`, and tells the web runtime only that password sign-in is on. Started as root with
+   `STUDIO_RUN_AS` (the container), it reads a root-only secrets file and then switches user, so neither the file nor
+   (on Linux) its own memory and starting environment are readable afterwards. Secrets still supplied as environment
+   variables work, with a startup warning. Test: `test/web-secrets.test.js` reads a child's own
    environment block after it took its secrets from standard input.
 3. Keys saved in Settings are encrypted (AES-256-GCM) with the secret key, so the AI can read `config.json` but not the
    keys in it, as long as the secret key never sat in an environment it can read.
@@ -260,8 +275,8 @@ Server-wide API keys set as environment variables are exposed the same way; save
 
 ## Rollout
 
-1. Set `STUDIO_ADMIN_EMAILS` for company sign-in, or a **new** `STUDIO_PASSWORD` known only to admins, passed through
-   `STUDIO_SECRETS_FD`. Anyone with the old shared password would otherwise sign in as an admin.
+1. Set `STUDIO_ADMIN_EMAILS` (plus `STUDIO_TRUSTED_PROXY_CIDRS` or `STUDIO_PROXY_SECRET`) for company sign-in, or a
+   **new** `STUDIO_PASSWORD` known only to admins, passed through the secrets file. Anyone with the old shared password would otherwise sign in as an admin.
 2. Restart, sign in as an admin, and invite editors and channel owners in **People & access** (one channel each).
    Adjust what roles can do on the Roles tab if the defaults don't fit.
 3. In password mode, send each person their sign-in link (Invite makes them in the same step).
@@ -365,8 +380,11 @@ preview: `people.canUpload`, else admins and editors). Lower-case error codes tr
   `policyVersion`) so existing custom roles show it as New and off. Pages it shows go in `pages`.
 - **A role**: admins make custom roles in People & access › Roles; nothing in code changes. A new built-in base would
   touch `roles`, `effectiveRole`, `pagesFor`, `projectState` and `ROLE_LABELS` in `viewer.js`.
-- **A channel**: add the folder to `KIT_FOLDERS` with `semrushShort` and `generalShort`; ids are permanent because
-  members, answers and analytics store them.
+- **A channel**: add an entry to `src/shared/kit-folders.json` `folders` (never to `asset-kit.js`, whose `KIT_FOLDERS`
+  is derived from it). Give it `id`, `semrush`, `general`, `semrushShort`, `generalShort` and `deliverables`. Every
+  deliverable id must exist in `content-studio.js` `CONTENT_DELIVERABLES`; one limited to an edition goes in
+  `editionOnly`, or main and the renderer disagree on whether the folder is offered. Array order is the display order.
+  Ids are permanent because members, answers and analytics store them.
 
 ## Analytics definitions
 
@@ -449,6 +467,7 @@ A channel owner's kit run message comes from a fixed set: "Starting…", "Writin
 - Sessions live in memory: a deploy signs out link and password users.
 - Editors read private Google Docs and Sheets, and publish to Drive and Monday, through the account connected in
   Settings. Connect a dedicated studio account with only the team folders shared.
-- On the Codex route the AI can read the data folder and anything the server's user can read. Keep secrets on
-  `STUDIO_SECRETS_FD` and keys in Settings (see Secrets).
+- On the Codex route the AI runs outside the data folder with its tools off, but its read-only sandbox doesn't stop
+  reads, so treat anything the server's user can read as readable by it. Keep secrets in the secrets file and keys in
+  Settings (see Secrets); the strongest setup runs `codex` as a user that can't read `STUDIO_DATA_DIR`.
 - On the web the browser keeps its own ⌘1–9.

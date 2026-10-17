@@ -32,6 +32,15 @@ function restoreSecretFields(value, previous, field = '') {
   ]));
 }
 
+// Every Apify run carries a charge cap and a timeout. maxTotalChargeUsd bounds pay-per-event Actors; the timeout is what
+// bounds compute-billed ones (a crawler), so it matters most. A scraper saved without its own limits gets these.
+const DEFAULT_RUN_OPTIONS = Object.freeze({ maxTotalChargeUsd: 5, timeoutSecs: 900 });
+// Test sample: a short look at the first rows, never more than $1 or 3 minutes.
+const TEST_RUN_OPTIONS = Object.freeze({ maxTotalChargeUsd: 1, timeoutSecs: 180 });
+const testRunOptions = (runOptions = DEFAULT_RUN_OPTIONS) => ({ maxTotalChargeUsd: Math.min(Number(runOptions.maxTotalChargeUsd) || TEST_RUN_OPTIONS.maxTotalChargeUsd, TEST_RUN_OPTIONS.maxTotalChargeUsd), timeoutSecs: Math.max(30, Math.min(Number(runOptions.timeoutSecs) || TEST_RUN_OPTIONS.timeoutSecs, TEST_RUN_OPTIONS.timeoutSecs)) });
+// How long the studio waits before stopping a run itself: Apify's own timeout plus a margin for start-up and the dataset.
+const abortAfterMs = (runOptions = DEFAULT_RUN_OPTIONS) => ((Number(runOptions.timeoutSecs) || DEFAULT_RUN_OPTIONS.timeoutSecs) + 120) * 1000;
+
 function validateRunOptions(value) {
   if (value == null) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Run limits must be an object.');
@@ -109,7 +118,8 @@ function validateRecipe(input, previousRecipe = null) {
     taskId,
     input: inputJson,
     mapper,
-    ...(recipe.runOptions ? { runOptions: validateRunOptions(recipe.runOptions) } : {}),
+    // An edit that doesn't send limits (the scraper form) keeps the saved ones; a new scraper gets the defaults.
+    runOptions: validateRunOptions(recipe.runOptions ?? (sameResource ? previousRecipe.runOptions : undefined)) || { ...DEFAULT_RUN_OPTIONS },
     ...(recipe.searchContext ? { searchContext: validateSearchContext(recipe.searchContext) } : {}),
     ...(recipe.marketingBrief ? { marketingBrief: validateMarketingBrief(recipe.marketingBrief) } : {}),
     proxyNote: String(recipe.proxyNote || '').trim(),
@@ -136,7 +146,11 @@ function publicRecipe(recipe) {
 }
 
 module.exports = {
+  DEFAULT_RUN_OPTIONS,
+  TEST_RUN_OPTIONS,
   SECRET_KEY_PATTERN,
+  abortAfterMs,
+  testRunOptions,
   parseJsonObject,
   publicRecipe,
   redactSecrets,

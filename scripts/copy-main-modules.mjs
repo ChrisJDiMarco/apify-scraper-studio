@@ -6,6 +6,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const copies = [
   ['src/main/image-provider.js', 'out/main/image-provider.js'],
+  ['src/main/ai-limits.js', 'out/main/ai-limits.js'], // STUDIO_AI_CONCURRENCY and STUDIO_DAILY_AI_BUDGET_USD
   ['src/main/local-image-key.js', 'out/main/local-image-key.js'],
   ['src/main/google-delivery.js', 'out/main/google-delivery.js'],
   ['src/main/bridge-delivery.js', 'out/main/bridge-delivery.js'],
@@ -15,6 +16,7 @@ const copies = [
   ['src/main/help-assistant.js', 'out/main/help-assistant.js'],
   ['src/main/ask-store.js', 'out/main/ask-store.js'], // Ask AI conversations and memory
   ['src/shared/help-spots.json', 'out/shared/help-spots.json'],
+  ['src/shared/ask-actions.json', 'out/shared/ask-actions.json'], // Ask AI's buttons, shared with studio-actions.js
   ['docs/app-guide.md', 'out/main/app-guide.md'], // Ask AI answers from this guide
   ['src/shared/setup-bundle.js', 'out/shared/setup-bundle.js'],
   ['src/shared/anthropic-runner.js', 'out/shared/anthropic-runner.js'],

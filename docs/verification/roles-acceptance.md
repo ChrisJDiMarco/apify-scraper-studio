@@ -23,11 +23,12 @@ Record the date, build, route and browser next to each section, and a screenshot
 
 Mac and web.
 
-- [ ] The left sidebar shows the brand, the workspace card, the **View as** card, the **Simple | Advanced** switch, the Main nav, the **Studio** group (Prompts, Analytics, People & access, Settings) and the footer. Switching layout keeps focus on the radio and the sidebar doesn't flash.
+- [ ] The left sidebar shows, top to bottom: the wordmark and workspace switcher; **New**, **Search…** and **Ask AI**; the Main nav; the **Studio** group (Prompts, Analytics, People & access, Settings); then the footer with **N running** (while work runs), the **Simple | Advanced** switch and the account menu. Switching layout keeps focus on the radio and the sidebar doesn't flash.
+- [ ] Account menu → **View as** lists Admin, Editor, any custom roles, and a **View as a channel owner** group.
 - [ ] Simple has no top tab bar. On the Mac, the window drags from the top of the main column and from the top of the sidebar; buttons there still click.
-- [ ] Below 860px: a top bar with **Menu**; the drawer opens with focus on the current item, the page behind is inert, **Esc** and the scrim close it, and focus returns to **Menu** (check in Safari, where clicking doesn't focus buttons). In Advanced, **More tools** inside the drawer opens more tools without closing it; choosing a page closes it.
-- [ ] **View as → Editor**: a banner "Previewing what an editor sees. Buttons that change things are off." takes focus. The editor's buttons (Yes, use it, Skip, Find new trends, Write the reports, Edit, Make channel assets, Ask AI about this, the Ask box) are visible and turned off, with the reason on hover. Settings, Analytics and People are gone. **Back to Admin** ends it.
-- [ ] **View as → Semrush Blog**: the channel screens, with every write button turned off; reading the brief, opening files and Save/Download folder still work.
+- [ ] Below 860px: a top bar with **Menu**; the drawer opens with focus on the current item, the page behind is inert, **Esc** and the scrim close it, and focus returns to **Menu** (check in Safari, where clicking doesn't focus buttons). In Advanced, **Data tools** inside the drawer opens or closes the group without closing the drawer; choosing a page closes it.
+- [ ] Account menu → **View as** → **Editor**: a banner "Previewing what an editor sees. Buttons that change things are off." takes focus. The editor's buttons (Yes, use it, Skip, Find new trends, Write reports, Edit, Make channel assets, Ask AI about this, the Ask box) are visible and turned off, with the reason on hover. Settings, Analytics and People are gone. **Back to Admin** ends it.
+- [ ] Account menu → **View as a channel owner** → **Semrush Blog**: the channel screens, with every write button turned off; reading the brief, opening files and Save/Download folder still work.
 - [ ] A preview survives a state push (start or finish a run in another window) and clears on restart (Mac) or sign-out (web).
 - [ ] **Reports**: **Edit**, change the text, **Save** (⌘S). The reader shows "Edited by …". In a second window, open the same report, then save an edit in the first window: the second window reads the report again; if it was mid-edit, its save is refused with who and when, and its text stays with **Copy my text**.
 - [ ] **Restore the original** asks first, then shows the generated text.
@@ -41,7 +42,7 @@ Mac and web.
 - [ ] **Preview as…**: a role, a custom channel role (asks which channel) and one person ("Previewing what Riley Jones (Editor, 1 change) sees."). The preview matches what that person sees; every write is refused; **Back to Admin** ends it.
 - [ ] **People & access › Access log**: each change above is a sentence ("Alex turned off Edit AI prompts for Editor · affects 4 people · Oct 17, 10:42") that opens to show its changes; the Person, Role and What filters, **Load older** and **Download CSV** work. Turning off a sign-in link is logged.
 - [ ] On the Mac: People shows the Mac note with Preview buttons per channel and Preview as an editor; Roles and Access log work, and a role change shows in View as at once.
-- [ ] **Analytics**: the range chips, funnel, Channels table (**Copy reminder**), Trends × channels matrix (cell details, **Change answer**), **Show passed and pending**, Recent activity and **Download CSV**.
+- [ ] **Analytics**: the range chips, funnel, Channels table (**Copy reminder**), Trends × channels matrix (cell details, **Change answer**), **Show skipped and waiting**, Recent activity and **Download CSV**.
 - [ ] Web, workspace switch: the picker asks first ("Everyone using the studio … switches"). An editor with an unsaved report edit keeps the editor open with a note and **Copy my text**.
 
 ## Editor
@@ -50,8 +51,10 @@ Web (and Mac View as for the visible parts).
 
 - [ ] The sidebar shows the workspace and "Editor" as text, not pickers. The **Studio** group has only Prompts. No View as, Settings, Brand knowledge, Analytics or People & access. ⌘, does nothing.
 - [ ] With **Start research** turned off for Editor (Roles tab), **Find new trends** is gone, and a call by hand is refused with "Your access doesn’t include “Start research”. Ask <admin> if you need it." Turned back on for this one person (their Access tab), it works again for them only.
-- [ ] Trends: decide trends, **Write the reports**, **Find new trends** (a second search with the same program asks first and names who started the first).
-- [ ] Reports: edit and save; make channel assets for any channel.
+- [ ] Trends: decide trends (and **Undo**), **Write reports**, **Find new trends** (a second search with the same program asks first and names who started the first).
+- [ ] Reports: edit and save; make channel assets for any channel. In Advanced, **Make channel assets** (Library preview, a Ready card on the Trend board) opens the dialog over the page without switching layout.
+- [ ] **Prompts** opens and an edit saves as a new version; **New → Quick scan** opens Ask AI with the plan, and nothing runs before **Start scan**.
+- [ ] A trend card's **Show 2 real posts** shows two posts (or "No posts saved for this trend.") without any AI cost.
 - [ ] Ask AI answers without offering Settings; "Show me" never points at admin-only places.
 - [ ] Errors that need an admin say "The studio’s AI or data connection needs attention. Ask <admin>." with no model names, credit or billing: try it by signing the AI route out (Claude app) or removing the API key (API key route).
 - [ ] Sheets: editors can rename, replace and remove imported workbooks.

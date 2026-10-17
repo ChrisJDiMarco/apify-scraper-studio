@@ -1,0 +1,645 @@
+# Scraper Studio: developer handoff
+
+This is the entry point for the team taking over Scraper Studio. Start here, then follow the links. Every command,
+variable, path and count below was checked against the code on branch `redesign/ai-library-access` on 2026-10-17.
+
+**Contents**
+
+1. [What it is](#what-it-is)
+2. [Who uses it](#who-uses-it)
+3. [Status](#status)
+4. [Quickstart for a new developer](#quickstart-for-a-new-developer)
+5. [Architecture map](#architecture-map)
+6. [Repository map](#repository-map)
+7. [Feature tour](#feature-tour)
+8. [Configuration reference](#configuration-reference)
+9. [Data model and storage](#data-model-and-storage)
+10. [AI routes and cost controls](#ai-routes-and-cost-controls)
+11. [Security model](#security-model)
+12. [Deployment](#deployment)
+13. [Operations](#operations)
+14. [Testing and CI](#testing-and-ci)
+15. [Known limitations and follow-ups](#known-limitations-and-follow-ups)
+16. [Decisions Semrush must make before go-live](#decisions-semrush-must-make-before-go-live)
+17. [Glossary: UI term and code identifier](#glossary-ui-term-and-code-identifier)
+18. [Document map](#document-map)
+
+---
+
+## What it is
+
+Scraper Studio is a social-listening research and content studio for a marketing team. It collects public posts from
+X, LinkedIn and Reddit through Apify, uses Claude (or Codex) to find the trends in them, lets people approve the ones
+worth a report, writes an evidence-backed **trends report** and **editorial toolkit** per approved trend, and turns any
+report into a full set of **channel assets** (blog, newsletter, paid media, PR, social, affiliate, enterprise sales,
+Backlinko, Exploding Topics, Search Engine Land) with pictures.
+
+The research pipeline is a port of the team's earlier n8n "Golden Thread" workflow (same Actors, batch sizes, scoring
+and sheet layout; see [docs/n8n-parity.md](docs/n8n-parity.md)). Stages:
+
+collect (4 Apify Actors) → prepare evidence → discover in batches → synthesize up to 6 themes → match against tracked
+themes and score → **human review** (Yes / Skip) → tag every post → trends report + editorial toolkit per approved
+trend → channel assets or one-off drafts → optional delivery to Google Drive, Google Sheets and Monday.com.
+
+One main process (`src/main/index.js`) serves two editions of the same React app:
+
+- **The Mac app** (Electron): one person per Mac, always the admin. Data and keys stay on that Mac.
+- **The browser studio**: the same main process on a web runtime, served by `src/main/studio-server.js` to signed-in
+  browsers. One shared studio for the team, with roles enforced on the server.
+
+## Who uses it
+
+Semrush marketing roles. Every person has one role; the server enforces it on every call.
+
+| Role | Who | What they get |
+| --- | --- | --- |
+| **Admin** | The studio's owners | Everything: Settings and keys, People & access, Analytics, research programs and schedules, Brand knowledge, prompt locks. |
+| **Editor** | Content and research leads | Find trends (research runs and quick scans), approve them, write and edit reports, make channel assets for any channel, Ask AI, Sheets, data tools, see and edit prompts, see costs. |
+| **Channel owner** | One owner per channel (several may share one) | A four-page layout (Trends, My assets, My plan, Inbox): trends offered to their channel, their channel's drafts, "using / not for us" answers with links and planned dates. Never sees money, models or other channels. |
+
+Admins can add up to 12 **custom roles** built on Editor or Channel owner, from the templates Viewer, Analyst and
+Channel reviewer, and adjust any person's access per capability (deny wins). The model is
+25 capabilities over 158 RPC methods; with no policy edits the defaults are admin 158 methods, editor 110, channel owner 13. Details:
+[docs/roles-and-access.md](docs/roles-and-access.md).
+
+Two layouts, chosen per person: **Simple** (the default; Home, Trends, Reports, Assets, Inbox, Calendar, Ask AI) and
+**Advanced** (`uiMode: 'classic'` in code; every page, including Research programs, Trend board, Sheets, Library,
+Brand knowledge and the Data tools). Two **editions** of workspace, fixed at creation: `semrush` (Semrush branding,
+prompts and formats) and `general`. The browser studio has one active workspace for everyone; only admins switch it.
+
+## Status
+
+| Item | State |
+| --- | --- |
+| Version | `0.3.0` (`package.json`). No git tags yet. |
+| Branch | `redesign/ai-library-access`, 4 commits ahead of `main` at `62cb9da` plus the uncommitted final build-out. Merge to `main` and tag before handing out builds. |
+| Last full test run | `npm test` passed with 111 files and 1,537 tests at `3d11204` (2026-10-17, from that commit's message). The suite now has 123 test files. |
+| Final build-out (2026-10-17) | Five workstreams (web server, data safety, Ask AI reach, UX flows, cleanup and CI) plus these docs. Each ran the Vitest suites for what it touched, and they passed; the full suite was not run afterwards (the machine was shared). **Run `npm run check` first.** |
+| Prompt goldens | `node scripts/prompt-goldens.mjs --check`: 99 cases, 0 differences. |
+| Lint | `npm run lint`: 0 errors, about 98 warnings (mostly `react-hooks/exhaustive-deps`). |
+| Production audit | `npm audit --omit=dev`: 0 vulnerabilities (10 dev-only advisories remain; see follow-ups). |
+| Builds | `npm run build:web` compiles. The existing `dist/Scraper Studio-0.3.0-universal.dmg` (built 2026-10-17 11:44) predates the Ask AI schema fix `62cb9da` and the final build-out; rebuild before sharing. The Docker image has not been built since the Dockerfile changed (its launcher was tested in a `node:24-bookworm` container). |
+| Never verified live | Ask AI after the schema flattening (`62cb9da`) on any route; quick scans; prompt test runs; the Claude CLI and Codex routes end to end; X `since_time:` hour windows; a deployed Sheets bridge or Drive delivery; the deploy kit's oauth2-proxy options; Windows; notarization; Electron fuses on a built app; the new UI in a real browser (jsdom tests only). |
+| Not switched on | Dark mode tokens exist but nothing enables them. Auto-update code exists but has no feed and nothing calls it. |
+
+## Quickstart for a new developer
+
+Prerequisites: macOS or Linux, Node 24 (`.nvmrc`; `package.json` `engines` allows `>=22.13.0`), git. For live AI you
+need either the Claude app (Claude Code, signed in) or an Anthropic API key; for collection, an Apify token.
+
+```bash
+git clone <internal repo URL> scraper-studio && cd scraper-studio
+nvm use                 # Node 24
+npm ci                  # also downloads Electron
+npm test                # Vitest; offline, never spends money
+npm run dev             # the Mac app with hot reload (electron-vite)
+```
+
+`npm run dev` uses the same data folder as an installed Mac app (`~/Library/Application Support/apify-scraper-studio`
+on macOS, from the package name), so quit the installed app first, and never while it is running work: the
+data-folder lock refuses a second process.
+`npm run start:semrush` builds and opens the app straight into the Semrush workspace.
+
+The browser studio locally (use a throwaway data folder):
+
+```bash
+npm run build:web
+(umask 077; printf 'STUDIO_SECRET_KEY=%s\nSTUDIO_PASSWORD=%s\n' "$(openssl rand -hex 32)" 'a-long-admin-password' > ~/.scraper-studio-secrets)
+STUDIO_DATA_DIR=~/.scraper-studio-web STUDIO_SECRETS_FD=0 npm run start:web < ~/.scraper-studio-secrets
+```
+
+Open http://127.0.0.1:4174 and sign in under **Admins** with the admin password. The secrets go in through standard
+input, never the environment (see [Security model](#security-model)). Never point two studio processes at one data
+folder: the second refuses to start.
+
+**Free AI while developing.** Tests mock every provider; `test/helpers/research-ai-fixture.js` is a deterministic
+stand-in for Claude across the research stages (it reads the real prompts and returns schema-valid answers), so the
+real orchestration runs without provider calls. In the app itself, paid work always stops at a confirmation first,
+and with no Apify token or AI key nothing can spend.
+
+Before your first change, read [CONTRIBUTING.md](CONTRIBUTING.md): adding a method, capability, prompt, Ask AI action
+or card type touches several files that tests keep in step.
+
+## Architecture map
+
+```
+ Electron window (Mac)                         Browser (web)
+ src/renderer (React, ESM)                     same src/renderer, via src/web/main.jsx
+   window.apifyStudio (src/preload/index.js)     src/web/web-api.js  → POST /api/rpc, GET /api/events (SSE)
+          │ ipcRenderer.invoke                           │
+          ▼                                              ▼
+ ┌──────────────────────── src/main/index.js (one main process) ─────────────────────────┐
+ │ gated(channel, fn): access.check → handler → access.after → rewriteError  (roles.json) │
+ │ generateStructuredOutput → ai-routes → claude CLI | Anthropic API | Codex (+ai-limits) │
+ │ content-workspace.js: programs, research runs, quick scans, content runs, kits, prompts │
+ │ stores: config.json · data.json · content-studio/{state,team}.json · ask/ · prompts/   │
+ │ publicState/emitState → per-viewer projection → Mac push | web SSE broadcast           │
+ └───────────────────────────────────────────────────────────────────────────────────────┘
+   web only: scripts/studio-web.cjs (launcher) → web-runtime.js (stands in for Electron)
+             → studio-server.js (sign-in, RPC, SSE, uploads, downloads, /healthz, /readyz)
+```
+
+Full detail: [ARCHITECTURE.md](ARCHITECTURE.md) (process model, the RPC registry and the add-a-method checklist, role
+enforcement, data layout, the Ask AI pipeline and its schema limit, prompts, research pipeline, trend history, Library
+tree, build outputs).
+
+## Repository map
+
+| Path | What it holds |
+| --- | --- |
+| `src/main/` | The main process (CommonJS, Node). `index.js` (about 3,900 lines: handlers, keys, state, Ask AI glue), `content-workspace.js` (about 1,800: the studio service), `studio-server.js` and `web-runtime.js` (browser studio), `access.js`/`roles.js`/`team-store.js` (roles), `help-assistant.js`/`ask-store.js` (Ask AI), `prompt-*.js` (Prompt Library), `ai-routes.js`/`ai-limits.js`, delivery and import modules. |
+| `src/shared/` | Logic and data both sides use. JSON for data both main and renderer read (`roles.json`, `studio-api-channels.json`, `ask-actions.json`, `help-spots.json`, `kit-folders.json`, `quick-scan.json`, `prompt-*.json`); CommonJS for main-only logic (research pipeline, runners); ESM for renderer-only logic (`trend-board.js`, `library-tree.js`). |
+| `src/renderer/src/` | The React app (ESM): `App.jsx` (shell, Advanced layout), `simple-mode.jsx`, `content-studio-view.jsx` (Advanced studio pages), `chat-cards.jsx`/`help-assistant.jsx`/`studio-actions.js` (Ask AI UI and its action runner), `weekly-briefing.jsx`, `next-steps.js`, `kit-creator.jsx`, people and roles screens. |
+| `src/preload/index.js` | The Mac bridge (`window.apifyStudio`), written by hand. |
+| `src/web/` | The browser entry: `main.jsx`, `web-api.js` (derived from the channel map). |
+| `scripts/` | Launcher (`studio-web.cjs`), backup and restore, build helpers (`copy-main-modules.mjs`, `build-mac-icon.mjs`), prompt goldens, smoke tests (some paid; see [Testing and CI](#testing-and-ci)), the Sheets bridge (`google-sheets-webhook.gs`), `make-handoff.sh`. |
+| `test/` | Vitest suites (123 files), fixtures (`test/fixtures/prompts/` holds the 99 prompt goldens), helpers. |
+| `deploy/` | Docker Compose (Caddy + oauth2-proxy + studio) and systemd kits. |
+| `docs/` | The app guide (Ask AI's runtime knowledge), web deploy guide, roles and access, design records, archive. See [docs/README.md](docs/README.md). |
+| `resources/` | App icon and macOS entitlements. |
+
+## Feature tour
+
+Every feature below is described for end users, with exact labels, in [docs/app-guide.md](docs/app-guide.md) (which
+Ask AI reads at runtime). This is the developer's view, with the code that owns each.
+
+- **Simple and Advanced layouts, one sidebar.** `studio-sidebar.jsx`, `nav-model.js`, pages per role from
+  `roles.json` `pages`/`navOrder`. New menu (⌥⌘N), Search palette (⌘K, `palette-content.js`), Ask AI (⌘J), rail
+  (⌘\). Choices a person makes (last program, Trends layout, Reports and Inbox filters) are remembered per browser
+  (`choices.js`, localStorage).
+- **Home: the weekly briefing.** `weekly-briefing.jsx`. Needs your OK, What changed (trend history), Ready for
+  channels, Shipped, Working now; **Next up** (ranked next steps per role, `next-steps.js`), an admin **Get the studio
+  ready** checklist, and **Copy briefing for Slack** with deep links when a Studio web address exists.
+- **Trends.** Simple's Trends (List or Board) and Advanced's Trend board (`trend-board-view.jsx`, `trend-board.js`):
+  stages Needs your OK → Approved → Being written → Ready, plus Skipped. Yes / Skip with Undo, **Yes, with a note…**
+  routing to channels, **Show 2 real posts** (the free `readTrendPosts` read), momentum badges, **Write reports** with
+  an estimate confirmation, and a "Research stopped" row with Try again.
+- **Reports.** Simple's Reports and the Advanced Library reader: grouped by research run, one row per trend
+  (trends report + toolkit), in-place editor with brand check and conflict protection (`asset-editor.jsx`,
+  `editStudioAsset`), status pipeline (Draft → Published), share links (`deep-links.js`), Share (Google Docs copy,
+  slide outline, Slack summary), How this was made.
+- **Assets and the Library tree.** One folder model for Simple Assets, Simple Reports and the Advanced Library
+  (`src/shared/library-tree.js`): research run → trend → report and toolkit, channel assets by team, drafts,
+  pictures. **Make channel assets** (`kit-creator.jsx`, `asset-kit.js`, `kit-folders.json`) writes 12 assets and 9
+  pictures per trend; it opens over the current page in any layout.
+- **Ask AI.** `help-assistant.js` (main), `help-assistant.jsx` and `chat-cards.jsx` (renderer), `ask-store.js`
+  (conversations and memory per person). Server-stored conversations with a rolling summary, long-term memory (300
+  items per person), lookups (reports, folders, files, runs, trends, posts, find, spend, conversations, memory,
+  prompts), grounded cards hydrated from studio state, **quick scans** (`research-quick-scan.js`, `quick-scan.json`),
+  and 27 kinds of action buttons from one shared list (`src/shared/ask-actions.json`). Nothing runs without a click;
+  paid work confirms with an estimate. See [ARCHITECTURE.md](ARCHITECTURE.md#ask-ai-pipeline).
+- **Prompt Library.** 36 prompts in 7 groups (`prompt-registry.json`): editable instruction blocks inside fixed
+  scaffolding, validation, versions (200 per prompt), diffs, restore, admin locks, free previews and paid test runs
+  (50 kept per prompt). Runs snapshot the prompt versions they start with. `prompt-template.js`, `prompt-store.js`,
+  `prompt-lab.js`, `prompt-cases.js`, `prompt-library.jsx`.
+- **People & access.** People, Roles (capability matrix, custom roles), Access log, Invite, View as / Preview as
+  (read-only previews). `people-view.jsx`, `roles-matrix.jsx`, `team-store.js`, `access.js`.
+- **Trend tracker.** `src/shared/trend-history.js` links the same trend across runs (theme id, then recorded
+  matches and aliases, then name and keyword similarity ≥ 0.55) and labels momentum from share of posts. It drives
+  momentum badges, What changed, Ask AI's trend memory and the Sheets **Trend tracker** workbook (Trend timeline,
+  Weekly snapshot, Category momentum, Run log). Free and deterministic.
+- **Inbox, Calendar and My plan.** `inbox-view.jsx`/`inbox-model.js` (last 30 days, unread count saved per person),
+  `calendar-view.jsx` (planned dates from channel answers, `.ics` download).
+- **Sheets.** `sheets-view.jsx`, `workbooks.js`: each research run as the Golden Thread workbook, the Trend tracker,
+  imported spreadsheets, cell-by-cell merge of concurrent edits, exports to .xlsx/.csv or a Google Sheet (bridge).
+- **Research programs, runs and schedules.** `content-workspace.js`, `research-*.js` in `src/shared`. Per-stage
+  models and effort, estimates, budgets, retry that never pays twice, schedules (30-second tick while the process
+  runs).
+- **Create content.** One-off drafts from a source (`content-studio.js` deliverables), Advanced only.
+- **Data tools** (legacy, Advanced, capability `dataTools`): Search platforms, Scrapers (recipes with Apify budget and
+  timeout), Import research, Datasets, Dataset reports, Compare snapshots, Ask your datasets, Playbooks, Workflows (the
+  v5 mission engine, `v5-core.js`), Activity.
+- **Analytics** (admins): funnel, channel table, trend × channel matrix, spend this month (`team-analytics.js`).
+- **Integrations.** Apify (`apify-runner.js`, `research-collection.js`), Anthropic/Claude (`anthropic-runner.js`,
+  `claude-runner.js`), Codex (`codex-runner.js`), OpenAI images (`image-provider.js`), Google Sheets bridge and Drive
+  (`google-sheets-webhook.gs`, `bridge-delivery.js`, `google-delivery.js`), Monday.com (`monday-sync.js`).
+
+## Configuration reference
+
+Every environment variable the code reads. Secrets go in the secrets file, never the environment. The deploy guide
+([docs/web-deploy.md](docs/web-deploy.md#configuration)) explains each server setting in depth; `.env.example` is a
+commented template with the same variables (except the ones the tooling sets).
+
+**Browser studio server** (read by `scripts/studio-web.cjs` and `src/main/studio-server.js`)
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `STUDIO_DATA_DIR` | `~/.scraper-studio-web` (`/data` in the image) | The data folder. One process per folder. Created/tightened to 0700; files 0600. |
+| `STUDIO_TRANSFER_DIR` | `<STUDIO_DATA_DIR>/web-transfers` | Browser uploads and downloads; emptied at every start. |
+| `STUDIO_HOST`, `PORT` | `127.0.0.1`, `4174` (image: `0.0.0.0`) | Bind address and port. |
+| `STUDIO_PUBLIC_ORIGIN` | — | The public `https://` address when a proxy rewrites `Host`; https also marks the cookie Secure. |
+| `STUDIO_SECURE_COOKIES` | — | `1` behind HTTPS: Secure cookie and HSTS. |
+| `STUDIO_TRUST_PROXY` | — | `1`: count admin-password tries per client from `X-Forwarded-For` (only when nothing but the proxy reaches the studio). |
+| `STUDIO_LINK_DAYS` | `30` | How long a new personal sign-in link works; `0` = until replaced or turned off. |
+| `STUDIO_DRAIN_SECONDS` | `25` | On SIGTERM/SIGINT, how long running work may finish. Keep the platform's stop grace period longer. |
+| `STUDIO_KEEPALIVE_SECONDS` | `75` | Idle keep-alive for proxy connections; keep above the proxy's idle timeout. |
+| `STUDIO_MAX_EVENT_STREAMS` | `200` | Live-update streams for the whole server. |
+| `STUDIO_MAX_STREAMS_PER_PERSON` | `5` | Live-update streams per person (their newest tabs). |
+| `STUDIO_MIN_FREE_MB` | `256` | `/readyz` fails below this much free disk in the data folder. |
+| `STUDIO_LOG_LEVEL` | `info` | `error`, `warn`, `info` or `debug`; JSON lines on stdout. |
+| `STUDIO_EXPORT_DAYS` | `7` | Leftover export copies older than this are removed at start (browser studio). |
+
+**Secrets** (`src/main/web-secrets.js`; see [SECURITY.md](SECURITY.md))
+
+| Variable | Purpose |
+| --- | --- |
+| `STUDIO_SECRETS_FD` | An open file descriptor (usually `0`) holding `NAME=value` secret lines. |
+| `STUDIO_SECRETS_FILE` | A file path holding the same lines (Docker/Compose/Kubernetes secrets). Not both. |
+| `STUDIO_RUN_AS` | When started as root: the `user[:group]` to switch to after reading the secrets. Without it the server refuses to run as root. The image sets `node`. |
+| `STUDIO_SECRET_KEY` | **Secret.** 32+ random characters; encrypts keys saved in Settings (AES-256-GCM). Losing it means re-entering every saved key. |
+| `STUDIO_PASSWORD` | **Secret.** The admin password (16+ characters), break-glass admin access. Not needed with company sign-in. |
+| `STUDIO_PROXY_SECRET` | **Secret.** What the sign-in proxy sends as `X-Studio-Proxy-Secret`. |
+
+**Company sign-in (SSO through a proxy)**
+
+| Variable | Purpose |
+| --- | --- |
+| `STUDIO_TRUSTED_EMAIL_HEADER` | The header the proxy sets with the signed-in email (e.g. `x-forwarded-email`). |
+| `STUDIO_ALLOWED_EMAIL_DOMAINS` | Required with the header: comma-separated allowed domains. |
+| `STUDIO_TRUSTED_PROXY_CIDRS` | The proxy's addresses (IPs or CIDR ranges). The header is ignored from anyone else. Required unless `STUDIO_PROXY_SECRET` is set; the server won't start with neither. |
+| `STUDIO_ADMIN_EMAILS` | Comma-separated emails that are always admins (also the recovery path). |
+
+**AI limits** (`src/main/ai-limits.js`; both off unless set)
+
+| Variable | Purpose |
+| --- | --- |
+| `STUDIO_AI_CONCURRENCY` | At most this many AI calls (text and pictures) at once across the studio; the rest queue (cancellable). |
+| `STUDIO_DAILY_AI_BUDGET_USD` | Refuse new AI work once the day's recorded spend (UTC, kept in `<data>/ai-spend.json`) reaches this. Error code `dailyAiBudget` (429). Codex reports no spend and isn't counted. |
+| `STUDIO_CODEX_USER_CONFIG` | `1` lets Codex load the operator's `~/.codex/config.toml`; `0` skips it. Default: skipped on the web, loaded on the Mac. |
+
+**Service keys** (fallbacks only; prefer Settings, which encrypts them). `KEY_NAMES` in `src/main/index.js`; a key
+saved in Settings wins, and the studio removes these from the AI tools' environment.
+
+| Variable | Used for |
+| --- | --- |
+| `APIFY_API_TOKEN` | Collection through Apify. |
+| `ANTHROPIC_API_KEY` | The Anthropic API route. |
+| `OPENAI_API_KEY` | Pictures (OpenAI Images). In dev runs also read from `<app folder>/.env.local`. |
+| `GOOGLE_SHEETS_WEBHOOK_URL` | The Apps Script Sheets bridge URL. |
+| `GOOGLE_DOCS_ACCESS_TOKEN` | Reading private Google Docs and Drive publishing without the bridge. |
+| `MONDAY_API_TOKEN` | Monday.com board sync. |
+
+**Backups** (`scripts/studio-backup.cjs`)
+
+| Variable | Purpose |
+| --- | --- |
+| `STUDIO_BACKUP_DIR` | Where backups go (default `./studio-backups`). |
+| `STUDIO_BACKUP_KEEP` | Keep only the newest N backups (unset keeps all). |
+
+**Desktop development and release**
+
+| Variable | Purpose |
+| --- | --- |
+| `STUDIO_DISABLE_LOCAL_ENV` | `1`: in dev runs, don't read `OPENAI_API_KEY` from `.env.local`. Packaged builds never read it. |
+| `APIFY_STUDIO_AUTO_UPDATE_URL` | Generic update feed URL. Auto-update is inert (nothing calls it); only release diagnostics read it. |
+| `CLAUDE_MODEL` | Model for scripts that create a studio host directly; the app uses Settings. |
+| `STUDIO_VERIFICATION_DIR` | Where `scripts/service-smoke.cjs` writes receipts (default: a fresh temp folder). |
+| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Notarization; runs only when all three are set. |
+| `CSC_NAME` | Signing identity for electron-builder. |
+
+**Set by tooling** (don't set by hand): `STUDIO_RUNTIME` (`web`, set by the launcher; switches the main process to the
+browser studio), `ELECTRON_RENDERER_URL` (electron-vite dev), and `SHELL`, `PATH`, `HOME`, `USER`, `LOGNAME`, `APPDATA`
+(read from the OS to find the `claude` and `codex` tools and to reset the user after `STUDIO_RUN_AS`).
+
+**Settings stored in data** (`data.json` `settings`, validated in `src/shared/validation.js`): the AI route
+(`aiProvider`: `auto`, `claude`, `claude-api`, `codex`), `aiModel` (default `claude-opus-5-5`), the per-request budget,
+`uiMode` per person, the Studio web address, `lastAiCheck` (the last Check connections result, which ticks Home's
+setup checklist), and Data tools settings. Research program defaults
+(`src/shared/research-program.js`): Opus 5.5 for discovery, synthesis and matching, Fable 5.1 for tagging and reports,
+3,000 posts per platform, 10 per author, a 7-day window, up to 6 themes, budgets $10 collection and $25 AI. Quick-scan
+presets: `src/shared/quick-scan.json`.
+
+## Data model and storage
+
+Everything lives in one data folder: `~/Library/Application Support/apify-scraper-studio` on the Mac (the name is
+`INTERNAL_APP_NAME`; keep it) and `STUDIO_DATA_DIR` on the server.
+
+```
+<data>/
+  config.json            encrypted keys (keychain on the Mac, AES-256-GCM with STUDIO_SECRET_KEY on the web)
+  data.json              settings and Data tools data (recipes, runs, datasets index, analyses, monitors)
+  ai-spend.json          today's recorded AI spend (only with STUDIO_DAILY_AI_BUDGET_USD)
+  datasets/ exports/ assets/ workspaces/ workbooks/      Data tools files, exports, Sheets imports and edits
+  help/images/           Ask AI pictures          help/calls/  per-question temp folders
+  v5/                    the Workflows engine: events.jsonl, projection.json, jobs/, bundles/
+  content-studio/
+    .studio-owner.json   the data-folder lock (process, host, boot, 30-second heartbeat)
+    state.json           workspaces, programs, research and content runs, assets, trends (the studio service)
+    team.json            people, custom roles, role policy, sign-in links, channel answers, activity, access log (v2)
+    runs/<runId>/        input, evidence, assignments, theme-stats, *.validated.json, report and asset files
+    collections/ datasets/ dataset-index.json            collected posts and their index
+    ask/<sha256(identity)[0:32]>/   one person's Ask AI index, conversations (c/), memory.json
+    prompts/<workspaceId>/<promptId>.json   prompt versions        prompt-tests/   test records
+    brand-images/<workspaceId>/      brand reference images        exports/   run exports
+  web-transfers/         browser uploads and downloads (web only; short-lived)
+```
+
+- **Writes** are whole-file and atomic: a private temp file, fsync, rename, then fsync of the folder
+  (`writeJson` in `index.js`). A damaged `data.json` or `config.json` is copied aside as `<file>.bad-<time>` and
+  listed in `state.storeRecovery`; a file that can't be read stops startup rather than being overwritten.
+- **One writer.** The owner lock keeps a second process off the folder. Synchronous stores (`team-store.js`) assume it.
+- **Migrations.** `team.json` v1 → v2 upgrades on load (`MIGRATIONS[1]`); a newer `team.json` refuses to start.
+  `migrateSemrushBrandDefaults` updates the Semrush brand preset in `state.json`. There are no downgrades: back up
+  before upgrading.
+- **Retention limits in code:** Ask AI 200 conversations and 300 active memory items per person; team activity
+  5,000 rows and access log 2,000; 200 versions and 50 test records per prompt. Collected posts and run files are kept
+  until someone deletes the run.
+- Data layout, backup and restore procedures: [RUNBOOK.md](RUNBOOK.md#backup-and-restore).
+
+## AI routes and cost controls
+
+- **One entry point.** Every AI call goes through `generateStructuredOutput` in `src/main/index.js`, with a strict JSON
+  schema. Routes (`src/main/ai-routes.js`): `auto` (Claude app when installed, signed in and new enough, else the API
+  key), `claude` (Claude Code CLI, `claude-runner.js`; tools, MCP and session persistence switched off, prompt on
+  stdin), `claude-api` (Anthropic SDK, `anthropic-runner.js`; prompt caching of the stable prefix), `codex` (Codex CLI,
+  `codex-runner.js`; run in an empty temp folder with a read-only sandbox and its tools off). A working route is
+  remembered for 10 minutes.
+- **Preflight.** Before paid work starts, `STUDIO_PREFLIGHT` in `index.js` checks the route can run every model the
+  work needs ("Nothing was started." otherwise).
+- **Estimates before spending.** Start research, Write reports, quick scans, channel assets, Finish the rest, Try
+  again and prompt test runs show an estimate and caps in a confirmation; Create content shows its spending allowance
+  (it has no per-draft estimate yet). The wording is shared between layouts and Ask AI (`studio-actions.js`,
+  `cost-lines.js`).
+- **Caps.** Each research run has a collection budget (Apify, split per job by worst case, sent to Apify as each
+  job's cap) and an AI budget (each call reserves about 3× its estimate, at least $0.50, at most $100). Ask AI is capped
+  at $0.75 per call, scaled by model price. Custom scrapers default to $5 and 15 minutes on Apify; a test sample to $1
+  and 3 minutes. Studio-wide: `STUDIO_AI_CONCURRENCY` and `STUDIO_DAILY_AI_BUDGET_USD`.
+- **Codex is not metered.** Codex reports no cost, so caps are guides there ("On Codex the studio can’t cap AI spend…")
+  and the daily budget doesn't count it.
+- **Ask AI cost.** Its prompt prefix (instructions, spots and the whole app guide) is about 185,000 characters (184K for an editor, 188K for an admin). On the
+  API route the first question in five minutes costs about $0.35–0.40 (cache write), follow-ups about $0.07–0.10; on the
+  Claude app about $0.30 a question; a lookup adds a second call. The app guide is under a 150,000-byte guard
+  (`test/docs-consistency.test.js`) because every byte is paid for on every question.
+- **Prices** for estimates: `RESEARCH_MODELS` in `src/shared/research-program.js` (Fable 5.1 $10/$50, Opus 5.5
+  $4/$20, Sonnet 5.5 $2/$10, Haiku 4.5 $1/$5 per million tokens).
+
+## Security model
+
+Summary; the full model is in [SECURITY.md](SECURITY.md).
+
+- **Authorization**: deny by default. Every IPC and RPC call passes `gated()` → `access.check` against the person's
+  capabilities (`roles.json`); previews are read-only; each browser receives only the state its role may see (money
+  stripped for roles without See costs).
+- **Authentication (web)**: company sign-in through a proxy header trusted only from `STUDIO_TRUSTED_PROXY_CIDRS`
+  and/or with `STUDIO_PROXY_SECRET`, or the admin password plus personal sign-in links (32 random bytes, stored as
+  SHA-256 hashes, compared timing-safely). Sessions are in memory.
+- **Secrets**: read once from `STUDIO_SECRETS_FD`/`STUDIO_SECRETS_FILE`, kept out of `process.env`; the container
+  reads a root-only file as root and switches to `node`. Keys in Settings are encrypted at rest. AI CLIs get an
+  environment without `STUDIO_*` and key variables.
+- **AI boundaries**: collected posts and lookups are marked "data, not instructions"; Ask AI acts only through buttons
+  the person clicks; the Claude CLI runs with tools off; Codex runs isolated, but its read-only sandbox doesn't stop
+  reads.
+- **Known gaps**: the Sheets bridge has no authentication; sessions don't survive restarts; no audit trail for key or
+  AI-route changes; the Google token is pasted by hand.
+
+## Deployment
+
+The browser studio is one Node process with a persistent volume, behind a TLS reverse proxy and (recommended) an SSO
+proxy, on its own subdomain. One replica only.
+
+- **Kit**: [deploy/README.md](deploy/README.md): Docker Compose (Caddy → oauth2-proxy → studio, with a fixed proxy
+  address on an internal network) and systemd (service, nightly backup timer).
+- **Image**: `docker build -t scraper-studio .` (Node 24 slim, tini, starts as root to read a root-only secrets file,
+  then runs as `node`; `HEALTHCHECK` on `/readyz`; `STOPSIGNAL SIGTERM`).
+- **Proxy requirements**: unbuffered SSE on `/api/events`, 30 MB request bodies, long read timeouts (Ask AI and
+  reports can take minutes; Cloudflare cuts at 100 s), keep-alive below `STUDIO_KEEPALIVE_SECONDS`.
+- **Two breaking changes in the final build-out**: company sign-in now needs `STUDIO_TRUSTED_PROXY_CIDRS` or
+  `STUDIO_PROXY_SECRET`, and the launcher refuses to run as root without `STUDIO_RUN_AS`.
+- Full guide: [docs/web-deploy.md](docs/web-deploy.md). Desktop release: [RUNBOOK.md](RUNBOOK.md#release-the-mac-app).
+
+## Operations
+
+- **Health**: `GET /healthz` (liveness) and `GET /readyz` (data writable, disk free, lock held, not draining). No
+  sign-in needed; nothing private in either.
+- **Stopping**: SIGTERM drains (refuses new paid work with 503 `restarting`, lets running work finish for
+  `STUDIO_DRAIN_SECONDS`, releases the lock last). A second signal stops now.
+- **Logs**: one JSON line per request (`X-Request-Id`), plus lifecycle and sign-in events, never payloads or secrets.
+- **Backups**: `npm run backup` / `npm run restore` (`scripts/studio-backup.cjs`, `scripts/studio-restore.cjs`):
+  works while running, SHA-256 manifest, restore checks and keeps an undo copy. Keep the secrets file with the backups.
+- **Stuck lock, key rotation, upgrades, incident checklist**: [RUNBOOK.md](RUNBOOK.md).
+
+## Testing and CI
+
+| Command | What it does | Spends money |
+| --- | --- | --- |
+| `npm test` | Vitest, every suite (mocks Electron, Claude, Codex, Apify, OpenAI, Google) | No |
+| `npm run test:coverage` | The same with v8 coverage over `src/shared`, `src/main`, `src/web` | No |
+| `npm run lint` | ESLint 10 flat config (`eslint.config.js`) | No |
+| `npm run check` | `lint`, then `npm test`, then `build:web` | No |
+| `node scripts/prompt-goldens.mjs --check` | Every prompt the studio sends, byte-compared with `test/fixtures/prompts/` | No |
+| `npm run build:web` / `npm run build` | Browser bundle / desktop bundle (+ `copy-main-modules.mjs`) | No |
+| `npm run test:desktop` (`-- --with-data`) | Desktop smoke test on disposable data, after `npm run build` | No |
+| `npx electron scripts/service-smoke.cjs --review` | Screens of your saved workspace | No |
+| `npx electron scripts/service-smoke.cjs --live` | Small live Apify and Claude run ($0.25 per source, $1 request budget) | **Yes** |
+| `node scripts/content-studio-live.cjs`, `npx electron scripts/image-provider-live.cjs` | Live content run / live picture | **Yes** |
+
+- **CI** (`.github/workflows/ci.yml`, never yet run on GitHub): on push and pull request, Ubuntu runs `npm ci`, lint,
+  `npm test`, `build:web`, prompt goldens and `npm audit --omit=dev --audit-level=high`; macOS runs `npm ci` and
+  `npm test`. Dependabot (`.github/dependabot.yml`) updates npm and Actions weekly.
+- **Guards worth knowing**: `test/roles.test.js` (every method in exactly one capability; method counts),
+  `test/web-parity.test.js` (preload and web API expose the same methods), `test/build-modules.test.js` (every module
+  main loads is copied into the build), `test/help-assistant-prompts.test.js` (Ask AI schema stays small),
+  `test/no-native-dialogs.test.js`, `test/docs-consistency.test.js` (this file's config table, scripts and links;
+  the app guide's size and wording).
+- The manual per-role checklist: [docs/verification/roles-acceptance.md](docs/verification/roles-acceptance.md).
+
+## Known limitations and follow-ups
+
+Every item here was deliberately left for the Semrush team. Grouped by area; each says where the work lives.
+
+### Large refactors recommended and deferred
+
+- **Split `src/main/index.js`** (about 3,900 lines) along its existing seams: the IPC registry and gate; keys and
+  encryption (`KEY_NAMES`, `getKey`, `encryptValue`); state assembly (`publicState`, `emitState`); the Ask AI section
+  (`helpContext`, lookups, `helpResolveActions`, `hydrateCards`, `answerHelp`, about 1,000 lines); Data tools and the
+  v5 Workflows engine; setup files; Google bridge and delivery glue. Move one seam at a time behind the same handlers.
+- **Split `src/main/content-workspace.js`** (about 1,800 lines): research runs and the scheduler, quick scans,
+  content runs and kits, exports, prompt-lab glue, trend-history sources, workspaces and brand knowledge.
+- **An async job protocol** for long calls. Ask AI answers, dataset reports and scraper runs hold one HTTP request
+  open for minutes, which proxies cut (Cloudflare at 100 s). Start → job id → result over SSE or polling, with the
+  existing request ids for idempotency.
+- **Incremental live updates.** Every change broadcasts the whole projected state (a few hundred KB, coalesced every
+  750 ms). Versioned slices or patches would cut bandwidth and CPU on large workspaces.
+- **Durable sessions.** Password and link sessions live in memory, so every restart signs those people out. Signed
+  cookies with a server-side revocation list would survive deploys.
+- **Slack (and email) notifications.** Notifications are in-app only (Inbox counts, Copy reminder, Copy briefing for
+  Slack). The n8n workflow posted to Slack.
+- **Scheduled dates.** The **Scheduled** status has no date, and a channel's **Planned for** date only fills the
+  Calendar: nothing reminds, publishes or reports on it. Schedules run only while the process runs (30-second tick).
+
+### Web server and operations
+
+- Sessions that survive a deploy (above). Kubernetes manifests are not shipped; `deploy/README.md` gives the
+  StatefulSet, probe, NetworkPolicy and Secret guidance.
+- No Prometheus `/metrics` endpoint; JSON logs only.
+- No audit trail for key, setting or AI-route changes (would live in `access.js` `AUDITED`, `team-store.js`
+  `AUDIT_KINDS` and the `save-key`/`save-settings` handlers in `index.js`).
+- `content-workspace.js` `launch().finally(save)` can reject unobserved; the server's `unhandledRejection` handler logs
+  it instead of crashing. Wrap the save in try/catch.
+- The research scheduler isn't paused when a drain starts; a scheduled run due during the drain could still start.
+  Register a work provider (`require('./web-runtime').provide('work', { active: activeWorkSummary })`) and pause the
+  scheduler at drain.
+- `studio-host.js` `acquireCollectionLock` has no own-PID check; the startup cleanup in `studio-owner-lock.js`
+  (`clearStaleCollectionLocks`) covers the crash case.
+- The Docker image hasn't been built since the Dockerfile changed (tini via apt, root start + `STUDIO_RUN_AS`).
+- The oauth2-proxy options `upstream_timeout` and `api_routes` in `deploy/compose/oauth2-proxy.cfg.example` were
+  written for v7.6 from memory; check them against a live proxy.
+- Browser downloads are zipped in memory (`web-runtime.js` `zipFolder`, bounded by the 300 MB cap); stream them.
+- The browser page doesn't send request ids for `searchSources`, `runRecipe`, `testRecipe` and `analyzeDataset`
+  (`src/web/web-api.js`), and long calls get no keep-alive bytes (`studio-server.js`); the server side is ready.
+- `STUDIO_TRUST_PROXY` takes the last `X-Forwarded-For` hop; behind two proxies configure the inner one (nginx
+  `real_ip`). The studio can't be hosted under a subpath. The Anthropic base URL is fixed (`anthropic-runner.js`), so
+  an internal LLM gateway can't be used yet.
+
+### Data safety
+
+- Sheets (`sheets-view.jsx`) still saves whole snapshots; switch to `{ changes }` or `{ edits, base }` and show
+  `result.conflicts`. The server already merges cell by cell and returns 409 `sheetConflict`.
+- Scrapers (`automation-view.jsx`) have no Budget and Timeout fields yet, and the Test copy doesn't say "$1 and 3
+  minutes"; the limits apply anyway.
+- Settings doesn't show `state.keyProblems` (keys saved under another `STUDIO_SECRET_KEY`) or `state.storeRecovery`
+  (damaged files copied aside), though the startup log says Settings does. Add a Clear action and a banner.
+- `ask-store.js` and `prompt-store.js` move a file aside on any read error other than "not found", including a
+  transient I/O error.
+- Optional: debounce `emitState`; cache the v5 events replay.
+- No per-person limit on Ask AI questions in flight.
+- Codex's `web_search` tool stays on (turning it off risks a config error on older CLIs).
+
+### Ask AI
+
+- Not built: an admin **edit-program** action (before/after of a program and schedule), **change-access** (staged in
+  People's unsaved bar), **restore-prompt** and restore-report, a "mark used with this link" follow-up after
+  Published, copying the briefing, and plan steps that wait for unfinished work (`after=ready:<trend>`).
+- The spend lookup doesn't include Ask AI's own answer costs (receipts aren't stored centrally) or Apify charges.
+- The Ask AI footer (`help-assistant.jsx`) still says "about $0.15 each on Claude"; the measured figures are in
+  [AI routes and cost controls](#ai-routes-and-cost-controls).
+- Page context: the server (`askPage` in `index.js`) keeps `report`, `folder`, `trend` and `prompt` but drops `run`,
+  which the Advanced layout sends; Simple sends neither `trend` nor `prompt`, and neither layout sends `prompt` or the
+  Next up titles.
+- Content Studio, Trend board, Simple Assets and Channel owner screens still build their own confirmations instead of
+  the hook's shared `confirmStartResearch`/`confirmWriteReports`/`confirmRetry`; `cost-lines.js` `reportCostLine`
+  copies the hook's `reportCostLines` wording (keep them in step, or move both onto one helper).
+- In Safari, Copy text / for Google Docs / Slack summary reads the report before writing the clipboard, so the click's
+  permission can lapse; it falls back to `execCommand` and then says the window blocked copying.
+- The prompt prefix grew by about 4,000 characters for the new actions and cards, and the app guide from 135,008 to
+  about 142,000 bytes for the new features (about 2,500 more tokens per uncached question); the Claude CLI and Codex
+  routes pay for it on every question. Splitting the app guide by section and sending only relevant sections (with a `guide`
+  lookup for the rest) would cut the prefix by about two thirds.
+- The quick-scan card's default program is the newest, not the person's last pick (`choices.js` `defaultProgram`).
+- On an ambiguous trend name, the trend card shows the newest waiting run's copy while the choice card asks which run.
+- A button whose target matches nothing is dropped (the next answer is told), so a model writing loose names loses
+  buttons other than `open`.
+
+### UX flows
+
+- Create content has no per-draft estimate; it needs a new `estimateContentRun` method (index.js, preload,
+  `studio-api-channels.json`, `roles.json`). The confirmation shows what will be made and the allowance.
+- `asset-editor.jsx` `createUnsavedGuard().confirmLeave` still uses `window.confirm` (a synchronous gate called from
+  about 13 navigation paths); it is listed in `test/no-native-dialogs.test.js`.
+- The palette's **People: <name>** opens People & access but `PeopleView` ignores the `{ kind: 'person' }` request, so
+  the person's sheet doesn't open.
+- The new UI (Next up, setup checklist, inline posts, the asset dialog in Advanced, Library reader tools) was verified
+  only in jsdom and a scratch build, not in a browser. The Advanced asset dialog reuses Simple's sheet styles through
+  `.simple-shell.kit-creator-host { display: contents }`; check it in both editions.
+- A remembered Reports status filter falls back to "any" only when no report has that status.
+
+### Cleanup, dependencies and release
+
+- 13 IPC methods have no UI caller (`generateAssets`, `saveCard`, `moveCard`, `saveAsset`, `exportAssetPack`,
+  `saveMission`, `listMissions`, `getJob`, `readEvidence`, `openAssetsFolder`, `setThemeStatus`, `readReferenceDoc`,
+  `readStudioRun`). Some are still used by Workflows (`executeIntentStep`, `retryJob`), and `generateAssets` starts paid
+  AI with no estimate screen. The comment block above them in `index.js` says how to remove one safely.
+- Dead exports in used files (`PaletteHint`, `Panel`, `isPreview`, `readyLine`, `findNavItem`, parts of
+  `dashboard.js`, `evaluateArtifact` in `v5-ui-core.js`) and about 84 unused CSS classes in `styles.css`,
+  `semrush-tools.css`, `premium.css` and `workflow.css`.
+- Two ESLint rules-of-hooks false positives (`useReport` in `content-studio-view.jsx`, `useWorkbook` in
+  `research-knowledge.jsx` are plain async functions); rename them and delete the override in `eslint.config.js`.
+- Dev-only advisories: 2 high (`http-cache-semantics`, `source-map-js`; fixing moves electron-builder to 26.17.0) and 8
+  moderate (through electron-builder → @electron/get → global-agent). None ship in the DMG or the image. The
+  `basic-ftp` override can go once `get-uri` allows a patched version.
+- Electron 42 is the oldest supported line; plan the move to 44 with the desktop smoke and keychain continuity checks.
+- Fuses (`build.electronFuses`) haven't been read back from a built app. Turning off `NODE_OPTIONS` also disables
+  `NODE_EXTRA_CA_CERTS`: test the DMG behind Semrush's TLS inspection. `enableCookieEncryption` is one-way.
+- Notarization runs twice when the Apple variables are set (electron-builder 26 itself, plus the `afterSign` hook
+  `scripts/notarize-if-configured.cjs`); delete the hook and its `afterSign` line.
+- Auto-update is dead code (`configureAutoUpdates` in `index.js`; nothing calls `checkForUpdates`, the mac target is
+  DMG only, and the embedded `app-update.yml` points at a personal GitHub). Remove it, or make it real (DMG + zip
+  targets, `build.publish` to an internal host, a check after start, install only when nothing runs).
+- `index.js` loads `ELECTRON_RENDERER_URL` even in packaged builds; gate it on `!app.isPackaged`. Consider dropping
+  `disable-library-validation` from the entitlements.
+- CI has never run on GitHub; the suite has only run on macOS. Actions are pinned to major tags, not SHAs. Docker
+  base-image updates aren't in Dependabot.
+- Windows (`npm run dist:win`) is untested.
+- `scripts/content-studio-live.cjs` and `scripts/image-provider-live.cjs` still write receipts into
+  `docs/verification/`, and `scripts/service-smoke.cjs --review` navigates by pre-redesign page names ("Chat with
+  findings", "AI reports", "Search platforms" buttons), so it likely fails on the current UI.
+- `.dockerignore` doesn't exclude `docs/archive/` (about 38 MB of old screenshots sent as build context; the final
+  image copies only `docs/app-guide.md`).
+- Unused files: icon sources in `resources/` (`icon-source.png`, `icon-source-ai.png`,
+  `scraper-studio-icon-orange-concept.png`). The September screenshots now sit in `docs/archive/assets/`; they could
+  leave the tree entirely (git history keeps them).
+
+### Security gaps to close before wider use
+
+- **The Sheets bridge has no authentication** (`scripts/google-sheets-webhook.gs`): anyone with its URL can read any
+  sheet the deploying account can open. Add a `BRIDGE_SECRET` script property checked in `doPost`, send it from
+  `callSheetsWebhook` (a new `GOOGLE_SHEETS_BRIDGE_SECRET` key), and allowlist the sheets that may be changed.
+  Interim steps: [docs/sheets-guide.md](docs/sheets-guide.md#deploy-the-bridge-and-what-it-can-reach).
+- The Google Docs token is pasted by hand and expires; there is no OAuth flow.
+- On the Codex route the AI can read what the server's user can read; prefer Claude on a shared server, or run
+  `codex` as a separate OS user.
+
+## Decisions Semrush must make before go-live
+
+| Decision | Today | Consequence |
+| --- | --- | --- |
+| **IP ownership and license** | `package.json` `author` is the original developer, `license: "UNLICENSED"`, no LICENSE file; the About panel credits the same person (`setAboutPanelOptions` in `index.js`). | Settle the assignment in writing, add a LICENSE, update author and the About panel. `"private": true` already blocks `npm publish`. |
+| **Repository** | Origin is a public repo on a personal GitHub account (`package.json` `repository`); electron-builder infers its publish target from it. | Move to a private Semrush repo (scan history with gitleaks first), update `repository`. Use `scripts/make-handoff.sh` for the source zip. |
+| **Bundle id and signing** | `build.appId` is a personal reverse-domain id, and builds are signed with a personal Developer ID; `INTERNAL_APP_NAME` is `apify-scraper-studio`. | A new appId or Team ID re-prompts or loses the keychain "Safe Storage" item for existing installs. Keep `INTERNAL_APP_NAME` so the data folder stays. Ask testers to note keys first. |
+| **SSO provider and hosting** | The kit ships oauth2-proxy (Google Workspace or Okta) behind Caddy; Cloudflare Access also works (100 s request limit). | Pick the provider, the subdomain, and whether the proxy secret or a fixed proxy address carries trust. |
+| **AI provider keys** | Anthropic API key or Claude app; Codex optional. | Use a company Anthropic org key. If the org has zero data retention, Claude Fable 5.1 isn't available: set tagging and reports to Opus 5.5 per program. Decide whether Codex is allowed on the shared server. |
+| **Spend caps** | Per-run budgets, Ask AI $0.75/call; studio-wide limits off. | Set `STUDIO_DAILY_AI_BUDGET_USD` and `STUDIO_AI_CONCURRENCY`, Apify account limits, and who may start research. Decide whether the Apify token may travel in setup files. |
+| **Data retention** | Collected posts (third-party authors and text), Ask AI conversations and memory, activity and access logs are kept until deleted or trimmed by the limits above. | Write a retention policy; decide whether admins may read others' Ask AI conversations (today: no). |
+| **Google account** | The Sheets bridge runs as whoever deployed it. | Use a dedicated Google account; schedule the bridge-auth follow-up. |
+| **Open product questions** | From the design review. | Should quick scans count toward momentum fully? Should the trend linker feed back into paid runs? Is the shared admin-password identity (`owner`) acceptable? Is Windows in scope? |
+
+## Glossary: UI term and code identifier
+
+| In the UI | In code |
+| --- | --- |
+| Advanced layout | `uiMode: 'classic'` (`validation.js`); Simple is `'simple'` |
+| Trend | theme, `themeId`; one trend across runs is a `trendId` cluster (`trend-history.js`) |
+| Needs your OK | run status `'awaiting-review'`; card stage `potential` (`trend-board.js`) |
+| Yes / Skipped | decision `'approved'` / `'passed'` |
+| Trends report / Editorial toolkit | deliverable ids `'evidence-report'` / `'editorial-toolkit'` |
+| Channel assets | a content run with `run.kit` (`asset-kit.js`); a channel is a kit folder id (`kit-folders.json`) |
+| Quick scan | a research run with `origin: 'quick-scan'` |
+| Research program | `programs` in `state.json`; `research-program.js` |
+| Edition | `editionId`: `'semrush'` or `'general'` |
+| Scrapers / Workflows / Playbooks / Activity | pages `automation` (recipes) / `missions` (v5 engine) / `templates` (`marketing-templates.js`) / `runs` |
+| Dataset reports / Ask your datasets | pages `reports` (under the `data-tools` page group; analyses) / `chat` (`askFindings`, `findings-chat.js`) |
+| Ask AI | `help:*` channels, `help-assistant.js`, `askHelp` |
+| Show me target | a `data-spot` attribute plus an entry in `help-spots.json` |
+| Velocity vs Momentum | runs that detected a theme (NEW / EMERGING / ACCELERATING, `research-intel.js`) vs share of posts (`trend-history.js`) |
+| Evidence | `runs/<id>/evidence.json` |
+| Receipt | a per-call record `{ provider, requestedModel, actualModel, costUsd, … }` |
+| Capability / method / role base | a group of RPC methods in `roles.json` / one channel in `studio-api-channels.json` / `admin`, `editor` or `channel` |
+| People & access | `manageAccess` capability, `team:*` channels, `team-store.js` |
+| View as / Preview as | `setViewAs`, `previewAccess`; `viewer.preview` |
+
+## Document map
+
+| Document | Audience | What it covers |
+| --- | --- | --- |
+| [README.md](README.md) | Everyone | The front door. |
+| [HANDOFF.md](HANDOFF.md) | Developers taking over | This file. |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Developers | Runtime model, contracts, extension points. |
+| [RUNBOOK.md](RUNBOOK.md) | Operators | Install, release, deploy, back up, upgrade, recover. |
+| [SECURITY.md](SECURITY.md) | Security reviewers, operators | Trust boundaries, data flows, hardening, gaps. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Developers | Change checklists, tests, goldens, lint, conventions. |
+| [CHANGELOG.md](CHANGELOG.md) | Everyone | What shipped when. |
+| [docs/README.md](docs/README.md) | Everyone | Index of everything under `docs/`. |
+| [docs/app-guide.md](docs/app-guide.md) | End users, Ask AI | Every page and control; Ask AI's runtime knowledge. |
+| [docs/web-deploy.md](docs/web-deploy.md) | Operators | The browser studio: configuration, secrets, SSO, health, drain, logs, backups. |
+| [docs/roles-and-access.md](docs/roles-and-access.md) | Developers | Capabilities, the gate, identity, team.json, API. |
+| [deploy/README.md](deploy/README.md) | Operators | The Compose and systemd kits. |

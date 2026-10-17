@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/renderer/src/App.jsx';
 import { DatasetsView } from '../src/renderer/src/dataset-report-views.jsx';
 import { CommandPalette, MissionCommandCenter } from '../src/renderer/src/mission-command.jsx';
-import { AssetsView } from '../src/renderer/src/pipeline-view.jsx';
 import { Empty, StatusBanner } from '../src/renderer/src/ui.jsx';
 
 afterEach(() => cleanup());
@@ -152,24 +151,5 @@ describe('renderer safety states', () => {
 
     screen.getByRole('button', { name: /Run active mission/ }).click();
     expect(onRun).toHaveBeenCalledWith({ id: 'run', label: 'Run active mission', shortcut: 'Cmd+Enter' });
-  });
-
-  it('exports filtered asset packs from the asset library', () => {
-    const onExportAssetPack = vi.fn();
-    render(
-      <AssetsView
-        state={{ assets: [{ id: 'asset-1', title: 'Launch Post', markdown: 'body', status: 'done', channel: 'LinkedIn' }], v5: { evidenceSummary: { sample: [] } } }}
-        onNavigate={vi.fn()}
-        onSaveAsset={vi.fn()}
-        onCreateCardFromAsset={vi.fn()}
-        onExportAssetPack={onExportAssetPack}
-        onOpenAssetsFolder={vi.fn()}
-        onOpenAsset={vi.fn()}
-        onRevealAsset={vi.fn()}
-      />,
-    );
-
-    screen.getByRole('button', { name: 'Export pack' }).click();
-    expect(onExportAssetPack).toHaveBeenCalledWith({ assetIds: ['asset-1'] });
   });
 });

@@ -1,25 +1,61 @@
 # Scraper Studio for macOS
 
-The Mac app uses the same research, content and connection settings as the development app. Its display name is **Scraper Studio**; the internal storage identity remains `apify-scraper-studio` to preserve the existing profile and macOS Safe Storage key.
+The Mac app is the same studio as the browser version, packaged with Electron for one person per Mac (who is always
+the admin). Its display name is **Scraper Studio**; its internal storage identity stays `apify-scraper-studio`
+(`INTERNAL_APP_NAME` in `src/main/index.js`), so existing profiles and the macOS "Safe Storage" keychain item carry over.
+Keep that name.
 
 ## Build
 
-On macOS, run `npm ci`, then `npm run dist:mac`. This regenerates the native icon from the saved ImageGen asset, compiles the app, and produces an Apple Silicon application and DMG under `dist/`. Select a Developer ID Application certificate by setting `CSC_NAME` to its owner name without the `Developer ID Application:` prefix. The package allowlist excludes `.env`, `.env.*`, PEM and private-key files.
+```bash
+nvm use            # Node 24, from .nvmrc
+npm ci
+npm run dist:mac   # icon, build, then a universal (arm64 + x64) app and DMG
+```
 
-This build is for Apple Silicon. The existing builder target also supports x64 when explicitly requested. Windows packaging remains a separate build and was not verified by this Mac installation.
+`npm run dist:mac` always builds universal (package.json passes `--universal`) and writes
+`dist/Scraper Studio-<version>-universal.dmg`. Plain `npm run dist` builds only this Mac's architecture; don't ship
+that. `npm run dist:win` builds an NSIS installer for x64; Windows is untested.
+
+- **Signing**: set `CSC_NAME` to the Developer ID Application identity (the name without the
+  `Developer ID Application:` prefix). The package excludes `.env`, `.env.*`, PEM, P12, P8 and key files.
+- **Notarization**: runs only when `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` are set. Today two
+  things notarize when they are: electron-builder 26 itself, and the `afterSign` hook
+  `scripts/notarize-if-configured.cjs`. Remove the hook (and its `afterSign` line) before a real release so Apple is
+  asked once (see [HANDOFF.md](../HANDOFF.md#known-limitations-and-follow-ups)).
+- **Electron fuses** are set in `package.json` `build.electronFuses` (no run-as-node, no `NODE_OPTIONS`, no inspector,
+  asar integrity, cookie encryption). Check them on the built app with
+  `npx @electron/fuses read --app "dist/mac-universal/Scraper Studio.app"`. With `NODE_OPTIONS` off,
+  `NODE_EXTRA_CA_CERTS` doesn't work either: test the DMG on a network with TLS inspection before rollout.
+- `npm run release:diagnostics` prints what a release build will contain and what it still needs.
+- After building, `npm run test:desktop` (and `-- --with-data`) runs the desktop smoke test on disposable data.
+
+Record the commit SHA and `shasum -a 256` of each DMG you hand out.
+
+## Install and update
+
+Open the DMG and drag **Scraper Studio** into Applications. A build that isn't notarized is stopped once at first
+launch: System Settings → Privacy & Security → **Open Anyway**. There are no automatic updates (the updater code has no
+feed and nothing calls it): quit the app when nothing is running, open the new DMG and replace the app. Data in
+`~/Library/Application Support/apify-scraper-studio` is kept.
+
+Re-signing under a different Apple Team ID or changing `build.appId` changes the code requirement on the keychain's
+Safe Storage item: people who installed an earlier build are asked for keychain access again or lose their saved keys.
+Ask them to note their keys (or export a setup file) first.
 
 ## Connect and use
 
-Open **Scraper Studio** from Applications or the Dock. Choose **Semrush workspace** to use the official March 2026 wordmark, lavender/mint palette and refreshed content defaults. Custom brand knowledge is preserved. The General workspace retains its independent design.
+Open **Scraper Studio** from Applications. A fresh profile opens in the **Semrush workspace**. Save the Apify token in
+**Settings → Source collection**, connect Claude in **Settings → Writing & research** (the Claude app or an Anthropic
+API key), and add an OpenAI key under **Settings → Image generation** for pictures. Keys are encrypted with the
+keychain (Electron `safeStorage`); the app refuses to save a key when that isn't available. The installed app finds the
+`claude` and `codex` command-line tools through your login shell's `PATH`.
 
-The owner installation uses the existing profile at `~/Library/Application Support/apify-scraper-studio`. Existing encrypted credentials are preserved. This owner profile has Apify and OpenAI configured; Google delivery was unconfigured before installation and remains unconfigured. Its image connection refers to the explicitly approved `.env.local` file in the project through nonsecret `config.imageCredentialFile` metadata. That external file must stay in place; its contents are not bundled. A new installation should connect an image key through **Settings → Image generation** instead. The installed app discovers supported local AI CLIs through the user's local executable paths.
+`config.imageCredentialFile` is a legacy, owner-only pointer to an external env file (`src/main/local-image-key.js`).
+No screen sets it; don't use it for new installs. Development runs (`npm run dev`) also read `OPENAI_API_KEY` from the
+project's `.env.local` unless `STUDIO_DISABLE_LOCAL_ENV=1`; packaged builds never do.
 
-## Release status
+## Design and verification history
 
-A valid Developer ID signature verifies the signed bundle's identity and integrity. Apple notarization is a separate release step; this local installation is not notarized. Public downloads should go through the configured notarization hook with the owner's Apple release credentials and a distribution test before publication.
-
-## Design and verification
-
-- [Current Semrush brand sources](research/semrush-2026-brand.md)
-- [Generated icon and design prompt](../resources/app-icon-prompt.md)
-- [Mac installation receipt](verification/macos-app-2026-09-27.md)
+- [Semrush brand sources](research/semrush-2026-brand.md)
+- [Mac installation receipt, September 2026](archive/verification-2026-09/macos-app-2026-09-27.md)

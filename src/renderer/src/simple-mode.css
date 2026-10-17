@@ -3,7 +3,7 @@
 /* The tokens come from the frame (studio-frame.css, light and dark). A Simple column drawn on its own, outside the
    frame (a test, an older shell), defines the light ones itself, so the frame's dark values are never overridden. */
 .simple-shell:not(.studio-frame *) {
-  --s-ink: #181e15; --s-muted: #62685e; --s-faint: #8a9088; --s-line: #e3e8e4; --s-bg: #f4f6f5; --s-card: #ffffff;
+  --s-ink: #181e15; --s-muted: #62685e; --s-faint: #6a7068; --s-line: #e3e8e4; --s-bg: #f4f6f5; --s-card: #ffffff;
   --s-accent: #c190ff; --s-accent-strong: #a873f2; --s-soft: #f1eaff; --s-mint: #dceeeb; --s-mint-ink: #1f5a4c; --s-warn: #fff4dc;
   --s-radius: 20px; --s-shadow: 0 1px 2px rgba(24, 30, 21, .04), 0 12px 32px rgba(24, 30, 21, .06);
 }
@@ -457,7 +457,7 @@
 :is(.simple-shell, .studio-frame) .spot-card { position: fixed; display: grid; gap: 10px; padding: 12px 12px 12px 16px; color: #181e15; background: #fff; border-radius: 16px; box-shadow: 0 18px 50px rgba(0, 0, 0, .28); pointer-events: auto; transition: top 280ms cubic-bezier(.2, .8, .2, 1), left 280ms cubic-bezier(.2, .8, .2, 1); animation: simple-pop 220ms cubic-bezier(.2, .9, .3, 1.1) both; }
 :is(.simple-shell, .studio-frame) .spot-card.centered { top: 50%; left: 50%; width: 340px; transform: translate(-50%, -50%); animation: none; }
 .spot-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.spot-card-head small { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #8a9088; }
+.spot-card-head small { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--s-faint, #6a7068); }
 :is(.simple-shell, .studio-frame) .spot-card-head button { display: grid; place-items: center; width: 26px; height: 26px; min-height: 26px; padding: 0; color: #62685e; background: #f4f6f5; border: 0; border-radius: 50%; }
 .spot-card p { margin: 0; font-size: 14px; line-height: 1.5; }
 .spot-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -543,3 +543,20 @@
 .simple-shell .simple-kanban-buttons .td-yes .td-caret { flex: none; padding: 0 8px; }
 .simple-trend .tp-why, .simple-trend .tp-decided { padding-top: 2px; }
 .simple-kanban-card .tp-why, .simple-kanban-card .tp-decided { font-size: 12px; }
+
+/* A research run that stopped before finding trends (Trends), with Try again and See why. */
+.simple-scouting.attention { background: color-mix(in srgb, var(--s-danger-soft, #fbe7df) 80%, var(--s-card)); }
+.simple-scouting.attention > svg { flex: none; color: var(--s-danger, #8a2f1c); }
+.simple-scouting > span { flex: 1; min-width: 0; }
+.simple-scouting-ask { font-size: 13px; color: var(--s-muted); }
+/* Approved and skipped trends in the list layout, each with its way back (Undo, Reconsider). */
+.simple-decided-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.simple-decided-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 14px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 14px; }
+.simple-decided-list > li > span:first-child { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.simple-decided-list .tp-decided { flex-basis: 100%; order: 3; }
+.simple-shell .simple-decided-list .simple-link { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; }
+.simple-skipped { display: grid; gap: 10px; }
+.simple-skipped > summary { display: inline-flex; align-items: center; gap: 8px; width: fit-content; min-height: 36px; font-size: 14px; font-weight: 650; color: var(--s-muted); cursor: pointer; }
+.simple-skipped > summary:focus-visible { outline: 2px solid var(--s-focus, var(--s-ink)); outline-offset: 2px; border-radius: 8px; }
+/* The asset dialog over any page (KitCreatorHost): the Simple sheet's look without a Simple column around it. */
+.simple-shell.kit-creator-host { display: contents; }

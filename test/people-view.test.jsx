@@ -176,6 +176,17 @@ describe('People & access: the People tab', () => {
     rerender(<PeopleView api={api()} web viewer={sam} request={{ kind: 'invite', key: 1 }} />);
     expect(screen.queryByRole('dialog', { name: 'Invite people' })).not.toBeInTheDocument();
   });
+
+  it('starts Invite with the addresses and role Ask AI handed in', async () => {
+    const services = api();
+    render(<PeopleView api={services} web viewer={sam} request={{ kind: 'invite', key: 2, preset: { emails: ['Alex.Kim@semrush.com', 'sam.lee@semrush.com', 'alex.kim@semrush.com'], role: 'editor' } }} />);
+    const dialog = await screen.findByRole('dialog', { name: 'Invite people' });
+    const rows = within(within(dialog).getByRole('list', { name: 'People to invite' })).getAllByRole('listitem');
+    expect(rows.map((item) => item.textContent)).toEqual(['alex.kim@semrush.com', 'sam.lee@semrush.com']);
+    expect(within(dialog).getByRole('radio', { name: /^Editor/ })).toBeChecked();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Invite 2 people' }));
+    await waitFor(() => expect(services.inviteMembers).toHaveBeenCalledWith({ people: [{ email: 'alex.kim@semrush.com' }, { email: 'sam.lee@semrush.com' }], role: 'editor' }));
+  });
 });
 
 describe('Invite people', () => {

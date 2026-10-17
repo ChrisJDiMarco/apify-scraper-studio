@@ -127,6 +127,11 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
   const editsRef = useRef(edits);
   editsRef.current = edits;
   const editsOwnerRef = useRef(''); // the workbook the edits in memory belong to
+  // The edits each workbook last loaded or saved here, sent as `base` so the server applies only what changed on this
+  // page (a revert included), even after it restarted. Saves run one at a time, so each one's base is the last one's.
+  const basesRef = useRef(new Map());
+  const saveChain = useRef(Promise.resolve());
+  const savingRef = useRef(0);
   const historyRef = useRef(history);
   historyRef.current = history;
   const toastTimer = useRef(0);
@@ -172,8 +177,18 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
     clearTimeout(saveTimer.current); saveTimer.current = 0;
     const targetId = editsOwnerRef.current; const snapshot = editsRef.current;
     if (!targetId) return;
-    setSaveState('saving');
-    api.saveWorkbookEdits({ workbookId: targetId, edits: snapshot }).then(() => setSaveState('saved')).catch((error) => { setSaveState('error'); say({ error: error.message || String(error) }); });
+    setSaveState('saving'); savingRef.current += 1;
+    saveChain.current = saveChain.current.then(() => {
+      const base = basesRef.current.get(targetId);
+      return Promise.resolve(api.saveWorkbookEdits({ workbookId: targetId, edits: snapshot, ...(base ? { base } : {}) })).then((result) => {
+        basesRef.current.set(targetId, snapshot);
+        const conflicts = Array.isArray(result?.conflicts) ? result.conflicts.length : 0;
+        if (!conflicts) { setSaveState('saved'); return; }
+        setSaveState('error');
+        say({ error: `Someone else changed ${conflicts === 1 ? '1 cell' : `${number(conflicts)} cells`} you edited, so ${conflicts === 1 ? 'their value was' : 'their values were'} kept. Reopen the sheet to see the current values; your other changes are saved.` });
+      }).catch((error) => { setSaveState('error'); say({ error: error.message || String(error) }); })
+        .finally(() => { savingRef.current -= 1; });
+    });
   }, [api, say]);
 
   useEffect(() => {
@@ -183,8 +198,8 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
       if (cancelled) return;
       const sameWorkbook = editsOwnerRef.current === next.id;
       if (!sameWorkbook) { flushSave(); setHistory({ undo: [], redo: [] }); }
-      // A refresh of the open workbook keeps unsaved local edits; a different workbook brings its own.
-      if (!sameWorkbook || !saveTimer.current) setEdits(next.edits?.sheets ? next.edits : { version: 1, sheets: {} });
+      // A refresh of the open workbook keeps unsaved (or still saving) local edits; a different workbook brings its own.
+      if (!sameWorkbook || (!saveTimer.current && !savingRef.current)) { const loaded = next.edits?.sheets ? next.edits : { version: 1, sheets: {} }; setEdits(loaded); basesRef.current.set(next.id, loaded); }
       editsOwnerRef.current = next.id; setWorkbook(next); if (!sameWorkbook) setSaveState('saved');
       prefs.write('lastWorkbook', next.id);
       setSheetId((current) => {

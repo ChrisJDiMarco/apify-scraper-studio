@@ -42,7 +42,8 @@ export function InviteDialog({ team, viewer = {}, api, action, preset = {}, stud
   const titleId = useId(); const pasteId = useId(); const hintId = useId();
   const pasteRef = useRef(null);
   const [draft, setDraft] = useState('');
-  const [entries, setEntries] = useState([]);
+  // Addresses handed in (Ask AI's invite-people) start as rows, the same as pasted ones.
+  const [entries, setEntries] = useState(() => [...new Set(list(preset.emails).map((email) => String(email || '').trim().toLowerCase()).filter(Boolean))].slice(0, 50).map((email) => ({ key: `${email}-${Math.random().toString(36).slice(2, 8)}`, email, name: '' })));
   const [role, setRole] = useState(preset.role || (roles.some((entry) => entry.id === 'editor') ? 'editor' : roles[0]?.id || 'editor'));
   const [channelId, setChannelId] = useState(preset.channelId || '');
   const [adjust, setAdjust] = useState(false);

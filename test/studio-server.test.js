@@ -135,7 +135,7 @@ describe('browser studio server', () => {
   });
 
   it('signs people in from a trusted proxy header for allowed email domains only', async () => {
-    const h = await fixture({ password: undefined, trustedEmailHeader: 'X-Auth-Request-Email', allowedEmailDomains: 'semrush.com, @example.org' });
+    const h = await fixture({ password: undefined, trustedEmailHeader: 'X-Auth-Request-Email', trustedProxies: '127.0.0.1, ::1', allowedEmailDomains: 'semrush.com, @example.org' });
     expect(await (await h.request('/api/session', { headers: { 'X-Auth-Request-Email': 'Pat@Semrush.com' } })).json()).toEqual({ ok: true, user: 'pat@semrush.com', signOut: false, viewer: null });
     for (const email of ['pat@evil.com', 'pat@semrush.com.evil.com', 'not-an-email', '']) expect((await h.request('/api/session', { headers: { 'X-Auth-Request-Email': email } })).status).toBe(401);
     expect((await h.request('/api/login', { method: 'POST', body: { password: PASSWORD } })).status).toBe(400);
@@ -267,7 +267,7 @@ describe('browser studio server with people and roles', () => {
   });
 
   it('keeps sign-in links out of company sign-in', async () => {
-    const people = peopleStub(); const h = await fixture({ people, password: undefined, trustedEmailHeader: 'X-Auth-Request-Email', allowedEmailDomains: 'semrush.com' });
+    const people = peopleStub(); const h = await fixture({ people, password: undefined, trustedEmailHeader: 'X-Auth-Request-Email', trustedProxies: '127.0.0.1, ::1', allowedEmailDomains: 'semrush.com' });
     expect((await linkLogin(h, people.token('member-alex'))).status).toBe(400);
     expect(await (await h.request('/api/session', { headers: { 'X-Auth-Request-Email': 'Pat@semrush.com' } })).json()).toEqual({ ok: true, user: 'pat@semrush.com', signOut: false, viewer: { name: 'Pat', email: 'pat@semrush.com', role: 'admin', channelId: null, disabled: false } });
   });
@@ -333,7 +333,7 @@ describe('browser studio server with people and roles', () => {
   });
 
   it('lets someone with no role reach only their session, app details and state', async () => {
-    const people = peopleStub(); const h = await fixture({ people, password: undefined, trustedEmailHeader: 'X-Auth-Request-Email', allowedEmailDomains: 'semrush.com' });
+    const people = peopleStub(); const h = await fixture({ people, password: undefined, trustedEmailHeader: 'X-Auth-Request-Email', trustedProxies: '127.0.0.1, ::1', allowedEmailDomains: 'semrush.com' });
     const as = (email) => ({ 'X-Auth-Request-Email': email });
     expect(await (await h.request('/api/session', { headers: as('new@semrush.com') })).json()).toEqual({ ok: true, user: 'new@semrush.com', signOut: false, viewer: { name: 'new', email: 'new@semrush.com', role: null, channelId: null, disabled: false } });
     for (const channel of ['state', 'app-meta']) expect((await h.request('/api/rpc', { method: 'POST', headers: as('new@semrush.com'), body: { channel } })).status).toBe(200);
@@ -353,7 +353,7 @@ describe('browser studio server with people and roles', () => {
 
   it('takes uploads from admins and editors only, by the role they are acting as', async () => {
     const people = peopleStub();
-    const h = await fixture({ people, password: undefined, trustedEmailHeader: 'X-Auth-Request-Email', allowedEmailDomains: 'semrush.com', handlers: { 'app-meta': (payload, context) => { if (payload?.viewAs !== undefined) context.session.viewAs = payload.viewAs; return { runtime: 'web' }; } } });
+    const h = await fixture({ people, password: undefined, trustedEmailHeader: 'X-Auth-Request-Email', trustedProxies: '127.0.0.1, ::1', allowedEmailDomains: 'semrush.com', handlers: { 'app-meta': (payload, context) => { if (payload?.viewAs !== undefined) context.session.viewAs = payload.viewAs; return { runtime: 'web' }; } } });
     const upload = (email) => h.request('/api/upload', { method: 'POST', raw: '{}', headers: { 'X-Auth-Request-Email': email, 'Content-Type': 'application/octet-stream' } });
     const owner = await upload('alex@semrush.com'); expect(owner.status).toBe(403); expect((await owner.json()).error).toBe(roles.copy.forbidden);
     expect((await upload('riley@semrush.com')).status).toBe(200);

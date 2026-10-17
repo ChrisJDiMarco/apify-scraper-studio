@@ -1,6 +1,6 @@
 # n8n workflow ↔ Studio parity notes
 
-Reference: the "Golden Thread" n8n workflow (239 nodes; Google Sheet "Internal NEW - Golden Thread Data Sheet" with tabs Theme Repository, Twitter, LinkedIn, Reddit, Theme Summary Data, Post Counts Reference, Trend Velocity, Taxonomy Lookup, Batch Analysis Log). Chris shared the workflow JSON on 2026-10-06; the 2026-10-07 port follows its nodes one by one.
+Reference: the "Golden Thread" n8n workflow (239 nodes; Google Sheet "Internal NEW - Golden Thread Data Sheet" with tabs Theme Repository, Twitter, LinkedIn, Reddit, Theme Summary Data, Post Counts Reference, Trend Velocity, Taxonomy Lookup, Batch Analysis Log). The workflow JSON was shared on 2026-10-06; the 2026-10-07 port follows its nodes one by one.
 
 Studio keeps the workbook local (Sheets view) and can download it as .xlsx or create a Google Sheet from it. Reports can be published as Google Docs through the Apps Script bridge.
 
@@ -84,7 +84,7 @@ The second n8n workflow (shared 2026-10-16) turns one trend document into every 
 | Claude writes each image prompt, then gpt-image-1 edits with reference images (style examples, the SEL lockup), 3 variations | Claude writes an art-direction brief per picture set (headline, up to two sourced facts, visual idea), then gpt-image-2.5-flare draws 3 variations; PNG plus an SVG wrapper | ✅ Match, at medium quality (n8n: high) |
 | Reference images from GitHub (`ChrisJDiMarco/Assets`): the SEL hero got 5 style examples + the exact 2026 SEL logo; the social graphic got `style.png` + `brand.png` with the lockup. Prompts: examples are one visual family, never layouts to copy; merge the logo exactly in the footer, never redrawn or recolored | **Settings → Brand reference images**: up to 6 per picture set (Semrush campaign, SEL editorial, SEL social), each a style example or the approved logo, kept in local app data. Each picture goes to `/v1/images/edits` with them as multipart `image[]` parts, style examples first and the logo last, and the prompt numbers them with the same rules. A set without a logo keeps "draw no logos, leave a clean footer". A run keeps the images it started with, so a retry sends the same ones | ✅ Match (uploaded in Settings instead of fetched from GitHub) |
 | Figma-editable SVG; the Social Team hero's SVG also carried the true SEL lockup as an optional repair layer | SVG that wraps the PNG | ⚠️ No logo repair layer |
-| Slack message with every link | Status in Assets, Home ("Working right now") and the trend's card | ❌ No Slack |
+| Slack message with every link | Status in Assets, Home ("Working now") and the trend's card | ❌ No Slack |
 
 ## Models
 

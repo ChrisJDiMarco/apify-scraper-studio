@@ -117,7 +117,7 @@ describe('Assets: report folders of channel assets', () => {
 
 describe('Ask AI does the work and shows the way', () => {
   it('opens the asset dialog for the report it names when its button is clicked', async () => {
-    const askHelp = vi.fn(async () => ({ answer: 'Here’s the kit for that trend.', pages: [], followUps: [], actions: [{ kind: 'make-assets', label: 'Make assets for AI Citation Tracking', target: 'AI Citation Tracking ROI Breakdown' }] }));
+    const askHelp = vi.fn(async () => ({ answer: 'Here’s the kit for that trend.', pages: [], followUps: [], actions: [{ kind: 'make-assets', label: 'Make assets for AI Citation Tracking', target: 'AI Citation Tracking ROI Breakdown', assetId: 'asset-report' }] })); // the server resolves names to ids
     const api = await openSimple({ askHelp });
     fireEvent.change(screen.getByRole('textbox', { name: 'Ask AI' }), { target: { value: 'Make every channel asset for my latest trend' } });
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }));

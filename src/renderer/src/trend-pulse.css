@@ -70,3 +70,24 @@
 @keyframes tp-pulse { 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .tp-skeleton span { animation: none; } .tp-card button.tp-item { transition: none; } }
 @media (max-width: 520px) { .tp-card { padding: 18px 16px; } .tp-lists { grid-template-columns: minmax(0, 1fr); } }
+
+/* Real posts on a trend card (WhyItMatters → TrendPosts): two quotes that open in place, free, from saved research. */
+.tp-why-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 14px; min-width: 0; }
+.tp-posts-wrap { display: contents; }
+.tp-posts-toggle[aria-expanded="true"] .tp-posts-chevron { transform: rotate(180deg); }
+.tp-posts-chevron { transition: transform 160ms ease; }
+.tp-posts { flex: 1 0 100%; order: 3; min-width: 0; }
+.tp-posts ul { display: grid; gap: 6px; margin: 2px 0 0; padding: 0; list-style: none; }
+.tp-post { display: grid; gap: 4px; min-width: 0; padding: 8px 10px; font-size: 12.5px; background: var(--s-bg, #f4f6f5); border-radius: 10px; }
+.tp-post-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; }
+.tp-post-head strong { min-width: 0; font-weight: 650; color: var(--s-ink, #181e15); overflow-wrap: anywhere; }
+.tp-post-head small { font-size: 11.5px; color: var(--s-muted, #62685e); }
+.tp-post-mark { display: inline-grid; place-items: center; min-width: 20px; height: 18px; padding: 0 4px; font-size: 10.5px; font-weight: 750; color: var(--s-ink, #181e15); background: var(--s-card, #fff); border-radius: 6px; }
+.tp-post blockquote { margin: 0; padding-left: 8px; border-left: 2px solid var(--s-line-strong, #cfd6d0); line-height: 1.5; color: var(--s-ink, #181e15); overflow-wrap: anywhere; }
+.tp-post-link { justify-self: start; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--s-soft-ink, #5a2fa0); text-decoration: none; }
+.tp-post-link:hover { text-decoration: underline; }
+.tp-posts-empty { margin: 2px 0 0; font-size: 12px; color: var(--s-muted, #62685e); }
+.tp-posts-loading { display: grid; gap: 6px; margin-top: 4px; }
+.tp-posts-loading span { display: block; height: 30px; border-radius: 10px; background: linear-gradient(90deg, var(--s-bg, #f4f6f5) 0%, var(--s-card, #fff) 50%, var(--s-bg, #f4f6f5) 100%); background-size: 200% 100%; animation: tp-posts-shimmer 1.4s ease-in-out infinite; }
+@keyframes tp-posts-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .tp-posts-loading span { animation: none; } .tp-posts-chevron { transition: none; } }

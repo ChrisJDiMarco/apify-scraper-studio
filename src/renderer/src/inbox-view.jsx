@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ArrowRight, Bell, CheckCheck, CircleAlert, FileText, FolderOpen, Megaphone, PenLine, Radar, ScrollText, Send, TrendingUp } from 'lucide-react';
 import { INBOX_KIND_LABEL, buildInbox } from './inbox-model.js';
 import { formatDay, useViewer, writeProps } from './viewer.js';
+import { readChoice, saveChoice } from './choices.js';
 import './weekly-briefing.css';
 
 // Inbox, for every role: trends that need this person's OK, channel answers, edits, finished and stopped runs, prompt
@@ -27,6 +28,14 @@ export function whenLabel(value, now = Date.now()) {
   return days === 1 ? 'Yesterday' : formatDay(value);
 }
 
+// Mark all read: this browser's copy first (so the badge clears even when the save is refused), then the person's prefs.
+// Shared with the ⌘K palette's Mark Inbox read. Throws when the studio couldn't save it; the local copy still holds.
+export async function markInboxRead(api, now = new Date().toISOString()) {
+  writeLocal(now);
+  if (typeof api?.setViewPrefs === 'function') await api.setViewPrefs({ inboxSeenAt: now });
+  return now;
+}
+
 // The unread count for the sidebar's Inbox badge, from the same rows.
 export function inboxUnread(state, viewer) {
   return buildInbox({ state, viewer, seenAt: later(viewer?.prefs?.inboxSeenAt, readLocal()) }).unread;
@@ -36,17 +45,21 @@ export function InboxView({ state = {}, viewer: viewerIn, api = {}, onOpenTarget
   const contextViewer = useViewer(); const viewer = viewerIn || contextViewer;
   const [seenLocal, setSeenLocal] = useState(readLocal);
   const [saving, setSaving] = useState(false);
-  const [filter, setFilter] = useState('all');
+  // The filter is remembered for this person on this device.
+  const [filter, setFilterState] = useState(() => readChoice(viewer, 'inbox.filter', 'all') || 'all');
+  const setFilter = (value) => { setFilterState(value); saveChoice(viewer, 'inbox.filter', value === 'all' ? '' : value); };
   const [note, setNote] = useState('');
   const seenAt = later(viewer.prefs?.inboxSeenAt, seenLocal);
   const { items, unread } = useMemo(() => buildInbox({ state, viewer, seenAt }), [state.contentStudio, state.activity, viewer, seenAt]); // eslint-disable-line react-hooks/exhaustive-deps
   const kinds = [...new Set(items.map((item) => item.kind))];
-  const shown = items.filter((item) => filter === 'all' || (filter === 'unread' ? item.unread : item.kind === filter));
+  // A remembered filter that has nothing to show any more (that kind of row is gone) falls back to All.
+  const active = filter === 'all' || filter === 'unread' || kinds.includes(filter) ? filter : 'all';
+  const shown = items.filter((item) => active === 'all' || (active === 'unread' ? item.unread : item.kind === active));
   async function markAllRead() {
     if (saving || viewer.preview || !items.length) return;
     const now = new Date().toISOString();
-    setSaving(true); setNote(''); setSeenLocal(now); writeLocal(now);
-    try { if (typeof api.setViewPrefs === 'function') await api.setViewPrefs({ inboxSeenAt: now }); setNote('All caught up.'); onMarkRead?.(now); }
+    setSaving(true); setNote(''); setSeenLocal(now);
+    try { await markInboxRead(api, now); setNote('All caught up.'); onMarkRead?.(now); }
     catch { setNote('Marked read on this browser. The studio couldn’t save it for your other devices.'); onMarkRead?.(now); }
     finally { setSaving(false); }
   }
@@ -55,10 +68,10 @@ export function InboxView({ state = {}, viewer: viewerIn, api = {}, onOpenTarget
       <div className="studio-head-actions"><button type="button" className="studio-quiet" {...writeProps(viewer, saving || !unread)} onClick={markAllRead}><CheckCheck size={15} aria-hidden="true" />Mark all read</button></div></div>
     <p className="ib-note" role="status">{note}</p>
     {items.length > 0 && <div className="studio-filters" role="group" aria-label="Show">
-      {[['all', 'All', items.length], ['unread', 'Unread', unread], ...kinds.map((kind) => [kind, INBOX_KIND_LABEL[kind] || kind, items.filter((item) => item.kind === kind).length])].filter(([value, , count]) => value === 'all' || count).map(([value, label, count]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}<span>{count}</span></button>)}
+      {[['all', 'All', items.length], ['unread', 'Unread', unread], ...kinds.map((kind) => [kind, INBOX_KIND_LABEL[kind] || kind, items.filter((item) => item.kind === kind).length])].filter(([value, , count]) => value === 'all' || count).map(([value, label, count]) => <button type="button" key={value} aria-pressed={active === value} onClick={() => setFilter(value)}>{label}<span>{count}</span></button>)}
     </div>}
     {!items.length ? <div className="studio-empty big ib-empty"><Bell size={28} aria-hidden="true" /><p>Nothing here yet. Trends that need your OK, finished and stopped runs, channel answers and edits to reports show up here as they happen.</p></div>
-      : !shown.length ? <div className="studio-empty"><p>Nothing {filter === 'unread' ? 'unread' : 'like that'} right now.</p><button type="button" className="studio-quiet small" onClick={() => setFilter('all')}>Show everything</button></div>
+      : !shown.length ? <div className="studio-empty"><p>Nothing {active === 'unread' ? 'unread' : 'like that'} right now.</p><button type="button" className="studio-quiet small" onClick={() => setFilter('all')}>Show everything</button></div>
       : <ul className="ib-list" aria-label="Inbox">{shown.map((item) => { const Icon = ICONS[item.kind] || TARGET_ICONS[item.target?.kind] || Bell; return <li key={item.id}>
         <button type="button" className={`ib-row${item.unread ? ' is-unread' : ''} kind-${item.kind}`} onClick={() => onOpenTarget?.(item.target)}>
           <span className="ib-icon" aria-hidden="true"><Icon size={17} /></span>

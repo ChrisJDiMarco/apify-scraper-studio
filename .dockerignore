@@ -7,9 +7,17 @@ test
 resources
 docs/assets
 docs/verification
+docs/design-review
 coverage
+studio-backups
+*.zip
+*.bundle
+# The deploy kit (and any filled-in secrets.env in it) never goes into the image.
+deploy
 *.log
 .env
 .env.*
 *.pem
 *.key
+*.p8
+*.p12

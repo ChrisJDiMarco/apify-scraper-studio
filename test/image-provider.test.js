@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { deflateSync } from 'node:zlib';
 import images from '../src/main/image-provider.js';
 import { jpeg } from './helpers/pictures.js';
+import aiLimits from '../src/main/ai-limits.js';
 const { createImageProvider, validatePng, MODEL, MAX_RESPONSE_BYTES } = images;
 const digestUsage = { input_tokens: 1000, input_tokens_details: { text_tokens: 1000, image_tokens: 0 }, output_tokens: 4096, total_tokens: 5096 };
 function crc32(buffer) { let crc = -1; for (const byte of buffer) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0); } return (crc ^ -1) >>> 0; }
@@ -21,6 +22,20 @@ const referenceImages = () => [{ role: 'style', mime: 'image/png', data: png(64,
 function referenced(variants = 2, references = referenceImages(), extra = {}) { const base = request(variants, extra); return { ...base, deliverable: { ...base.deliverable, references } }; }
 
 describe('OpenAI images host adapter', () => {
+  // Pictures share the studio-wide AI limits (src/main/ai-limits.js) with text calls.
+  it('counts each picture toward the daily AI budget and sends nothing once it is used up', async () => {
+    const limits = aiLimits.createAiLimits({ env: { STUDIO_DAILY_AI_BUDGET_USD: '0.5', STUDIO_AI_CONCURRENCY: '1' }, log: () => {} });
+    const fetchImpl = vi.fn(async () => response());
+    const provider = adapter(fetchImpl, { limits });
+    await provider.generateImage(request(1));
+    expect(limits.status().spentTodayUsd).toBeCloseTo(0.13, 2); // the usage estimate of the one picture
+    expect(limits.status()).toMatchObject({ running: 0, waiting: 0 }); // its slot was given back
+    limits.record(1);
+    const error = await failed(provider.generateImage(request(1)));
+    expect(error).toMatchObject({ code: 'IMAGE_DAILY_BUDGET', beforeDispatch: true, message: expect.stringMatching(/daily AI budget of \$0\.50 is used up/) });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it('dispatches distinct directions sequentially after durable checkpoints and returns real validated PNGs', async () => {
     const events = []; let fetching = false;
     const provider = adapter(async (url, options) => {

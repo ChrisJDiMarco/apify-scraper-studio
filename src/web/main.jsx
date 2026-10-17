@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import App from '../renderer/src/App.jsx';
 import { ConfirmProvider } from '../renderer/src/confirm-dialog.jsx';
 import { restoreDeepLink, stashDeepLink } from '../renderer/src/deep-links.js';
-import { createWebApi, postJson, request, SignedOut } from './web-api.js';
+import { createWebApi, postJson, request, setProxySignIn, SignedOut } from './web-api.js';
 import '../renderer/src/styles.css';
 import '../renderer/src/workflow.css';
 import '../renderer/src/premium.css';
@@ -50,6 +51,32 @@ function SignIn({ mode, onSignedIn }) {
   </section></main>;
 }
 
+// One quiet notice over the studio, from web-api.js: a newer build after a deploy (reload to get it), or live updates
+// paused while the server restarts or is at its tab limit. Drawn inside the studio frame for its tokens.
+const NOTICE_COPY = {
+  updated: 'A new version of the studio is ready. Reload to use it.',
+  restarting: 'The studio is restarting for an update. This page reconnects on its own.',
+  busy: 'Live updates are paused: the studio has too many open tabs. This page catches up every 30 seconds. Close tabs you aren’t using to get them back.',
+};
+function WebNotice() {
+  const [updated, setUpdated] = useState(false); const [live, setLive] = useState(''); const [hidden, setHidden] = useState('');
+  useEffect(() => {
+    const onUpdated = () => setUpdated(true);
+    const onLive = (event) => setLive(event.detail?.live ? '' : event.detail?.reason || '');
+    window.addEventListener('studio-updated', onUpdated); window.addEventListener('studio-live', onLive);
+    return () => { window.removeEventListener('studio-updated', onUpdated); window.removeEventListener('studio-live', onLive); };
+  }, []);
+  const kind = updated ? 'updated' : live;
+  if (!kind || hidden === kind) return null;
+  const host = document.querySelector('.studio-frame') || document.querySelector('.app-shell') || document.body;
+  const button = { minHeight: 32, padding: '0 14px', borderRadius: 999, border: '1px solid var(--s-line-strong, #cfd6d0)', background: 'var(--s-card, #fff)', color: 'var(--s-ink, #181e15)', font: 'inherit', fontWeight: 600, cursor: 'pointer' };
+  return createPortal(<div className="web-notice" role="status" aria-live="polite" style={{ position: 'fixed', left: '50%', bottom: 20, transform: 'translateX(-50%)', zIndex: 2147483000, display: 'flex', alignItems: 'center', gap: 12, maxWidth: 'min(640px, calc(100vw - 32px))', padding: '10px 12px 10px 16px', borderRadius: 'var(--s-radius-row, 16px)', border: '1px solid var(--s-line, #e3e8e4)', background: 'var(--s-card, #fff)', color: 'var(--s-ink, #181e15)', boxShadow: 'var(--s-shadow-pop, 0 30px 80px rgba(0,0,0,.28))', font: '14px/1.45 system-ui, sans-serif' }}>
+    <span style={{ flex: 1 }}>{NOTICE_COPY[kind]}</span>
+    {kind === 'updated' && <button type="button" style={{ ...button, background: 'var(--s-accent, #c190ff)', borderColor: 'transparent', color: 'var(--s-on-accent, #181e15)' }} onClick={() => window.location.reload()}>Reload</button>}
+    {kind !== 'restarting' && <button type="button" style={button} onClick={() => setHidden(kind)}>{kind === 'updated' ? 'Later' : 'Close'}</button>}
+  </div>, host);
+}
+
 // A link that was replaced, turned off or has expired gets its own screen: the person has no password to type.
 function LinkInvalid({ message, onRetry }) {
   return <main className="web-login"><section aria-labelledby="web-link-title">
@@ -65,6 +92,7 @@ function WebStudio() {
     try {
       const session = await request('/api/session'); const api = window.apifyStudio = window.apifyStudio || createWebApi();
       if (session.signOut === false) delete api.signOut; // company sign-in owns the session: nothing to sign out of here
+      setProxySignIn(session.signOut === false); // an expired company sign-in is then answered by the proxy, not the studio
       restoreDeepLink(); // the share link this browser opened before signing in, back in the address bar for App
       setStatus({ phase: 'ready' });
     }
@@ -93,7 +121,7 @@ function WebStudio() {
   if (status.phase === 'error') return <main className="web-loading" role="alert">{status.message} <button type="button" onClick={check}>Try again</button></main>;
   if (status.phase === 'signed-out') return <SignIn mode={status.mode} onSignedIn={check} />;
   // The in-app confirmation sits above App, which asks through it, and draws inside the studio frame for its tokens.
-  return <ConfirmProvider container={() => document.querySelector('.app-shell')}><App /></ConfirmProvider>;
+  return <><ConfirmProvider container={() => document.querySelector('.app-shell')}><App /></ConfirmProvider><WebNotice /></>;
 }
 
 createRoot(document.getElementById('root')).render(<WebStudio />);

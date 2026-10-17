@@ -10,3 +10,14 @@ coverage/
 *.pem
 *.p12
 *.p8
+*.key
+.eslintcache
+# Local Claude Code preview config (holds preview passwords) and worktree checkouts
+.claude/launch.json
+.claude/worktrees/
+# Data backups (npm run backup writes ./studio-backups by default) hold people's data; archives and bundles stay out too.
+/studio-backups/
+scraper-studio-backup-*
+/*.zip
+*.zip.sha256
+*.bundle

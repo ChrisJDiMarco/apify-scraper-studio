@@ -77,7 +77,23 @@ The bridge uses three permissions. If your project pins `oauthScopes` in `appssc
 - `https://www.googleapis.com/auth/drive`
 - `https://www.googleapis.com/auth/script.external_request`
 
-The bridge runs as the account that deployed it, so new Sheets and Docs belong to that account's Drive. Anyone who has the web app URL can use the bridge, so keep the URL private.
+The bridge runs as the account that deployed it, so new Sheets and Docs belong to that account's Drive.
+
+## Deploy the bridge, and what it can reach
+
+**The bridge has no authentication today.** The studio sends no Google credentials or shared secret (every call goes
+through `callSheetsWebhook` in `src/main/index.js`), so the web app has to be deployed with **Execute as: Me** and
+**Who has access: Anyone**. Anyone who learns the `/exec` URL can then read any spreadsheet the deploying account can
+open, clear tabs in it, and create files in its Drive. Until the bridge checks a secret (a documented follow-up in
+[HANDOFF.md](../HANDOFF.md#known-limitations-and-follow-ups)):
+
+1. **Deploy from a dedicated Google account** that has only the studio's working sheet and Drive folders shared to it.
+   This is the biggest cut in what a leaked URL can reach.
+2. **New deployment → Web app**, Execute as **Me**, Who has access **Anyone**. Copy the `/exec` URL into **Settings →
+   Google Sheets** (it is stored encrypted, and the page only ever learns whether it is saved).
+3. **Treat the URL as a secret.** Don't paste it in chat, tickets or screen shares.
+4. **If it leaks**, make a **New deployment** (a new URL), archive the old deployment, and paste the new URL into
+   Settings.
 
 | Action | What it does |
 | --- | --- |

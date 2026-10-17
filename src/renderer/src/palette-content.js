@@ -10,7 +10,7 @@ const newestFirst = (a, b) => String(b.createdAt || '').localeCompare(String(a.c
 
 // Group names, in the order the palette shows them when nothing is typed. Pages and Create come from the nav model
 // (nav-model.js): the sidebar's pages and its New menu, under the same names.
-export const PALETTE_GROUPS = { pages: 'Pages', create: 'Create', trends: 'Trends waiting for you', reports: 'Reports', programs: 'Research programs', actions: 'Actions', ask: 'Ask AI' };
+export const PALETTE_GROUPS = { next: 'Next up', pages: 'Pages', create: 'Create', trends: 'Trends waiting for you', waiting: 'Trends waiting for an OK', reports: 'Reports', folders: 'Asset folders', programs: 'Research programs', prompts: 'Prompts', people: 'People', actions: 'Actions', ask: 'Ask AI' };
 // The two documents every approved trend gets, in the studio's one vocabulary.
 export const REPORT_LABELS = { 'evidence-report': 'Trends report', 'editorial-toolkit': 'Editorial toolkit' };
 
@@ -26,8 +26,10 @@ function shortDay(value) {
 
 // Palette items for this workspace's reports, waiting trends and programs. A trend's trends report and editorial
 // toolkit come from one content run (they share runId), so each trend is one "Read: <trend>" entry that opens the
-// trends report. Other written reports (not channel assets, not pictures) are one entry each.
-export function paletteContent({ studio = {}, board = null, canStartResearch = false } = {}) {
+// trends report. Other written reports (not channel assets, not pictures) are one entry each. `canDecide` false (a role
+// that only reads trends) lists waiting trends as "Open:" under "Trends waiting for an OK"; `folders` adds one "Open
+// folder:" entry per channel-asset folder (a kit's sourceKey), newest first.
+export function paletteContent({ studio = {}, board = null, canStartResearch = false, canDecide = true, folders = false } = {}) {
   const workspaceId = studio.activeWorkspaceId || '';
   const mine = (row) => !workspaceId || !row?.workspaceId || row.workspaceId === workspaceId;
   const programs = list(studio.programs).filter(mine);
@@ -37,7 +39,7 @@ export function paletteContent({ studio = {}, board = null, canStartResearch = f
   const cards = list(trendBoard.cards);
 
   const waiting = cards.filter((card) => card.stage === 'potential').map((card) => ({
-    id: `review:${card.key}`, group: PALETTE_GROUPS.trends, label: `Review: ${card.name}`,
+    id: `review:${card.key}`, group: canDecide ? PALETTE_GROUPS.trends : PALETTE_GROUPS.waiting, label: `${canDecide ? 'Review' : 'Open'}: ${card.name}`,
     hint: [card.priorityTier, card.programName].filter(Boolean).join(' · '),
     keywords: keywordsOf(card.category, card.keywords, text(card.description).slice(0, 200), 'trend review yes skip needs your ok approve'),
     action: 'review-trend', args: { key: card.key, runId: card.runId, themeId: card.themeId, name: card.name },
@@ -71,7 +73,16 @@ export function paletteContent({ studio = {}, board = null, canStartResearch = f
     action: 'start-research', args: { programId: program.id },
   })) : [];
 
-  return [...waiting, ...trendReports, ...otherReports, ...research];
+  const kitFolders = [];
+  if (folders) {
+    const seen = new Set();
+    for (const run of contentRuns.filter((row) => row.kit?.sourceKey).sort(newestFirst)) {
+      if (seen.has(run.kit.sourceKey)) continue; seen.add(run.kit.sourceKey);
+      kitFolders.push({ id: `folder:${run.kit.sourceKey}`, group: PALETTE_GROUPS.folders, label: `Open folder: ${cleanReportTitle(run.kit.sourceTitle || run.title) || 'Channel assets'}`, hint: ['Channel assets', shortDay(run.createdAt)].filter(Boolean).join(' · '), keywords: keywordsOf(run.kit.folderName, 'folder channel assets kit set'), action: 'open-folder', args: { folderKey: run.kit.sourceKey } });
+    }
+  }
+
+  return [...waiting, ...trendReports, ...otherReports, ...kitFolders, ...research];
 }
 
 // Every typed word must appear in the label or the keywords. Label matches rank first, and a label that starts with

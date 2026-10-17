@@ -15,19 +15,40 @@ const calls = new AsyncLocalStorage(); // the RPC call a dialog, shell request o
 const handlers = new Map();
 const provisions = new Map(); // what the main process offers the server, e.g. 'people' (sign-in and per-person state)
 const broadcasts = new EventEmitter(); broadcasts.setMaxListeners(0);
-const settings = { dataDir: '', secretKey: '', transferDir: '', passwordSignIn: false };
+// draining: the server is stopping (SIGTERM): readiness answers 503 and new paid work is refused (studio-server.js).
+const settings = { dataDir: '', secretKey: '', transferDir: '', passwordSignIn: false, draining: false };
 const MIN_SECRET_LENGTH = 32;
 const CIPHER_TAG = Buffer.from('sw1');
+
+// The data folder holds collected posts, chats and encrypted keys: only the server's user may enter it. `mode` only
+// applies to a new folder, so an existing one (made by hand, or by an older version) is tightened too.
+function privateFolder(dir, warn = (message) => console.warn(message)) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try { if (fs.statSync(dir).mode & 0o077) fs.chmodSync(dir, 0o700); }
+  catch (error) { warn(`Warning: ${dir} is readable by other accounts on this host and could not be restricted (${error.code || error.message}). Run: chmod 700 ${dir}`); }
+}
 
 // passwordSignIn: the admin password is set (scripts/studio-web.cjs reads it from STUDIO_SECRETS_FD or the environment
 // and keeps it out of process.env), so People can make personal sign-in links.
 function configure({ dataDir, secretKey, transferDir, passwordSignIn = false } = {}) {
   if (!dataDir) throw new Error('Set STUDIO_DATA_DIR to the folder that holds the studio data.');
   if (typeof secretKey !== 'string' || secretKey.length < MIN_SECRET_LENGTH) throw new Error(`Set STUDIO_SECRET_KEY to a random value of at least ${MIN_SECRET_LENGTH} characters; it encrypts saved keys.`);
-  settings.dataDir = path.resolve(dataDir); settings.secretKey = secretKey; settings.transferDir = path.resolve(transferDir || path.join(settings.dataDir, 'web-transfers')); settings.passwordSignIn = Boolean(passwordSignIn);
-  fs.mkdirSync(settings.dataDir, { recursive: true }); fs.mkdirSync(settings.transferDir, { recursive: true, mode: 0o700 });
+  settings.dataDir = path.resolve(dataDir); settings.secretKey = secretKey; settings.transferDir = path.resolve(transferDir || path.join(settings.dataDir, 'web-transfers')); settings.passwordSignIn = Boolean(passwordSignIn); settings.draining = false;
+  privateFolder(settings.dataDir); privateFolder(settings.transferDir);
   const { secretKey: _secret, ...visible } = settings;
   return { ...visible };
+}
+
+// What is still running (research and content runs, background jobs, AI processes), for the drain on SIGTERM. The main
+// process answers through Electron's before-quit contract: a listener that calls preventDefault() has work to lose
+// (src/main/index.js activeWorkSummary). With nothing running, its listener stops the schedules and leftover work, which
+// is what a stopping server wants anyway. A `work` provider ({ active: () => [lines] }) takes over when one is offered.
+function busyWork() {
+  const work = provisions.get('work');
+  if (typeof work?.active === 'function') { try { return work.active() || []; } catch (_) { return ['work in progress']; } }
+  let prevented = false;
+  try { app.emit('before-quit', { preventDefault: () => { prevented = true; } }); } catch (_) { return ['work in progress']; }
+  return prevented ? ['work in progress'] : [];
 }
 
 // ── app ──────────────────────────────────────────────────────────────────────────────────────────
@@ -179,5 +200,7 @@ module.exports = {
   provided: (name) => provisions.get(String(name)) || null,
   channels: () => [...handlers.keys()],
   onBroadcast: (channel, listener) => { broadcasts.on(channel, listener); return () => broadcasts.off(channel, listener); },
+  busyWork,
+  privateFolder,
   shutdown: () => app.emit('quit'),
 };

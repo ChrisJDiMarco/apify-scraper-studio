@@ -34,4 +34,4 @@ Static screenshot inspection does not establish every hover or populated report 
 - [Installed continuity](macos-installed-continuity.json)
 - [Dock launch](macos-dock.json)
 - [Package checks and hashes](macos-package.json)
-- [Official brand sources and design rationale](../research/semrush-2026-brand.md)
+- [Official brand sources and design rationale](../../research/semrush-2026-brand.md)

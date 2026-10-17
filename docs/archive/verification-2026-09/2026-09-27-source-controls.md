@@ -27,6 +27,6 @@ The native search test recorded **zero network calls, zero CLI/AI calls, and zer
 
 ## Scope and limitations
 
-The [source controls guide](../research/source-options-2026-09-27.md) links the official Actor schemas used for the mappings. Each source exposes its documented options: for example, X supports a complete custom start/end range, while the selected Reddit and LinkedIn Actors expose earliest-date controls without a custom end date. Matching Reddit comments do not share the post date filter; the comments-after date applies only to attached threads.
+The [source controls guide](../../research/source-options-2026-09-27.md) links the official Actor schemas used for the mappings. Each source exposes its documented options: for example, X supports a complete custom start/end range, while the selected Reddit and LinkedIn Actors expose earliest-date controls without a custom end date. Matching Reddit comments do not share the post date filter; the comments-after date applies only to attached threads.
 
 Local validation and fixture tests verify application wiring, bounds, rendering, and evidence preservation. They do not prove live provider coverage or that every optional filter is fulfilled by the upstream platform. Additional comments, reactions, or liked-user details may affect provider charges within the requested spend caps.

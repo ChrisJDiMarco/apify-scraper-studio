@@ -150,5 +150,5 @@
       "reviewStatus": "draft"
     }
   ],
-  "exportPath": "/Users/chrisdimarco/Projects/apify-scraper-studio/docs/verification/live-content"
+  "exportPath": "docs/verification/live-content"
 }

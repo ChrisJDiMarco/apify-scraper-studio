@@ -13,15 +13,15 @@ const TOKEN = 'ab'.repeat(32);
 const stored = new Map();
 Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: (key) => (stored.has(key) ? stored.get(key) : null), setItem: (key, value) => { stored.set(key, String(value)); }, removeItem: (key) => { stored.delete(key); }, clear: () => stored.clear() } });
 // main.jsx reads the address and renders on import, so each test loads a fresh copy against its own fake server.
-async function openPage(hash, answers) {
+async function openPage(hash, answers, { head = '' } = {}) {
   vi.resetModules(); delete window.apifyStudio;
-  document.body.innerHTML = '<div id="root"></div>';
+  document.head.innerHTML = head; document.body.innerHTML = '<div id="root"></div>';
   window.history.replaceState(null, '', `/${hash}`);
   const order = []; const realReplace = window.history.replaceState.bind(window.history);
   vi.spyOn(window.history, 'replaceState').mockImplementation((...args) => { order.push('clear address'); return realReplace(...args); });
   const fetch = vi.fn(async (url, init = {}) => {
-    order.push(url); const queue = answers[url]; const [status, body] = (Array.isArray(queue[0]) ? queue.shift() : queue);
-    return { status, ok: status < 400, json: async () => body, init };
+    order.push(url); const queue = answers[url]; const [status, body, extra = {}] = (Array.isArray(queue[0]) ? queue.shift() : queue);
+    return { status, ok: status >= 200 && status < 400, json: async () => body, init, ...extra };
   });
   vi.stubGlobal('fetch', fetch);
   await import('../src/web/main.jsx');
@@ -72,5 +72,49 @@ describe('browser sign-in', () => {
     await waitFor(() => expect(window.apifyStudio).toBeTruthy());
     expect(window.apifyStudio.signOut).toBeUndefined();
     expect(typeof window.apifyStudio.state).toBe('function');
+  });
+
+  // Behind company sign-in, an expired session is answered by the proxy: a redirect to the identity provider, its own
+  // 401 with no studio body, or an HTML sign-in page. Each must show the "sign-in has expired" screen, not an error.
+  const PROXY_SESSION = [200, { ok: true, user: 'pat@semrush.com', signOut: false, viewer: null }];
+  const html = { headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }) };
+  for (const [label, answer] of [
+    ['a redirect', [0, {}, { type: 'opaqueredirect', ok: false }]],
+    ['a bare 401', [401, {}]],
+    ['an HTML 403 sign-in page', [403, {}, html]],
+  ]) {
+    it(`shows the company sign-in has expired when the proxy answers with ${label}`, async () => {
+      const { fetch } = await openPage('', { '/api/session': PROXY_SESSION, '/api/rpc': [answer] });
+      await screen.findByText('Studio app');
+      await expect(window.apifyStudio.state()).rejects.toThrow();
+      expect(await screen.findByText(/Your company sign-in has expired/)).toBeInTheDocument();
+      expect(fetch.mock.calls[1][1]).toMatchObject({ redirect: 'manual', headers: expect.objectContaining({ Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }) });
+    });
+  }
+
+  it('says the studio didn’t answer instead of “Failed to fetch”', async () => {
+    await openPage('', { '/api/session': SESSION });
+    await screen.findByText('Studio app');
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    await expect(window.apifyStudio.state()).rejects.toThrow('The studio didn’t answer. Check your connection, then try again.');
+  });
+
+  it('offers a reload once the server runs a newer build than this tab', async () => {
+    const head = '<script type="module" crossorigin src="/assets/index-OLD.js"></script><link rel="stylesheet" href="/assets/index-OLD.css">';
+    await openPage('', { '/api/session': [200, SESSION[1], { headers: new Headers({ 'content-type': 'application/json', 'x-studio-build': 'index-NEW.js index-NEW.css' }) }] }, { head });
+    await screen.findByText('Studio app');
+    expect(await screen.findByText('A new version of the studio is ready. Reload to use it.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Later' }));
+    await waitFor(() => expect(screen.queryByText(/new version of the studio/)).toBeNull());
+  });
+
+  it('shows when live updates are paused, and clears it when they’re back', async () => {
+    await openPage('', { '/api/session': SESSION });
+    await screen.findByText('Studio app');
+    window.dispatchEvent(new CustomEvent('studio-live', { detail: { live: false, reason: 'restarting' } }));
+    expect(await screen.findByText('The studio is restarting for an update. This page reconnects on its own.')).toBeInTheDocument();
+    window.dispatchEvent(new CustomEvent('studio-live', { detail: { live: true } }));
+    await waitFor(() => expect(screen.queryByText(/restarting for an update/)).toBeNull());
   });
 });

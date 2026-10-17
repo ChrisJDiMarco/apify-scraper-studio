@@ -1,6 +1,6 @@
 # Google Drive campaign delivery
 
-Google delivery is an optional, explicit action for a completed Content Studio campaign. It creates a native Google Doc for every selected written asset and Drive files for selected generated images. It does not change sharing permissions, publish files to the web, send messages, or send anything to Slack.
+Google delivery is an optional, explicit action for finished work: a research run's reports (**Publish to Google Drive**), a channel asset set (**Save to Google Drive**), a report from the reader (**Share → Save to Google Docs**), or a Create content run. It creates a native Google Doc for every selected written asset and Drive files for selected generated images. It does not change sharing permissions, publish files to the web, send messages, or send anything to Slack.
 
 ## Two ways to publish
 

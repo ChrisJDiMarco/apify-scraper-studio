@@ -28,7 +28,7 @@ beforeAll(async () => {
   require('../src/main/index.js');
   await new Promise((resolve) => setTimeout(resolve, 100)); // whenReady work
   const webRoot = path.join(root, 'public'); fs.mkdirSync(webRoot); fs.writeFileSync(path.join(webRoot, 'index.html'), '<!doctype html>');
-  ({ server } = require('../src/main/studio-server.js').createStudioServer({ webRoot, password: PASSWORD, runtime }));
+  ({ server } = require('../src/main/studio-server.js').createStudioServer({ webRoot, password: PASSWORD, runtime, serverLog: { log: () => {} } }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve)); base = `http://127.0.0.1:${server.address().port}`;
   const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) });
   cookie = login.headers.get('set-cookie').split(';')[0];
@@ -173,5 +173,16 @@ describe('people and roles in the browser studio', () => {
     const again = await login({ linkToken: tokenOf(fresh) }); expect(again.status).toBe(200);
     alex = again.headers.get('set-cookie').split(';')[0];
     expect((await rpcAs(alex, 'state')).body.result.viewer.role).toBe('channel');
+  });
+});
+
+// What the stop sequence (scripts/studio-web.cjs) and /readyz ask the real main process. Last: an idle before-quit
+// answer also stops the schedules, as a stopping server should.
+describe('browser studio host, for operators', () => {
+  it('holds its data folder lock where readiness looks for it', () => {
+    expect(require('../src/main/studio-owner-lock.js').ownerLockHeld(path.join(dataDir, 'content-studio'))).toBe(true);
+  });
+  it('tells the stop sequence nothing is running when the studio is idle', () => {
+    expect(runtime.busyWork()).toEqual([]);
   });
 });

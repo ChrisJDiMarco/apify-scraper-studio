@@ -1,0 +1,149 @@
+{
+  "//": "Ask AI's buttons, one entry per action kind. Read by src/main/help-assistant.js (the ACTIONS lines in the prompt, the reply cleaner and its params check, role gating) and src/renderer/src/studio-actions.js (what each button runs and whether this role may run it), so the two can't drift apart. Fields: label = how the model should word the button; target = what the action's target names, resolved to an id on the server (src/main/index.js helpResolveActions; see targets); params = the 'key=value' strings it takes, by type (see paramTypes); methods = every API method the button ends up calling, and a role needs all of them (none = it only opens a place, which the layout's own access checks); needs = an extra right from the Prompt Library (promptView, promptEdit) or a connection (googleDrive); spends = paid work, always confirmed with an estimate; destructive = confirmed as a danger; confirm = none | dialog | estimate | handoff (a dialog elsewhere has the last word) | card (a card under the answer has the button); form = when an action form card lets the person check what Ask AI filled in (always | params | never); layouts = where it works; prompt = the model's instruction line. test/ask-actions-registry.test.js keeps every method real and every kind wired.",
+  "paramTypes": {
+    "text:N": "plain text up to N characters",
+    "enum:a|b": "one of the listed values",
+    "names": "names separated by |, up to 12",
+    "channels": "channel names or ids separated by |, mapped to this workspace's channel ids",
+    "channel": "one channel name or id",
+    "date": "YYYY-MM-DD within a year of today",
+    "url": "an http(s) address the person wrote themselves",
+    "emails": "email addresses the person wrote themselves, separated by | or commas, up to 50",
+    "int:min:max": "a whole number in range",
+    "bool": "true or false",
+    "role": "a role name or id"
+  },
+  "targets": {
+    "none": "target is \"\"",
+    "topic": "free words (not resolved)",
+    "question": "a question to send (not resolved)",
+    "tab": "a Simple tab id (not resolved)",
+    "program": "a research program",
+    "trend.waiting": "a trend still waiting for a decision (runId and themeId)",
+    "trend.decided": "a trend decided while its run still waits for review (runId and themeId)",
+    "trend.ready": "a trend whose report is ready (themeId)",
+    "report": "a written report outside channel asset sets (assetId)",
+    "asset": "a report, or a channel asset file as \"Folder › File\" (assetId)",
+    "folder": "a channel asset folder (folderKey = its kit source key)",
+    "run.live": "something running now (runId)",
+    "run.stopped": "a failed, partial or stopped run (runId)",
+    "prompt": "a prompt in the Prompt Library (promptId)",
+    "any": "anything with a name: report, folder, trend, program, run, prompt or page (ref = { kind, id })",
+    "who": "a role or a person in the team (roleId, or memberId)"
+  },
+  "aliases": {
+    "open-report": { "kind": "open", "params": { "type": "report" } },
+    "open-folder": { "kind": "open", "params": { "type": "folder" } },
+    "approve-all-trends": { "kind": "approve-trends", "params": {} }
+  },
+  "actions": {
+    "start-research": {
+      "label": "Start research with “<program>”", "target": "program", "params": {}, "methods": ["startResearchRun"], "spends": true, "destructive": false, "confirm": "estimate", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = a program name from programs. Starts a research run with that program's whole saved setup (Apify and AI; they confirm the estimate first). It can't be narrowed to one topic: for one topic, offer quick-scan."
+    },
+    "quick-scan": {
+      "label": "Run a small scan on <topic> (last 6 hours)", "target": "topic", "params": {}, "methods": ["estimateQuickScan", "startQuickScan"], "spends": true, "destructive": false, "confirm": "card", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = the topic. Offers a quick scan: a small, hour-level look at recent posts on that topic from a research program's saved accounts. Fill scan (see QUICK SCANS) and pair it with a scan-plan card, where they check the cost and start it."
+    },
+    "approve-trend": {
+      "label": "Yes to “<trend>”", "target": "trend.waiting", "params": { "note": "text:280", "channels": "channels", "run": "text:120" }, "methods": ["decideResearchTheme"], "spends": false, "destructive": false, "confirm": "none", "form": "params", "layouts": ["simple", "classic"],
+      "prompt": "target = a trend name from trends.waiting. Says yes to it. params: note=<a note for the channels> and channels=<names from channels, separated by |> when they asked to route it; run=<that row's run> when two waiting rows share the name. With a note or channels they check it on a card first."
+    },
+    "pass-trend": {
+      "label": "Skip “<trend>”", "target": "trend.waiting", "params": { "note": "text:280", "run": "text:120" }, "methods": ["decideResearchTheme"], "spends": false, "destructive": false, "confirm": "none", "form": "params", "layouts": ["simple", "classic"],
+      "prompt": "target = a trend name from trends.waiting. Skips it. params: note=<why> when they gave a reason; run=<that row's run> when two waiting rows share the name."
+    },
+    "undo-trend": {
+      "label": "Undo the choice on “<trend>”", "target": "trend.decided", "params": { "run": "text:120" }, "methods": ["decideResearchTheme"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = a trend name from trends.decided. Puts a Yes or Skip back to Needs your OK (only while its run still waits for review)."
+    },
+    "approve-trends": {
+      "label": "Say yes to these 3 trends", "target": "none", "params": { "trends": "names" }, "methods": ["decideResearchTheme"], "spends": false, "destructive": false, "confirm": "dialog", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = \"\". Says yes to several waiting trends at once: params trends=<names from trends.waiting separated by |>, or no params for every waiting trend. They confirm the list first. Nothing is spent until reports are written."
+    },
+    "write-reports": {
+      "label": "Write reports for 2 approved trends", "target": "none", "params": { "trends": "names" }, "methods": ["approveResearchThemes", "continueResearchRun"], "spends": true, "destructive": false, "confirm": "estimate", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = \"\". Writes reports for approved trends (trends.approvedAwaitingReports): params trends=<names separated by |> for only some of them, or no params for all. Approved trends from the same run that aren't picked are skipped for good; say so. They confirm the estimate first."
+    },
+    "make-assets": {
+      "label": "Make Social and Blog assets for “<report>”", "target": "report", "params": { "channels": "channels" }, "methods": ["planAssetKit", "createAssetKit"], "spends": true, "destructive": false, "confirm": "handoff", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = a report title from reports (a trend's report and toolkit count as one). params channels=<names from channels separated by |> to tick only those channels. Opens the Make channel assets dialog filled in; they check the cost and press Make there."
+    },
+    "set-status": {
+      "label": "Mark “<report>” published", "target": "asset", "params": { "status": "enum:draft|in-review|approved|scheduled|published", "link": "url" }, "methods": ["setAssetStatus"], "spends": false, "destructive": false, "confirm": "none", "form": "params", "layouts": ["simple", "classic"],
+      "prompt": "target = a report title from reports, or \"Folder title › File\" for a channel asset file. params status=draft|in-review|approved|scheduled|published (required), and link=<the live web address> only when they wrote it, for published. Free; published shows a card with a link box first."
+    },
+    "mark-used": {
+      "label": "Social is using “<trend>”", "target": "trend.ready", "params": { "channel": "channel", "status": "enum:using|not-using|clear", "link": "url", "date": "date", "note": "text:500" }, "methods": ["setTrendAdoption"], "spends": false, "destructive": false, "confirm": "card", "form": "always", "layouts": ["simple", "classic"],
+      "prompt": "target = a trend name from trends.ready. Records whether one channel uses it: params channel=<a channel from channels> (required), status=using|not-using|clear (default using), link=<the web address they wrote>, date=<planned date YYYY-MM-DD>, note=<a short note>. They check it on a card first."
+    },
+    "edit-report": {
+      "label": "Review the new intro", "target": "report", "params": {}, "methods": ["readStudioAsset", "editStudioAsset"], "spends": false, "destructive": false, "confirm": "card", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = the title of a report you read with a report lookup for this answer. Proposes new text for one section (see EDITS): fill edit.ref = the report title, edit.part = the section's exact heading, edit.text = the whole new section text without its heading line, edit.note = what changes and why. It never saves itself; they review it on its report-change card and press Apply."
+    },
+    "finish-assets": {
+      "label": "Finish the assets in “<folder>”", "target": "folder", "params": {}, "methods": ["retryStudioRun"], "spends": true, "destructive": false, "confirm": "estimate", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = an asset folder title whose latest run needs another try. Retries the unfinished assets (they confirm the cost first)."
+    },
+    "save-folder": {
+      "label": "Save “<folder>”", "target": "folder", "params": {}, "methods": ["saveAssetKitFolder"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = an asset folder title. Saves its latest run as a folder (Mac: into Downloads; browser: a .zip)."
+    },
+    "stop-run": {
+      "label": "Stop “<run>”", "target": "run.live", "params": {}, "methods": ["cancelStudioRun"], "spends": false, "destructive": true, "confirm": "dialog", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = the title of something in workingNow. Stops it; finished work is kept."
+    },
+    "retry-run": {
+      "label": "Try “<run>” again", "target": "run.stopped", "params": {}, "methods": ["retryStudioRun"], "spends": true, "destructive": false, "confirm": "estimate", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = the title of a failed, partial or stopped research or report run. Tries it again with its saved budget (they confirm first)."
+    },
+    "open": {
+      "label": "Open “<name>”", "target": "any", "params": { "type": "enum:report|folder|trend|program|run|prompt|page" }, "methods": [], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = the name of a report, asset folder, trend, program, run or prompt, even a loose one (\"the zero-click report\"); params type=report|folder|trend|program|run|prompt|page when you know it (for page, target = a PAGES id). Opens it in the studio."
+    },
+    "open-tab": {
+      "label": "Open Trends", "target": "tab", "params": {}, "methods": [], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = home, trends, reports, assets, inbox, calendar, ask or settings."
+    },
+    "open-tracker": {
+      "label": "Open the Trend tracker", "target": "none", "params": {}, "methods": ["readWorkbook"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = \"\". Opens the Trend tracker sheet, which follows every trend across runs."
+    },
+    "copy": {
+      "label": "Copy a link for Slack", "target": "any", "params": { "what": "enum:link|text|slack|outline|doc", "type": "enum:report|folder|trend|prompt" }, "methods": ["readStudioAsset"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = a report, trend, asset folder or prompt name. params what=link (a share link), text (a report as Markdown), doc (a report formatted to paste into Google Docs), slack (a short Slack summary of a report with its link) or outline (a report's slide headings); type= when you know it. Copies it to their clipboard (free)."
+    },
+    "export-run": {
+      "label": "Export the files for “<report>”", "target": "report", "params": {}, "methods": ["exportStudioRun"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = a report title. Exports that report's files with a manifest (Mac: the studio's exports folder; browser: a download)."
+    },
+    "publish-docs": {
+      "label": "Send “<report>” to Google Docs", "target": "report", "params": {}, "methods": ["publishStudioRun"], "needs": "googleDrive", "spends": false, "destructive": false, "confirm": "dialog", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = a report title. Creates Google Docs from that report's files in the team's Drive folder (they confirm first). Only when connections.googleDrivePublishing is true."
+    },
+    "ask": {
+      "label": "Then: make Social assets once the reports are ready", "target": "question", "params": {}, "methods": ["askHelp"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = the question to send. A plan step for work that can't be a button yet (it depends on something unfinished); clicking it asks you that question."
+    },
+    "draft-program": {
+      "label": "Draft a program for AI search", "target": "none", "params": { "name": "text:80", "topic": "text:200", "days": "int:1:90", "x": "names", "linkedin": "names", "reddit": "names" }, "methods": ["saveResearchProgram"], "spends": false, "destructive": false, "confirm": "handoff", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = \"\". Opens a new research program filled in: params name=<program name>, topic=<what it looks for>, days=<days back, 1 to 90>, x=<X accounts separated by |>, linkedin=<LinkedIn profiles or pages separated by |>, reddit=<subreddits separated by |>. They check the estimate and press Save there."
+    },
+    "invite-people": {
+      "label": "Invite 2 people as editors", "target": "none", "params": { "emails": "emails", "role": "role", "channel": "channel" }, "methods": ["inviteMembers"], "spends": false, "destructive": false, "confirm": "handoff", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = \"\". Opens the invite dialog filled in: params emails=<the addresses they wrote, separated by |>, role=<a role from team.roles>, channel=<a channel from channels> for a channel owner. They press Invite there."
+    },
+    "view-as": {
+      "label": "See the studio as an editor", "target": "who", "params": { "channel": "channel" }, "methods": ["setViewAs"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = a role from team.roles or a person from team.people; params channel=<a channel> for a channel owner role. Shows the studio as they see it (a preview; Admin ends it)."
+    },
+    "lock-prompt": {
+      "label": "Lock “<prompt>”", "target": "prompt", "params": { "locked": "bool" }, "methods": ["setPromptLock"], "needs": "promptView", "spends": false, "destructive": false, "confirm": "dialog", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = a prompt's name from prompts. params locked=true to lock it (only admins can change it then) or locked=false to unlock it. They confirm first."
+    },
+    "edit-prompt": {
+      "label": "Review the change", "target": "prompt", "params": {}, "methods": ["savePromptVersion"], "needs": "promptEdit", "spends": false, "destructive": false, "confirm": "card", "form": "never", "layouts": ["simple", "classic"],
+      "prompt": "target = the prompt's name. Proposes a change to one editable part of a prompt (see PROMPTS): fill edit.ref = the prompt's id, edit.part = the id of the editable part, edit.text and edit.note. It never saves itself; they review the change on its prompt-change card and press Apply."
+    }
+  }
+}

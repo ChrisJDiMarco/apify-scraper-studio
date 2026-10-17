@@ -1,10 +1,18 @@
 {
   "name": "apify-scraper-studio",
   "version": "0.3.0",
+  "private": true,
   "description": "Local macOS workspace for Apify research, source-linked findings, and Claude Opus 5.5 analysis.",
   "main": "./out/main/index.js",
   "author": "Chris DiMarco",
   "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChrisJDiMarco/apify-scraper-studio.git"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "studioDefaultWorkspace": "semrush",
   "scripts": {
     "dev": "electron-vite dev",
@@ -21,7 +29,11 @@
     "dist:win": "npm run build && electron-builder --win nsis",
     "start:semrush": "npm run build && electron . --studio-workspace=semrush",
     "icons:mac": "node scripts/build-mac-icon.mjs",
-    "dist:mac": "npm run icons:mac && npm run build && electron-builder --mac --universal"
+    "dist:mac": "npm run icons:mac && npm run build && electron-builder --mac --universal",
+    "lint": "eslint .",
+    "check": "npm run lint && npm test && npm run build:web",
+    "backup": "node scripts/studio-backup.cjs",
+    "restore": "node scripts/studio-restore.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",
@@ -31,8 +43,8 @@
     "papaparse": "^5.7.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "unzipper": "^0.12.5",
-    "saxes": "^6.0.0"
+    "saxes": "^6.0.0",
+    "unzipper": "^0.12.5"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
@@ -42,11 +54,17 @@
     "electron": "^42.5.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
     "jsdom": "^29.1.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "vite": "^7.3.6",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "basic-ftp": "^6.2.3"
   },
   "build": {
     "appId": "com.chrisdimarco.apifyscraperstudio",
@@ -74,6 +92,14 @@
       "entitlementsInherit": "resources/entitlements.mac.inherit.plist"
     },
     "afterSign": "scripts/notarize-if-configured.cjs",
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    },
     "directories": {
       "buildResources": "resources",
       "output": "dist"

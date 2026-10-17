@@ -2,6 +2,7 @@ import React, { createContext, useContext, useDeferredValue, useEffect, useId, u
 import { Check, ChevronDown, ClipboardCopy, LoaderCircle, PenLine, RotateCcw, ShieldCheck, Sparkles } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import { copyText } from './role-screens.jsx';
+import { useConfirm } from './confirm-dialog.jsx';
 import { PREVIEW_TITLE, can as canCall, canRun as canRunCall, formatDay, isChannelBase, useViewer, writeProps } from './viewer.js';
 import { CHECK_KINDS, checkBrand, checkSummary } from './brand-check.js';
 import './asset-editor.css';
@@ -18,7 +19,9 @@ export function createUnsavedGuard() {
   return {
     set(key, isDirty) { if (isDirty) dirty.add(key); else dirty.delete(key); },
     isDirty: () => dirty.size > 0,
-    // True means go ahead. Asks only when something is unsaved; the editor's own unmount clears its mark.
+    // True means go ahead. Asks only when something is unsaved; the editor's own unmount clears its mark. It stays a
+    // synchronous native question on purpose: every navigation path (the sidebar, ⌘1–9, View as, switching workspace)
+    // asks it inline before changing the page. The editor's own Cancel and Restore use the in-app dialog.
     confirmLeave: (message = LEAVE_MESSAGE) => !dirty.size || window.confirm(message),
   };
 }
@@ -37,6 +40,7 @@ const isElectron = () => typeof navigator !== 'undefined' && /Electron\//.test(n
 export function AssetEditor({ api, asset, markdown = '', edited = null, onSaved, onCancel, action, web, detached = '', brand = null, onAsk }) {
   const viewer = useViewer();
   const guard = useUnsavedGuard();
+  const confirm = useConfirm();
   const key = useId();
   const [text, setText] = useState(markdown);
   const [view, setView] = useState('write');
@@ -74,7 +78,7 @@ export function AssetEditor({ api, asset, markdown = '', edited = null, onSaved,
 
   if (!canEditAsset(asset)) return <div className="studio-editor is-unavailable" role="note"><p className="studio-hint">Pictures and landing pages can’t be edited here.</p>{onCancel && <button type="button" className="studio-quiet small" onClick={onCancel}>Close</button>}</div>;
 
-  function leave() { if (dirty && !window.confirm(LEAVE_MESSAGE)) return; guard.set(key, false); onCancel?.(); }
+  async function leave() { if (dirty && !(await confirm({ title: LEAVE_MESSAGE, confirmLabel: 'Leave without saving', cancelLabel: 'Keep editing', tone: 'danger' }))) return; guard.set(key, false); onCancel?.(); }
   async function save() {
     if (!dirty || saving || over || viewer.preview || detached || !api?.editStudioAsset) return;
     setSaving(true); setProblem(''); setConflict(false);
@@ -95,7 +99,7 @@ export function AssetEditor({ api, asset, markdown = '', edited = null, onSaved,
   saveRef.current = save;
   async function restore() {
     const whose = edited?.byName ? `${edited.byName}’s edits` : 'the edits';
-    if (!window.confirm(`Restore the original? This removes ${whose}${edited?.at ? ` from ${formatDay(edited.at)}` : ''}. Drafts already made from the edited version stay as they are.`)) return;
+    if (!(await confirm({ title: 'Restore the original?', lines: [`This removes ${whose}${edited?.at ? ` from ${formatDay(edited.at)}` : ''}. Drafts already made from the edited version stay as they are.`], confirmLabel: 'Restore the original', tone: 'danger' }))) return;
     setRestoring(true); setProblem('');
     try {
       const result = await runWith(action, () => api.restoreStudioAsset({ assetId: asset.id }));

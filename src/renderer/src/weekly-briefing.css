@@ -34,17 +34,28 @@
 .wb-ask button:disabled { opacity: .45; cursor: default; }
 .wb-page .wb-ask button:hover:not(:disabled) { color: var(--s-ink, #181e15); background: var(--s-accent-strong, #a873f2); }
 
-.wb-quiet-week { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 18px; padding: 18px 20px; background: var(--s-card, #fff); border: 1px dashed var(--s-line-strong, #cfd6d0); border-radius: var(--s-radius, 20px); }
-.wb-quiet-week > svg { flex: none; color: var(--s-mint-ink, #1f5a4c); }
+.wb-quiet-week { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 20px; padding: 18px 20px; background: linear-gradient(120deg, color-mix(in srgb, var(--s-mint, #dceeeb) 70%, var(--s-card, #fff)) 0%, var(--s-card, #fff) 72%); border: 1px solid color-mix(in srgb, var(--s-mint-ink, #1f5a4c) 14%, transparent); border-radius: var(--s-radius, 20px); }
+.wb-quiet-week > svg { flex: none; padding: 8px; width: 42px; height: 42px; color: var(--s-mint-ink, #1f5a4c); background: var(--s-card, #fff); border-radius: 12px; box-shadow: 0 1px 2px rgba(24, 30, 21, .06); }
 .wb-quiet-week > div { flex: 1 1 280px; min-width: 0; }
 .wb-quiet-week h2 { margin: 0; font-size: 17px; }
 .wb-quiet-week p { margin: 4px 0 0; font-size: 14px; line-height: 1.5; color: var(--s-muted, #62685e); }
 
-.wb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--wb-gap); align-items: start; }
-.wb-card, .wb-changes > .tp-card { min-width: 0; padding: 18px; background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius, 20px); box-shadow: var(--s-shadow); }
+/* Two stacked columns: the work that needs this person (wider) and context (narrower). One column below 1080px. */
+.wb-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: var(--wb-gap); align-items: start; }
+.wb-col { display: grid; gap: var(--wb-gap); align-content: start; min-width: 0; }
+@media (max-width: 1080px) { .wb-layout { grid-template-columns: minmax(0, 1fr); } }
+.wb-card, .wb-changes > .tp-card { min-width: 0; padding: 18px 20px; background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius, 20px); box-shadow: var(--s-shadow); }
 .wb-changes { min-width: 0; }
-.wb-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.wb-card-head h2 { flex: 1; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; letter-spacing: -.2px; }
+.wb-changes > .tp-card { gap: 12px; }
+.wb-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; min-width: 0; }
+.wb-card-head h2 { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; font-size: 16px; letter-spacing: -.2px; white-space: nowrap; }
+.wb-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* An empty card is one quiet line under its heading, indented to the heading text, so it never outweighs real work. */
+.wb-card.is-empty { padding-block: 14px; box-shadow: none; }
+.wb-card.is-empty .wb-card-head { margin-bottom: 4px; }
+.wb-card.is-empty .wb-empty { padding-left: 42px; font-size: 13.5px; }
+.wb-empty-lead { margin-bottom: 10px; font-size: 13.5px; }
+.wb-earlier-row { gap: 2px; }
 .wb-icon { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; }
 .wb-icon.tone-purple { color: var(--s-soft-ink, #5a2fa0); background: var(--s-soft, #f1eaff); }
 .wb-icon.tone-mint { color: var(--s-mint-ink, #1f5a4c); background: var(--s-mint, #dceeeb); }
@@ -75,6 +86,7 @@
 .wb-progress > span { display: block; height: 100%; background: var(--s-accent, #c190ff); border-radius: inherit; transition: width 300ms ease; }
 @media (max-width: 560px) {
   .wb-trend, .wb-shipped-row { grid-template-columns: minmax(0, 1fr); }
+  .wb-card.is-empty .wb-empty { padding-left: 0; }
   .wb-head-actions { width: 100%; } .wb-head-actions > button, .wb-research { flex: 1 1 auto; }
 }
 @media (pointer: coarse) { .wb-page :is(.wb-primary, .wb-quiet, .wb-yes, .wb-skip) { min-height: 44px; } }
@@ -99,5 +111,34 @@
 .ib-copy small { font-size: 12.5px; line-height: 1.4; color: var(--s-muted, #62685e); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ib-meta { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--s-muted, #62685e); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ib-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--s-accent-strong, #a873f2); }
-.ib-go { color: var(--s-faint, #8a9088); }
+.ib-go { color: var(--s-faint, #6a7068); }
 @media (max-width: 560px) { .ib-row { grid-template-columns: auto minmax(0, 1fr) auto; } .ib-go { display: none; } .ib-copy small { white-space: normal; } }
+
+/* Get the studio ready (admins, until setup is done): a checklist with one button per step. */
+.wb-setup-card { display: grid; gap: 12px; }
+.wb-setup-card .wb-card-head { margin-bottom: 0; }
+.wb-setup-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.wb-setup-list > li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--s-line, #e3e8e4); }
+.wb-setup-list > li:first-child { border-top: 0; }
+.wb-setup-mark { display: grid; place-items: center; width: 22px; height: 22px; color: var(--s-mint-ink, #1f5a4c); border: 1.5px solid var(--s-line-strong, #cfd6d0); border-radius: 50%; }
+.wb-setup-list > li.is-done .wb-setup-mark { background: var(--s-mint, #dceeeb); border-color: transparent; }
+.wb-setup-copy { display: grid; gap: 1px; min-width: 0; }
+.wb-setup-copy strong { font-size: 14px; font-weight: 650; }
+.wb-setup-copy em { font-style: normal; font-weight: 500; color: var(--s-muted, #62685e); }
+.wb-setup-copy small { font-size: 12.5px; line-height: 1.4; color: var(--s-muted, #62685e); }
+.wb-setup-list > li.is-done .wb-setup-copy strong { color: var(--s-muted, #62685e); }
+
+/* Next up: the one to three things to do now, side by side; one column on a phone. */
+.wb-next { display: grid; gap: 8px; min-width: 0; }
+.wb-next-title { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted, #62685e); }
+.wb-next-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.wb-next-card { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: 1fr auto; align-items: start; gap: 8px 10px; min-width: 0; padding: 14px 16px; background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-row, 16px); }
+.wb-next-card.tone-attention { background: color-mix(in srgb, var(--s-danger-soft, #fbe7df) 55%, var(--s-card, #fff)); border-color: color-mix(in srgb, var(--s-danger, #8a2f1c) 22%, transparent); }
+.wb-next-icon { display: grid; place-items: center; width: 28px; height: 28px; color: var(--s-soft-ink, #5a2fa0); background: var(--s-soft, #f1eaff); border-radius: 9px; }
+.wb-next-card.tone-attention .wb-next-icon { color: var(--s-danger, #8a2f1c); background: var(--s-card, #fff); }
+.wb-next-copy { display: grid; gap: 3px; min-width: 0; }
+.wb-next-copy strong { font-size: 14px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+.wb-next-copy small { font-size: 12.5px; line-height: 1.45; color: var(--s-muted, #62685e); overflow-wrap: anywhere; }
+.wb-next-card > button { grid-column: 2; justify-self: start; }
+.wb-next > .wb-empty { font-size: 13.5px; }
+@media (max-width: 560px) { .wb-setup-list > li { grid-template-columns: auto minmax(0, 1fr); } .wb-setup-list > li > button { grid-column: 2; justify-self: start; } }

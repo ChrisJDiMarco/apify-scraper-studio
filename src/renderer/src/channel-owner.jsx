@@ -2,6 +2,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleStop, ClipboardCopy, Clock, Download, ExternalLink, FileText, FolderDown, FolderOpen, Image as ImageIcon, LayoutTemplate, Link2, LoaderCircle, MessageSquareQuote, Pencil, RefreshCw, RotateCcw, Send, Sparkles, TriangleAlert, TrendingUp } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import { Dialog, DialogClose, MoreMenu, copyText, useToast } from './role-screens.jsx';
+import { useConfirm } from './confirm-dialog.jsx';
 import { PREVIEW_TITLE, can, firstName, formatDay, plural, writeProps } from './viewer.js';
 import { AssetStatusMenu } from './asset-editor.jsx';
 import { CalendarView } from './calendar-view.jsx';
@@ -206,8 +207,23 @@ function PlannedFor({ value = '', viewer, describedBy, onSave }) {
 }
 
 // "Yes, I'm using this trend" / "Not for us", then the link once it's live and the date it goes out. Shared by Trends
-// and My assets.
+// and My assets. A role without Mark trends used (a custom channel role) sees the answer read-only, with no buttons the
+// server would refuse; `can`, not canRun, so an admin's preview shows the previewed role's controls.
 export function AnswerRow({ api, trend, answer, channel = {}, viewer = {}, describedBy, onAnswer }) {
+  if (!can(viewer, 'setTrendAdoption')) return <AnswerReadOnly api={api} answer={answer} describedBy={describedBy} />;
+  return <AnswerControls api={api} trend={trend} answer={answer} channel={channel} viewer={viewer} describedBy={describedBy} onAnswer={onAnswer} />;
+}
+function AnswerReadOnly({ api, answer, describedBy }) {
+  const answeredBy = answer?.byName ? <p className="channel-answered-by">Answered by {answer.byName}{answer.at ? ` · ${formatDay(answer.at)}` : ''}</p> : null;
+  if (answer?.status === 'using') return <div className="channel-answer is-using">
+    <div className="channel-answer-line"><span className="studio-chip using"><Check size={13} aria-hidden="true" />Using</span>{answer.link && <button type="button" className="channel-link-chip" aria-describedby={describedBy} title={answer.link} onClick={() => api?.openSourceUrl?.(answer.link)}><ExternalLink size={14} aria-hidden="true" /><span>{linkLabel(answer.link)}</span></button>}</div>
+    {answer.plannedFor && <p className="channel-planned"><CalendarDays size={14} aria-hidden="true" /><span>Planned for {plannedLabel(answer.plannedFor)}</span></p>}
+    {answeredBy}
+  </div>;
+  if (answer?.status === 'not-using') return <div className="channel-answer"><div className="channel-answer-line"><span className="studio-chip plain">Not for us</span></div>{answeredBy}</div>;
+  return answeredBy;
+}
+function AnswerControls({ api, trend, answer, channel = {}, viewer = {}, describedBy, onAnswer }) {
   const [editing, setEditing] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [refocus, setRefocus] = useState(false);
@@ -412,6 +428,8 @@ const EMPTY = {
 export function ChannelTrends({ api, view, viewer = {}, busy = false, action, imagesReady = true, onOpenAssets, onPrefs, onToast, linkOrigin = '', focusThemeId = '' }) {
   const channel = view?.channel || {};
   const mayMake = can(viewer, 'planAssetKit') && can(viewer, 'createAssetKit');
+  const mayAnswer = can(viewer, 'setTrendAdoption');
+  const confirm = useConfirm();
   const trends = useMemo(() => [...list(view?.trends)].sort(byNewest('readyAt')), [view?.trends]);
   const [toast, showToast] = useToast();
   const notify = (text) => (onToast ? onToast(text) : showToast(text));
@@ -433,7 +451,9 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
   // A trend routed to other channels only stays under All, and isn't new here (the server's rule too).
   const rowOf = (trend, answer) => {
     const old = !answer && Boolean(trend.earlier || (trend.adoption && viewer.via !== 'desktop' && beforeJoining(trend.readyAt, viewer.memberSince)));
-    return { trend, answer, old, isNew: !answer && !old && trend.offered !== false };
+    // Without Mark trends used this person can't answer, so New means ready in the last two weeks instead of unanswered.
+    const recent = Date.now() - (Date.parse(trend.readyAt || '') || 0) < 14 * DAY;
+    return { trend, answer, old, isNew: !old && trend.offered !== false && (mayAnswer ? !answer : recent) };
   };
   const rows = trends.map((trend) => rowOf(trend, answers.of(trend)));
   const counts = { new: rows.filter((row) => row.isNew).length, 'for-us': rows.filter((row) => row.trend.forUs).length, using: rows.filter((row) => row.answer?.status === 'using').length, 'not-using': rows.filter((row) => row.answer?.status === 'not-using').length, all: rows.length };
@@ -483,17 +503,17 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
     }
   }
   function generate(trend) { if (mayMake) setMaking(trend); }
-  function again(trend) {
+  async function again(trend) {
     if (!mayMake) return;
     const run = runOf(trend);
     // Ask only when drafts exist; name the set's date when the card's set is the one that has them.
     const when = hasFiles(run) && run?.createdAt ? ` from ${formatDay(run.createdAt)}` : '';
-    if ((hasFiles(run) || Number(trend.assetCount) > 0) && !window.confirm(`You already have drafts for this trend${when}. Generate a new set?`)) return;
+    if ((hasFiles(run) || Number(trend.assetCount) > 0) && !(await confirm({ title: `You already have drafts for this trend${when}. Generate a new set?`, confirmLabel: 'Generate a new set' }))) return;
     setMaking(trend);
   }
   async function stop(trend) {
     const run = runOf(trend); if (!run?.id || !api.cancelStudioRun) return;
-    if (!window.confirm('Stop making these drafts? Finished ones are kept, and you can finish the rest later.')) return;
+    if (!(await confirm({ title: 'Stop making these drafts?', lines: ['Finished ones are kept, and you can finish the rest later.'], confirmLabel: 'Stop', tone: 'danger' }))) return;
     setPending((current) => ({ ...current, [trend.themeId]: 'stop' }));
     try { const result = await runWith(action, () => api.cancelStudioRun({ runId: run.id })); setStarted((current) => { const next = { ...current }; delete next[trend.themeId]; return next; }); if (result !== null) notify('Stopped. Finished drafts are kept.'); }
     catch (failure) { showToast(failure?.message || 'That set couldn’t be stopped. Try again.', { tone: 'error' }); }
@@ -501,6 +521,9 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
   }
   async function finish(trend) {
     const run = runOf(trend); if (!run?.id || !api.retryStudioRun) return;
+    // Finishing makes more drafts, so it asks first, like every other paid step (owners never see money).
+    const left = list(run.jobs).filter((job) => job.status !== 'succeeded').length;
+    if (!(await confirm({ title: `Finish the ${left ? plural(left, 'draft') : 'drafts'} that didn’t make it?`, lines: ['Finished drafts aren’t made again.'], confirmLabel: 'Finish them' }))) return;
     setPending((current) => ({ ...current, [trend.themeId]: 'finish' }));
     try { const result = await runWith(action, () => api.retryStudioRun({ runId: run.id })); if (result !== null) notify('Finishing the rest. You’ll see progress on this card.'); }
     catch (failure) { showToast(failure?.message || 'The rest couldn’t be started. Try again.', { tone: 'error' }); }
@@ -525,14 +548,13 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
   return <div className="studio-screen studio-page channel-page" data-spot="trends.channel">
     <div className="studio-page-head"><div>
       <h1 ref={titleRef} tabIndex={-1}>Trends for {channel.name || 'your channel'}</h1>
-      <p>{mayMake ? 'New trends the team approved, each with a brief. Generate drafts for your channel, then tell us if you used it.' : 'New trends the team approved, each with a brief. Read it, then tell us if you used it.'}</p>
+      <p>{mayMake ? `New trends the team approved, each with a brief. Generate drafts for your channel${mayAnswer ? ', then tell us if you used it' : ''}.` : `New trends the team approved, each with a brief. ${mayAnswer ? 'Read it, then tell us if you used it.' : 'Read it to see what fits your channel.'}`}</p>
     </div></div>
 
     {showWelcome && <section className="channel-welcome" aria-labelledby="channel-welcome-title">
       <div className="channel-welcome-copy">
         <h2 id="channel-welcome-title">Welcome{firstName(viewer.name) ? `, ${firstName(viewer.name)}` : ''}. This is where trends for {channel.name || 'your channel'} land.</h2>
-        {mayMake ? <ol className="channel-steps"><li><span>1</span>Read the brief.</li><li><span>2</span>Generate drafts for your channel if it fits.</li><li><span>3</span>Tell us if you used it, and add the link when it’s live.</li></ol>
-          : <ol className="channel-steps"><li><span>1</span>Read the brief.</li><li><span>2</span>Tell us if you used it, and add the link when it’s live.</li></ol>}
+        <ol className="channel-steps">{[['Read the brief.', true], ['Generate drafts for your channel if it fits.', mayMake], ['Tell us if you used it, and add the link when it’s live.', mayAnswer]].filter(([, shown]) => shown).map(([step], index) => <li key={step}><span>{index + 1}</span>{step}</li>)}</ol>
       </div>
       <button type="button" className="studio-primary" onClick={() => { setWelcomed(true); onPrefs?.({ welcomedAt: new Date().toISOString() }); titleRef.current?.focus(); }}>Got it</button>
     </section>}
@@ -541,7 +563,7 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
 
     <div ref={listRef} className="channel-list">
       {!rows.length && <div className="studio-empty big"><TrendingUp size={28} aria-hidden="true" /><p>No trends for {channel.name || 'your channel'} yet. The team reviews new trends each week; when a brief is ready, it appears here with a count next to Trends.{viewer.askAdmin ? ` Questions? Ask ${viewer.askAdmin}.` : ''}</p></div>}
-      {rows.length > 0 && !main.length && <div className="studio-empty"><p>{earlier.length ? 'Nothing new right now. Trends from before you joined are below, if you want to answer them.' : EMPTY[shown]}</p>{shown !== 'all' && !earlier.length && <button type="button" className="studio-quiet small" onClick={() => setFilter('all')}>Show all trends</button>}</div>}
+      {rows.length > 0 && !main.length && <div className="studio-empty"><p>{earlier.length ? 'Nothing new right now. Trends from before you joined are below, if you want to answer them.' : !mayAnswer && shown === 'new' ? 'Nothing new in the last two weeks. Every trend for your channel is under All.' : EMPTY[shown]}</p>{shown !== 'all' && !earlier.length && <button type="button" className="studio-quiet small" onClick={() => setFilter('all')}>Show all trends</button>}</div>}
       {groups.map((group) => <section className="channel-group" key={group.key} aria-labelledby={domId('channel-day', group.key)}>
         <h2 className="studio-group-label" id={domId('channel-day', group.key)}>{group.key}</h2>
         <div className="channel-cards">{group.rows.map(card)}</div>

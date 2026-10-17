@@ -1,10 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, CircleStop, Clapperboard, ClipboardCopy, CloudUpload, Download, ExternalLink, FileText, Folder, FolderOpen, Image as ImageIcon, LayoutTemplate, Link2, LoaderCircle, Megaphone, PenLine, Radar, RefreshCw, Search, Sparkles, TriangleAlert, Upload, Wand2, X, Zap } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CircleStop, Clapperboard, ClipboardCopy, CloudUpload, Download, ExternalLink, FileText, Folder, FolderOpen, Image as ImageIcon, LayoutTemplate, LoaderCircle, Megaphone, PenLine, Radar, RefreshCw, Sparkles, TriangleAlert, Wand2, X, Zap } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import { AssetEditor, AssetStatusMenu, canEditAsset, statusLabel, statusOf, useUnsavedGuard } from './asset-editor.jsx';
 import { brandFrom } from './brand-check.js';
-import { useToast } from './role-screens.jsx';
-import { newerPromptsFor, newestPromptsLine } from './studio-actions.js';
+import { copyText, trapTab, useModalFocus, useToast } from './role-screens.jsx';
+import { CODEX_UNCAPPED, newerPromptsFor } from './studio-actions.js';
+import { newestPromptsQuestion, retryCap } from './cost-lines.js';
+import { useConfirm } from './confirm-dialog.jsx';
+import { useHelpImages } from './help-images.js';
+import { KitCreator, kitSourcesFrom } from './kit-creator.jsx';
 import { formatDay, useCan, useViewer, writeProps } from './viewer.js';
 import { formatDate, number, withViewTransition } from './ui.jsx';
 import { SOURCE_LABEL, TYPE_LABEL, buildLibraryTree, channelName, channelOf, cleanTitle, folderSummary, pathTo, runSummary } from '../../shared/library-tree.js';
@@ -23,17 +27,12 @@ const plural = (count, word) => `${number(count)} ${word}${count === 1 ? '' : 's
 const sentence = (value) => String(value || '').replace(/^./, (letter) => letter.toUpperCase());
 const newest = (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 const modelName = (model) => String(model || '').replace(/^claude-/, 'Claude ').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
-// What each picture set sends the image model besides its prompt (Settings → Brand reference images).
-const referenceTitle = (references) => (references?.style || references?.logo ? `Sends ${[references.style ? plural(references.style, 'style example') : '', references.logo ? 'the approved logo' : ''].filter(Boolean).join(' and ')}` : 'No brand reference images yet');
-function referenceHint(items) {
-  const sets = items.filter((item) => item.kind === 'image');
-  const using = sets.filter((item) => item.references?.style || item.references?.logo).length; const logos = sets.filter((item) => item.references?.logo).length;
-  return using ? `Brand reference images: ${using} of ${plural(sets.length, 'picture set')}${logos ? `, ${logos} with the approved logo` : ''}.` : 'No brand reference images yet, so pictures follow the brand colors and leave the footer clean.';
-}
-const MAX_SOURCE_CHARS = 250000;
 // The folders Simple Assets opens as pages; any other folder (a set, a channel, a trend's Pictures) opens its page.
 const PAGES = new Set(['research-run', 'trend', 'source']);
 const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
+// Kept here too: Simple mode and older imports read it from Assets.
+export { kitSourcesFrom };
 
 // Errors arrive as written by the main process; keep them short enough to read in a row.
 const brief = (value) => { const text = String(value || '').replace(/\s+/g, ' ').trim(); return text.length > 140 ? `${text.slice(0, 137)}…` : text; };
@@ -66,15 +65,11 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
   const [place, setPlace] = useState({ node: '', key: '', reportAssetId: '', runId: '' });
   const [creating, setCreating] = useState(null);
   const [reading, setReading] = useState(null); // a written asset open in the viewer
-  const [helpImages, setHelpImages] = useState(null);
+  // Ask AI's pictures, read again whenever Ask AI makes one (help-images.js), even while it draws behind this page.
+  const helpImages = useHelpImages(api, null);
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(null); // a picture open in the lightbox
   const [saved, setSaved] = useState('');
-  useEffect(() => {
-    let cancelled = false;
-    Promise.resolve(api.listHelpImages ? api.listHelpImages() : []).then((rows) => { if (!cancelled) setHelpImages(list(rows)); }).catch(() => { if (!cancelled) setHelpImages([]); });
-    return () => { cancelled = true; };
-  }, []);
   const ownTree = useMemo(() => (tree ? null : buildLibraryTree({ researchRuns, contentRuns: contentRuns || kitRuns, assets, themes, programs, editionId, helpImages: list(helpImages), adoptionsByTheme })), [tree, researchRuns, contentRuns, kitRuns, assets, themes, programs, editionId, helpImages, adoptionsByTheme]);
   const library = tree || ownTree;
   const runById = useMemo(() => new Map([...list(contentRuns), ...kitRuns].map((run) => [run.id, run])), [contentRuns, kitRuns]);
@@ -138,12 +133,6 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
     Promise.all([worker(), worker(), worker()]);
     return () => { cancelled = true; };
   }, [items.map((item) => item.key).join('|')]);
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (event) => { if (event.key === 'Escape') setOpen(null); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
   async function download(item) {
     setSaved('');
     if (item.source === 'help') { const result = await action(() => api.saveHelpImage({ id: item.id })); if (result && !result.cancelled) setSaved(item.key); }
@@ -176,21 +165,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
     {creating && canMake && <KitCreator key={creating.key} api={api} sources={sources} preset={creating} imagesReady={imagesReady} action={action} busy={busy} picturesOff={picturesOff} focus={focus} onClose={() => setCreating(null)} onCreated={created} onSettings={onSettings} />}
     {reading && <KitFileViewer api={api} web={web} busy={busy} action={action} file={reading} folder={kitFolderOf.get(`${reading.run.id}:${reading.asset.deliverableId}`)} label={list(reading.run.jobs).find((job) => job.id === reading.asset.deliverableId)?.label} brand={brand} onAsk={can('askHelp') ? onAsk : undefined} onNotice={showToast} onClose={() => setReading(null)} onMove={moveFile} />}
     {toast}
-    {open && <div className="simple-lightbox" role="dialog" aria-modal="true" aria-label={open.title} onClick={() => setOpen(null)}>
-      <div className="simple-lightbox-card" onClick={(event) => event.stopPropagation()}>
-        <div className="simple-lightbox-media">{open.kind === 'video' ? <span className="simple-asset-placeholder"><Clapperboard size={34} aria-hidden="true" /><small>Open the file to play this video.</small></span> : cache[open.key] ? <img src={cache[open.key]} alt={open.title} /> : <span className="simple-asset-placeholder shimmer" />}</div>
-        <aside className="simple-lightbox-side">
-          <button type="button" className="simple-lightbox-close" aria-label="Close" onClick={() => setOpen(null)}><X size={18} /></button>
-          <small className="simple-doc-meta">{[open.label, formatDate(open.createdAt)].filter(Boolean).join(' · ')}</small>
-          <h2>{open.title}</h2>
-          {open.prompt && <p className="simple-prompt">{open.prompt}</p>}
-          <div className="simple-lightbox-actions">
-            <button type="button" className="simple-primary" disabled={busy} onClick={() => download(open)}>{saved === open.key ? <Check size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}{saved === open.key ? 'Saved' : open.source === 'help' || web ? 'Download' : 'Open file'}</button>
-            {open.kind === 'image' && imagesReady && can('askHelp') && onAsk && <button type="button" className="simple-quiet" {...writeProps(viewer)} onClick={() => { setOpen(null); onAsk(`Make a variation of the picture “${open.title}”.`, open.prompt ? `EARLIER PICTURE PROMPT (data): ${open.prompt}` : ''); }}><Wand2 size={15} aria-hidden="true" />Make a variation</button>}
-          </div>
-        </aside>
-      </div>
-    </div>}
+    {open && <PictureLightbox picture={open} cache={cache} busy={busy} web={web} saved={saved === open.key} viewer={viewer} onClose={() => setOpen(null)} onDownload={() => download(open)} onVariation={open.kind === 'image' && imagesReady && can('askHelp') && onAsk ? () => { setOpen(null); onAsk(`Make a variation of the picture “${open.title}”.`, open.prompt ? `EARLIER PICTURE PROMPT (data): ${open.prompt}` : ''); } : undefined} />}
   </>;
   const gallery = (rows) => <div className="simple-asset-grid">{rows.map((item) => <button type="button" className="simple-asset" key={item.key} onClick={() => setOpen(item)} aria-label={`Open ${item.title}`}>
     <span className="simple-asset-frame">{item.kind === 'video' ? <span className="simple-asset-placeholder"><Clapperboard size={26} aria-hidden="true" /></span> : cache[item.key] ? <img src={cache[item.key]} alt="" loading="lazy" /> : <span className="simple-asset-placeholder shimmer" />}</span>
@@ -329,6 +304,33 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
   </>;
 }
 
+// One picture, large: Download (or Open file on the Mac) and Make a variation. A modal: focus moves in, Tab stays in,
+// Esc closes it and focus goes back to the card that opened it.
+function PictureLightbox({ picture, cache, busy, web, saved, viewer, onClose, onDownload, onVariation }) {
+  const panel = useRef(null);
+  useModalFocus(panel);
+  useEffect(() => {
+    const onKey = (event) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return <div className="simple-lightbox" role="dialog" aria-modal="true" aria-label={picture.title} ref={panel} tabIndex={-1} onKeyDown={(event) => trapTab(event, panel.current)} onClick={onClose}>
+    <div className="simple-lightbox-card" onClick={(event) => event.stopPropagation()}>
+      <div className="simple-lightbox-media">{picture.kind === 'video' ? <span className="simple-asset-placeholder"><Clapperboard size={34} aria-hidden="true" /><small>Open the file to play this video.</small></span> : cache[picture.key] ? <img src={cache[picture.key]} alt={picture.title} /> : <span className="simple-asset-placeholder shimmer" />}</div>
+      <aside className="simple-lightbox-side">
+        <button type="button" className="simple-lightbox-close" aria-label="Close" onClick={onClose}><X size={18} /></button>
+        <small className="simple-doc-meta">{[picture.label, formatDate(picture.createdAt)].filter(Boolean).join(' · ')}</small>
+        <h2>{picture.title}</h2>
+        {picture.prompt && <p className="simple-prompt">{picture.prompt}</p>}
+        <div className="simple-lightbox-actions">
+          <button type="button" className="simple-primary" disabled={busy} onClick={onDownload}>{saved ? <Check size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}{saved ? 'Saved' : picture.source === 'help' || web ? 'Download' : 'Open file'}</button>
+          {onVariation && <button type="button" className="simple-quiet" {...writeProps(viewer)} onClick={onVariation}><Wand2 size={15} aria-hidden="true" />Make a variation</button>}
+        </div>
+      </aside>
+    </div>
+  </div>;
+}
+
 // A folder's sets: a sub-folder per set on the left, the open set's channel folders on the right.
 function KitSets({ runs, runId, assets, cache, web, busy, action, api, googleReady, editionId, focus = [], promptChanges = [], onNotice, onRun, onOpenFile, onOpenPicture }) {
   const run = runs.find((entry) => entry.id === runId) || runs[0];
@@ -347,6 +349,7 @@ function KitSets({ runs, runId, assets, cache, web, busy, action, api, googleRea
 function KitRun({ run, assets, cache, web, busy, action, api, googleReady, editionId = '', focus = [], promptChanges = [], onNotice, onOpenFile, onOpenPicture }) {
   const can = useCan();
   const viewer = useViewer();
+  const confirm = useConfirm();
   const jobs = list(run.jobs); const total = jobs.length; const done = jobs.filter((job) => job.status === 'succeeded').length; const unfinished = total - done;
   const live = ACTIVE.has(run.status);
   // The person's own channels first (My channels), the rest after; "Your channels" shows only theirs.
@@ -359,15 +362,15 @@ function KitRun({ run, assets, cache, web, busy, action, api, googleReady, editi
   const used = new Set(assets.map(statusOf));
   const channels = allChannels.filter((channel) => !hasMine || scope === 'all' || channel.mine).map((channel) => ({ ...channel, rows: status === 'any' ? channel.rows : channel.rows.filter((job) => statusOfJob(job).includes(status)) })).filter((channel) => channel.rows.length);
   const delivered = run.googleDelivery?.folderUrl || '';
-  async function stop() { if (window.confirm('Stop making these assets? Finished ones are kept, and you can finish the rest later.')) await action(() => api.cancelStudioRun({ runId: run.id }), 'Stopped. Finished assets are kept.'); }
+  async function stop() { if (await confirm({ title: 'Stop making these assets?', lines: ['Finished ones are kept, and you can finish the rest later.'], confirmLabel: 'Stop', tone: 'danger' })) await action(() => api.cancelStudioRun({ runId: run.id }), 'Stopped. Finished assets are kept.'); }
   async function finish() {
-    // A retry needs room for what's left; finished assets are never paid for twice.
-    const cap = Math.min(1000, Math.max(Number(run.maxBudgetUsd) || 0, Math.ceil((Number(run.reservedUsd) || 0) + unfinished * 2)));
-    if (!window.confirm(`Finish the ${plural(unfinished, 'asset')} that didn’t make it?\n\nThis can spend up to ${money(Math.max(0, cap - (Number(run.reservedUsd) || 0)))} more. Finished assets aren’t made again.`)) return;
-    // A prompt this set used was changed since it started: the unfinished files may use the newest version (OK) or keep
-    // the set's own (Cancel).
+    // A retry needs room for what's left; finished assets are never paid for twice. The prompt question (only when a
+    // prompt this set used changed since it started) comes first, so the last question is the money one and its Cancel
+    // always stops the retry.
+    const cap = retryCap(run, unfinished);
     const newer = newerPromptsFor(run, promptChanges);
-    const refreshPrompts = newer.length > 0 && window.confirm(`Use the newest prompts?\n\n${newestPromptsLine(newer)}\n\nOK uses the newest prompts. Cancel keeps the set’s prompts.`);
+    const refreshPrompts = newer.length > 0 && await confirm(newestPromptsQuestion(newer, 'set'));
+    if (!(await confirm({ title: `Finish the ${plural(unfinished, 'asset')} that didn’t make it?`, lines: [`This can spend up to ${money(Math.max(0, cap - (Number(run.reservedUsd) || 0)))} more. Finished assets aren’t made again.`, refreshPrompts ? 'The unfinished assets use the newest prompts.' : '', run.ai?.route === 'codex' ? CODEX_UNCAPPED : ''], confirmLabel: 'Finish them' }))) return;
     await action(() => api.retryStudioRun({ runId: run.id, maxBudgetUsd: cap, ...(refreshPrompts ? { refreshPrompts: true } : {}) }), 'Finishing the rest. Assets appear here as they’re ready.');
   }
   return <section className="simple-kit-run" aria-label={run.kit.folderName}>
@@ -432,6 +435,8 @@ function KitFileViewer({ api, web, busy, action, file, folder, label, brand = nu
   const [editing, setEditing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const body = useRef(null);
+  const panel = useRef(null);
+  useModalFocus(panel);
   useEffect(() => { setEditing(false); }, [asset.id]);
   useEffect(() => {
     let cancelled = false; setPayload(null); setError(''); setCopied(false); body.current?.scrollTo?.({ top: 0 });
@@ -453,14 +458,15 @@ function KitFileViewer({ api, web, busy, action, file, folder, label, brand = nu
   // refused instead of overwritten.
   const loadedEdit = payload?.edited?.at ? { at: payload.edited.at, byName: payload.edited.byName || payload.edited.by?.name || '' } : null;
   const canEdit = Boolean(api.editStudioAsset && can('editStudioAsset') && canEditAsset(asset));
-  async function copy() { try { await navigator.clipboard.writeText(markdown); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { setCopied(false); } }
+  // copyText falls back to a hidden selection where the clipboard API is refused (plain HTTP, a denied permission).
+  async function copy() { if (await copyText(markdown)) { setCopied(true); setTimeout(() => setCopied(false), 1800); } else onNotice?.('The text couldn’t be copied. Select it and copy it instead.', { tone: 'error' }); }
   function saved(result) {
     setEditing(false);
     if (result?.restored) { setReloadKey((value) => value + 1); return; }
     const row = result?.asset?.edited;
     setPayload((current) => ({ ...(current || {}), markdown: result?.markdown ?? markdown, edited: row?.at ? { at: row.at, byName: row.byName || row.by?.name || '' } : current?.edited || null }));
   }
-  return <div className="simple-lightbox" role="dialog" aria-modal="true" aria-label={label || asset.title} onClick={close}>
+  return <div className="simple-lightbox" role="dialog" aria-modal="true" aria-label={label || asset.title} ref={panel} tabIndex={-1} onKeyDown={(event) => trapTab(event, panel.current)} onClick={close}>
     <div className={`simple-kit-viewer${editing ? ' is-editing' : ''}`} onClick={(event) => event.stopPropagation()}>
       <header className="simple-kit-viewer-bar">
         <span><small>{[folder, label, edited ? `Edited by ${edited.byName || 'someone'}${edited.at ? ` · ${formatDay(edited.at)}` : ''}` : ''].filter(Boolean).join(' · ')}</small><strong>{asset.title}</strong></span>
@@ -478,152 +484,4 @@ function KitFileViewer({ api, web, busy, action, file, folder, label, brand = nu
       </div>
     </div>
   </div>;
-}
-
-// Make channel assets: pick the report (one in the library, a Google Doc link, or pasted text), check what will be
-// made and what it can cost, then start. Nothing is spent until "Make" is pressed.
-function KitCreator({ api, sources, preset, imagesReady, action, busy, picturesOff = '', focus = [], onClose, onCreated, onSettings }) {
-  const viewer = useViewer();
-  const fixed = preset?.source || null;
-  const [step, setStep] = useState(fixed ? 'review' : 'source');
-  const [mode, setMode] = useState(preset?.mode || 'report');
-  const [query, setQuery] = useState('');
-  const [picked, setPicked] = useState('');
-  const [link, setLink] = useState(preset?.link || '');
-  const [doc, setDoc] = useState(null); // a Google Doc that was read
-  const [file, setFile] = useState(null); // an uploaded document
-  const [title, setTitle] = useState('');
-  const [text, setText] = useState('');
-  const [reading, setReading] = useState(false);
-  const [problem, setProblem] = useState('');
-  const [plan, setPlan] = useState(null);
-  const [chosen, setChosen] = useState(null); // null: everything the kit offers
-  const [planning, setPlanning] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const first = useRef(null);
-  const source = fixed || (mode === 'report' ? (picked ? { kind: 'report', assetId: picked } : null)
-    : mode === 'link' ? (doc ? { kind: 'upload', title: doc.title, text: doc.text, url: doc.url, format: 'google-doc' } : null)
-    : text.trim() ? (file ? { kind: 'upload', title: title.trim() || file.title, text, fileName: file.fileName || '' } : { kind: 'text', title: title.trim(), text }) : null);
-  useEffect(() => { first.current?.focus(); }, [step, mode]);
-  useEffect(() => {
-    const onKey = (event) => { if (event.key === 'Escape' && !starting) onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [starting]);
-  // The plan (folders, prices, minutes) comes from the studio; it reads the report but spends nothing.
-  useEffect(() => {
-    if (step !== 'review' || !source) return undefined;
-    let cancelled = false; setPlanning(true); setProblem('');
-    Promise.resolve().then(() => api.planAssetKit({ source, ...(chosen ? { deliverableIds: [...chosen] } : {}) })).then((result) => { if (!cancelled) { setPlan(result); setPlanning(false); } }).catch((failure) => { if (!cancelled) { setProblem(failure?.message || 'This report can’t be used. Try another one.'); setPlanning(false); } });
-    return () => { cancelled = true; };
-  }, [step, chosen ? [...chosen].sort().join('|') : 'all']);
-  // My channels: the first plan pre-ticks only the person's own channels' assets (they can tick more).
-  const [focused, setFocused] = useState(false);
-  useEffect(() => {
-    if (!plan || focused || chosen || !focus.length) return;
-    setFocused(true);
-    const mine = list(plan.folders).filter((folder) => focus.includes(folder.id)).flatMap((folder) => folder.items).filter((item) => item.available).map((item) => item.id);
-    if (mine.length) setChosen(new Set(mine));
-  }, [plan]); // eslint-disable-line react-hooks/exhaustive-deps
-  const focusNames = list(plan?.folders).filter((folder) => focus.includes(folder.id)).map((folder) => folder.name);
-  const shownSources = sources.filter((row) => !query.trim() || row.title.toLowerCase().includes(query.trim().toLowerCase()));
-  async function readDoc() {
-    if (!/^https:\/\/docs\.google\.com\/document\/(?:u\/\d+\/)?d\/[a-zA-Z0-9_-]{10,}/.test(link.trim())) { setProblem('Paste a Google Docs link: https://docs.google.com/document/d/…'); return; }
-    setReading(true); setProblem('');
-    try { const result = await api.importStudioSource({ url: link.trim() }); if (result?.text) setDoc(result); }
-    catch (failure) { setProblem(failure?.message || 'That Google Doc could not be read.'); }
-    finally { setReading(false); }
-  }
-  async function uploadFile() {
-    setProblem('');
-    try { const result = await api.importStudioSource(); if (result?.text) { setFile(result); setText(result.text); if (!title.trim()) setTitle(result.title || ''); } }
-    catch (failure) { setProblem(failure?.message || 'That document could not be read.'); }
-  }
-  function toggle(id) {
-    const all = list(plan?.folders).flatMap((folder) => folder.items).filter((item) => item.available);
-    const current = new Set(chosen || all.filter((item) => item.selected).map((item) => item.id));
-    if (current.has(id)) current.delete(id); else current.add(id);
-    if (current.size) setChosen(current);
-  }
-  async function start() {
-    if (!plan || !source) return;
-    setStarting(true);
-    const run = await action(() => api.createAssetKit({ source, ...(chosen ? { deliverableIds: [...chosen] } : {}), maxBudgetUsd: plan.estimate.capUsd }), `Making ${plural(plan.estimate.calls, 'asset')}. They’ll fill this folder as they’re ready.`);
-    setStarting(false);
-    if (run) onCreated(run);
-  }
-  const selected = list(plan?.folders).flatMap((folder) => folder.items).filter((item) => item.selected);
-  const pictures = selected.filter((item) => item.kind === 'image').reduce((sum, item) => sum + (item.pictures || 0), 0);
-  const tabs = [['report', 'Your reports', FileText], ['link', 'Google Doc link', Link2], ['paste', 'Paste text', ClipboardCopy]];
-  return <div className="simple-sheet" role="dialog" aria-modal="true" aria-labelledby="simple-kit-title">
-    <div className="simple-sheet-card">
-      <header className="simple-sheet-head">
-        <div><small>{step === 'source' ? 'Step 1 of 2' : fixed ? 'Channel assets' : 'Step 2 of 2'}</small><h2 id="simple-kit-title">{step === 'source' ? 'Which report should the assets come from?' : 'Check what will be made'}</h2></div>
-        <button type="button" className="simple-lightbox-close" aria-label="Close" disabled={starting} onClick={onClose}><X size={18} /></button>
-      </header>
-      {step === 'source' ? <div className="simple-sheet-body">
-        <div className="simple-segment" role="tablist" aria-label="Where the report comes from">{tabs.map(([id, label, Icon]) => <button type="button" role="tab" key={id} data-spot={`kit-dialog.${id === 'report' ? 'reports' : id}`} aria-selected={mode === id} onClick={() => { setMode(id); setProblem(''); }}><Icon size={15} aria-hidden="true" />{label}</button>)}</div>
-        {mode === 'report' ? <div className="simple-source-pick">
-          {sources.length > 6 && <label className="simple-search wide"><Search size={16} aria-hidden="true" /><input ref={first} aria-label="Search reports" placeholder="Search reports" value={query} onChange={(event) => setQuery(event.target.value)} /></label>}
-          {sources.length ? <div className="simple-source-list" role="radiogroup" aria-label="Reports">{shownSources.map((row, index) => <button type="button" role="radio" key={row.key} ref={index === 0 && sources.length <= 6 ? first : undefined} aria-checked={picked === row.assetId} onClick={() => setPicked(row.assetId)}>
-            <span className="simple-radio" aria-hidden="true" /><span><strong>{row.title}</strong><small>{[row.detail, formatDate(row.createdAt)].filter(Boolean).join(' · ')}</small></span>
-          </button>)}{!shownSources.length && <p className="simple-source-none">No reports match “{query}”.</p>}</div>
-            : <div className="simple-empty"><p>No reports yet. Approve trends to get reports written, or use a Google Doc link or pasted text.</p></div>}
-        </div>
-          : mode === 'link' ? <div className="simple-source-link">
-            {doc ? <div className="simple-source-card"><span className="simple-doc-icon"><FileText size={18} aria-hidden="true" /></span><span><strong>{doc.title}</strong><small>Google Doc · {plural(doc.characters || doc.text.length, 'character')}</small></span><button type="button" className="simple-quiet" onClick={() => { setDoc(null); setProblem(''); }}>Use another doc</button></div>
-              : <><label className="simple-field"><span>Google Doc link</span><div className="simple-inline"><input ref={first} type="url" inputMode="url" placeholder="https://docs.google.com/document/d/…" value={link} onChange={(event) => { setLink(event.target.value); setProblem(''); }} onKeyDown={(event) => { if (event.key === 'Enter') readDoc(); }} /><button type="button" className="simple-primary" disabled={reading || !link.trim()} onClick={readDoc}>{reading ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : null}{reading ? 'Reading…' : 'Read it'}</button></div></label>
-                <p className="simple-hint">Works with docs shared as “Anyone with the link”, and with any doc the Google account in Settings can open.</p></>}
-          </div>
-          : <div className="simple-source-paste">
-            <label className="simple-field"><span>Title <em>(optional)</em></span><input ref={first} value={title} maxLength={160} placeholder="Named after the first line if you leave it blank" onChange={(event) => setTitle(event.target.value)} /></label>
-            <label className="simple-field"><span>Report text</span><textarea rows={9} value={text} placeholder="Paste the trend report or brief here…" onChange={(event) => { setText(event.target.value); setFile(null); setProblem(''); }} /></label>
-            <div className="simple-paste-foot"><button type="button" className="simple-link" onClick={uploadFile}><Upload size={14} aria-hidden="true" />Or upload a .docx, .md or .txt file</button><small className={text.length > MAX_SOURCE_CHARS ? 'over' : ''}>{number(text.length)} / {number(MAX_SOURCE_CHARS)} characters</small></div>
-          </div>}
-        {problem && <p className="simple-error" role="alert">{problem}</p>}
-      </div>
-        : <div className="simple-sheet-body">
-          {problem ? <p className="simple-error" role="alert">{problem}</p> : !plan ? <div className="simple-doc-skeleton" role="status" aria-label="Reading the report"><span /><span /><span /></div> : <>
-            <div className="simple-source-card"><span className="simple-doc-icon"><FileText size={18} aria-hidden="true" /></span><span><strong>{plan.title}</strong><small>{[SOURCE_LABEL[plan.sourceKind], plural(plan.characters, 'character'), plan.evidenceCount ? plural(plan.evidenceCount, 'cited source') : '', plan.earlierRuns ? `${plural(plan.earlierRuns, 'earlier run')} in its folder` : ''].filter(Boolean).join(' · ')}</small></span>{!fixed && <button type="button" className="simple-quiet" disabled={starting} onClick={() => { setStep('source'); setPlan(null); setChosen(null); }}>Change</button>}</div>
-            <div className="simple-kit-plan" data-spot="kit-dialog.plan">{plan.folders.map((folder) => <div className="simple-kit-plan-folder" key={folder.id}>
-              <span className="simple-kit-plan-name"><Folder size={15} aria-hidden="true" />{folder.name}</span>
-              <span className="simple-kit-plan-items">{folder.items.map((item) => { const name = `${sentence(item.label.replace(/^[^—]+—\s*/, ''))}${item.kind === 'image' ? ` ×${item.pictures}` : ''}`; return <button type="button" key={item.id} className="simple-check-chip" role="checkbox" aria-checked={item.selected} aria-label={name} disabled={!item.available || starting || planning} title={!item.available ? (onSettings ? 'Turn on pictures in Settings to include these' : picturesOff) : item.kind === 'image' ? referenceTitle(item.references) : undefined} onClick={() => toggle(item.id)}>
-                <span className="simple-check" aria-hidden="true">{item.selected && <Check size={12} />}</span>{item.kind === 'image' ? <ImageIcon size={13} aria-hidden="true" /> : null}{name}
-              </button>; })}</span>
-            </div>)}</div>
-            {focused && focusNames.length > 0 && <p className="simple-hint">Ticked for your channels: {focusNames.join(', ')}. Tick more if you need them.</p>}
-            {!plan.imagesReady && (onSettings ? <p className="simple-hint">Pictures are off. <button type="button" className="simple-link" onClick={onSettings}>Turn them on in Settings</button> to add the hero graphics.</p> : <p className="simple-hint">{picturesOff} Only the written drafts are made until then.</p>)}
-            {plan.imagesReady && pictures > 0 && <p className="simple-hint" data-spot="kit-dialog.references">{referenceHint(selected)}{onSettings && <> <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>{selected.some((item) => item.references?.style || item.references?.logo) ? 'Change them in Settings' : 'Add style examples and logos in Settings'}</button></>}</p>}
-            <div className="simple-kit-estimate" data-spot="kit-dialog.estimate">
-              <div><strong>{plural(selected.length, 'asset')}</strong><small>{[plural(plan.folders.filter((folder) => folder.items.some((item) => item.selected)).length, 'folder'), pictures ? plural(pictures, 'picture') : ''].filter(Boolean).join(' · ')}</small></div>
-              {plan.route === 'codex'
-                ? <div><strong>Your Codex plan</strong><small>Codex doesn’t report costs{pictures ? '; pictures use OpenAI' : ''}</small></div>
-                : <div><strong>About {money(plan.estimate.totalUsd)}</strong><small>Stops at {money(plan.estimate.capUsd)} at most</small></div>}
-              <div><strong>About {number(plan.minutes)} minutes</strong><small>{plan.route === 'codex' ? 'Codex' : plan.estimate.modelLabel} writes{pictures ? ', OpenAI draws' : ''}</small></div>
-            </div>
-            {list(plan.warnings).length > 0 && <p className="simple-hint">{plan.warnings[0]}</p>}
-          </>}
-        </div>}
-      <footer className="simple-sheet-foot">
-        {step === 'review' && !fixed ? <button type="button" className="simple-quiet" disabled={starting} onClick={() => { setStep('source'); setPlan(null); setChosen(null); setProblem(''); }}><ArrowLeft size={15} aria-hidden="true" />Back</button> : <button type="button" className="simple-quiet" disabled={starting} onClick={onClose}>Cancel</button>}
-        {step === 'source'
-          ? <button type="button" className="simple-primary" disabled={!source || text.length > MAX_SOURCE_CHARS} onClick={() => { setProblem(''); setStep('review'); }}>Next: check what’s made<ArrowRight size={15} aria-hidden="true" /></button>
-          : <button type="button" data-spot="kit-dialog.make" className="simple-primary" {...writeProps(viewer, !plan || planning || starting || busy || !selected.length || Boolean(problem))} onClick={start}>{starting ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}{starting ? 'Starting…' : `Make ${plural(selected.length, 'asset')}`}</button>}
-      </footer>
-    </div>
-  </div>;
-}
-
-// Reports a kit can come from, as the Reports tab lists them; a trend's report and toolkit are one choice.
-export function kitSourcesFrom(reports, contentRuns) {
-  const runs = new Map(list(contentRuns).map((run) => [run.id, run])); const seen = new Set(); const rows = [];
-  for (const report of reports) {
-    const run = runs.get(report.runId);
-    if (run?.themeId && ['evidence-report', 'editorial-toolkit'].includes(report.deliverableId)) {
-      if (seen.has(run.id)) continue; seen.add(run.id);
-      const pair = reports.filter((row) => row.runId === run.id);
-      rows.push({ key: run.id, assetId: (pair.find((row) => row.deliverableId === 'evidence-report') || report).id, title: run.title || report.title || 'Trend', detail: pair.length > 1 ? 'Trends report + editorial toolkit' : 'Trends report', createdAt: report.createdAt });
-    } else rows.push({ key: report.id, assetId: report.id, title: report.title || 'Report', detail: sentence(report.channel) || 'Report', createdAt: report.createdAt });
-  }
-  return rows;
 }

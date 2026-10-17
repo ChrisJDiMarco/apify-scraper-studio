@@ -276,6 +276,12 @@
 .cs-asset-preview .cs-asset-head > .cs-panel-title { margin-bottom: 12px; }
 .cs-asset-preview h3 { font-size: 21px; line-height: 1.35; }
 .cs-asset-tools { display: flex; flex-wrap: wrap; gap: 18px; border-bottom: 1px solid var(--cs-border); padding-bottom: 20px; margin-bottom: 23px; }
+/* Ask AI about this: the one-click question and the menu of the others, as one split control. */
+.cs-ask-split { display: inline-flex; align-items: stretch; }
+.cs-ask-split > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.cs-ask-split .studio-menu-wrap > button { height: 100%; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, var(--cs-ink, currentColor) 18%, transparent); }
+/* Who already said Yes or Skip to a trend, under its tick box. */
+.cs-theme-card .cs-check small.cs-theme-decided { margin-top: 2px; }
 /* Library as folders: search, filters and the folder tree on the left; the open folder (breadcrumb, folder cards,
    file rows) and the preview stacked on the right. */
 .cs-library-selects { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }

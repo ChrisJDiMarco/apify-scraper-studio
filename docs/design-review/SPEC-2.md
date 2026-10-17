@@ -1,5 +1,9 @@
 # Studio redesign, wave 2: prompts, access, navigation, marketing team
 
+> **Status: historical design record.** Written for the redesign in commit `eaa700d` (2026-10-17). The code,
+> [`HANDOFF.md`](../../HANDOFF.md), [`ARCHITECTURE.md`](../../ARCHITECTURE.md) and
+> [`docs/roles-and-access.md`](../roles-and-access.md) are current; where they disagree with this file, they win.
+
 This spec builds on [`SPEC.md`](SPEC.md) (wave 1), and every ground rule in SPEC.md still applies. Wave 2 covers four requests:
 
 - Admins, and editors when allowed, can see and change every prompt behind research, reports and assets. They can ask Ask AI about a prompt and have it update one.
@@ -7,15 +11,8 @@ This spec builds on [`SPEC.md`](SPEC.md) (wave 1), and every ground rule in SPEC
 - A redesigned left navigation.
 - A UX pass for a Semrush marketing team that uses the studio every day.
 
-Detailed design notes from the code audits:
-
-| Topic | Notes file |
-|---|---|
-| Prompts | `scratchpad/maps/w2-0.md` |
-| Access | `scratchpad/maps/w2-1.md` |
-| Navigation and marketing UX | `scratchpad/maps/w2-2.md` |
-
-The full paths are given to each agent. **This spec wins** wherever it and the notes disagree.
+The code-audit notes this spec was written from were working files and are not in the repo. This spec, together with
+[`docs/roles-and-access.md`](../roles-and-access.md) for the access model, is the design record.
 
 ## Decisions (made; don't reopen)
 
@@ -138,7 +135,7 @@ The full paths are given to each agent. **This spec wins** wherever it and the n
 
 ### Ask AI
 - New lookup kind: `prompt` (target = prompt name or id).
-- New action kind: `edit-prompt`, with `prompt:{ promptId, blockId, text, note }`.
+- New action kind: `edit-prompt`, with `prompt:{ promptId, blockId, text, note }`. *(Since `62cb9da` the model writes one top-level `edit` object `{ ref, part, text, note }` instead, shared with `edit-report`; see SPEC.md ground rules on schema size.)*
 - New card type: `prompt-change`, with `data = { promptId, promptName, blockId, blockLabel, version, diff:[{ op, text }], problems:[string], canApply:boolean, locked }`.
 - Prompt rules:
   - Answer about prompts only from a prompt lookup.
@@ -282,7 +279,7 @@ The full paths are given to each agent. **This spec wins** wherever it and the n
    - The status chip is a menu on Library rows, Assets files and channel My assets.
    - Choosing Published asks for the live link and sets the channel adoption to Using, with that link.
    - Library and Assets get a status filter.
-9. **Why it matters, on trend cards:** novelty, MomentumBadge, "Seen in N runs", and two short real posts under "What people are saying" (from `searchRunPosts`).
+9. **Why it matters, on trend cards:** novelty, MomentumBadge, "Seen in N runs", and two short real posts. *(Built as **Show 2 real posts**, a free read through `readTrendPosts`, plus **Ask AI for more**.)*
 10. **My channels focus:**
     - People choose their channels in the account menu (`prefs.focusChannels`).
     - Assets opens on those channels, Make channel assets pre-ticks their deliverables, trend cards say "Fits Social", and the briefing gains a "Ready for your channels" section.

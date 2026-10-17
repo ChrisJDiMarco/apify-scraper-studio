@@ -68,4 +68,52 @@ describe('weekly briefing', () => {
     fireEvent.click(within(screen.getByRole('region', { name: /Ready for channels/ })).getByRole('button', { name: 'AI Overviews' }));
     expect(onOpenTarget).toHaveBeenCalledWith({ kind: 'report', id: 'asset-report', page: 'reports' });
   });
+
+  it('links each row in the Slack copy when there is a studio address, and ends with the studio link', () => {
+    const data = briefingData({ state: state(), viewer, now: NOW });
+    const text = briefingMarkdown(data, { origin: 'https://studio.example.com/' });
+    expect(text).toContain('• Agentic checkout <https://studio.example.com/#/trend/t-1|Review>');
+    expect(text).toContain('• AI Overviews <https://studio.example.com/#/report/asset-report|Read> · Using: Social');
+    expect(text.endsWith('Open the studio: https://studio.example.com/')).toBe(true);
+  });
+
+  it('never calls a week with a stopped research run quiet, and offers Try again in Next up', () => {
+    const stopped = { keys: { APIFY_API_TOKEN: true }, contentStudio: { activeWorkspaceId: 'semrush', workspaces: [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush' }], programs: [{ id: 'p', workspaceId: 'semrush', name: 'AI search pulse' }],
+      researchRuns: [{ id: 'broken', workspaceId: 'semrush', programId: 'p', status: 'failed', message: 'The app stopped during this run.', createdAt: iso(14) }] } };
+    const data = briefingData({ state: stopped, viewer, now: NOW });
+    expect(data.stopped.map((scout) => scout.runId)).toEqual(['broken']);
+    expect(briefingMarkdown(data)).toContain('*Needs attention*\n• Research stopped: AI search pulse (The app stopped during this run.)');
+    const onRetryRun = vi.fn();
+    render(<WeeklyBriefing state={stopped} viewer={viewer} api={{}} now={NOW} onRetryRun={onRetryRun} onOpenTarget={vi.fn()} />);
+    expect(screen.queryByRole('heading', { name: 'Quiet week so far.' })).not.toBeInTheDocument();
+    const next = within(screen.getByRole('region', { name: 'Next up' }));
+    expect(next.getByText('Research stopped · AI search pulse')).toBeInTheDocument();
+    fireEvent.click(next.getByRole('button', { name: 'Try again' }));
+    expect(onRetryRun).toHaveBeenCalledWith('broken');
+  });
+
+  it('puts approved trends waiting for reports in Next up, through the layout’s Write reports', () => {
+    const approved = state(); approved.contentStudio.researchRuns[0].decisions = { 't-1': 'approved' };
+    const onWriteReports = vi.fn();
+    render(<WeeklyBriefing state={approved} viewer={viewer} api={{}} now={NOW} onWriteReports={onWriteReports} onOpenTarget={vi.fn()} onDecide={vi.fn()} />);
+    const next = within(screen.getByRole('region', { name: 'Next up' }));
+    expect(next.getByText('1 approved trend is waiting for reports')).toBeInTheDocument();
+    expect(next.queryByText(/need your OK|needs your OK/)).not.toBeInTheDocument(); // the Needs your OK card already shows those
+    fireEvent.click(next.getByRole('button', { name: 'Write reports' }));
+    expect(onWriteReports).toHaveBeenCalledOnce();
+  });
+
+  it('shows an admin the setup checklist until the studio is ready, and hides it on request', () => {
+    const fresh = { keys: {}, settings: {}, contentStudio: { activeWorkspaceId: 'semrush', workspaces: [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush' }] } };
+    const onOpenTarget = vi.fn(); const onCreate = vi.fn();
+    render(<WeeklyBriefing state={fresh} viewer={{ ...viewer, id: 'member-setup' }} api={{}} now={NOW} web={false} onOpenTarget={onOpenTarget} onCreate={onCreate} />);
+    const setup = within(screen.getByRole('region', { name: /Get the studio ready/ }));
+    expect(setup.getByText('0 of 5')).toBeInTheDocument();
+    fireEvent.click(setup.getByRole('button', { name: 'New program' }));
+    expect(onCreate).toHaveBeenCalledWith('program');
+    fireEvent.click(setup.getAllByRole('button', { name: 'Open Settings' })[0]);
+    expect(onOpenTarget).toHaveBeenCalledWith({ kind: 'page', page: 'settings' });
+    fireEvent.click(setup.getByRole('button', { name: 'Hide' }));
+    expect(screen.queryByRole('region', { name: /Get the studio ready/ })).not.toBeInTheDocument();
+  });
 });

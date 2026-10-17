@@ -6,7 +6,7 @@ This is a product hypothesis informed by published evidence, not customer valida
 
 ## Implementation follow-through
 
-The same-day implementation now includes all eight playbooks, saved brand/ICP context, imports with provenance and exact-duplicate handling, SERP normalization, snapshot comparison and change-brief datasets, manual source check-ins, a coverage/review gate, evidence drawers, action ownership, and portable exports. Claude CLI is now the primary AI route. The four guided social Actors and Claude were live-tested separately; the new research workflow passed 11 native checks with disposable fixtures and no external calls ([verification](../verification/2026-09-27-research-upgrades.md)). The original prioritization below remains the rationale, not a claim that shared enterprise architecture or automated distribution is complete.
+The same-day implementation now includes all eight playbooks, saved brand/ICP context, imports with provenance and exact-duplicate handling, SERP normalization, snapshot comparison and change-brief datasets, manual source check-ins, a coverage/review gate, evidence drawers, action ownership, and portable exports. Claude CLI is now the primary AI route. The four guided social Actors and Claude were live-tested separately; the new research workflow passed 11 native checks with disposable fixtures and no external calls ([verification](../verification-2026-09/2026-09-27-research-upgrades.md)). The original prioritization below remains the rationale, not a claim that shared enterprise architecture or automated distribution is complete.
 
 ## What the research changes
 

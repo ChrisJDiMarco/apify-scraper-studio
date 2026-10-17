@@ -250,6 +250,19 @@ describe('search and purge', () => {
     expect(h.store.searchConversations(SAM, 'pricing', 5)).toEqual([]);
     expect(h.store.searchConversations(ALEX, 'the and of', 5)).toEqual([]);
   });
+  it('keeps only good matches when asked to (Ask AI’s related conversations), not any shared common word', () => {
+    const h = harness();
+    h.store.appendTurn(ALEX, turn('Should we write about pricing pages?', { assistant: { content: 'We decided to skip the pricing pages trend this month.' } }));
+    for (let i = 0; i < 6; i += 1) h.store.appendTurn(ALEX, turn(`Question ${i} about budgets and runs`, { assistant: { content: `Answer ${i} about the research run budget.` } }));
+    expect(h.store.searchConversations(ALEX, 'tell me about the run', 2, { workspaceId: 'general' })).toHaveLength(2);
+    expect(h.store.searchConversations(ALEX, 'tell me about the run', 2, { workspaceId: 'general', minScore: 3 })).toEqual([]);
+    expect(h.store.searchConversations(ALEX, 'what did we decide about pricing pages', 2, { workspaceId: 'general', minScore: 3 }).map((row) => row.title)).toEqual(['Should we write about pricing pages?']);
+  });
+  it('tells the next answer which buttons were dropped because nothing matched', () => {
+    const h = harness();
+    const saved = h.store.appendTurn(ALEX, turn('Publish the zero-click post', { assistant: { content: 'I couldn’t find that post.', actions: [], cards: [], unresolved: ['the zero-click post'] } }));
+    expect(h.store.history(ALEX, saved.conversation.id).turns[1].content).toContain('[Couldn’t find, so no button was offered: the zero-click post]');
+  });
 
   it('purges a removed member’s conversations and memory, leaving everyone else’s', () => {
     const h = harness();

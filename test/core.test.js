@@ -12,12 +12,10 @@ import apifyRunner from '../src/shared/apify-runner.js';
 import codexRunner from '../src/shared/codex-runner.js';
 import intelligence from '../src/shared/intelligence.js';
 import { analysesForDataset, codexEventLabel, codexEventLabels, latestAnalysisForDataset, sortAnalysesLatestFirst } from '../src/shared/analysis.js';
-import { cardDraftFromInput, cardFromAsset } from '../src/shared/assets.js';
 import { buildPipeline, countByStatus, derivePlatformBreakdown, groupThreads, summarizeStudio } from '../src/shared/dashboard.js';
 import { datasetItemKey, datasetItemSearchText } from '../src/shared/dataset-view.js';
 import { readinessItems } from '../src/shared/health.js';
 import { RECIPE_TEMPLATES } from '../src/shared/recipe-templates.js';
-import { runDurationLabel, runRecipeLabel, runSearchText } from '../src/shared/run-view.js';
 import workspace from '../src/shared/workspace.js';
 import validation from '../src/shared/validation.js';
 import sheetsBridge from '../src/shared/google-sheets.js';
@@ -912,61 +910,6 @@ describe('asset workflow config', () => {
   });
 });
 
-describe('asset helpers', () => {
-  it('turns a saved asset into a follow-up Kanban card', () => {
-    const card = cardFromAsset({
-      title: 'Lead list',
-      channel: 'sales',
-      assetType: 'lead-list',
-      status: 'done',
-      markdown: `First line\n\n${'x'.repeat(700)}`,
-      evidenceIds: ['a', 'b'],
-    });
-
-    expect(card).toMatchObject({
-      title: 'Lead list',
-      column: 'ready',
-      tags: ['sales', 'lead-list'],
-      signalCount: '2',
-      signalChange: 'Asset',
-      priority: 'done',
-    });
-    expect(card.description.length).toBe(500);
-  });
-
-  it('builds sensible cards from sparse assets', () => {
-    expect(cardFromAsset({})).toMatchObject({
-      title: 'Asset follow-up',
-      description: '',
-      column: 'ready',
-      tags: [],
-      signalCount: '',
-      priority: 'asset',
-    });
-  });
-
-  it('builds a manual Kanban card draft with dataset context and clean tags', () => {
-    expect(cardDraftFromInput({
-      id: 'card-1',
-      title: '  AI search buyers  ',
-      description: ' Watch objections ',
-      tags: 'reddit, leads, reddit,  ',
-    }, { id: 'ds-1', itemCount: 42 })).toMatchObject({
-      id: 'card-1',
-      title: 'AI search buyers',
-      description: 'Watch objections',
-      column: 'detected',
-      tags: ['reddit', 'leads'],
-      datasetId: 'ds-1',
-      signalCount: 42,
-      signalChange: 'Apify',
-      priority: 'manual',
-    });
-
-    expect(() => cardDraftFromInput({ title: '   ' })).toThrow(/Card title/);
-  });
-});
-
 describe('dataset view helpers', () => {
   it('prefers stable social IDs before falling back to row index', () => {
     expect(datasetItemKey({ id: 'normalized-1' }, 4)).toBe('normalized-1');
@@ -986,31 +929,6 @@ describe('dataset view helpers', () => {
     })).toContain('buying signal');
 
     expect(datasetItemSearchText({ nested: { handle: 'apify' } }, true)).toContain('"handle":"apify"');
-  });
-});
-
-describe('run view helpers', () => {
-  it('labels runs from recipe names before falling back to Apify IDs', () => {
-    expect(runRecipeLabel({ actorId: 'apify/reddit' }, { name: 'Reddit pulse' })).toBe('Reddit pulse');
-    expect(runRecipeLabel({ actorId: 'apify/reddit' })).toBe('apify/reddit');
-    expect(runRecipeLabel({ taskId: 'task-1' })).toBe('task-1');
-    expect(runRecipeLabel({})).toBe('Untitled run');
-  });
-
-  it('formats run duration without needing live timers', () => {
-    expect(runDurationLabel({ startedAt: '2026-06-27T10:00:00.000Z', finishedAt: '2026-06-27T10:00:42.000Z' })).toBe('42s');
-    expect(runDurationLabel({ startedAt: '2026-06-27T10:00:00.000Z', finishedAt: '2026-06-27T10:02:01.000Z' })).toBe('2m');
-    expect(runDurationLabel({ startedAt: '2026-06-27T10:00:00.000Z', status: 'running' })).toBe('Running');
-  });
-
-  it('builds searchable text for run triage', () => {
-    expect(runSearchText({
-      status: 'failed',
-      platform: 'reddit',
-      actorId: 'apify/reddit',
-      datasetId: 'dataset-1',
-      error: 'Rate limit',
-    }, { name: 'Subreddit pulse' })).toContain('Rate limit');
   });
 });
 

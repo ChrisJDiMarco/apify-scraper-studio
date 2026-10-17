@@ -355,7 +355,7 @@ describe('Simple reader', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(confirm).toHaveBeenCalledWith('Leave without saving your edits?');
-    expect(screen.queryByRole('textbox', { name: /^Text of / })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: /^Text of / })).not.toBeInTheDocument()); // the editor's Cancel asks in the in-app dialog
   });
 
   it('names the channels that used a report for an editor too, who gets no channel list', async () => {

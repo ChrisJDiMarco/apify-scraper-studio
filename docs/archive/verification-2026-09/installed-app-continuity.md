@@ -13,7 +13,7 @@ env -u ELECTRON_RUN_AS_NODE -u APIFY_API_TOKEN -u GOOGLE_SHEETS_WEBHOOK_URL -u G
 In another terminal, from the repository, run:
 
 ```sh
-node scripts/installed-app-continuity.cjs --app '/Applications/Scraper Studio.app' --port 9338 --clean-launch-confirmed --expected-datasets 4 --image-credential-file '/Users/chrisdimarco/Projects/apify-scraper-studio/.env.local'
+node scripts/installed-app-continuity.cjs --app '/Applications/Scraper Studio.app' --port 9338 --clean-launch-confirmed --expected-datasets 4 --image-credential-file '.env.local'
 ```
 
 Requires Node with built-in `fetch` and `WebSocket` (the current Node 26 runtime supports both). The script never starts another app or writes a receipt itself; save its stdout to a new verification artifact if desired. Quit the debugging launch and reopen the installed app normally after validation.

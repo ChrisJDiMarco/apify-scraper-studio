@@ -161,6 +161,46 @@ describe('workbook store', () => {
     expect(api.saveEdits({ workbookId: 'research-1', edits: { sheets: { x: { 'evidence-1': { Theme: 'GEO' } } } } })).toEqual(expect.objectContaining({ workbookId: 'research-1' }));
   });
 
+  // Two editors on one shared sheet (fortify D4): each save writes only the cells that person changed.
+  it('merges two people’s whole-sheet saves cell by cell instead of the last one replacing the file', async () => {
+    let who = { id: 'member-sam', name: 'Sam' };
+    const { api } = store({ caller: () => who });
+    const as = async (person, work) => { who = person; return work(); };
+    const sam = { id: 'member-sam', name: 'Sam' }; const riley = { id: 'member-riley', name: 'Riley' };
+    await as(sam, () => api.read({ workbookId: 'research-1' }));
+    await as(riley, () => api.read({ workbookId: 'research-1' })); // Riley's page loaded before Sam saved anything
+    await as(sam, () => api.saveEdits({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: { r3: { Owner: 'Sam' } } } } }));
+    await as(riley, () => api.saveEdits({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: { r7: { Owner: 'Riley' } } } } }));
+    expect((await as(sam, () => api.read({ workbookId: 'research-1' }))).edits.sheets).toEqual({ themes: { r3: { Owner: 'Sam' }, r7: { Owner: 'Riley' } } });
+    // Riley edits the cell Sam already changed: Sam's value stays, Riley is told who changed it, and her other cell saves.
+    await expect(as(riley, () => api.saveEdits({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: { r3: { Owner: 'Riley' }, r7: { Owner: 'Riley' }, r9: { Owner: 'Riley' } } } } }))).rejects.toMatchObject({ status: 409, code: 'sheetConflict', message: expect.stringMatching(/^Sam changed 1 cell you edited, so their value was kept\. Reopen the sheet/) });
+    const after = (await as(sam, () => api.read({ workbookId: 'research-1' }))).edits;
+    expect(after.sheets).toEqual({ themes: { r3: { Owner: 'Sam' }, r7: { Owner: 'Riley' }, r9: { Owner: 'Riley' } } });
+    expect(after.meta).toBeUndefined(); // who changed each cell stays on the server
+    // Sam clears his own cell (a cell missing from his snapshot): only that cell goes. An older page can't clear Riley's
+    // cells that way (it may simply have missed a refresh); it is told, and her cell stays.
+    await as(sam, () => api.saveEdits({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: { r7: { Owner: 'Riley' }, r9: { Owner: 'Riley' } } } } }));
+    expect((await as(riley, () => api.read({ workbookId: 'research-1' }))).edits.sheets).toEqual({ themes: { r7: { Owner: 'Riley' }, r9: { Owner: 'Riley' } } });
+    await as(sam, () => api.read({ workbookId: 'research-1' }));
+    await expect(as(sam, () => api.saveEdits({ workbookId: 'research-1', edits: { version: 1, sheets: { themes: { r7: { Owner: 'Riley' } } } } }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^Riley changed 1 cell you edited/) });
+    expect((await as(riley, () => api.read({ workbookId: 'research-1' }))).edits.sheets.themes.r9).toEqual({ Owner: 'Riley' });
+  });
+
+  it('applies cell changes against the value each page saw and returns conflicts as data', async () => {
+    let who = { id: 'member-sam', name: 'Sam' };
+    const { api } = store({ caller: () => who });
+    const first = api.saveEdits({ workbookId: 'research-1', changes: [{ sheetId: 'themes', rowKey: 'r1', columnKey: 'Owner', value: 'Sam', base: null }] });
+    expect(first).toMatchObject({ workbookId: 'research-1', conflicts: [], edits: { version: 1, sheets: { themes: { r1: { Owner: 'Sam' } } } } });
+    who = { id: 'member-riley', name: 'Riley' };
+    const second = api.saveEdits({ workbookId: 'research-1', changes: [{ sheetId: 'themes', rowKey: 'r1', columnKey: 'Owner', value: 'Riley', base: null }, { sheetId: 'themes', rowKey: 'r2', columnKey: 'Owner', value: 'Riley', base: null }] });
+    expect(second.conflicts).toEqual([{ sheetId: 'themes', rowKey: 'r1', columnKey: 'Owner', stored: 'Sam', by: 'Sam' }]);
+    expect(second.edits.sheets).toEqual({ themes: { r1: { Owner: 'Sam' }, r2: { Owner: 'Riley' } } });
+    // A revert (value null) against the right base removes the cell; a snapshot with its own base works the same way.
+    expect(api.saveEdits({ workbookId: 'research-1', changes: [{ sheetId: 'themes', rowKey: 'r2', columnKey: 'Owner', value: null, base: 'Riley' }] }).edits.sheets).toEqual({ themes: { r1: { Owner: 'Sam' } } });
+    expect(api.saveEdits({ workbookId: 'research-1', base: { sheets: { themes: { r1: { Owner: 'Sam' } } } }, edits: { sheets: { themes: { r1: { Owner: 'Sam' }, r4: { Note: 'x' } } } } }).edits.sheets).toEqual({ themes: { r1: { Owner: 'Sam' }, r4: { Note: 'x' } } });
+    expect(() => api.saveEdits({ workbookId: 'research-1', changes: [{ sheetId: 'themes', rowKey: 'r1' }] })).toThrow(/sheet, row and column/);
+  });
+
   it('pulls Google Sheets tabs through the bridge in the workbook’s own order', async () => {
     const readGoogleTabs = vi.fn(async () => ({ title: 'Internal NEW - Golden Thread Data Sheet', order: ['Theme Repository', 'Twitter'], tabs: { Twitter: [{ post_url: 'https://x.com/a/1', likeCount: 3, isQuote: true }], 'Theme Repository': [{ Theme: 'GEO', Novelty: 'NEW ANGLE' }], Empty: [] } }));
     const { api } = store({ readGoogleTabs });

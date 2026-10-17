@@ -12,6 +12,9 @@ const { buildXlsx, exactNumber } = require('../shared/xlsx-writer');
 
 const MAX_EDITS_BYTES = 8 * 1024 * 1024;
 const MAX_EDIT_CHARS = 50000;
+const MAX_STORED_CELLS = 6000000; // workbook-import.js MAX_WORKBOOK_CELLS: a pulled Google Sheet gets the same bound
+const MAX_CHANGES = 20000;
+const MAX_SEEN = 64;
 const KEY_COLUMNS = /^(post_url|url|link|permalink|id|item_id|post_id|theme|category)$/i;
 // Tabs the Golden Thread workbook uses; a pull asks for these plus any the person names.
 const GOLDEN_THREAD_TABS = ['Theme Repository', 'Twitter', 'Reddit', 'LinkedIn', 'Theme Summary Data', 'Post Counts Reference', 'Trend Velocity', 'Taxonomy Lookup', 'Batch Analysis Log', 'Active Log'];
@@ -32,7 +35,9 @@ function sheetFromRows(name, rows, usedIds, frozenColumns = 0) {
   return { id, name: String(name).slice(0, 120), columns, rows: data, rowKeys: data.map((row, index) => keyIndex >= 0 ? `k:${row[keyIndex].slice(0, 300)}` : `r${index + 2}`), ...(frozenColumns ? { frozenColumns } : {}) };
 }
 
-function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () => 'general', readGoogleTabs, clock = () => new Date() } = {}) {
+// `caller` names who is reading or saving (the browser studio's signed-in person), so two people's edits to one sheet merge
+// cell by cell instead of the last save replacing the file.
+function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () => 'general', readGoogleTabs, clock = () => new Date(), caller = () => null } = {}) {
   if (!root || !contentWorkspace) fail('Workbook storage needs a data folder and the studio workspace.');
   fs.mkdirSync(root, { recursive: true });
   const indexFile = path.join(root, 'index.json');
@@ -51,6 +56,14 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
   // Every workspace has its own Trend tracker under the same id, so its edits are kept per workspace.
   const editsKey = (id) => (id === TREND_TRACKER_ID ? `${id}-${activeWorkspaceId()}` : id);
   const readEdits = (id) => readJson(editsFile(editsKey(id)), { version: 1, sheets: {} });
+  // What each person last read or saved of a sheet's edits: the base an older page's whole-snapshot save is compared with,
+  // so only the cells that person changed are written (see saveEdits).
+  const seen = new Map();
+  const callerOf = () => { let value = null; try { value = caller(); } catch (_) { value = null; } return { id: String(value?.id || 'local').slice(0, 320), name: String(value?.name || '').slice(0, 120) }; };
+  const seenKey = (id) => `${callerOf().id}|${editsKey(id)}`;
+  function remember(key, sheets) { seen.delete(key); seen.set(key, sheets); while (seen.size > MAX_SEEN) seen.delete(seen.keys().next().value); }
+  // The edits a page receives: the cells only (who changed each cell stays on the server, for conflict messages).
+  function editsForPage(id) { const stored = readEdits(id); const edits = { version: 1, sheets: stored.sheets || {}, ...(stored.savedAt ? { savedAt: stored.savedAt } : {}) }; remember(seenKey(id), edits.sheets); return edits; }
   const importedMeta = (id) => readIndex().workbooks.find((row) => row.id === id && row.workspaceId === activeWorkspaceId());
   const trackerListing = () => { try { return contentWorkspace.listTrendHistorySources?.() || null; } catch (_) { return null; } };
 
@@ -71,23 +84,26 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
       const tracker = trackerListing(); if (!tracker) fail('The Trend tracker isn’t available on this studio host yet.');
       const key = `${activeWorkspaceId()}|${tracker.version}`;
       if (trackerCache?.key !== key) trackerCache = { key, workbook: trendHistory().buildTrendTrackerWorkbook(await contentWorkspace.readTrendHistorySource(), { now: clock() }) };
-      return { ...trackerCache.workbook, edits: readEdits(id) };
+      return { ...trackerCache.workbook, edits: editsForPage(id) };
     }
     const meta = importedMeta(id);
-    if (meta) { const workbook = readJson(workbookFile(id), null); if (!workbook) fail('This imported workbook is missing its data. Import the file again.'); return { ...workbook, kind: 'import', source: meta.source, edits: readEdits(id) }; }
+    if (meta) { const workbook = readJson(workbookFile(id), null); if (!workbook) fail('This imported workbook is missing its data. Import the file again.'); return { ...workbook, kind: 'import', source: meta.source, edits: editsForPage(id) }; }
     const listing = contentWorkspace.listResearchWorkbookSources().find((row) => row.runId === id);
     if (!listing) fail('This workbook is not in the selected workspace.');
     // Trend Velocity counts runs across the workspace, so a newer run refreshes older runs' workbooks too.
     const version = `${listing.version}|${trackerListing()?.version || ''}`;
     const cached = researchCache.get(id);
-    if (cached?.version === version) return { ...cached.workbook, edits: readEdits(id) };
+    if (cached?.version === version) return { ...cached.workbook, edits: editsForPage(id) };
     const workbook = buildResearchWorkbook(await contentWorkspace.readResearchWorkbookSource({ runId: id }));
     researchCache.set(id, { version, workbook });
     while (researchCache.size > 3) researchCache.delete(researchCache.keys().next().value);
-    return { ...workbook, edits: readEdits(id) };
+    return { ...workbook, edits: editsForPage(id) };
   }
 
   function store({ parsed, source, workbookId }) {
+    // Rows can be ragged; each sheet is stored as rows × its widest row, so that is what is counted.
+    const cells = parsed.sheets.reduce((sum, sheet) => sum + sheet.rows.length * sheet.rows.reduce((width, row) => Math.max(width, row.length), 0), 0);
+    if (cells > MAX_STORED_CELLS) fail('This workbook has more cells than the studio can import at once. Split it into smaller files.');
     const usedIds = new Set();
     const sheets = parsed.sheets.filter((sheet) => sheet.rows.length).map((sheet) => sheetFromRows(sheet.name, sheet.rows, usedIds, sheet.frozenColumns));
     if (!sheets.length) fail('That file has no sheets with cells to show.');
@@ -122,25 +138,54 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
     return store({ parsed: { name: response.title || 'Google Sheet', sheets, warnings: [] }, workbookId, source: { kind: 'google-sheets', spreadsheetUrl: url } });
   }
 
-  function saveEdits({ workbookId, edits } = {}) {
+  // Edits merge cell by cell, so two people (or two tabs) on one sheet never erase each other's work. Three shapes:
+  //   { changes: [{ sheetId, rowKey, columnKey, value: string|null, base: string|null }] }: value null reverts the cell;
+  //     base is the stored edit the page last saw. A cell someone else changed since comes back in `conflicts`, unsaved.
+  //   { edits, base }: a whole snapshot plus the edits the page loaded; the difference is applied as changes.
+  //   { edits }: an older page's whole snapshot, compared with what this person last read or saved. A conflict there is
+  //     reported as an error after the other cells are saved, because that page only shows errors.
+  // Each cell remembers who wrote it last (meta, kept on the server), for conflict messages.
+  // Node runs this read-modify-write without interruption, so no lock is needed.
+  function saveEdits({ workbookId, edits, base, changes } = {}) {
     const id = safeId(workbookId);
     const tracker = id === TREND_TRACKER_ID && Boolean(trackerListing());
     if (!tracker && !importedMeta(id) && !contentWorkspace.listResearchWorkbookSources().some((row) => row.runId === id)) fail('This workbook is not in the selected workspace.');
-    if (!edits || typeof edits !== 'object' || Array.isArray(edits) || typeof edits.sheets !== 'object') fail('Edits must be grouped by sheet.');
-    const clean = { version: 1, sheets: {} };
-    for (const [sheetId, rows] of Object.entries(edits.sheets)) {
-      if (!rows || typeof rows !== 'object') continue;
-      for (const [rowKey, cells] of Object.entries(rows)) {
-        if (!cells || typeof cells !== 'object') continue;
-        for (const [columnKey, value] of Object.entries(cells)) {
-          if (typeof value !== 'string' || value.length > MAX_EDIT_CHARS) fail('A cell can hold up to 50,000 characters of text.');
-          ((clean.sheets[String(sheetId).slice(0, 120)] ||= {})[String(rowKey).slice(0, 320)] ||= {})[String(columnKey).slice(0, 200)] = value;
-        }
-      }
+    const who = callerOf(); const key = seenKey(id);
+    let list; let snapshot = null; let older = false;
+    if (Array.isArray(changes)) list = cleanChanges(changes);
+    else {
+      if (!edits || typeof edits !== 'object' || Array.isArray(edits) || typeof edits.sheets !== 'object') fail('Edits must be grouped by sheet.');
+      snapshot = cleanSheets(edits.sheets);
+      const known = base && typeof base === 'object' && !Array.isArray(base) && base.sheets && typeof base.sheets === 'object' ? cleanSheets(base.sheets) : seen.get(key);
+      older = !base;
+      // With no known base (the server restarted under an open page) nothing is removed: only the cells the page holds are written.
+      list = known ? diffSheets(known, snapshot) : cellsOf(snapshot).map((cell) => ({ ...cell, base: undefined }));
     }
-    if (JSON.stringify(clean).length > MAX_EDITS_BYTES) fail('This workbook has too many edits to save. Export it and start a fresh copy.');
-    writeJson(editsFile(editsKey(id)), { ...clean, savedAt: stamp() });
-    return { workbookId: id, savedAt: stamp() };
+    const current = readEdits(id); const sheets = current.sheets && typeof current.sheets === 'object' ? current.sheets : {}; const meta = current.meta && typeof current.meta === 'object' ? current.meta : {};
+    const conflicts = []; let changed = 0; const at = stamp();
+    for (const change of list) {
+      const stored = sheets[change.sheetId]?.[change.rowKey]?.[change.columnKey] ?? null;
+      if (stored === change.value) continue;
+      const writer = meta[change.sheetId]?.[change.rowKey]?.[change.columnKey] || null;
+      // An older page may have missed a refresh, so the cells it no longer holds are cleared only when this person wrote
+      // them (or nobody is recorded); clearing someone else's cell needs a page that sends its base.
+      const othersCell = older && change.value === null && writer?.id && writer.id !== who.id;
+      if ((change.base !== undefined && stored !== change.base) || othersCell) { conflicts.push({ sheetId: change.sheetId, rowKey: change.rowKey, columnKey: change.columnKey, stored, by: writer?.by || '' }); continue; }
+      if (change.value === null) { setCell(sheets, change, undefined); setCell(meta, change, undefined); }
+      else { setCell(sheets, change, change.value); setCell(meta, change, { by: who.name, id: who.id, at }); }
+      changed++;
+    }
+    const saved = { version: 1, sheets, meta, savedAt: changed ? at : current.savedAt || '' };
+    if (changed) {
+      if (JSON.stringify(saved).length > MAX_EDITS_BYTES) fail('This workbook has too many edits to save. Export it and start a fresh copy.');
+      writeJson(editsFile(editsKey(id)), saved);
+    }
+    if (snapshot) remember(key, snapshot); // what this page now shows, conflicts included: its next snapshot is compared with it
+    if (older) {
+      if (conflicts.length) throw conflictError(conflicts);
+      return { workbookId: id, savedAt: saved.savedAt || at };
+    }
+    return { workbookId: id, savedAt: saved.savedAt || at, edits: { version: 1, sheets }, conflicts };
   }
 
   function remove({ workbookId } = {}) {
@@ -161,6 +206,55 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
   }
 
   return { list, read, importFile, pullGoogleSheet, saveEdits, remove, rename };
+}
+
+// Edits as sent by a page, checked and bounded: { [sheetId]: { [rowKey]: { [columnKey]: text } } }.
+function cleanSheets(input) {
+  const clean = {};
+  for (const [sheetId, rows] of Object.entries(input || {})) {
+    if (!rows || typeof rows !== 'object') continue;
+    for (const [rowKey, cells] of Object.entries(rows)) {
+      if (!cells || typeof cells !== 'object') continue;
+      for (const [columnKey, value] of Object.entries(cells)) {
+        if (typeof value !== 'string' || value.length > MAX_EDIT_CHARS) fail('A cell can hold up to 50,000 characters of text.');
+        ((clean[String(sheetId).slice(0, 120)] ||= {})[String(rowKey).slice(0, 320)] ||= {})[String(columnKey).slice(0, 200)] = value;
+      }
+    }
+  }
+  if (JSON.stringify(clean).length > MAX_EDITS_BYTES) fail('This workbook has too many edits to save. Export it and start a fresh copy.');
+  return clean;
+}
+const cellsOf = (sheets) => Object.entries(sheets).flatMap(([sheetId, rows]) => Object.entries(rows).flatMap(([rowKey, cells]) => Object.entries(cells).map(([columnKey, value]) => ({ sheetId, rowKey, columnKey, value }))));
+// What changed between the edits a page started from and the snapshot it sends now; a cell gone from the snapshot was reverted.
+function diffSheets(base, next) {
+  const list = [];
+  for (const cell of cellsOf(next)) { const before = base[cell.sheetId]?.[cell.rowKey]?.[cell.columnKey] ?? null; if (before !== cell.value) list.push({ ...cell, base: before }); }
+  for (const cell of cellsOf(base)) if (next[cell.sheetId]?.[cell.rowKey]?.[cell.columnKey] === undefined) list.push({ ...cell, value: null, base: cell.value });
+  return list;
+}
+function cleanChanges(changes) {
+  if (changes.length > MAX_CHANGES) fail('Save fewer cells at a time.');
+  return changes.map((change) => {
+    if (!change || typeof change !== 'object' || ['sheetId', 'rowKey', 'columnKey'].some((field) => typeof change[field] !== 'string' || !change[field])) fail('Each change needs its sheet, row and column.');
+    const value = change.value ?? null; const base = change.base === undefined ? null : change.base;
+    if ((value !== null && (typeof value !== 'string' || value.length > MAX_EDIT_CHARS)) || (base !== null && typeof base !== 'string')) fail('A cell can hold up to 50,000 characters of text.');
+    return { sheetId: change.sheetId.slice(0, 120), rowKey: change.rowKey.slice(0, 320), columnKey: change.columnKey.slice(0, 200), value, base };
+  });
+}
+// Sets (or, with undefined, removes) one cell in a sheets/rows/cells tree, dropping rows and sheets left empty.
+function setCell(tree, { sheetId, rowKey, columnKey }, value) {
+  if (value === undefined) {
+    const row = tree[sheetId]?.[rowKey]; if (!row) return;
+    delete row[columnKey]; if (!Object.keys(row).length) delete tree[sheetId][rowKey]; if (!Object.keys(tree[sheetId]).length) delete tree[sheetId];
+    return;
+  }
+  ((tree[sheetId] ||= {})[rowKey] ||= {})[columnKey] = value;
+}
+function conflictError(conflicts) {
+  const names = [...new Set(conflicts.map((entry) => entry.by).filter(Boolean))];
+  const who = names.length ? names.slice(0, 2).join(' and ') : 'Someone else';
+  const cells = conflicts.length === 1 ? '1 cell' : `${conflicts.length.toLocaleString('en-US')} cells`;
+  return Object.assign(new Error(`${who} changed ${cells} you edited, so ${conflicts.length === 1 ? 'their value was' : 'their values were'} kept. Reopen the sheet to see the current values; your other changes are saved.`), { status: 409, code: 'sheetConflict', conflicts });
 }
 
 function sheetValue(value) {

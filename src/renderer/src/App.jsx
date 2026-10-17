@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, CalendarDays, ChevronRight, Command, Globe2, Inbox, LoaderCircle, RefreshCw, Repeat2, ScrollText, Sparkles, Workflow, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, CheckCheck, ChevronRight, ClipboardCopy, Command, Globe2, Inbox, ListChecks, LoaderCircle, RefreshCw, Repeat2, ScrollText, Sparkles, UserRound, Workflow, X } from 'lucide-react';
 import { AutomationView } from './automation-view.jsx';
 import { DatasetsView, ReportsView } from './dataset-report-views.jsx';
 import { CommandPalette, MissionCommandCenter } from './mission-command.jsx';
@@ -21,17 +21,22 @@ import { ContentStudioView } from './content-studio-view.jsx';
 import { HomeView } from './home-view.jsx';
 import { SettingsView } from './settings-view.jsx';
 import { HelpAssistant } from './help-assistant.jsx';
-import { useStudioActions } from './studio-actions.js';
+import { canWriteReports, useStudioActions } from './studio-actions.js';
+import { KitCreatorHost, kitSourcesFrom } from './kit-creator.jsx';
+import { useAnnouncingApi } from './help-images.js';
+import { defaultProgram, lastProgramId } from './choices.js';
+import { nextSteps } from './next-steps.js';
+import { briefingData, briefingMarkdown } from './weekly-briefing.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { SheetsView } from './sheets-view.jsx';
 import { SimpleMode } from './simple-mode.jsx';
 import { ChannelBottomNav, NAV_ICONS, StudioSidebar, StudioTopBar } from './studio-sidebar.jsx';
 import { DATA_TOOLS, DATA_TOOL_IDS, PAGE_LABELS, STUDIO_PAGES, buildNav, generalStudioTabs, isChannelViewer, isRealAdmin, navPages } from './nav-model.js';
-import { InboxView, inboxUnread } from './inbox-view.jsx';
+import { InboxView, inboxUnread, markInboxRead } from './inbox-view.jsx';
 import { CalendarView } from './calendar-view.jsx';
 import { PromptLibrary } from './prompt-library.jsx';
-import { deepLinkTarget, shareOrigin, useDeepLink } from './deep-links.js';
-import { NoAccess, PreviewBanner, useNarrow } from './role-screens.jsx';
+import { LINK_COPIED, deepLinkTarget, linkFor, shareOrigin, useDeepLink } from './deep-links.js';
+import { NoAccess, PreviewBanner, copyText, useNarrow } from './role-screens.jsx';
 import { ChannelAssets, ChannelPlan, ChannelTrends } from './channel-owner.jsx';
 import { AnalyticsView } from './analytics-view.jsx';
 import { PeopleView } from './people-view.jsx';
@@ -49,7 +54,8 @@ const KEY_CONSEQUENCE = {
   GOOGLE_DOCS_ACCESS_TOKEN: ['Google Docs access', 'Importing Google Docs and publishing to Drive stop until you reconnect.'],
   MONDAY_API_TOKEN: ['Monday.com', 'Trend board syncing stops until you reconnect.'],
 };
-const confirmCancel = () => window.confirm('Cancel this job? Anything it already finished is kept.');
+// The in-app question before a data job is cancelled (the Working popover and Scraper runs).
+const CANCEL_JOB = { title: 'Cancel this job?', lines: ['Anything it already finished is kept.'], confirmLabel: 'Cancel job', cancelLabel: 'Keep it running', tone: 'danger' };
 
 // The pages themselves (labels, icons, groups, ⌘ numbers) live in nav-model.js, which the sidebar, the palette and the
 // shortcuts all read. App keeps what routing needs: which ids are studio views, which are app pages, and the Studio
@@ -234,6 +240,14 @@ function StudioApp({ api }) {
   const settingsAllowed = can('saveSettings') && !hiddenPages.has('settings');
   const askAllowed = Boolean(api.askHelp) && can('askHelp');
   const askAdmin = adminNames(state, 'an admin');
+  // What a page this role can't open says. Settings and People are admin-only (roles.json lock 'admin'); every other
+  // page is a capability an admin can grant to this role or this person, so it names whom to ask.
+  const pageOffNotice = (view) => {
+    if (view === 'settings') return `Settings are for admins. Ask ${askAdmin} if something needs changing.`;
+    if (view === 'people') return 'People & access is for admins.';
+    if (viewer.preview) return 'That page isn’t part of the role you’re previewing.';
+    return `${PAGE_LABELS[view] || 'That page'} isn’t part of your access. Ask ${askAdmin} if you need it.`;
+  };
   const guard = useMemo(() => createUnsavedGuard(), []); // unsaved report edits, asked about before any navigation
   const confirm = useConfirm();
   const [active, setActive] = useState(api.contentCatalog ? 'content-studio' : 'dashboard');
@@ -262,6 +276,7 @@ function StudioApp({ api }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpSeed, setHelpSeed] = useState(null); // a question for the Advanced Ask AI drawer to ask ({ text, key })
+  const [classicContext, setClassicContext] = useState({}); // what an Advanced page has open ({ report, folder, run, trend }), for Ask AI
   const [classicTour, setClassicTour] = useState(null); // an Ask AI "Show me" running in the Advanced layout
   // Requests for pages that own their state: SimpleMode (open a report, ask Ask AI) and the Advanced Library (select an
   // asset). Each carries a fresh key; a page acts on a key once.
@@ -377,6 +392,17 @@ function StudioApp({ api }) {
 
   useEffect(() => { contentRef.current?.scrollTo?.(0, 0); }, [active, studioView]);
 
+  // The palette's prompts and people (admins), read when it opens and kept until the person's role changes.
+  const [paletteData, setPaletteData] = useState({ prompts: null, people: null });
+  useEffect(() => {
+    if (!paletteOpen) return undefined;
+    let live = true;
+    const keep = (key) => (rows) => { if (live) setPaletteData((current) => ({ ...current, [key]: rows })); };
+    if (paletteData.prompts === null && typeof api.listPrompts === 'function' && can('listPrompts') && !hiddenPages.has('prompts')) Promise.resolve().then(() => api.listPrompts()).then((result) => keep('prompts')(list(result?.prompts)), () => keep('prompts')([]));
+    if (paletteData.people === null && typeof api.getTeam === 'function' && can('getTeam') && !hiddenPages.has('people')) Promise.resolve().then(() => api.getTeam()).then((result) => keep('people')(list(result?.members)), () => keep('people')([]));
+    return () => { live = false; };
+  }, [paletteOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Notices leave on their own, but never while the pointer is resting on them.
   const [noticeHeld, setNoticeHeld] = useState(false);
   useEffect(() => {
@@ -386,13 +412,16 @@ function StudioApp({ api }) {
     return () => clearTimeout(timeout);
   }, [notice, error, noticeHeld]);
 
+  // A dataset's full rows are read only while the Datasets page (the one page that shows them) is open in Advanced;
+  // leaving it drops them, and opening it again reads them fresh.
+  const needsPayload = mode === 'classic' && active === 'datasets';
   useEffect(() => {
     let cancelled = false;
     const datasetId = state.datasets.find((item) => item.id === selectedDatasetId)?.id || state.datasets[0]?.id || '';
     setPayload(null);
     setPayloadDatasetId('');
     setPayloadError('');
-    if (!datasetId || !api.readDataset || !can('readDataset')) {
+    if (!needsPayload || !datasetId || !api.readDataset || !can('readDataset')) {
       setPayload(null);
       return;
     }
@@ -406,7 +435,7 @@ function StudioApp({ api }) {
     return () => {
       cancelled = true;
     };
-  }, [selectedDatasetId, datasetKey, payloadAttempt]);
+  }, [selectedDatasetId, datasetKey, payloadAttempt, needsPayload]);
 
   async function runAction(action, successMessage = '', throwOnError = false) {
     setPendingActions((count) => count + 1);
@@ -464,7 +493,7 @@ function StudioApp({ api }) {
     setNotice(carried.until > Date.now() ? carried.text : '');
     setError('');
     // Pages this role can't open (Settings for an editor, an old link to Brand knowledge) say so instead of opening.
-    if (!pageAllowed(view)) { setNotice(view === 'settings' ? `Settings are for admins. Ask ${askAdmin} if something needs changing.` : 'Only an admin can open that page.'); return; }
+    if (!pageAllowed(view)) { setNotice(pageOffNotice(view)); return; }
     if (args.datasetId) setSelectedDatasetId(args.datasetId);
     if (view === 'sheets' && args.workbookId) setSheetRequest((current) => ({ id: args.workbookId, key: current.key + 1 }));
     if (STUDIO_HOME_FOR[view]) {
@@ -490,7 +519,7 @@ function StudioApp({ api }) {
   }
 
   function navigateStudio(view) {
-    if (!studioAllowed(view)) { setNotice('Only an admin can open that page.'); return; }
+    if (!studioAllowed(view)) { setNotice(pageOffNotice(view)); return; }
     withViewTransition(() => {
       setStudioView(view);
       applyNavigation('content-studio');
@@ -501,7 +530,7 @@ function StudioApp({ api }) {
   // saving a layout. A "Back to Simple" bar stays above the page until the person goes back or keeps Advanced. `args`
   // go with it (Sheets takes { workbookId }).
   function openClassicPage(view, args = {}) {
-    if (!pageAllowed(view)) { setNotice(view === 'settings' ? `Settings are for admins. Ask ${askAdmin} if something needs changing.` : 'Only an admin can open that page.'); return; }
+    if (!pageAllowed(view)) { setNotice(pageOffNotice(view)); return; }
     if (!guard.confirmLeave()) return;
     setPeek(true); setDrawerOpen(false);
     if (STUDIO_VIEWS.has(view)) navigateStudio(view);
@@ -608,14 +637,14 @@ function StudioApp({ api }) {
       withViewTransition(() => setSimpleTab('reports'));
       return;
     }
-    if (!studioAllowed('library')) { setNotice('Only an admin can open that page.'); return; }
+    if (!studioAllowed('library')) { setNotice(pageOffNotice('library')); return; }
     setLibraryRequest({ key: Date.now(), assetId });
     navigateStudio('library');
   }
   // A channel-asset folder (a kit's sourceKey) in the Advanced Library; Simple's Assets opens its own folders.
   function openLibraryFolder(folderKey) {
     if (!folderKey || mode !== 'classic') return;
-    if (!studioAllowed('library')) { setNotice('Only an admin can open that page.'); return; }
+    if (!studioAllowed('library')) { setNotice(pageOffNotice('library')); return; }
     setLibraryRequest({ key: Date.now(), folderKey });
     navigateStudio('library');
   }
@@ -631,12 +660,13 @@ function StudioApp({ api }) {
     };
     setTimeout(look, 60);
   }
-  // A trend waiting for an OK: Simple's Trends, or the Advanced Trend board, scrolled to its card.
+  // A trend: Simple's Trends, or the Advanced Trend board, scrolled to its card (a card waiting for an OK, or the
+  // Being written, Ready, approved and Skipped rows, which carry trends.ready-card).
   function reviewTrend({ name } = {}) {
     if (mode === 'simple') {
       if (!simpleAllowed('trends')) return;
       goSimple('trends');
-      scrollToCard('[data-spot="trends.card"]', name);
+      scrollToCard('[data-spot="trends.card"], [data-spot="trends.ready-card"]', name);
       return;
     }
     navigateStudio('board');
@@ -685,9 +715,16 @@ function StudioApp({ api }) {
       return;
     }
     if (kind === 'trend') {
-      const name = trendNameOf(id);
+      // A trend with its reports opens the trends report, where it can be read; one still waiting or skipped opens on
+      // Trends (or the board), and a skipped one says where it is.
+      const cards = classicActions.board.cards.filter((row) => row.themeId === id);
+      const card = cards.find((row) => list(row.reportAssets).length) || cards[0] || null;
+      const report = list(card?.reportAssets).find((asset) => asset.deliverableId === 'evidence-report') || list(card?.reportAssets)[0];
+      if (report && list(studioState.assets).some((asset) => asset.id === report.id) && (mode !== 'simple' || simpleAllowed('reports')) && (mode === 'simple' || studioAllowed('library'))) { openReport(report.id); return; }
+      const name = card?.name || trendNameOf(id);
       reviewTrend({ name });
       if (id && !name) noticeAcross('That trend isn’t in this workspace. It may be in another workspace.');
+      else if (card?.stage === 'passed') noticeAcross(mode === 'simple' ? `“${name}” was skipped. It’s under Skipped on Trends, if you want to reconsider it.` : `“${name}” was skipped. Show skipped trends on the board to reconsider it.`);
       return;
     }
     if (kind === 'folder') {
@@ -713,8 +750,8 @@ function StudioApp({ api }) {
     // A page, by its Simple id (trends, reports, assets, inbox…) or an Advanced one (research, library…).
     const tabId = { overview: 'home', board: 'trends', library: 'reports' }[page] || page;
     if (!tabId) return;
-    if (tabId === 'settings') { if (settingsAllowed) openSettings(); else setNotice(`Settings are for admins. Ask ${askAdmin} if something needs changing.`); return; }
-    if (ADMIN_PAGES[tabId]) { if (adminPages.includes(tabId)) openAdminPage(tabId); else setNotice('Only an admin can open that page.'); return; }
+    if (tabId === 'settings') { if (settingsAllowed) openSettings(); else setNotice(pageOffNotice('settings')); return; }
+    if (ADMIN_PAGES[tabId]) { if (adminPages.includes(tabId)) openAdminPage(tabId); else setNotice(pageOffNotice(tabId)); return; }
     if (mode === 'simple') { if (simpleAllowed(tabId)) goSimple(tabId); else openClassicPage(tabId); return; }
     const classic = { home: 'overview', trends: 'board', reports: 'library', assets: 'library' }[page] || page;
     if (STUDIO_VIEWS.has(classic)) navigateStudio(classic); else navigate(classic);
@@ -728,14 +765,14 @@ function StudioApp({ api }) {
     const result = await classicActions.startResearch(program);
     if (typeof result === 'string') setNotice(result);
   }
-  // Channel assets are made and kept in Simple's Assets (Advanced has no asset dialog), so Ask AI's Make channel assets
-  // in the Advanced drawer switches to the Simple layout and opens the dialog there, and says so.
-  function openSimpleAssets(request = {}) {
-    if (channelBase || !modes.includes('simple') || !simpleAllowed('assets')) { setNotice('Channel assets are made in the Simple layout’s Assets tab.'); return; }
-    if (!guard.confirmLeave()) return;
-    setShellRequest({ key: Date.now(), kind: 'assets', ...request });
-    setHelpOpen(false); setSimpleTab('assets');
-    Promise.resolve(chooseMode('simple', { confirmed: true })).then(() => setNotice('Channel assets are made in the Simple layout, so the studio switched to it. Switch back to Advanced in the sidebar any time.'));
+  // Make channel assets outside Simple's Assets (the Advanced layout, its Library and Trend board, Ask AI's drawer, the
+  // New menu): the asset dialog opens over the page the person is on (KitCreatorHost), and nobody's layout changes.
+  // `request` is { kind: 'report', assetId, channels? } (a report, its channels pre-ticked) or nothing (choose one).
+  const [kitRequest, setKitRequest] = useState(null);
+  function openKitDialog(request = {}) {
+    if (!can('planAssetKit') || !can('createAssetKit') || typeof api.planAssetKit !== 'function') { setNotice(viewer.preview ? 'Making channel assets isn’t part of the role you’re previewing.' : `Making channel assets isn’t part of your access. Ask ${askAdmin} if you need it.`); return; }
+    const { channels, ...source } = request || {};
+    setKitRequest({ key: Date.now(), ...(source.kind ? { source } : {}), ...(list(channels).length ? { channels: list(channels).map(String) } : {}) });
   }
   // New (the sidebar's menu, ⌥⌘N and the palette's Create group): every kind of new thing, in either layout. Paid work
   // still confirms its estimate where it starts (research here, quick scans and pictures in Ask AI).
@@ -744,8 +781,8 @@ function StudioApp({ api }) {
     const programs = list(studioState.programs).filter(inWorkspace);
     if (kind === 'research') {
       if (!canRun('startResearchRun')) { setNotice(viewer.preview ? PREVIEW_TITLE : `Only an admin or an editor can start research. Ask ${askAdmin}.`); return; }
-      const newest = [...programs].sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))[0] || null;
-      const result = await classicActions.startResearch(programs.find((row) => row.id === programId) || newest);
+      // One rule for every Find new trends: the program asked for, else the one this person chose last, else the newest.
+      const result = await classicActions.startResearch(defaultProgram(programs, { id: programId, lastId: lastProgramId(viewer) }));
       if (typeof result === 'string') setNotice(result);
       return;
     }
@@ -757,7 +794,7 @@ function StudioApp({ api }) {
       return;
     }
     if (kind === 'assets') {
-      if (mode !== 'simple') { openSimpleAssets({ creator: true }); return; }
+      if (mode !== 'simple') { openKitDialog(); return; }
       if (!simpleAllowed('assets') || (simpleTabRef.current !== 'assets' && !guard.confirmLeave())) return;
       setShellRequest({ key: Date.now(), kind: 'assets', creator: true });
       withViewTransition(() => setSimpleTab('assets'));
@@ -769,9 +806,35 @@ function StudioApp({ api }) {
       if (mode === 'simple') openClassicPage('research'); else navigateStudio('research');
       return;
     }
-    if (kind === 'person') { setPeopleRequest({ kind: 'invite', key: Date.now() }); openAdminPage('people'); return; }
+    if (kind === 'person') { openInvite(); return; }
     if (kind === 'workspace' && newWorkspace) newWorkspace();
   }
+  // People & access's Invite sheet, from New › Person, Home's setup checklist and Ask AI (`preset`: { role?, channelId?,
+  // emails? }, what InviteDialog starts with). Admins only; the page itself says when invites need the browser studio.
+  function openInvite(preset = {}) {
+    if (!adminPages.includes('people')) { setNotice(pageOffNotice('people')); return; }
+    setPeopleRequest({ kind: 'invite', key: Date.now(), ...(preset && typeof preset === 'object' && Object.keys(preset).length ? { preset } : {}) });
+    openAdminPage('people');
+  }
+  // A research program drafted elsewhere (Ask AI): the program editor opens filled in, and nothing is saved until Save.
+  function openProgramDraft(draft = {}) {
+    if (!can('saveResearchProgram')) { setNotice(viewer.preview ? 'Setting up research isn’t part of the role you’re previewing.' : `Only an admin can set up research programs. Ask ${askAdmin}.`); return; }
+    setProgramRequest({ kind: 'draft', key: Date.now(), draft: draft && typeof draft === 'object' ? draft : {} });
+    if (mode === 'simple') openClassicPage('research'); else navigateStudio('research');
+  }
+  // A share link for a report, trend, Assets folder or prompt (deep-links.js), copied as it's returned. '' when there is
+  // no address to build it on (the Mac without a Studio web address) or nothing to link to.
+  function copyLink(kind, id) {
+    const link = linkFor(kind === 'folder' ? 'assets' : kind, id, { origin: linkOrigin });
+    if (link) copyText(link).then((done) => setNotice(done ? LINK_COPIED : 'The link couldn’t be copied. Try again.'));
+    return link;
+  }
+  // View as, for Ask AI (admins only, through the same path as the account menu and People's Preview as). It waits for
+  // the server, so a refused preview shows under Ask AI's button instead of reading as done; false when it was cancelled.
+  const viewAsFromNav = async (payload = {}) => {
+    if (!realAdmin || !api.setViewAs) throw new Error('View as is for admins.');
+    return viewAs({ ...(payload.memberId ? { memberId: String(payload.memberId) } : { role: String(payload.role || 'admin'), ...(payload.channelId ? { channelId: String(payload.channelId) } : {}) }) }, { wait: true });
+  };
   // Stop a live run from the Working popover, behind the studio's own confirmation (the same words as Ask AI's Stop).
   async function stopLiveRun(run, title) {
     if (typeof api.cancelStudioRun !== 'function' || !canRun('cancelStudioRun')) { setNotice(viewer.preview ? PREVIEW_TITLE : `Ask ${askAdmin} to stop it.`); return; }
@@ -800,7 +863,7 @@ function StudioApp({ api }) {
     setHelpOpen(spot.tab === 'ask');
     if (spot.tab === 'settings' && settingsAllowed && active !== 'settings') navigate('settings');
     if (SHARED_SPOT_PAGES.has(spot.tab) && active !== spot.tab && pageAllowed(spot.tab)) navigate(spot.tab);
-    if (spot.page === 'sheets') navigate('sheets', spot.workbook ? { workbookId: spot.workbook } : {});
+    if (spot.page === 'sheets') { if (pageAllowed('sheets')) navigate('sheets', spot.workbook ? { workbookId: spot.workbook } : {}); }
     else if (spot.page && STUDIO_VIEWS.has(spot.page) && !(active === 'content-studio' && studioView === spot.page)) navigateStudio(spot.page);
   }
   // Steps on Simple's tabs (home.*, reports.*, trends.*, assets.* …) don't exist here, so they are left out; with
@@ -813,8 +876,10 @@ function StudioApp({ api }) {
   }
 
   // View as (admins). Leaving for a channel owner's screens closes the report editor, so ask about unsaved edits first.
+  // Returns true at once (the account menu and People close on it); with `wait`, a promise of true that rejects when
+  // the server refuses, for Ask AI.
   const expectedRole = useRef(null);
-  function viewAs(payload) {
+  function viewAs(payload, { wait = false } = {}) {
     if (!api.setViewAs) return false;
     if ((payload?.channelId || payload?.memberId) && mode !== 'channel' && !guard.confirmLeave()) return false;
     // A preview of one person (People's Preview as) lands on whatever that person's role is, so any role is expected.
@@ -822,8 +887,9 @@ function StudioApp({ api }) {
     const realId = viewer.realRoleId || viewer.realRole || '';
     expectedRole.current = payload?.memberId ? '*' : `${realId}|${payload?.role === 'admin' ? realId : payload?.role || ''}|${payload?.channelId || ''}`;
     setDrawerOpen(false); setPeek(false);
-    runAction(() => api.setViewAs(payload));
-    return true;
+    const done = runAction(() => api.setViewAs(payload), '', wait);
+    if (!wait) return true;
+    return done.then(() => true, (failure) => { expectedRole.current = null; throw failure; });
   }
 
   // Someone else changed this person's role (an admin in People, or the server's admin list): close what was open and say so.
@@ -834,6 +900,7 @@ function StudioApp({ api }) {
     if (!state.viewer) return;
     const before = lastRole.current; lastRole.current = roleKey;
     if (!before || before === roleKey) return;
+    setPaletteData({ prompts: null, people: null }); // what the palette may list follows the role
     if (expectedRole.current === '*' || expectedRole.current === roleKey) { expectedRole.current = null; return; }
     expectedRole.current = null;
     if (!before.split('|')[1]) return; // just let in (from No access): the frame itself is the news
@@ -878,6 +945,25 @@ function StudioApp({ api }) {
   const openAskAiRef = useRef(openAskAi); openAskAiRef.current = openAskAi;
   const openTargetRef = useRef(openTarget); openTargetRef.current = openTarget;
   const openPromptRef = useRef(openPrompt); openPromptRef.current = openPrompt;
+  const openKitDialogRef = useRef(openKitDialog); openKitDialogRef.current = openKitDialog;
+  // Home's Next up in the Advanced layout, through the same shared actions (and confirmations) as Simple.
+  const briefingActionsRef = useRef({});
+  briefingActionsRef.current.onWriteReports = (...args) => classicActionsRef.current?.writeReports(...args);
+  briefingActionsRef.current.onRetryRun = (runId) => Promise.resolve().then(() => classicActionsRef.current?.runAiAction({ kind: 'retry-run', runId })).then((result) => { if (typeof result === 'string') setNotice(result); }, (failure) => setNotice(failure?.message || 'That run couldn’t be tried again.'));
+  briefingActionsRef.current.onCreate = (kind) => createFromNavRef.current(kind);
+  briefingActionsRef.current.postsApi = typeof api.readTrendPosts === 'function' && can('readTrendPosts') ? api : null;
+  const createFromNavRef = useRef(null); createFromNavRef.current = createFromNav;
+  const classicActionsRef = useRef(null);
+  // A Next up row (next-steps.js) run from the palette: the same actions Home's rail takes, in this layout.
+  async function runNextStep(step) {
+    const act = step?.action || {};
+    if (act.kind === 'open') openTarget(act.target);
+    else if (act.kind === 'write-reports') { try { const result = await classicActions.writeReports(); if (typeof result === 'string') setNotice(result); } catch (failure) { setNotice(failure?.message || 'The reports couldn’t be started.'); } }
+    else if (act.kind === 'retry') { try { const result = await classicActions.runAiAction({ kind: 'retry-run', runId: act.runId }); if (typeof result === 'string') setNotice(result); } catch (failure) { setNotice(failure?.message || 'That run couldn’t be tried again.'); } }
+    else if (act.kind === 'make-assets') { if (mode === 'simple' && simpleAllowed('assets')) { setShellRequest({ key: Date.now(), kind: 'assets', source: { kind: 'report', assetId: act.assetId } }); goSimple('assets'); } else openKitDialog({ kind: 'report', assetId: act.assetId }); }
+    else if (act.kind === 'copy') setNotice((await copyText(act.text)) ? act.done || 'Copied.' : 'That couldn’t be copied. Try again.');
+    else if (act.kind === 'create') createFromNav(act.create);
+  }
   // Palette items in either layout. An Advanced page opened from Simple is a peek, with the Back to Simple bar.
   async function runPaletteItem(item) {
     const args = item.args || {};
@@ -891,6 +977,13 @@ function StudioApp({ api }) {
     if (item.action === 'read-report') { openReport(args.assetId); return; }
     if (item.action === 'review-trend') { reviewTrend(args); return; }
     if (item.action === 'start-research') { await startProgramResearch(args.programId); return; }
+    if (item.action === 'open-folder') { openTarget({ kind: 'folder', id: args.folderKey, page: 'assets' }); return; }
+    if (item.action === 'prompt') { openPrompt(args.promptId); return; }
+    if (item.action === 'person') { if (!adminPages.includes('people')) { setNotice(pageOffNotice('people')); return; } setPeopleRequest({ kind: 'person', key: Date.now(), memberId: args.memberId }); openAdminPage('people'); return; }
+    if (item.action === 'write-reports') { try { const result = await classicActions.writeReports(); if (typeof result === 'string') setNotice(result); } catch (failure) { setNotice(failure?.message || 'The reports couldn’t be started.'); } return; }
+    if (item.action === 'copy-briefing') { const done = await copyText(briefingMarkdown(briefingData({ state, viewer, board: classicActions.board }), { origin: linkOrigin })); setNotice(done ? 'Briefing copied. Paste it into Slack.' : 'The briefing couldn’t be copied. Try again.'); return; }
+    if (item.action === 'mark-inbox-read') { try { await markInboxRead(api); setNotice('Inbox marked read.'); } catch { setNotice('Marked read on this browser. The studio couldn’t save it for your other devices.'); } setInboxSeen((value) => value + 1); return; }
+    if (item.action === 'next-step') { await runNextStep(args.step); return; }
     if (item.action === 'studio') { if (mode === 'simple') openClassicPage(args.view); else navigateStudio(args.view); return; }
     if (item.action === 'runMission' && args.missionId) {
       if (!canRun('runMission')) { setNotice(PREVIEW_TITLE); return; }
@@ -912,7 +1005,7 @@ function StudioApp({ api }) {
       setupApi={api}
       onOpenPrograms={() => navigateStudio('research')}
       onSaveKey={(keyName, value) => runAction(() => api.saveKey(keyName, value), 'Credential saved.', keyName === 'OPENAI_API_KEY')}
-      onClearKey={(keyName) => { const [name, consequence] = KEY_CONSEQUENCE[keyName] || ['this credential', '']; return window.confirm(`Disconnect ${name}? ${consequence}`) ? runAction(() => api.clearKey(keyName), 'Credential disconnected.', keyName === 'OPENAI_API_KEY') : Promise.resolve(null); }}
+      onClearKey={async (keyName) => { const [name, consequence] = KEY_CONSEQUENCE[keyName] || ['this credential', '']; return (await confirm({ title: `Disconnect ${name}?`, lines: [consequence], confirmLabel: 'Disconnect', tone: 'danger' })) ? runAction(() => api.clearKey(keyName), 'Credential disconnected.', keyName === 'OPENAI_API_KEY') : null; }}
       onSaveSettings={(settings) => runAction(() => api.saveSettings(settings), 'Settings saved.')}
       onTestSheetsBridge={() => runAction(() => api.testSheetsBridge(), 'Sheets bridge reachable.')}
       onArchiveAndClearSheets={(payload) => runAction(() => api.archiveAndClearSheets(payload), 'Working sheet archived and cleared.')}
@@ -948,7 +1041,7 @@ function StudioApp({ api }) {
 
   const content = useMemo(() => {
     const common = { state, busy };
-    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} onViewChange={(view) => withViewTransition(() => setStudioView(view))} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onAsk={askAllowed ? (text, context) => openAskAiRef.current(text, { context }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice('Asset revealed in Finder.'))} />} />;
+    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} onViewChange={(view) => withViewTransition(() => setStudioView(view))} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onAsk={askAllowed ? (text, context) => openAskAiRef.current(text, { context }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} onMakeAssets={(request) => openKitDialogRef.current(request)} onContextChange={setClassicContext} briefingActions={briefingActionsRef.current} web={web} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice('Asset revealed in Finder.'))} />} />;
     if (active === 'sheets') return <SheetsView api={api} state={state} initialWorkbookId={sheetRequest.id} workbookRequestKey={sheetRequest.key} onNavigate={(target) => (target === 'research-programs' ? navigateStudio('research') : target === 'trend-board' ? navigateStudio('board') : navigate(target))} />;
     if (active === 'templates') return <TemplateLibraryView {...common} onChooseTemplate={choosePlaybook} onNavigate={navigate} />;
     if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), '', true)} onNavigate={navigate} />;
@@ -972,7 +1065,7 @@ function StudioApp({ api }) {
         />
       );
     }
-    if (active === 'runs') return <ActivityView {...common} onRunRecipe={(recipeId) => runBackground(`recipe:${recipeId}`, 'Scraper run', () => api.runRecipe(recipeId), 'Scraper run complete. New rows are in Datasets.')} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenStudio={navigateStudio} onCancelJob={(jobId) => confirmCancel() && runAction(() => api.cancelJob(jobId), 'Job cancelled.')} />;
+    if (active === 'runs') return <ActivityView {...common} onRunRecipe={(recipeId) => runBackground(`recipe:${recipeId}`, 'Scraper run', () => api.runRecipe(recipeId), 'Scraper run complete. New rows are in Datasets.')} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenStudio={navigateStudio} onCancelJob={async (jobId) => ((await confirm(CANCEL_JOB)) ? runAction(() => api.cancelJob(jobId), 'Job cancelled.') : null)} />;
     if (active === 'datasets') {
       const datasetPayload = payloadDatasetId === selectedDataset?.id ? payload : null;
       return <DatasetHub state={state} tab={datasetTab} onTabChange={setDatasetTab} selectedDataset={selectedDataset} payload={datasetPayload} payloadError={payloadError} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenSourceUrl={(url) => api.openSourceUrl(url)}
@@ -1052,7 +1145,11 @@ function StudioApp({ api }) {
     const tabs = !semrushShell ? generalStudioTabs({ viewer, hasStudio: Boolean(api.contentCatalog) }).map((row) => entry(classicShape, row, { id: `studio-${row.id}`, hint: mode === 'simple' ? 'Advanced layout · Content studio' : 'Content studio', keywords: `${mode === 'simple' ? 'advanced ' : ''}content studio` })) : [];
     const peeks = mode === 'simple' ? navPages(classicShape).filter((row) => !['admin', 'settings'].includes(row.kind) && !listed.has(`Open ${row.label}`)).map((row) => entry(classicShape, row, { hint: 'Advanced layout', keywords: `advanced ${groupOf(classicShape, row)}`.trim() })) : [];
     const create = nav.actions.create.filter((row) => !row.disabled && !(row.id === 'research' && (row.programId || row.choices.length))).map((row) => ({ id: `create-${row.id}`, label: row.label, hint: row.hint, icon: iconOf(row.icon), group: PALETTE_GROUPS.create, keywords: 'new create make start', action: 'create', args: { kind: row.id, programId: row.programId || '' } }));
-    const content = api.contentCatalog && state.contentStudio ? paletteContent({ studio: state.contentStudio, canStartResearch: Boolean(api.startResearchRun) && can('startResearchRun') }) : [];
+    const content = api.contentCatalog && state.contentStudio ? paletteContent({ studio: state.contentStudio, board: classicActions.board, canStartResearch: Boolean(api.startResearchRun) && can('startResearchRun'), canDecide: can('decideResearchTheme'), folders: mode !== 'channel' && (mode === 'simple' ? simpleAllowed('assets') : studioAllowed('library')) }) : [];
+    // Next up: the same rows as Home's rail, first when nothing is typed.
+    const next = api.contentCatalog && state.contentStudio ? nextSteps({ state, viewer, can, board: classicActions.board, askAdmin, origin: linkOrigin }).slice(0, 4).map((step) => ({ id: `next-${step.id}`, label: step.title, hint: step.action?.label || '', icon: ListChecks, group: PALETTE_GROUPS.next, keywords: `next up to do ${step.kind} ${step.detail || ''}`, action: 'next-step', args: { step } })) : [];
+    const prompts = adminPages.includes('prompts') ? list(paletteData.prompts).map((row) => ({ id: `prompt-${row.id}`, label: `Open prompt: ${row.name || row.id}`, hint: row.version ? `Version ${row.version}` : '', icon: ScrollText, group: PALETTE_GROUPS.prompts, keywords: `prompt instructions ${row.id} ${row.stage || ''} ${row.description || ''}`, action: 'prompt', args: { promptId: row.id } })) : [];
+    const people = adminPages.includes('people') ? list(paletteData.people).filter((row) => row?.id && row.name).map((row) => ({ id: `person-${row.id}`, label: `People: ${row.name}`, hint: [row.roleLabel || roleLabel(row.role), row.channelName].filter(Boolean).join(' · ') || 'People & access', icon: UserRound, group: PALETTE_GROUPS.people, keywords: `person member access role ${row.email || ''}`, action: 'person', args: { memberId: row.id } })) : [];
     const canSwitch = nav.footer.layouts.length > 1;
     const actions = [
       ...(mode === 'classic' && can('saveRecipe') ? [{ id: 'create-scraper', label: 'Create a new scraper', icon: Globe2, group: PALETTE_GROUPS.actions, keywords: 'new scraper apify actor collect', action: 'navigate', args: { view: 'automation', create: true } }] : []),
@@ -1060,18 +1157,26 @@ function StudioApp({ api }) {
       ...(canSwitch ? [mode === 'simple' ? { id: 'mode-classic', label: 'Switch to the Advanced layout', icon: Repeat2, group: PALETTE_GROUPS.actions, keywords: 'advanced layout mode every tool', action: 'mode', args: { mode: 'classic' } }
         : { id: 'mode-simple', label: peek ? 'Back to Simple' : 'Switch to the Simple layout', icon: Repeat2, group: PALETTE_GROUPS.actions, keywords: 'simple layout mode', action: 'mode', args: { mode: 'simple' } }] : []),
       ...(mode === 'classic' && can('runMission') ? list(state.v5?.commandPalette).filter((item) => item.action === 'runMission' && item.args?.missionId).map((item) => ({ ...item, icon: Workflow, group: PALETTE_GROUPS.actions, keywords: 'workflow mission run' })) : []),
+      ...(canWriteReports(can) && classicActions.approved.length ? [{ id: 'write-reports', label: `Write reports for ${classicActions.approved.length} approved ${classicActions.approved.length === 1 ? 'trend' : 'trends'}`, hint: 'Shows the cost first', icon: Sparkles, group: PALETTE_GROUPS.actions, keywords: 'write reports approved trends', action: 'write-reports' }] : []),
+      ...(api.contentCatalog && state.contentStudio ? [{ id: 'copy-briefing', label: 'Copy briefing for Slack', hint: linkOrigin ? 'With links' : '', icon: ClipboardCopy, group: PALETTE_GROUPS.actions, keywords: 'slack weekly briefing copy share summary', action: 'copy-briefing' }] : []),
+      ...(inboxCount > 0 && pageAllowed('inbox') ? [{ id: 'mark-inbox-read', label: 'Mark Inbox read', hint: `${inboxCount} unread`, icon: CheckCheck, group: PALETTE_GROUPS.actions, keywords: 'inbox read clear notifications', action: 'mark-inbox-read' }] : []),
     ];
-    return [...pages, ...tabs, ...peeks, ...create, ...content, ...actions];
+    return [...next, ...pages, ...tabs, ...peeks, ...create, ...content, ...prompts, ...people, ...actions];
   }
   // Whatever was typed can always go to Ask AI, as the palette's last result.
   const paletteFallback = askAllowed && (mode === 'classic' || simpleAllowed('ask')) ? (text) => ({ id: 'ask-ai', label: `Ask AI: ${text}`, icon: Sparkles, group: PALETTE_GROUPS.ask, action: 'ask', args: { text } }) : undefined;
   // How the Advanced layout takes someone somewhere, for Ask AI's buttons and cards (studio-actions.js StudioNav).
-  // Reports and channel-asset folders open in the Library; Make channel assets switches to Simple's Assets, the only
-  // place with the asset dialog. The New menu uses the same adapter from Simple, so a page link there is a peek.
+  // Reports and channel-asset folders open in the Library; Make channel assets opens the asset dialog over the page.
+  // The New menu uses the same adapter from Simple, so a page link there is a peek.
   const classicStudioNav = {
     openReport,
     openFolder: openLibraryFolder,
-    makeAssets: (source) => openSimpleAssets({ source }),
+    makeAssets: (request) => openKitDialog(request),
+    openTarget: (target) => openTarget(target),
+    copyLink,
+    openInvite,
+    viewAs: viewAsFromNav,
+    openProgramDraft,
     openTab: (tab) => (tab === 'ask' ? openAskAi('') : tab === 'settings' ? openSettings() : openHelpPage({ home: 'overview', reports: 'library', trends: 'board', assets: 'library' }[tab] || tab)),
     openPage: (page) => (mode === 'simple' ? openClassicPage(page) : openHelpPage(page)),
     openSheets: (workbookId) => navigate('sheets', workbookId ? { workbookId } : {}),
@@ -1082,6 +1187,9 @@ function StudioApp({ api }) {
   // every render, above the early returns below; StudioApp renders ViewerContext itself, so the viewer and its checks
   // are passed in.
   const classicActions = useStudioActions({ api, state, action: runAction, viewer, can, canRun, nav: classicStudioNav, settingsAllowed, tabs: simpleTabs, web, onNotice: setNotice });
+  classicActionsRef.current = classicActions;
+  // Ask AI announces each picture it makes, so the Library lists it while the drawer is still open over it.
+  const askApi = useAnnouncingApi(api);
   const studioState = state.contentStudio || {};
   const channelView = studioState.channelView;
   const dismiss = () => { setError(''); setNotice(''); };
@@ -1123,7 +1231,7 @@ function StudioApp({ api }) {
       ...list(studioState.contentRuns).filter(inWorkspace).filter(live).map((run) => { const kit = Boolean(run.kit); const title = (kit && run.kit.sourceTitle) || run.title || (kit ? 'Channel assets' : 'Content'); return { id: run.id, title, kindLabel: kit ? 'Channel assets' : 'Writing', line: runLine(run), onOpen: liveRunOpener(run, kit ? 'kit' : 'content'), onStop: stopper(run, title) }; }),
       ...list(state.jobs).filter(live).map((job) => ({ id: `job-${job.id}`, title: job.title || readable(job.kind) || 'Job', kindLabel: readable(job.kind), line: runLine(job), stopLabel: 'Cancel',
         onOpen: pageAllowed('runs') ? () => (mode === 'simple' ? openClassicPage('runs') : navigate('runs')) : undefined,
-        onStop: job.cancellable && typeof api.cancelJob === 'function' ? async () => { if (confirmCancel()) await runAction(() => api.cancelJob(job.id), 'Job cancelled.'); } : undefined })),
+        onStop: job.cancellable && typeof api.cancelJob === 'function' ? async () => { if (await confirm(CANCEL_JOB)) await runAction(() => api.cancelJob(job.id), 'Job cancelled.'); } : undefined })),
     ];
   const quickWork = backgroundLabels.length === 1 ? `${backgroundLabels[0]}…` : backgroundLabels.length > 1 ? `${backgroundLabels.length} tasks running` : mode !== 'classic' && busy ? 'Working…' : '';
   const working = { label: liveRows.length ? `${new Intl.NumberFormat().format(liveRows.length)} running` : quickWork, runs: liveRows };
@@ -1132,6 +1240,9 @@ function StudioApp({ api }) {
     : mode === 'simple' ? (navPages(nav).find((row) => row.id === simpleTab)?.label || (simpleTab === 'ask' ? 'Ask AI' : simpleTab === 'settings' ? 'Settings' : ''))
     : classicTitle;
   const signOut = web && api.signOut ? () => api.signOut() : undefined;
+  // The shell's own ways, for Simple's Ask AI and Home (SimpleMode's nav and Next up).
+  const simpleShellNav = { copyLink, openInvite, viewAs: viewAsFromNav, openProgramDraft, create: (kind) => createFromNav(kind) };
+  const kitHost = mode !== 'channel' && <KitCreatorHost request={kitRequest} api={api} sources={kitSourcesFrom(classicActions.reports, list(studioState.contentRuns).filter(inWorkspace))} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} action={runAction} busy={busy} picturesOff={`Pictures are off for your team. ${askAdmin} can turn them on.`} focus={list(viewer.prefs?.focusChannels)} edition={semrushShell ? 'semrush' : 'general'} onSettings={settingsAllowed ? openSettings : undefined} onOpenFolder={(key) => openTarget({ kind: 'folder', id: key, page: 'assets' })} onDone={() => setKitRequest(null)} />;
   // From a Simple "Show me" step: below 860px the sidebar is a drawer, so open it for nav.* spots and close it after.
   const revealNav = (open) => { if (narrow && mode !== 'channel') setDrawerOpen(Boolean(open)); };
 
@@ -1143,14 +1254,14 @@ function StudioApp({ api }) {
           : <ChannelTrends api={api} view={channelView} viewer={viewer} busy={busy} action={runAction} imagesReady={studioState.capabilities?.imagesConfigured ?? true} onOpenAssets={(themeId) => goChannel('assets', themeId || '')} onPrefs={(patch) => Promise.resolve(api.setViewPrefs?.(patch)).catch(() => null)} onToast={setNotice} linkOrigin={linkOrigin} focusThemeId={channelTrendFocus} />}
     </main>
     : mode === 'simple'
-      ? <SimpleMode key={`simple-${roleEpoch}`} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onNavSpot={revealNav} spotRoot={() => frameRef.current} shellRequest={shellRequest} onOpenSheets={(workbookId) => openClassicPage('sheets', workbookId ? { workbookId } : {})} onOpenTarget={openTarget} onOpenPrompt={openPrompt} linkOrigin={linkOrigin} />
+      ? <SimpleMode key={`simple-${roleEpoch}`} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onNavSpot={revealNav} spotRoot={() => frameRef.current} shellRequest={shellRequest} onOpenSheets={(workbookId) => openClassicPage('sheets', workbookId ? { workbookId } : {})} onOpenTarget={openTarget} onOpenPrompt={openPrompt} linkOrigin={linkOrigin} shellNav={simpleShellNav} />
       : <main className="workspace" key={`classic-${roleEpoch}`}>
         <Header title={classicTitle} workspaceName={contentWorkspace?.name || (web ? 'Shared studio' : 'Workspace')} busy={busy} background={backgroundLabels} onRefresh={() => runAction(refresh)} />
         <div className={`content${active === 'sheets' ? ' content-fill' : active === 'chat' ? ' content-fit' : ''}`} ref={contentRef}>
           {(error || notice) && <div className="feedback" onMouseEnter={() => setNoticeHeld(true)} onMouseLeave={() => setNoticeHeld(false)}><StatusBanner error={error} notice={notice} /><Button className="ghost icon-button" aria-label="Dismiss notification" onClick={dismiss}><X size={16} /></Button></div>}
           {loading ? <div className="loading-state" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><h2>Opening your workspace</h2><p>Loading your research, sheets and reports.</p></div> : <ErrorBoundary page key={`${active}:${studioView}`}>{content}</ErrorBoundary>}
         </div>
-        {askAllowed && <HelpAssistant api={api} open={helpOpen} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} copy={settingsAllowed ? {} : { noPictures: `Pictures are off for your team. ${askAdmin} can turn them on.` }} onClose={() => setHelpOpen(false)} page={{ id: active === 'content-studio' ? studioView : active, label: classicTitle || '', layout: 'classic' }} onOpenPage={openHelpPage} onOpenSettings={settingsAllowed ? () => navigate('settings') : undefined} seed={helpSeed} state={state} nav={classicStudioNav} onAction={classicActions.runAiAction} onShow={showClassicTour} />}
+        {askAllowed && <HelpAssistant api={askApi} open={helpOpen} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} copy={settingsAllowed ? {} : { noPictures: `Pictures are off for your team. ${askAdmin} can turn them on.` }} onClose={() => setHelpOpen(false)} page={{ id: active === 'content-studio' ? studioView : active, label: classicTitle || '', layout: 'classic', ...(active === 'content-studio' ? Object.fromEntries(['report', 'folder', 'run', 'trend'].filter((key) => classicContext[key]).map((key) => [key, String(classicContext[key]).slice(0, 160)])) : {}) }} onOpenPage={openHelpPage} onOpenSettings={settingsAllowed ? () => navigate('settings') : undefined} seed={helpSeed} state={state} nav={classicStudioNav} onAction={classicActions.runAiAction} onShow={showClassicTour} />}
       </main>;
 
   // One frame for every layout and role: the sidebar is never remounted, only the main column changes, so focus stays
@@ -1171,6 +1282,7 @@ function StudioApp({ api }) {
         {mode === 'classic' && classicTour && !loading && <Spotlight key={classicTour.key} steps={classicTour.steps} onPrepare={prepareClassicSpot} onClose={() => { setClassicTour(null); if (narrow) setDrawerOpen(false); }} onBackToChat={() => { setClassicTour(null); if (narrow) setDrawerOpen(false); setHelpOpen(true); }} />}
         {mode === 'channel' && (error || notice) && <div className={`studio-toast${error ? ' error' : ''}`} role={error ? 'alert' : 'status'} onMouseEnter={() => setNoticeHeld(true)} onMouseLeave={() => setNoticeHeld(false)}><span>{error || notice}</span><button type="button" className="studio-toast-close" aria-label="Dismiss" onClick={dismiss}><X size={15} aria-hidden="true" /></button></div>}
         {mode === 'channel' && <ChannelBottomNav items={navPages(nav)} active={channelTab} onNavigate={goChannel} />}
+        {kitHost}
       </div>
     </div>
   </UnsavedContext.Provider></ViewerContext.Provider>;

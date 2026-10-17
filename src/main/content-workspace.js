@@ -81,6 +81,12 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   function write(target, data) { writeBytes(target, JSON.stringify(data, null, 2)); }
   function read(target) { return JSON.parse(fs.readFileSync(target, 'utf8')); }
   function save() { write(stateFile, state); emit(); }
+  function staleSave(existing, base, what) {
+    if (typeof base !== 'string' || !existing || (existing.updatedAt || '') === base) return;
+    throw Object.assign(new Error(`Someone saved ${what} at ${when(existing.updatedAt)}, after you opened it. Reopen it to see their changes, then make yours again.`), { status: 409, code: 'saveConflict' });
+  }
+  // state.exports lists the Mac app's export folders (the newest 100); nothing reads more than that.
+  function recordExport(result) { state.exports.push(result); if (state.exports.length > 100) state.exports.splice(0, state.exports.length - 100); save(); }
   // ---------- Prompt Library: saved versions (prompts/<workspaceId>/), and the copy each run starts with ----------
   const prompts = createPromptStore({ root: path.join(root, 'prompts'), now: clock });
   const callerRole = () => { if (typeof getCallerRole !== 'function') return 'admin'; try { return String(getCallerRole() || ''); } catch (_) { return ''; } };
@@ -196,9 +202,13 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (allowance < .01) throw new Error('Budget is too small for the remaining requests.');
     }
     // Reserve before launch; interrupted/unknown-cost calls keep their reservation.
-    run.reservedUsd += allowance; run.message = options.message || key; save();
+    const working = options.message || key;
+    run.reservedUsd += allowance; run.message = working; save();
+    // Under the studio's AI concurrency limit (ai-limits.js) a call may wait its turn; the run says so meanwhile.
+    const onWait = position => { run.message = `Waiting for a free AI slot (${position === 1 ? 'next in line' : `${position} in line`}) · ${working}`; save(); };
+    const onStart = () => { if (run.message !== working) { run.message = working; save(); } };
     try {
-      const result = await runAI({ runId: run.id, schema, prompt, maxBudgetUsd: allowance, workspaceDir: path.dirname(file(run.id, 'receipt.json')), outputPath: file(run.id, `${safeId(key)}.raw.json`), ...(options.model ? { model: options.model } : {}), ...(options.effort ? { effort: options.effort } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) });
+      const result = await runAI({ runId: run.id, schema, prompt, maxBudgetUsd: allowance, workspaceDir: path.dirname(file(run.id, 'receipt.json')), outputPath: file(run.id, `${safeId(key)}.raw.json`), ...(options.model ? { model: options.model } : {}), ...(options.effort ? { effort: options.effort } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}), onWait, onStart });
       const receipt = result.receipt || {};
       if (Number.isFinite(receipt.costUsd) && receipt.costUsd >= 0) { run.reservedUsd += Math.max(0, receipt.costUsd) - allowance; run.costUsd += receipt.costUsd; }
       run.receipts.push({ stage: key, allowanceUsd: allowance, ...receipt, ...(unmetered && !Number.isFinite(receipt.costUsd) ? { costBasis: 'Codex reports no cost; it uses the Codex plan or OpenAI key' } : {}) }); save(); check(run); return result.output;
@@ -1133,8 +1143,11 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     publicState, recoverInterrupted, checkDueResearchSchedules, startResearchScheduler, stopResearchScheduler,
     contentCatalog: () => ({ editions: copy(content.CONTENT_EDITIONS), deliverables: copy(content.CONTENT_DELIVERABLES) }),
     selectContentWorkspace(workspaceId) { workspace(workspaceId, false); state.activeWorkspaceId = workspaceId; save(); return publicState(); },
+    // baseUpdatedAt (optional, here and on saveResearchProgram): the updatedAt the form opened with. A save over a newer
+    // one made since is refused, so two admins editing the same record never silently replace each other's changes.
     saveContentWorkspace(payload) {
       const existing = payload.id ? workspace(payload.id) : null; const editionId = existing?.editionId || payload.editionId || 'general';
+      staleSave(existing, payload.baseUpdatedAt, 'this workspace');
       const w = { id: existing?.id || id('workspace'), name: String(payload.name || '').trim().slice(0, 160), editionId, knowledge: content.validateBrandKnowledge(payload.knowledge || {}, { editionId }), products: content.validateProductRegistry(payload.products || [], { editionId }), ...(editionId === 'semrush' ? { brandDefaults: copy(content.SEMRUSH_BRAND_2026) } : {}), createdAt: existing?.createdAt || stamp(), updatedAt: stamp() };
       if (payload.enterpriseProducts !== undefined) w.enterpriseProducts = enterpriseList(payload.enterpriseProducts);
       if (!w.name) throw new Error('Name your workspace.'); if (existing) Object.assign(existing, w); else state.workspaces.push(w); state.activeWorkspaceId = w.id; save(); return copy(w);
@@ -1220,6 +1233,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const w = workspace(payload.workspaceId);
       if (state.programs.some(p => p.id === payload.id && p.workspaceId !== w.id)) throw new Error('Program belongs to another workspace.');
       const existing = state.programs.find(row => row.id === payload.id);
+      staleSave(existing, payload.baseUpdatedAt, 'this program');
       const p = { ...research.validateResearchProgram(payload), workspaceId: w.id, updatedAt: stamp() };
       p.schedule = scheduleState(p.schedule, existing?.schedule);
       state.programs = state.programs.filter(row => row.id !== p.id); state.programs.push(p); save(); return copy(p);
@@ -1378,10 +1392,11 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       return launch(run, () => performContent(run));
     },
     // A kit run as the folder n8n left in Drive: "<run folder>/<channel folder>/<n8n file name>", plus the source.
-    // The Mac app writes it straight into a folder it names (Downloads); the browser studio zips an export copy.
+    // The Mac app writes it straight into a folder it names (Downloads); the browser studio zips an export copy, made with
+    // `temporary` (not listed in state.exports) and removed by the host once the zip is offered.
     // `channels` (the server sets it from a channel owner's own channel) keeps only those channels' folders; the source
     // text goes along only for a trend's set, whose brief everyone with access to the set may read.
-    exportAssetKit({ runId } = {}, { into, channels } = {}) {
+    exportAssetKit({ runId } = {}, { into, channels, temporary = false } = {}) {
       const run = runRecord(runId); if (!run.kit) throw new Error('Only channel asset sets download as folders.');
       const editionId = state.workspaces.find(w => w.id === run.workspaceId)?.editionId || 'general';
       let assets = state.assets.filter(asset => asset.workspaceId === run.workspaceId && asset.runId === run.id);
@@ -1403,7 +1418,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       // pasted text or private document never reaches them; everyone else's folder keeps it.
       if (run.kit.themeId || !Array.isArray(channels)) fs.writeFileSync(path.join(top, `${kit().safeFileName(`Source — ${run.kit.sourceTitle}`)}.md`), read(file(run.id, 'input.json')).source.text);
       const result = { ...(exportId ? { id: exportId } : {}), workspaceId: run.workspaceId, runId: run.id, path: top, folderName: run.kit.folderName, assetCount: assets.length, createdAt: stamp() };
-      if (!into) { state.exports.push(result); save(); }
+      if (!into && !temporary) recordExport(result);
       return result;
     },
     assetKitAi: () => kit().kitAi(state.programs.filter(program => program.workspaceId === state.activeWorkspaceId)),
@@ -1477,13 +1492,29 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (!publishCampaign || !publicState().capabilities.googlePublishConfigured) throw new Error('Connect Google Drive with file creation permission in Settings first.');
       return publishRun(run);
     },
-    exportStudioRun({ runId }) {
+    // `temporary`: the browser studio's download copy, not listed in state.exports; the host removes it once zipped.
+    exportStudioRun({ runId } = {}, { temporary = false } = {}) {
       const run = runRecord(runId); const ids = new Set([run.id, ...(run.reportRunIds || []).map(r => r.runId)]); const assets = state.assets.filter(a => a.workspaceId === run.workspaceId && ids.has(a.runId)); if (!assets.length) throw new Error('Generate at least one asset before exporting.');
       const exportId = id('export'); const dir = path.join(root, 'exports', exportId); fs.mkdirSync(dir, { recursive: true });
       for (const asset of assets) { const channel = asset.channel.replace(/[^a-zA-Z0-9_-]/g, '-'); const dest = path.join(dir, channel); fs.mkdirSync(dest, { recursive: true }); for (const extension of asset.kind === 'image' ? ['png', 'svg'] : ['md', 'html', 'json']) fs.copyFileSync(assetFile(asset, extension), path.join(dest, `${asset.deliverableId}-${asset.id}.${extension}`)); }
       write(path.join(dir, 'manifest.json'), { exportedAt: stamp(), workspaceId: run.workspaceId, run: copy(run), assets, notice: 'Drafts require editorial review. SVG files embed raster images; they are not editable vectors.' });
       for (const childId of ids) fs.copyFileSync(file(childId, 'input.json'), path.join(dir, `${childId}-source.json`));
-      const result = { id: exportId, workspaceId: run.workspaceId, runId, path: dir, assetCount: assets.length, createdAt: stamp() }; state.exports.push(result); save(); return result;
+      const result = { id: exportId, workspaceId: run.workspaceId, runId, path: dir, assetCount: assets.length, createdAt: stamp() }; if (!temporary) recordExport(result); return result;
+    },
+    // Export copies older than `olderThanDays` (the browser studio's leftovers from before downloads were temporary), and
+    // their state.exports rows. The Mac app keeps its exports; the host calls this only on the browser studio.
+    pruneExports({ olderThanDays = 7 } = {}) {
+      const dir = path.join(root, 'exports'); const cutoff = new Date(clock()).getTime() - Math.max(0, Number(olderThanDays) || 0) * 86400000; let removed = 0;
+      let entries = []; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { entries = []; }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !/^export-[a-zA-Z0-9-]+$/.test(entry.name)) continue;
+        const target = path.join(dir, entry.name);
+        try { if (fs.statSync(target).mtimeMs < cutoff) { fs.rmSync(target, { recursive: true, force: true }); removed++; } } catch (_) { /* gone already */ }
+      }
+      const before = state.exports.length;
+      state.exports = state.exports.filter(row => !row?.path || fs.existsSync(row.path));
+      if (removed || state.exports.length !== before) save();
+      return { removed, kept: state.exports.length };
     },
     activeWorkspaceId: () => state.activeWorkspaceId,
     // ---------- Reads for the access gate (src/main/access.js), all in the active workspace ----------
@@ -1582,6 +1613,28 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const since = new Date(clock()).getTime() - days * 86400000;
       const runs = trendRunList().filter(run => Date.parse(run.createdAt || '') >= since).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, 20);
       return copy(trendModule().rankPosts(runs.flatMap(runPosts), query, { limit }));
+    },
+    // "What people are saying" on a trend card: up to `limit` (1-10, default 2) real posts behind one trend, free (no AI)
+    // and in the active workspace only. A trend is named by a theme id, a trend id (any theme id it has used) or its name.
+    // The posts are the theme's tagged evidence in a run that was tagged, else the posts discovery cited for it; the
+    // newest run first, then the most engaged. Each run's posts are cached by the run's version (trendPostsFor).
+    readTrendPosts(payload = {}) {
+      const limit = Math.min(10, Math.max(1, Math.round(Number(payload?.limit)) || 2));
+      const themeId = String(payload?.themeId || '').slice(0, 200); const trendId = String(payload?.trendId || '').slice(0, 200); const name = String(payload?.name || '').slice(0, 300);
+      if (!themeId && !trendId && !name.trim()) return [];
+      const runs = trendRunList(); const byId = new Map(runs.map(run => [run.id, run]));
+      let pairs = themeId ? runs.filter(run => trendModule().runThemes(run).some(theme => theme.id === themeId)).map(run => ({ run, themeId })) : [];
+      if (!pairs.length) {
+        let record = null; try { record = trendModule().findTrend(trendHistory().history, { trendId: trendId || themeId, name }); } catch (_) { record = null; }
+        pairs = (record?.appearances || []).map(entry => ({ run: byId.get(entry.runId), themeId: entry.themeId })).filter(entry => entry.run);
+      }
+      pairs.sort((a, b) => String(b.run.createdAt || '').localeCompare(String(a.run.createdAt || '')));
+      const seen = new Set(); const posts = [];
+      for (const pair of pairs) for (const post of trendPostsFor(pair.run, pair.themeId)) {
+        const key = post.url || post.text; if (seen.has(key)) continue; seen.add(key); posts.push(post);
+        if (posts.length >= limit) return copy(posts);
+      }
+      return copy(posts);
     },
     // ---------- Prompt Library (SPEC-2 §A; the logic is in prompt-lab.js). Prompts are per workspace: the active one. ----------
     listPrompts: payload => promptLab().listPrompts(payload),
@@ -1701,6 +1754,36 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (newest) for (const themeId of trend.themeIds) visuals[themeId] = newest;
     }
     return { trackerCounts, trendRuns: history?.runsWithThemes || 0, visuals };
+  }
+  // One run's posts per theme for readTrendPosts, cached by the run's version and its evidence file: [{ platform, author,
+  // text (280 characters at most), url, publishedAt, engagement }], most engaged first, ten per theme.
+  const trendPostCache = new Map();
+  function trendPostsFor(run, themeId) {
+    const evidencePath = runPath(run.id, 'evidence.json'); const assignmentsPath = runPath(run.id, 'assignments.json');
+    const key = `${trendRunVersion(run)}|${mtime(evidencePath)}`;
+    let memo = trendPostCache.get(run.id);
+    if (memo?.key !== key) {
+      let items = []; try { items = fs.existsSync(evidencePath) ? read(evidencePath).items || [] : []; } catch (_) { items = []; }
+      let assignments = []; try { assignments = fs.existsSync(assignmentsPath) ? read(assignmentsPath) : []; } catch (_) { assignments = []; }
+      const rows = new Map((Array.isArray(items) ? items : []).filter(item => item?.id).map(item => [item.id, item]));
+      const tagged = new Map();
+      for (const entry of Array.isArray(assignments) ? assignments : []) { if (!entry || entry.status === 'rejected' || !entry.themeId) continue; if (!tagged.has(entry.themeId)) tagged.set(entry.themeId, []); tagged.get(entry.themeId).push(entry.itemId); }
+      const clip = value => (value.length > 280 ? `${value.slice(0, 279).trimEnd()}…` : value);
+      const view = item => {
+        const body = String(item.text || '').replace(/\s+/g, ' ').trim(); const title = String(item.title || '').replace(/\s+/g, ' ').trim();
+        return { platform: String(item.platform || ''), author: String(item.authorName || item.author || '').slice(0, 120), text: clip(title && !body.startsWith(title) ? `${title} — ${body}` : body || title),
+          url: /^https?:\/\//.test(item.url || '') ? item.url : '', publishedAt: String(item.publishedAt || ''), engagement: typeof item.engagement?.value === 'number' && Number.isFinite(item.engagement.value) ? Math.round(item.engagement.value * 100) / 100 : 0 };
+      };
+      memo = { key, byTheme: new Map() };
+      for (const theme of trendModule().runThemes(run)) {
+        const ids = tagged.get(theme.id)?.length ? tagged.get(theme.id) : Array.isArray(theme.evidenceIds) ? theme.evidenceIds : [];
+        const posts = [...new Set(ids)].map(itemId => rows.get(itemId)).filter(item => item && (item.text || item.title)).map(view)
+          .sort((a, b) => b.engagement - a.engagement || b.publishedAt.localeCompare(a.publishedAt));
+        memo.byTheme.set(theme.id, posts.slice(0, 10));
+      }
+      trendPostCache.delete(run.id); trendPostCache.set(run.id, memo); while (trendPostCache.size > 8) trendPostCache.delete(trendPostCache.keys().next().value);
+    }
+    return memo.byTheme.get(themeId) || [];
   }
   function runPosts(run) {
     const target = runPath(run.id, 'evidence.json'); const key = mtime(target); if (!key) return [];

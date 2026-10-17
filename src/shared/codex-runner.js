@@ -163,7 +163,30 @@ function buildAssetPrompt(contextPath) {
   return `Read ${contextPath}. Generate every requested marketing asset for the selected trend card. Use only the provided card, dataset, and analysis evidence. Return schema-valid JSON with one assets[] entry per requested assetType.`;
 }
 
-function buildCodexCommand({ workspaceDir, schemaPath, outputPath, prompt }) {
+// Tools a structured answer never needs. With them off Codex can't run commands or read files, which is what keeps it
+// from opening other people's Ask AI conversations, memory or the studio's data (its read-only sandbox still lets
+// commands read anything). Unknown names are ignored by older CLIs (a -c override of an unknown key is skipped), so the
+// list is safe on every version. Checked on codex-cli 0.156.0 against a local stand-in model: with these off it offers
+// the model only request_user_input, the goal tools and web_search (no exec_command, files, images, MCP or apps).
+const CODEX_TOOLS_OFF = ['shell_tool', 'unified_exec', 'view_image', 'apps', 'plugins', 'browser_use', 'computer_use', 'image_generation', 'memories', 'multi_agent'];
+// Optional flags a newer `codex exec` takes, read from its --help: no session files kept, no execpolicy rules, and no
+// ~/.codex/config.toml (its MCP servers and hooks).
+function codexExecSupport(helpText = '') {
+  const text = String(helpText || '');
+  return { ephemeral: /--ephemeral\b/.test(text), ignoreRules: /--ignore-rules\b/.test(text), ignoreUserConfig: /--ignore-user-config\b/.test(text) };
+}
+
+// isolated: how the studio runs Codex. The prompt arrives on stdin (prompt '-'), the sandbox is read-only, the tools above
+// are off, and with `support` (codexExecSupport) nothing about the call is kept. ignoreUserConfig also skips the CLI's own
+// config file, for a shared server.
+function buildCodexCommand({ workspaceDir, schemaPath, outputPath, prompt, isolated = false, support = {}, ignoreUserConfig = false }) {
+  const guard = isolated ? [
+    '--sandbox', 'read-only',
+    ...CODEX_TOOLS_OFF.flatMap((feature) => ['-c', `features.${feature}=false`]),
+    ...(support.ephemeral ? ['--ephemeral'] : []),
+    ...(support.ignoreRules ? ['--ignore-rules'] : []),
+    ...(ignoreUserConfig && support.ignoreUserConfig ? ['--ignore-user-config'] : []),
+  ] : ['--sandbox', 'workspace-write'];
   return {
     command: 'codex',
     args: [
@@ -174,14 +197,13 @@ function buildCodexCommand({ workspaceDir, schemaPath, outputPath, prompt }) {
       'exec',
       // Prompt tests, Ask AI and research runs work in folders that aren't git repos; Codex refuses those without it.
       '--skip-git-repo-check',
-      '--sandbox',
-      'workspace-write',
+      ...guard,
       '--json',
       '--output-schema',
       schemaPath,
       '--output-last-message',
       outputPath,
-      prompt,
+      isolated ? '-' : prompt,
     ],
   };
 }
@@ -220,12 +242,14 @@ function validateAiOutput(kind, output) {
 }
 
 module.exports = {
+  CODEX_TOOLS_OFF,
   REPORT_PRESETS,
   SCHEMAS,
   buildAnalysisContext,
   buildAssetPrompt,
   buildCodexCommand,
   buildPrompt,
+  codexExecSupport,
   parseJsonlEvents,
   reportPresetById,
   validateAiOutput,

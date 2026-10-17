@@ -1,0 +1,52 @@
+# Runs on every push and pull request: lint, unit tests, the browser build, prompt goldens and a production audit.
+# The signed macOS DMG is built by hand (npm run dist:mac); see docs/macos-app.md.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Tests mock Electron, so CI never needs its binary.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+jobs:
+  check:
+    name: Lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build:web
+      - name: Prompt goldens unchanged
+        run: node scripts/prompt-goldens.mjs --check
+      - name: No high-severity advisories in shipped dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  test-macos:
+    # The desktop app ships on macOS; run the suite once on the real platform too.
+    name: Test (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test

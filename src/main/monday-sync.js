@@ -3,7 +3,9 @@
 const MONDAY_API_URL = 'https://api.monday.com/v2';
 const STAGE_LABELS = { potential: 'Potential trend', approved: 'Approved', production: 'In production', ready: 'Ready to use', passed: 'Passed' };
 const MAX_CARDS = 200;
-const FATAL = /rejected the token|short break/;
+const REQUEST_TIMEOUT_MS = 30000;
+// Errors that would repeat for every remaining card, so the sync stops at the first one.
+const FATAL = /rejected the token|short break|did not answer in time/;
 
 function clean(value, max) { return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max); }
 
@@ -35,10 +37,13 @@ function columnValues(card, { statusColumnId, notesColumnId }) {
   return JSON.stringify(values);
 }
 
-function createMondayClient({ token, fetchImpl = globalThis.fetch, apiVersion = '' }) {
+// Each request gets REQUEST_TIMEOUT_MS: a hung connection fails the sync instead of holding it (and its button) for minutes.
+function createMondayClient({ token, fetchImpl = globalThis.fetch, apiVersion = '', timeoutMs = REQUEST_TIMEOUT_MS }) {
   if (!token) throw new Error('Connect Monday.com in Settings first.');
   return async function request(query, variables = {}) {
-    const response = await fetchImpl(MONDAY_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: token, ...(apiVersion ? { 'API-Version': apiVersion } : {}) }, body: JSON.stringify({ query, variables }) });
+    let response;
+    try { response = await fetchImpl(MONDAY_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: token, ...(apiVersion ? { 'API-Version': apiVersion } : {}) }, body: JSON.stringify({ query, variables }), signal: AbortSignal.timeout(timeoutMs) }); }
+    catch (error) { if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw new Error('Monday.com did not answer in time. Try the sync again shortly.'); throw error; }
     let body = {};
     try { body = await response.json(); } catch { /* handled below */ }
     if (response.status === 401 || response.status === 403) throw new Error('Monday.com rejected the token. Paste a fresh personal API token in Settings.');
@@ -89,4 +94,4 @@ async function syncTrendCards(request, { boardId, statusColumnId = '', notesColu
   return { itemIds: nextIds, ...results };
 }
 
-module.exports = { MONDAY_API_URL, STAGE_LABELS, validateBoardId, validateCards, itemNotes, columnValues, createMondayClient, describeBoard, syncTrendCards };
+module.exports = { MONDAY_API_URL, STAGE_LABELS, REQUEST_TIMEOUT_MS, validateBoardId, validateCards, itemNotes, columnValues, createMondayClient, describeBoard, syncTrendCards };

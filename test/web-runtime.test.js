@@ -82,6 +82,25 @@ describe('web runtime stands in for Electron on the server', () => {
     expect(runtime.provided('fixture-people')).toBe(people);
   });
 
+  it.runIf(process.platform !== 'win32')('keeps the data folder private to the server’s user, tightening one made by hand', () => {
+    const mode = (dir) => fs.statSync(dir).mode & 0o777;
+    expect(mode(dataDir)).toBe(0o700); expect(mode(runtime.settings.transferDir)).toBe(0o700);
+    const handMade = path.join(root, 'hand-made'); fs.mkdirSync(handMade, { mode: 0o755 }); fs.chmodSync(handMade, 0o755);
+    runtime.configure({ dataDir: handMade, secretKey: 'fixture-secret-key-for-tests-0123456789' });
+    expect(mode(handMade)).toBe(0o700);
+    runtime.configure({ dataDir, secretKey: 'fixture-secret-key-for-tests-0123456789' });
+  });
+
+  // The drain on SIGTERM waits while the main process has work to lose: Electron's before-quit contract, where a listener
+  // that calls preventDefault() is saying "something is still running", or a `work` provider when one is offered.
+  it('reports running work through before-quit, or through a work provider', () => {
+    expect(runtime.busyWork()).toEqual([]);
+    const busy = (event) => event.preventDefault(); app.on('before-quit', busy);
+    try { expect(runtime.busyWork()).toEqual(['work in progress']); } finally { app.off('before-quit', busy); }
+    runtime.provide('work', { active: () => ['Research run: Weekly trends'] });
+    try { expect(runtime.busyWork()).toEqual(['Research run: Weekly trends']); } finally { runtime.provide('work', null); }
+  });
+
   it('broadcasts what the main process sends to its window', () => {
     const received = []; const stop = runtime.onBroadcast('state-changed', (state) => received.push(state));
     const window = new runtime.electron.BrowserWindow(); window.webContents.send('state-changed', { version: 1 });

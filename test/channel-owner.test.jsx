@@ -69,6 +69,12 @@ describe('ChannelTrends: the make slot', () => {
     const { rerender } = render(<ChannelTrends api={services} view={view([trend({ latestRun: partial })])} viewer={viewer()} />);
     expect(screen.getByText('1 of 2 drafts didn’t finish.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Open my assets/ })).toBeInTheDocument();
+    // Finishing makes more drafts, so it asks first; saying no starts nothing.
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: /Finish the rest/ }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(confirm.mock.calls[0][0]).toMatch(/^Finish the 1 draft that didn’t make it\?/);
+    expect(services.retryStudioRun).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /Finish the rest/ }));
     await waitFor(() => expect(services.retryStudioRun).toHaveBeenCalledWith({ runId: 'kit-1' }));
     rerender(<ChannelTrends api={services} view={view([trend({ latestRun: { ...partial, shared: true } })])} viewer={viewer()} />);
@@ -428,6 +434,23 @@ describe('ChannelTrends: routing and plans', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(services.setTrendAdoption).toHaveBeenCalledWith({ themeId: 'theme-1', status: 'using', link: '', note: '', plannedFor: '2030-01-15' }));
     expect(within(card('AI Overviews')).getByText(/^Planned for /)).toBeInTheDocument();
+  });
+});
+
+describe('A channel role without Mark trends used', () => {
+  // A custom channel role (readAssets, makeAssets) with no setTrendAdoption: the server would refuse an answer.
+  const drafter = viewer({ allowed: ['state', 'readStudioAsset', 'openStudioAsset', 'planAssetKit', 'createAssetKit', 'cancelStudioRun', 'retryStudioRun'] });
+  it('sees the team’s answer read-only, with no answer buttons, and copy that doesn’t promise answering', () => {
+    const answered = trend({ themeId: 'theme-2', name: 'Zero click', adoption: { status: 'using', link: 'https://semrush.com/blog/zero-click', plannedFor: '2026-10-20', byName: 'Jordan', byMe: false, at: now } });
+    render(<ChannelTrends api={api()} view={view([trend(), answered])} viewer={drafter} />);
+    expect(screen.queryByRole('button', { name: /Yes, I’m using this trend/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Not for us' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add the link/ })).not.toBeInTheDocument();
+    const used = card('Zero click');
+    expect(within(used).getByText('Using')).toBeInTheDocument();
+    expect(within(used).getByText(/Planned for/)).toBeInTheDocument();
+    expect(within(used).getByText(/Answered by Jordan/)).toBeInTheDocument();
+    expect(screen.getByText(/Generate drafts for your channel\.$/)).toBeInTheDocument();
   });
 });
 

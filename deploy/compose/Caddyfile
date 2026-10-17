@@ -1,0 +1,8 @@
+# TLS for the studio's subdomain (certificates are automatic), in front of oauth2-proxy.
+{$STUDIO_DOMAIN} {
+	# Caddy adds X-Forwarded-For/Proto/Host; oauth2-proxy (reverse_proxy = true) reads them.
+	reverse_proxy oauth2-proxy:4180 {
+		# Live updates are server-sent events: pass each one on at once.
+		flush_interval -1
+	}
+}

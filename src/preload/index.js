@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   estimateQuickScan: (payload) => invoke('studio:estimateQuickScan', payload),
   startQuickScan: (payload) => invoke('studio:startQuickScan', payload),
   readTrendHistory: (payload) => invoke('studio:readTrendHistory', payload),
+  readTrendPosts: (payload) => invoke('studio:readTrendPosts', payload),
   listPrompts: (payload) => invoke('studio:listPrompts', payload),
   readPrompt: (payload) => invoke('studio:readPrompt', payload),
   previewPrompt: (payload) => invoke('studio:previewPrompt', payload),

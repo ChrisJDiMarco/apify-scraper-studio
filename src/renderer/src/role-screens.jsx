@@ -43,6 +43,22 @@ export function trapTab(event, root) {
   else if (!event.shiftKey && (active === last || !root.contains(active))) { event.preventDefault(); first.focus(); }
 }
 
+// Focus for a hand-rolled modal (Simple's sheets and lightboxes keep their own look and keys): on open, focus moves into
+// `panel` (or `initialFocus`), the sidebar beside the main column goes inert so Tab and screen readers stay in the
+// dialog, and on close focus returns to whatever opened it. Pair with onKeyDown={(event) => trapTab(event, panel.current)}.
+export function useModalFocus(panel, initialFocus) {
+  useLayoutEffect(() => {
+    const opener = document.activeElement; const root = panel.current;
+    (initialFocus?.current || root)?.focus?.({ preventScroll: true });
+    const side = [...document.querySelectorAll('.studio-sidebar')].filter((node) => !node.hasAttribute('inert') && !root?.contains(node));
+    side.forEach((node) => node.setAttribute('inert', ''));
+    return () => {
+      side.forEach((node) => node.removeAttribute('inert'));
+      if (opener?.isConnected && typeof opener.focus === 'function' && !root?.contains(opener)) opener.focus({ preventScroll: true });
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 // A modal dialog: focus moves in (to `initialFocus`, else the panel, which reads the title), Tab stays inside, Esc and
 // the backdrop close it, and focus goes back to whatever opened it.
 export function Dialog({ labelledBy, label, describedBy, className = '', onClose, closeDisabled = false, initialFocus, children, wide = false, onKeyDown: onKey }) {

@@ -1,0 +1,7 @@
+# Filled-in copies of the examples hold secrets and site settings: never commit them.
+compose/secrets.env
+compose/studio.env
+compose/oauth2-proxy.env
+compose/oauth2-proxy.cfg
+compose/backups/
+systemd/studio.env

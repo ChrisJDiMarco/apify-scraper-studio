@@ -7,7 +7,8 @@ export default defineConfig({
     // Agent worktrees under .claude/ hold other checkouts of this repo; run only this one's tests.
     exclude: [...configDefaults.exclude, '.claude/**'],
     coverage: {
-      include: ['src/shared/**/*.js'],
+      // Main and web code included so the server-side gate (access, roles, team store, studio server) shows up in coverage.
+      include: ['src/shared/**/*.js', 'src/main/**/*.js', 'src/web/**/*.{js,jsx}'],
       exclude: ['out/**'],
     },
   },

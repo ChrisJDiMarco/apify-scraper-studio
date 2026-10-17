@@ -1,16 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ArrowLeft, BookOpen, CalendarClock, Check, ChevronDown, ChevronRight, Download, FileText, Folder, FolderOpen, Image as ImageIcon, Layers3, Link2, LoaderCircle, Megaphone, PenLine, Plus, Radar, RefreshCw, Search, Settings2, Sheet, Sparkles, Square, Upload, Users, X, Zap } from 'lucide-react';
+import { ArrowRight, ArrowLeft, BookOpen, CalendarClock, Check, ChevronDown, ChevronRight, Download, FileText, Folder, FolderOpen, Image as ImageIcon, Images, Layers3, Link2, LoaderCircle, Megaphone, PenLine, Plus, Radar, RefreshCw, Search, Settings2, Sheet, Sparkles, Square, Upload, Users, X, Zap } from 'lucide-react';
 import { Button, Badge, formatDate, friendlyMessage, modelLabel, number } from './ui.jsx';
 import { LIBRARY_TYPES, TYPE_LABEL, buildLibraryTree, filterLibrary, folderSummary, isQuickScan, libraryChannels, pathTo } from '../../shared/library-tree.js';
 import { MarkdownContent, safeMarkdownUrl } from './markdown-content.jsx';
-import { adminNames, can as canCall, hasCapability, useViewer } from './viewer.js';
+import { adminNames, can as canCall, hasCapability, useViewer, writeProps } from './viewer.js';
 import { TrendBoardView } from './trend-board-view.jsx';
 import { WeeklyBriefing } from './weekly-briefing.jsx';
-import { newerPromptsFor, newestPromptsLine } from './studio-actions.js';
-import { AssetStatusMenu, statusLabel, statusOf } from './asset-editor.jsx';
-import { HowItWasMade } from './simple-reports.jsx';
+import { CODEX_UNCAPPED, newerPromptsFor } from './studio-actions.js';
+import { newestPromptsQuestion, reportCostLine, researchCostLines } from './cost-lines.js';
+import { useConfirm } from './confirm-dialog.jsx';
+import { AssetEditor, AssetStatusMenu, canEditAsset, statusLabel, statusOf, useUnsavedGuard } from './asset-editor.jsx';
+import { HowItWasMade, MARKETER_ASKS, ReportShareMenu, reportAskContext } from './simple-reports.jsx';
 import { LINK_COPIED, linkFor } from './deep-links.js';
-import { copyText } from './role-screens.jsx';
+import { MoreMenu, copyText } from './role-screens.jsx';
+import { brandFrom } from './brand-check.js';
+import { useHelpImages } from './help-images.js';
+import { defaultProgram, lastProgramId, rememberProgram } from './choices.js';
 import { ResearchKnowledge } from './research-knowledge.jsx';
 import { SetupShare } from './setup-share.jsx';
 import { ProgramWindowFields, ProgramAiFields, ProgramAutomationFields, ProgramEstimate, ProgramCollectionFields, ThemeScore, DEFAULT_PROGRAM_AI, DEFAULT_COLLECTION } from './research-program-fields.jsx';
@@ -44,6 +49,17 @@ const scheduleSummary = (schedule) => schedule.frequency === 'manual' ? 'Only wh
 function scheduledDate(value, timeZone) { if (!value) return ''; try { return new Intl.DateTimeFormat(undefined, { timeZone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(value)); } catch { return ''; } }
 const emptyProgram = (workspaceId) => ({ name: '', workspaceId, schedule: emptySchedule(), query: '', sourceGroups: SOURCE_TYPES.map((source) => ({ id: `source-${source.sourceId}`, sourceId: source.sourceId, platform: source.platform, name: source.name, targets: [], enabled: false, options: {} })), window: { startDate: '', endDate: '' }, lookbackDays: 7, targetPerPlatform: 3000, maxEvidenceItems: 10000, perAuthorCap: 10, budgets: { collectionUsd: 10, aiUsd: 25 }, thresholds: { discovery: { x: 40, linkedin: 25, reddit: 15 }, tagging: { x: 20, linkedin: 1, reddit: 1 } }, discoveryBatchSize: 200, taggingBatchSize: 40, taggingBatchSizes: { x: 50, linkedin: 40, reddit: 50 }, maxThemes: 6, includeUndated: false, topicFiltersTargets: false, autoApproveThemes: false, ai: clone(DEFAULT_PROGRAM_AI), collection: { ...DEFAULT_COLLECTION }, delivery: { publishToDrive: false } });
 const clone = (value) => JSON.parse(JSON.stringify(value));
+// Ask AI's program draft ({ name, query, lookbackDays, sources: { x, linkedin, reddit } }) as the editor's form: each
+// platform's accounts in its source group, turned on when it has any. LinkedIn URLs go to accounts (profile or company).
+const DRAFT_SOURCES = { x: 'x', linkedin: 'linkedin-profile', reddit: 'reddit' };
+function programFromDraft(workspaceId, draft = {}) {
+  const base = emptyProgram(workspaceId);
+  const sources = draft && typeof draft.sources === 'object' && draft.sources ? draft.sources : {};
+  const days = Math.round(Number(draft?.lookbackDays));
+  const targetsOf = (key) => [...new Set(list(sources[key]).map((entry) => String(entry || '').trim()).filter(Boolean))].slice(0, 500);
+  return { ...base, name: String(draft?.name || '').slice(0, 160), query: String(draft?.query || '').slice(0, 500), lookbackDays: Number.isFinite(days) && days >= 1 && days <= 365 ? days : base.lookbackDays,
+    sourceGroups: base.sourceGroups.map((group) => { const key = Object.keys(DRAFT_SOURCES).find((name) => DRAFT_SOURCES[name] === group.sourceId); const targets = key ? targetsOf(key) : []; return targets.length ? { ...group, targets, enabled: true } : group; }) };
+}
 const statusClass = (status) => ['succeeded', 'approved'].includes(status) ? 'success' : ['failed', 'partial', 'cancelled'].includes(status) ? 'attention' : ['queued', 'running', 'awaiting-review'].includes(status) ? 'active' : '';
 function Status({ value }) { return <span className={`cs-status ${statusClass(value)}`}>{readable(value)}</span>; }
 function Field({ label, id, hint, children, className = '' }) { return <div className={`cs-field ${className}`}><label htmlFor={id}>{label}</label>{children}{hint && <small>{hint}</small>}</div>; }
@@ -66,7 +82,9 @@ function quickScanLine(run) {
 
 // `onAsk(text, context)` opens Ask AI (the Advanced drawer); `linkOrigin` is the address share links use (deep-links.js
 // shareOrigin), and Copy link shows only with one; `onOpenPrompt(promptId)` opens a prompt on the Prompts page.
-export function ContentStudioView({ state = {}, api = {}, busy = false, onNotice, onNavigate, initialView = 'overview', initialSource, activeView, onViewChange, shellNavigation = false, workspaceControlsInShell = false, createWorkspaceKey = 0, onWorkspaceCreationHandled, knowledgeTab = 'workspace', onKnowledgeTabChange, renderResearchProfiles, renderLegacyLibrary, libraryRequest = null, programRequest = null, onAsk, linkOrigin = '', onOpenPrompt }) {
+// `onMakeAssets({ kind: 'report', assetId })` opens Make channel assets over this page (App's KitCreatorHost);
+// `onContextChange({ report, folder, run, trend })` tells the shell what is open, for the Ask AI drawer's context.
+export function ContentStudioView({ state = {}, api = {}, busy = false, onNotice, onNavigate, initialView = 'overview', initialSource, activeView, onViewChange, shellNavigation = false, workspaceControlsInShell = false, createWorkspaceKey = 0, onWorkspaceCreationHandled, knowledgeTab = 'workspace', onKnowledgeTabChange, renderResearchProfiles, renderLegacyLibrary, libraryRequest = null, programRequest = null, onAsk, linkOrigin = '', onOpenPrompt, onMakeAssets, onContextChange, briefingActions = {}, web = false }) {
   const studio = state.contentStudio || {};
   const workspaces = list(studio.workspaces);
   const workspace = workspaces.find((item) => item.id === studio.activeWorkspaceId) || null;
@@ -84,6 +102,9 @@ export function ContentStudioView({ state = {}, api = {}, busy = false, onNotice
   const seeCosts = hasCapability(viewer, 'seeCosts');
   const runGates = { seeCosts, canStart: can('startResearchRun'), canApprove: can('approveResearchThemes') && can('continueResearchRun'), canCancel: can('cancelStudioRun'), canRetry: can('retryStudioRun'), canExport: can('exportStudioRun'), canPublish: can('publishStudioRun') };
   const canCreate = can('createContentRun') && !hidden.has('create');
+  // Make channel assets opens over this page (no layout change); Find new trends goes where a run can be started or set up.
+  const makeAssets = onMakeAssets && can('planAssetKit') && can('createAssetKit') ? (report) => onMakeAssets({ kind: 'report', assetId: report.id }) : undefined;
+  const confirm = useConfirm();
   const [localView, setLocalView] = useState(views.some(([id]) => id === initialView) ? initialView : 'overview');
   const view = views.some(([id]) => id === activeView) ? activeView : views.some(([id]) => id === localView) ? localView : 'overview';
   function setView(next) { setLocalView(next); onViewChange?.(next); }
@@ -172,39 +193,36 @@ export function ContentStudioView({ state = {}, api = {}, busy = false, onNotice
     if (asset.kind === 'image') { setSelectedAssetId(asset.id); navigate('library'); return; }
     await useReport({ ...asset, assetId: asset.id });
   }
-  // What a research run will cost, from the studio's own estimate of the saved program: the estimate first, then the cap.
-  async function researchCost(program, datasetIds) {
-    const caps = program.budgets || {}; const reuse = list(datasetIds).length > 0;
-    const codex = capabilities.aiProvider === 'codex';
-    try {
-      const estimate = await api.estimateResearchProgram({ ...program, sourceGroups: list(program.sourceGroups).map((group) => ({ ...group, targets: list(group.targets) })) });
-      const ai = Number(estimate?.ai?.totalUsd); const apify = Number(estimate?.collection?.worstCaseUsd);
-      const aiPart = codex ? 'AI on your Codex plan (Codex doesn’t report costs, so the AI cap doesn’t apply)' : Number.isFinite(ai) ? `about ${money(ai)} AI (cap ${money(caps.aiUsd)})` : `up to ${money(caps.aiUsd)} AI`;
-      const apifyPart = reuse ? 'nothing on Apify (it reads the saved collections)' : Number.isFinite(apify) && estimate?.collection && !estimate.collection.error ? `up to ${money(apify)} on Apify (cap ${money(caps.collectionUsd)})` : `up to ${money(caps.collectionUsd)} on Apify`;
-      return `This run costs ${aiPart}, ${apifyPart}.`;
-    } catch (failure) {
-      return `The estimate isn’t available right now (${friendlyMessage(failure) || 'try again'}). The run can spend up to ${money(caps.aiUsd)} on AI and ${reuse ? 'nothing' : money(caps.collectionUsd)} on Apify.`;
-    }
-  }
-  async function startResearch(program, datasetIds) {
+  async function startResearch(program, datasetIds = []) {
     // The server refuses a second search while any run of this program is still going (or waiting for review), so say
     // who started the newest one and ask before sending again: true, as Simple's Find new trends does. Quick scans
     // don't count; the server keeps them apart from the program's own runs.
     const pending = runs.find((run) => run.runKind === 'research' && !isQuickScan(run) && run.programId === program.id && ['queued', 'running', 'awaiting-review'].includes(run.status));
     const again = Boolean(pending);
     const againLine = again ? `${pending.createdBy?.name || 'Someone'} started a search with this program at ${pending.createdAt ? formatDate(pending.createdAt) : 'an earlier time'}. ${pending.status === 'awaiting-review' ? 'Its trends are waiting for review.' : 'It’s still running.'} Start another?` : '';
-    // Paid work shows its estimate before it starts. A host without the estimate method keeps the earlier question.
-    if (typeof api.estimateResearchProgram === 'function') {
-      if (pendingRef.current) return;
-      pendingRef.current = true; setPending('Checking the cost'); setError('');
-      let cost = '';
-      try { cost = await researchCost(program, datasetIds); } finally { pendingRef.current = false; setPending(''); }
-      if (!window.confirm([againLine || `Start research with “${program.name}”?`, cost].join('\n\n'))) return;
-    } else if (again && !window.confirm(againLine)) return;
+    // Paid work shows its estimate before it starts: the same lines and the same in-app dialog as Simple, the palette and
+    // Ask AI (cost-lines.js), plus "nothing on Apify" when it reads saved collections.
+    if (pendingRef.current) return;
+    pendingRef.current = true; setPending('Checking the cost'); setError('');
+    let cost = [];
+    try { cost = await researchCostLines(api, program, { datasetIds, codex: capabilities.aiProvider === 'codex' }); } finally { pendingRef.current = false; setPending(''); }
+    const ok = await confirm(again
+      ? { title: `“${program.name}” is already searching`, lines: [againLine, ...cost], confirmLabel: 'Start another' }
+      : { title: `Look for new trends with “${program.name}”?`, lines: [...cost, 'New trends will show up on the Trend board for your OK.'], confirmLabel: 'Start research' });
+    if (!ok) return;
+    rememberProgram(viewer, program.id);
     const result = await action('Starting research', () => api.startResearchRun({ programId: program.id, datasetIds, ...(again ? { again: true } : {}) }));
     const run = result?.run || result;
     if (run?.id) selectRun(run.id);
   }
+  // Ask AI's context in this layout: what is open on this page (the Library's report and folder, the run in view).
+  // Each page reports for itself ({ view, report?, folder?, run? }), so a page left behind never leaks into the next.
+  const [pageContext, setPageContext] = useState({});
+  const shown = pageContext.view === view ? pageContext : { view };
+  const contextKey = ['report', 'folder', 'run', 'trend'].map((key) => shown[key] || '').join('|');
+  useEffect(() => { const { view: _view, ...open } = shown; onContextChange?.(open); }, [view, contextKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reportContext = (forView) => (values) => setPageContext((current) => { const next = { view: forView, ...Object.fromEntries(Object.entries(values).filter(([, value]) => value)) }; return JSON.stringify(next) === JSON.stringify(current) ? current : next; });
+  useEffect(() => { if (view === 'create') reportContext('create')({ run: selectedRun?.runKind === 'content' ? selectedRun.title || selectedRun.source?.title || 'Content run' : '' }); }, [view, selectedRun?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <section className={`content-studio ${shellNavigation ? 'cs-shell-integrated' : ''}`} data-view={view} data-edition={workspace?.editionId || 'general'} aria-labelledby="content-studio-title">
     {!shellNavigation && !workspaceControlsInShell && can('selectContentWorkspace') && <div className="cs-workspace-bar"><div>{workspace?.editionId === 'semrush' ? <img src={semrushWordmark} alt="Semrush" className="cs-workspace-wordmark" /> : <><span className="cs-edition-mark"><Layers3 size={15} aria-hidden="true" /></span><span>RESEARCH & CONTENT STUDIO</span></>}</div><label className="cs-workspace-picker"><span className="sr-only">Content workspace</span><select aria-label="Content workspace" value={workspaceId} disabled={disabled || !workspaces.length} onChange={(event) => action('Switching workspace', () => api.selectContentWorkspace(event.target.value))}>{!workspaces.length && <option value="">Create a workspace</option>}{workspaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{can('saveContentWorkspace') && !hidden.has('knowledge') && <Button type="button" className="cs-quiet" disabled={disabled} onClick={() => { setNewWorkspace(true); navigate('knowledge'); }}><Plus size={14} aria-hidden="true" />New workspace</Button>}</div>}
@@ -214,11 +232,11 @@ export function ContentStudioView({ state = {}, api = {}, busy = false, onNotice
     {catalogError && <div className="cs-alert" role="alert">{catalogError}</div>}
     {pending && <p className="cs-action-status" role="status"><LoaderCircle className="spin" size={14} aria-hidden="true" />{pending}…</p>}
     {!semrush && shellNavigation && view === 'create' && <div className="cs-entry-grid"><button className="cs-entry-card cs-entry-research" type="button" onClick={() => navigate('research')}><span className="cs-feature-icon"><Search size={27} aria-hidden="true" /></span><div><h2>Research your market</h2><p>Follow accounts and communities, review the themes, and build an evidence-backed point of view.</p><small>{programs.length ? `${number(programs.length)} saved ${programs.length === 1 ? 'program' : 'programs'}` : 'Start with the sources you trust'}</small></div><ChevronRight size={20} aria-hidden="true" /></button><button className="cs-entry-card cs-entry-content" type="button" onClick={() => navigate('create')}><span className="cs-feature-icon"><FileText size={27} aria-hidden="true" /></span><div><h2>Create from a trend</h2><p>Bring a report or a source brief. Create the written assets and visuals your channels need.</p><small>Source → Deliverables → Review</small></div><ChevronRight size={20} aria-hidden="true" /></button></div>}
-    {view === 'overview' && <WeeklyBriefing state={state} viewer={viewer} api={api} layout="classic" busy={disabled} onAsk={onAsk} onOpenTarget={openTarget} onOpenTracker={can('readWorkbook') && onNavigate ? () => onNavigate('sheets', { workbookId: 'trend-tracker' }) : undefined} onStartResearch={(program) => (program ? startResearch(program, []) : navigate('research'))} />}
-    {view === 'research' && <ResearchPrograms key={workspaceId} workspace={workspace} capabilities={capabilities} gates={runGates} showCosts={runs.some((run) => Number.isFinite(Number(run.costUsd)))} canEdit={can('saveResearchProgram')} canImport={can('applySetup')} askAdmin={askAdmin} onNotice={onNotice} programs={programs} datasets={datasets} runs={runs.filter((run) => run.runKind === 'research')} selectedRun={selectedRun?.runKind === 'research' ? selectedRun : null} assets={assets} disabled={disabled} api={api} action={action} onStart={startResearch} onSelectRun={selectRun} focusRunId={focusRunId} onRunFocused={() => setFocusRunId('')} onUseAsset={canCreate ? fromAsset : undefined} onCollect={() => onNavigate?.('search')} onOpenSheets={(runId) => onNavigate?.('sheets', { workbookId: runId })} programRequest={programRequest} promptChanges={list(studio.promptChanges)} />}
+    {view === 'overview' && <WeeklyBriefing state={state} viewer={viewer} api={api} layout="classic" busy={disabled} onAsk={onAsk} onOpenTarget={openTarget} onOpenTracker={can('readWorkbook') && onNavigate ? () => onNavigate('sheets', { workbookId: 'trend-tracker' }) : undefined} onStartResearch={(program) => (program ? startResearch(program, []) : navigate('research'))} linkOrigin={linkOrigin} onMakeAssets={makeAssets ? (request) => onMakeAssets(request) : undefined} web={web} {...briefingActions} />}
+    {view === 'research' && <ResearchPrograms key={workspaceId} workspace={workspace} capabilities={capabilities} gates={runGates} showCosts={runs.some((run) => Number.isFinite(Number(run.costUsd)))} canEdit={can('saveResearchProgram')} canImport={can('applySetup')} askAdmin={askAdmin} onNotice={onNotice} programs={programs} datasets={datasets} runs={runs.filter((run) => run.runKind === 'research')} selectedRun={selectedRun?.runKind === 'research' ? selectedRun : null} assets={assets} disabled={disabled} api={api} action={action} onStart={startResearch} onSelectRun={selectRun} focusRunId={focusRunId} onRunFocused={() => setFocusRunId('')} onUseAsset={canCreate ? fromAsset : undefined} onCollect={() => onNavigate?.('search')} onOpenSheets={(runId) => onNavigate?.('sheets', { workbookId: runId })} programRequest={programRequest} promptChanges={list(studio.promptChanges)} onContext={reportContext('research')} />}
     {view === 'create' && <CreateContent key={workspaceId} promptChanges={list(studio.promptChanges)} workspace={workspace} catalog={catalog} catalogLoading={catalogLoading} capabilities={capabilities} sourceDraft={sourceDraft?.workspaceId === workspaceId ? sourceDraft.value : null} reports={reports} runs={runs.filter((run) => run.runKind === 'content')} selectedRun={selectedRun?.runKind === 'content' ? selectedRun : null} assets={assets} api={api} action={action} disabled={disabled} onUseReport={useReport} onCreated={(run) => selectRun(run?.id)} onSelectRun={selectRun} focusRunId={focusRunId} onRunFocused={() => setFocusRunId('')} onViewAsset={(asset) => { setSelectedAssetId(asset.id); navigate('library'); }} onSettings={openSettings} askAdmin={askAdmin} />}
-    {view === 'board' && <TrendBoardView key={workspaceId} studio={studio} monday={state.monday} api={api} action={action} disabled={disabled} pageHeading onAsk={onAsk && can('askHelp') ? (text) => onAsk(text) : undefined} onFindTrends={() => navigate('research')} onOpenRun={(runId) => { selectRun(runId); navigate('research'); }} onOpenSheets={(runId) => onNavigate?.('sheets', { workbookId: runId })} onReadReport={(report) => { setSelectedAssetId(report.id); navigate('library'); }} onCreateAssets={(report) => useReport({ ...report, assetId: report.id })} onSettings={openSettings} />}
-    {view === 'library' && <StudioLibrary key={workspaceId} workspace={workspace} inputs={libraryInputs} studio={studio} selectedId={selectedAssetId} onSelect={setSelectedAssetId} api={api} action={action} disabled={disabled} onCreate={canCreate ? () => navigate('create') : undefined} onUseAsset={canCreate ? fromAsset : undefined} onNotice={onNotice} onOpenTrends={() => navigate('board')} renderLegacy={renderLegacyLibrary} folderRequest={folderRequest} linkOrigin={linkOrigin} onOpenPrompt={onOpenPrompt} />}
+    {view === 'board' && <TrendBoardView key={workspaceId} studio={studio} monday={state.monday} api={api} action={action} disabled={disabled} pageHeading askAdmin={askAdmin} onAsk={onAsk && can('askHelp') ? (text) => onAsk(text) : undefined} onFindTrends={runGates.canStart || can('saveResearchProgram') ? () => navigate('research') : undefined} onOpenRun={(runId) => { selectRun(runId); navigate('research'); }} onOpenSheets={(runId) => onNavigate?.('sheets', { workbookId: runId })} onReadReport={(report) => { setSelectedAssetId(report.id); navigate('library'); }} onCreateAssets={canCreate ? (report) => useReport({ ...report, assetId: report.id }) : undefined} onMakeAssets={makeAssets} onSettings={openSettings} />}
+    {view === 'library' && <StudioLibrary key={workspaceId} workspace={workspace} inputs={libraryInputs} studio={studio} selectedId={selectedAssetId} onSelect={setSelectedAssetId} api={api} action={action} disabled={disabled} onCreate={canCreate ? () => navigate('create') : undefined} onUseAsset={canCreate ? fromAsset : undefined} onNotice={onNotice} onOpenTrends={() => navigate('board')} renderLegacy={renderLegacyLibrary} folderRequest={folderRequest} linkOrigin={linkOrigin} onOpenPrompt={onOpenPrompt} onAsk={onAsk && can('askHelp') ? onAsk : undefined} onMakeAssets={makeAssets} onContext={reportContext('library')} web={web} />}
     {view === 'knowledge' && renderResearchProfiles && !newWorkspace && <div className="cs-subtabs" role="tablist" aria-label="Brand knowledge sections"><button type="button" role="tab" aria-selected={knowledgeTab !== 'profiles'} className={knowledgeTab !== 'profiles' ? 'active' : ''} onClick={() => onKnowledgeTabChange?.('workspace')}>Workspace knowledge</button><button type="button" role="tab" aria-selected={knowledgeTab === 'profiles'} className={knowledgeTab === 'profiles' ? 'active' : ''} onClick={() => onKnowledgeTabChange?.('profiles')}>Research brand profiles</button></div>}
     {view === 'knowledge' && (knowledgeTab !== 'profiles' || !renderResearchProfiles || newWorkspace) && <BrandKnowledge key={`${workspaceId}:${newWorkspace ? 'new' : 'edit'}`} workspace={newWorkspace ? null : workspace} pageHeading grouped={semrush} editions={catalog.editions} api={api} action={action} disabled={disabled} onSaved={() => setNewWorkspace(false)} />}
     {view === 'knowledge' && knowledgeTab === 'profiles' && renderResearchProfiles && !newWorkspace && renderResearchProfiles()}
@@ -240,7 +258,8 @@ function ProgramSourceOptions({ sourceId, options = {}, keywordSearch = false, o
 }
 
 // `showCosts`: the state carries money for this role, so each program says what its last run cost.
-function ResearchPrograms({ workspace, capabilities = {}, gates = {}, canEdit = true, canImport = true, askAdmin = 'an admin', onNotice, focusRunId, onRunFocused, programs, datasets, runs, selectedRun, assets, disabled, api, action, onStart, onSelectRun, onUseAsset, onCollect, onOpenSheets, showCosts = false, programRequest = null, promptChanges = [] }) {
+function ResearchPrograms({ workspace, capabilities = {}, gates = {}, canEdit = true, canImport = true, askAdmin = 'an admin', onNotice, focusRunId, onRunFocused, programs, datasets, runs, selectedRun, assets, disabled, api, action, onStart, onSelectRun, onUseAsset, onCollect, onOpenSheets, showCosts = false, programRequest = null, promptChanges = [], onContext }) {
+  const viewer = useViewer();
   // A program's newest finished search (quick scans are separate), with its recorded cost, reports included.
   const lastRunLine = (program) => {
     const last = runs.filter((run) => run.programId === program.id && !isQuickScan(run) && !['queued', 'running'].includes(run.status)).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
@@ -250,24 +269,28 @@ function ResearchPrograms({ workspace, capabilities = {}, gates = {}, canEdit = 
   };
   const [editing, setEditing] = useState(!programs.length && canEdit);
   const [draft, setDraft] = useState(() => emptyProgram(workspace?.id));
-  const [selectedProgramId, setSelectedProgramId] = useState(programs[0]?.id || '');
+  // The program this page opens on: the one this person chose last, else the newest (the rule every Find new trends uses).
+  const [selectedProgramId, setSelectedProgramIdState] = useState(() => defaultProgram(programs, { lastId: lastProgramId(viewer) })?.id || '');
+  const setSelectedProgramId = (id) => { setSelectedProgramIdState(id); rememberProgram(viewer, id); };
   const [datasetIds, setDatasetIds] = useState([]);
   const [inputMode, setInputMode] = useState('collect');
   const [formError, setFormError] = useState('');
-  // New › Research program (the sidebar, ⌥⌘N, the palette): a blank program form, once per request.
+  // New › Research program (the sidebar, ⌥⌘N, the palette): a blank program form, once per request. Ask AI's program
+  // draft ({ kind: 'draft', draft }) opens the same form filled in; nothing is saved until Save is pressed.
   const handledProgramRequest = useRef(null);
   useEffect(() => {
-    if (programRequest?.kind !== 'new' || !programRequest.key || handledProgramRequest.current === programRequest.key) return;
+    if (!['new', 'draft'].includes(programRequest?.kind) || !programRequest.key || handledProgramRequest.current === programRequest.key) return;
     handledProgramRequest.current = programRequest.key;
     if (!canEdit) { onNotice?.(`Only an admin can set up research programs. Ask ${askAdmin}.`); return; }
     if (!workspace?.id) { onNotice?.('Create a workspace in Brand knowledge first.'); return; }
-    setDraft(emptyProgram(workspace.id)); setEditing(true); setFormError('');
+    setDraft(programRequest.kind === 'draft' ? programFromDraft(workspace.id, programRequest.draft) : emptyProgram(workspace.id)); setEditing(true); setFormError('');
   }, [programRequest?.key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const selectedProgram = programs.find((program) => program.id === selectedProgramId) || programs[0];
+  const selectedProgram = programs.find((program) => program.id === selectedProgramId) || defaultProgram(programs, { lastId: lastProgramId(viewer) });
   // Quick scans from Ask AI list with the program they were sized from (or with every program when that one is gone).
   const programRuns = runs.filter((run) => !selectedProgram || run.programId === selectedProgram.id || (isQuickScan(run) && !programs.some((program) => program.id === run.programId)));
   const activeRun = selectedRun || programRuns[0];
   const { canStart = true, seeCosts = true } = gates;
+  useEffect(() => { onContext?.({ run: activeRun ? activeRun.title || selectedProgram?.name || 'Research run' : '', folder: selectedProgram?.name ? `Research program “${selectedProgram.name}”` : '' }); }, [activeRun?.id, activeRun?.title, selectedProgram?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   function change(key, value) { setDraft((current) => ({ ...current, [key]: value })); setFormError(''); }
   function nested(key, field, value) { setDraft((current) => ({ ...current, [key]: { ...current[key], [field]: value } })); }
   function changeSource(id, key, value) { setDraft((current) => ({ ...current, sourceGroups: current.sourceGroups.map((group) => group.sourceId === id ? { ...group, [key]: value } : group) })); }
@@ -317,7 +340,7 @@ function ResearchPrograms({ workspace, capabilities = {}, gates = {}, canEdit = 
       <details className="cs-details"><summary><Settings2 size={14} />Advanced research controls</summary><div className="cs-advanced-grid">{[['targetPerPlatform', 'Target items per platform', 1, 10000], ['maxEvidenceItems', 'Maximum evidence items', 1, 10000], ['perAuthorCap', 'Maximum items per author', 1, 1000], ['maxThemes', 'Maximum themes', 1, 6], ['discoveryBatchSize', 'Discovery batch size (per platform)', 40, 200]].map(([key, label, min, max]) => <Field id={`cs-program-${key}`} label={label} key={key}><input id={`cs-program-${key}`} type="number" min={min} max={max} step="1" value={draft[key]} onChange={(event) => change(key, Number(event.target.value))} /></Field>)}</div><div className="cs-thresholds">{['discovery', 'tagging'].map((stage) => <div key={stage}><h4>{stage === 'discovery' ? 'Discovery' : 'Classification'} engagement thresholds</h4><div className="cs-three-fields">{['x', 'linkedin', 'reddit'].map((platform) => <Field key={platform} id={`cs-${stage}-${platform}`} label={platform === 'x' ? 'X' : readable(platform)}><input id={`cs-${stage}-${platform}`} type="number" min="0" max="1000" value={draft.thresholds[stage][platform]} onChange={(event) => setDraft((current) => ({ ...current, thresholds: { ...current.thresholds, [stage]: { ...current.thresholds[stage], [platform]: Number(event.target.value) } } }))} /></Field>)}</div></div>)}</div><ProgramCollectionFields draft={draft} setDraft={setDraft} /><label className="cs-check"><input type="checkbox" checked={draft.includeUndated} onChange={(event) => change('includeUndated', event.target.checked)} /><span>Include undated evidence in a dated search<small>Undated items otherwise stay outside the selected time frame.</small></span></label></details>
       {formError && <div className="cs-alert" role="alert">{formError}</div>}<div className="cs-form-actions"><span>{draft.schedule.enabled && draft.schedule.frequency !== 'manual' ? 'Saving enables future runs with the limits above. No run starts immediately.' : 'Saving keeps automatic runs off. You can start research whenever you are ready.'}</span><Button type="submit">Save research program<Check size={15} /></Button></div>
     </fieldset></form> : selectedProgram ? <div className="cs-research-layout"><aside className="cs-panel cs-program-list"><div className="cs-panel-title"><h3>Saved programs</h3><Badge>{programs.length}</Badge></div>{programs.map((program) => <button type="button" key={program.id} className={`cs-program-choice ${selectedProgram.id === program.id ? 'selected' : ''}`} onClick={() => { setSelectedProgramId(program.id); onSelectRun(''); }}><strong>{program.name}</strong><small>{list(program.sourceGroups).filter((group) => group.enabled).reduce((sum, group) => sum + list(group.targets).length, 0)} targets · {program.query || 'Source-led research'}</small>{lastRunLine(program) && <small className="cs-program-cost">{lastRunLine(program)}</small>}</button>)}</aside><div className="cs-research-main"><section className="cs-panel"><div className="cs-panel-title"><div><h3>{selectedProgram.name}</h3><p>{selectedProgram.query || 'Follow the accounts and communities in this program.'}</p></div>{canEdit && <Button type="button" className="cs-quiet" disabled={disabled} onClick={() => edit(selectedProgram)}>Edit program</Button>}</div><div className="cs-program-scope">{list(selectedProgram.sourceGroups).filter((group) => group.enabled).map((group) => <SourcePill key={group.id}>{group.name} · {list(group.targets).length || 'topic'}</SourcePill>)}<SourcePill>{programWindowLabel(selectedProgram)}</SourcePill></div><ProgramSchedule program={selectedProgram} disabled={disabled} seeCosts={seeCosts} onToggle={canEdit && (() => action(selectedProgram.schedule?.enabled ? 'Pausing schedule' : 'Enabling schedule', () => api.saveResearchProgram({ ...selectedProgram, schedule: { ...selectedProgram.schedule, enabled: !selectedProgram.schedule?.enabled } }), selectedProgram.schedule?.enabled ? 'Schedule paused. A running research task is not cancelled.' : 'Schedule enabled for its next run time.'))} />{canStart && <fieldset className="cs-run-input" disabled={disabled}><legend>Evidence for this run</legend><div className="cs-choice-row"><label><input type="radio" name="cs-evidence-mode" value="collect" checked={inputMode === 'collect'} onChange={() => setInputMode('collect')} />Collect configured sources</label><label><input type="radio" name="cs-evidence-mode" value="reuse" checked={inputMode === 'reuse'} onChange={() => setInputMode('reuse')} />Use saved collections</label></div>{inputMode === 'reuse' && <div className="cs-dataset-picker">{datasets.length ? datasets.map((dataset) => <label className="cs-check" key={dataset.id}><input type="checkbox" checked={datasetIds.includes(dataset.id)} onChange={(event) => setDatasetIds((ids) => event.target.checked ? [...ids, dataset.id] : ids.filter((id) => id !== dataset.id))} /><span><strong>{dataset.name || dataset.title || 'Saved collection'}</strong><small>{number(dataset.itemCount)} items · {dataset.platform || 'import'}</small></span></label>) : <p>No collections are available in this workspace. <button className="cs-text-button" type="button" onClick={onCollect}>Collect evidence</button></p>}</div>}{inputMode === 'collect' && <ProgramEstimate draft={selectedProgram} api={api} />}<div className="cs-run-cost"><div>{seeCosts && <span>{inputMode === 'collect' ? `Collection cap ${money(selectedProgram.budgets?.collectionUsd)} · ` : 'Existing evidence · '}AI budget {money(selectedProgram.budgets?.aiUsd)}</span>}<small>{selectedProgram.autoApproveThemes ? 'Themes are approved automatically, so the run goes straight from discovery to tagging and reports.' : 'Discovery pauses for you to review themes before classification and reports.'}</small></div><Button type="button" disabled={!workspace || (inputMode === 'reuse' ? !datasetIds.length : !list(selectedProgram.sourceGroups).some((group) => group.enabled))} onClick={() => onStart(selectedProgram, inputMode === 'reuse' ? datasetIds : [])}>Start research<Search size={15} /></Button></div></fieldset>}</section>
-      {activeRun && <RunDetail promptChanges={promptChanges} run={activeRun} focus={focusRunId === activeRun.id} onFocused={onRunFocused} assets={assetsForRun(assets, activeRun)} capabilities={capabilities} gates={gates} api={api} action={action} disabled={disabled} onUseAsset={onUseAsset} onOpenSheets={onOpenSheets} />}
+      {activeRun && <RunDetail promptChanges={promptChanges} run={activeRun} program={programs.find((program) => program.id === activeRun.programId) || null} focus={focusRunId === activeRun.id} onFocused={onRunFocused} assets={assetsForRun(assets, activeRun)} capabilities={capabilities} gates={gates} api={api} action={action} disabled={disabled} onUseAsset={onUseAsset} onOpenSheets={onOpenSheets} />}
       {programRuns.length > 1 && <div className="cs-history"><h4>Run history</h4>{programRuns.map((run) => <button type="button" className={`${activeRun?.id === run.id ? 'selected' : ''}${isQuickScan(run) ? ' is-quick' : ''}`} key={run.id} onClick={() => onSelectRun(run.id)}>{isQuickScan(run) ? <span className="cs-history-quick"><strong><Zap size={12} aria-hidden="true" />Quick scan</strong><span>{quickScanLine(run)}</span><small>{formatDate(run.createdAt)}</small></span> : <span>{formatDate(run.createdAt)}</span>}<Status value={run.status} /></button>)}</div>}
     </div></div> : (canEdit ? <EmptyState icon={Search} title="Build your first listening program" detail="Save a source list and research question to begin." action="Create program" onAction={() => setEditing(true)} /> : <EmptyState icon={Search} title="No research programs yet" detail={`Ask ${askAdmin} to set up a research program. You can start runs and review trends once it’s saved.`} />)}
   </div>;
@@ -334,8 +357,11 @@ function ProgramSchedule({ program, disabled, seeCosts = true, onToggle }) {
   </section>;
 }
 
-function RunDetail({ run, focus = false, onFocused, assets, capabilities = {}, gates = {}, api, action, disabled, onUseAsset, onViewAsset, onOpenSheets, promptChanges = [] }) {
+// `program` is the run's saved research program (for the Write reports estimate), or null.
+function RunDetail({ run, program = null, focus = false, onFocused, assets, capabilities = {}, gates = {}, api, action, disabled, onUseAsset, onViewAsset, onOpenSheets, promptChanges = [] }) {
   const panelRef = useRef(null);
+  const confirm = useConfirm();
+  const [checking, setChecking] = useState(false); // the estimate is being read for a confirmation
   useEffect(() => { if (!focus) return; panelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); onFocused?.(); }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
   const [themes, setThemes] = useState([]);
   const [themeError, setThemeError] = useState('');
@@ -348,32 +374,65 @@ function RunDetail({ run, focus = false, onFocused, assets, capabilities = {}, g
   useEffect(() => { setRetryBudget(String(run.maxBudgetUsd ?? run.budgets?.aiUsd ?? '')); setRetryError(''); }, [run.id, run.maxBudgetUsd, run.budgets?.aiUsd]);
   const incomingThemes = list(run.themes);
   const themeVersion = JSON.stringify(incomingThemes);
-  useEffect(() => { setThemes(incomingThemes.map((theme) => ({ ...theme, selected: theme.approved !== false }))); setThemeError(''); }, [run.id, themeVersion]);
+  // Each box starts from the team's recorded Yes or Skip (run.decisions, from Trends, the board, Home or Ask AI): only a
+  // Yes is ticked, as Write reports skips undecided trends. A decision made since keeps the box in step; edited names stay.
+  const decisions = run.decisions || {};
+  const decisionVersion = JSON.stringify(decisions);
+  const seenDecisions = useRef({});
+  useEffect(() => { seenDecisions.current = decisions; setThemes(incomingThemes.map((theme) => ({ ...theme, selected: decisions[theme.id] === 'approved' }))); setThemeError(''); }, [run.id, themeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const before = seenDecisions.current; seenDecisions.current = decisions;
+    setThemes((current) => current.map((theme) => ((before[theme.id] || '') === (decisions[theme.id] || '') ? theme : { ...theme, selected: decisions[theme.id] === 'approved' })));
+  }, [decisionVersion]); // eslint-disable-line react-hooks/exhaustive-deps
   const jobs = list(run.jobs).length ? run.jobs : list(run.deliverables);
   const complete = jobs.filter((job) => ['succeeded', 'completed'].includes(job.status)).length;
   const { seeCosts = true, canApprove = true, canCancel = true, canRetry = true, canExport = true, canPublish = true } = gates;
+  const codex = capabilities.aiProvider === 'codex';
+  // Write reports: the estimate first (the same words as Simple and Ask AI), and a plain line when the ticks overrule the
+  // team's Skip. This panel sends edited names and descriptions, so it keeps its own payload.
   async function approve() {
-    if (!canApprove) return;
+    if (!canApprove || checking) return;
     const selected = themes.filter((theme) => theme.selected);
-    if (!selected.length) { setThemeError('Choose at least one supported theme to continue.'); return; }
-    if (selected.some((theme) => !text(theme.name).trim())) { setThemeError('Give each selected theme a clear name.'); return; }
-    await action('Approving themes and continuing research', async () => {
+    if (!selected.length) { setThemeError('Say yes to at least one trend.'); return; }
+    if (selected.some((theme) => !text(theme.name).trim())) { setThemeError('Give each trend you’re writing a clear name.'); return; }
+    const overruled = selected.filter((theme) => decisions[theme.id] === 'passed').length;
+    const skipped = themes.length - selected.length;
+    setChecking(true);
+    let cost = [];
+    try { cost = seeCosts ? [await reportCostLine({ api, run, program, count: selected.length })] : []; } finally { setChecking(false); }
+    const ok = await confirm({ title: `Write reports for ${plural(selected.length, 'trend')}?`, lines: [...cost, 'Each one gets a trends report and an editorial toolkit.', overruled ? `${plural(overruled, 'trend')} the team skipped will be written anyway.` : '', skipped ? `${plural(skipped, 'trend')} will be skipped.` : '', codex ? CODEX_UNCAPPED : ''], items: selected.map((theme) => theme.name).slice(0, 12), confirmLabel: 'Write reports' });
+    if (!ok) return;
+    await action('Writing reports', async () => {
       await api.approveResearchThemes({ runId: run.id, themes: selected.map(({ selected: _, ...theme }) => theme) });
       return api.continueResearchRun({ runId: run.id });
     });
   }
+  // Retry: the prompt question first (only when a prompt changed), then the budget, so the last Cancel always stops it.
+  async function retry() {
+    if (seeCosts && (!Number.isFinite(Number(retryBudget)) || Number(retryBudget) <= 0)) { setRetryError('Enter the total budget to authorize for this retry.'); return; }
+    const newer = newerPromptsFor(run, promptChanges);
+    const refreshPrompts = newer.length > 0 && await confirm(newestPromptsQuestion(newer));
+    const ok = await confirm({ title: 'Retry the unfinished outputs?', lines: [seeCosts ? `This authorizes up to ${money(Number(retryBudget))} in total for the run, including what it already used. Finished outputs aren’t made again.` : 'Finished outputs aren’t made again.', refreshPrompts ? 'The unfinished steps use the newest prompts.' : '', codex ? CODEX_UNCAPPED : ''], confirmLabel: 'Retry' });
+    if (!ok) return;
+    await action('Retrying unfinished work', () => api.retryStudioRun({ runId: run.id, ...(seeCosts ? { maxBudgetUsd: Number(retryBudget) } : {}), ...(refreshPrompts ? { refreshPrompts: true } : {}) }));
+  }
+  async function cancel() {
+    if (await confirm({ title: 'Cancel this run?', lines: ['Finished outputs are kept, and you can retry the rest later.'], confirmLabel: 'Cancel run', cancelLabel: 'Keep it running', tone: 'danger' })) await action('Cancelling run', () => api.cancelStudioRun({ runId: run.id }));
+  }
+  const decidedBy = (id) => { const by = run.decisionsBy?.[id]; const decision = decisions[id]; return by?.name && ['approved', 'passed'].includes(decision) ? `${decision === 'passed' ? 'Skipped' : 'Approved'} by ${by.name}` : decision === 'approved' ? 'Approved' : decision === 'passed' ? 'Skipped' : 'Needs your OK'; };
   return <section ref={panelRef} className="cs-panel cs-run-detail" aria-label="Run progress"><div className="cs-panel-title"><div><span className="cs-eyebrow">{isQuickScan(run) ? 'QUICK SCAN' : run.runKind === 'research' || run.programId ? 'RESEARCH RUN' : 'CONTENT RUN'}</span><h3>{run.title || run.name || run.source?.title || 'Current run'}</h3><p>{friendlyMessage(run.message) || readable(run.stage || run.status)}</p></div><Status value={run.status} /></div>
     <div className="cs-run-meta">{isQuickScan(run) && <span>Quick scan · {quickScanLine(run)}</span>}<span>Started {formatDate(run.createdAt)}</span>{run.model && <span>{run.model}</span>}{Number.isFinite(run.costUsd) && <span>Recorded cost {money(run.costUsd)}</span>}{Number.isFinite(run.reservedUsd) && <span>Reserved budget {money(run.reservedUsd)}</span>}</div>
     {(run.counts || run.discoveryProgress || run.assignmentProgress) && <div className="cs-research-progress">{Number.isFinite(run.counts?.retained) && <div><strong>{number(run.counts.retained)}</strong><span>Retained evidence items</span></div>}{[['discoveryProgress', 'Discovery batches'], ['assignmentProgress', 'Classification batches']].map(([key, label]) => run[key] && <div key={key}><strong>{number(run[key].completed)} / {number(run[key].total)}</strong><span>{label}</span></div>)}{onOpenSheets && run.counts?.retained > 0 && <Button type="button" className="cs-quiet cs-open-sheets" onClick={() => onOpenSheets(run.id)}><Sheet size={14} aria-hidden="true" />Open in Sheets</Button>}</div>}{list(run.warnings).length > 0 && <div className="cs-run-warnings">{run.warnings.map((warning, index) => <p key={index}>{warning}</p>)}</div>}
     {run.error && <div className="cs-alert" role="alert">{friendlyMessage(run.error) || 'This run needs attention.'}</div>}
     {jobs.length > 0 && <><div className="cs-progress-label"><span>{complete} of {jobs.length} outputs complete</span><small>Actual output status</small></div><progress value={complete} max={jobs.length} aria-label="Completed outputs" /><div className="cs-job-list">{jobs.map((job, index) => <div key={job.id || index}><span className="cs-job-state">{['succeeded', 'completed'].includes(job.status) ? <Check size={14} /> : job.status === 'running' ? <LoaderCircle size={14} className="spin" /> : <span />}</span><div><strong>{job.label || job.title || job.deliverableId || `Output ${index + 1}`}</strong>{job.error && <p>{typeof job.error === 'string' ? job.error : job.error.message}</p>}</div><Status value={job.status} /></div>)}</div></>}
-    {run.status === 'awaiting-review' && <div className="cs-theme-review"><div className="cs-field-heading"><h4>Choose the themes worth taking forward.</h4><p>Review the evidence support and edit the wording. Only selected themes move into classification.</p></div>{themes.length ? themes.map((theme, index) => <article key={theme.id} className={`cs-theme-card ${theme.selected ? 'selected' : ''}`}><label className="cs-check"><input type="checkbox" checked={theme.selected} disabled={disabled} onChange={(event) => setThemes((current) => current.map((item, i) => i === index ? { ...item, selected: event.target.checked } : item))} /><span>Select theme {index + 1}</span><Badge>{number(theme.evidenceCount ?? list(theme.evidenceIds).length)} sources</Badge></label><ThemeScore theme={theme} /><Field id={`cs-theme-name-${index}`} label="Theme name"><input id={`cs-theme-name-${index}`} value={theme.name || ''} maxLength={160} disabled={disabled} onChange={(event) => setThemes((current) => current.map((item, i) => i === index ? { ...item, name: event.target.value } : item))} /></Field><Field id={`cs-theme-description-${index}`} label="Theme description"><textarea id={`cs-theme-description-${index}`} rows={2} value={theme.description || ''} maxLength={5000} disabled={disabled} onChange={(event) => setThemes((current) => current.map((item, i) => i === index ? { ...item, description: event.target.value } : item))} /></Field>{list(theme.evidenceIds).length > 0 && <details className="cs-theme-evidence"><summary>Source references ({theme.evidenceIds.length})</summary><div>{theme.evidenceIds.map((id) => <code key={id}>{id}</code>)}</div></details>}</article>) : <p>No supported themes were returned. Adjust the program or add stronger evidence before another run.</p>}{themeError && <p className="cs-alert" role="alert">{themeError}</p>}{canApprove && <Button type="button" disabled={disabled || !themes.length} onClick={approve}>Approve themes & build reports<ArrowRight size={15} /></Button>}</div>}
+    {run.status === 'awaiting-review' && <div className="cs-theme-review"><div className="cs-field-heading"><h4>Needs your OK</h4><p>Each box starts from the team’s Yes or Skip on the Trend board. Edit a name or description if you like; only the trends you tick get a trends report and an editorial toolkit.</p></div>{themes.length ? themes.map((theme, index) => <article key={theme.id} className={`cs-theme-card ${theme.selected ? 'selected' : ''}`}><label className="cs-check"><input type="checkbox" checked={theme.selected} disabled={disabled} onChange={(event) => setThemes((current) => current.map((item, i) => i === index ? { ...item, selected: event.target.checked } : item))} /><span>Write “{text(theme.name).trim() || `Trend ${index + 1}`}”<small className="cs-theme-decided">{decidedBy(theme.id)}</small></span><Badge>{number(theme.evidenceCount ?? list(theme.evidenceIds).length)} sources</Badge></label><ThemeScore theme={theme} /><Field id={`cs-theme-name-${index}`} label="Trend name"><input id={`cs-theme-name-${index}`} value={theme.name || ''} maxLength={160} disabled={disabled} onChange={(event) => setThemes((current) => current.map((item, i) => i === index ? { ...item, name: event.target.value } : item))} /></Field><Field id={`cs-theme-description-${index}`} label="Description"><textarea id={`cs-theme-description-${index}`} rows={2} value={theme.description || ''} maxLength={5000} disabled={disabled} onChange={(event) => setThemes((current) => current.map((item, i) => i === index ? { ...item, description: event.target.value } : item))} /></Field>{list(theme.evidenceIds).length > 0 && <details className="cs-theme-evidence"><summary>Source references ({theme.evidenceIds.length})</summary><div>{theme.evidenceIds.map((id) => <code key={id}>{id}</code>)}</div></details>}</article>) : <p>No trends were found. Adjust the program or add stronger evidence before another run.</p>}{themeError && <p className="cs-alert" role="alert">{themeError}</p>}{canApprove && <Button type="button" disabled={disabled || checking || !themes.length} onClick={approve}>{checking ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : null}Write reports<ArrowRight size={15} /></Button>}</div>}
     {assets.length > 0 && <div className="cs-run-assets"><h4>Saved outputs</h4>{assets.map((asset) => <article key={asset.id}><span className="cs-mini-icon">{asset.kind === 'image' ? <ImageIcon size={17} /> : <FileText size={17} />}</span><div><strong>{asset.title || 'Generated asset'}</strong><small>{asset.channel || asset.format || asset.kind}</small></div>{onViewAsset && <Button type="button" className="cs-quiet" onClick={() => onViewAsset(asset)}>Review</Button>}{onUseAsset && asset.kind !== 'image' && <Button type="button" className="cs-quiet" disabled={disabled} onClick={() => onUseAsset(asset)}>Create content<ArrowRight size={13} /></Button>}</article>)}</div>}
-    <div className="cs-run-actions">{!TERMINAL.has(run.status) && canCancel && <Button type="button" className="cs-quiet" disabled={disabled} onClick={() => window.confirm('Cancel this run? Finished outputs are kept, and you can retry the rest later.') && action('Cancelling run', () => api.cancelStudioRun({ runId: run.id }))}><Square size={12} />Cancel run</Button>}{['failed', 'partial', 'cancelled'].includes(run.status) && canRetry && <div className="cs-retry-control">{seeCosts && <Field id={`cs-retry-budget-${run.id}`} label="Total retry budget (USD)" hint="Includes earlier usage and reserved costs. Increase deliberately if more budget is needed."><input id={`cs-retry-budget-${run.id}`} type="number" min="0.01" max="1000" step="0.01" value={retryBudget} disabled={disabled} onChange={(event) => { setRetryBudget(event.target.value); setRetryError(''); }} /></Field>}<Button type="button" disabled={disabled} onClick={() => { if (seeCosts && (!Number.isFinite(Number(retryBudget)) || Number(retryBudget) <= 0)) { setRetryError('Enter the total budget to authorize for this retry.'); return; } const newer = newerPromptsFor(run, promptChanges); const refreshPrompts = newer.length > 0 && window.confirm(`Use the newest prompts?\n\n${newestPromptsLine(newer)}\n\nOK uses the newest prompts. Cancel keeps the run’s prompts.`); action('Retrying unfinished work', () => api.retryStudioRun({ runId: run.id, ...(seeCosts ? { maxBudgetUsd: Number(retryBudget) } : {}), ...(refreshPrompts ? { refreshPrompts: true } : {}) })); }}><RefreshCw size={14} />Retry unfinished outputs</Button>{retryError && <p role="alert">{retryError}</p>}</div>}{assets.length > 0 && canExport && <Button type="button" className="cs-quiet" disabled={disabled} onClick={() => action('Exporting run', () => api.exportStudioRun({ runId: run.id }), 'Run exported with its source metadata and manifest.')}><Download size={14} />Export run</Button>}{assets.length > 0 && canPublish && capabilities.googlePublishConfigured && <Button type="button" className="cs-quiet" disabled={disabled} onClick={async () => { const result = await action('Publishing to Google Drive', () => api.publishStudioRun({ runId: run.id })); if (result) setPublished(result); }}><Upload size={14} />Publish to Google Drive</Button>}<small>Generated drafts stay here for review.</small></div>{(delivery || run.deliveryMessage) && <div className="cs-delivery-receipt"><strong>{run.deliveryMessage || `Google Drive delivery: ${readable(delivery.status)}`}</strong>{folderUrl && <MarkdownContent>{`[Open Google Drive folder](${folderUrl})`}</MarkdownContent>}</div>}
+    <div className="cs-run-actions">{!TERMINAL.has(run.status) && canCancel && <Button type="button" className="cs-quiet" disabled={disabled} onClick={cancel}><Square size={12} />Cancel run</Button>}{['failed', 'partial', 'cancelled'].includes(run.status) && canRetry && <div className="cs-retry-control">{seeCosts && <Field id={`cs-retry-budget-${run.id}`} label="Total retry budget (USD)" hint="Includes earlier usage and reserved costs. Increase deliberately if more budget is needed."><input id={`cs-retry-budget-${run.id}`} type="number" min="0.01" max="1000" step="0.01" value={retryBudget} disabled={disabled} onChange={(event) => { setRetryBudget(event.target.value); setRetryError(''); }} /></Field>}<Button type="button" disabled={disabled} onClick={retry}><RefreshCw size={14} />Retry unfinished outputs</Button>{retryError && <p role="alert">{retryError}</p>}</div>}{assets.length > 0 && canExport && <Button type="button" className="cs-quiet" disabled={disabled} onClick={() => action('Exporting run', () => api.exportStudioRun({ runId: run.id }), 'Run exported with its source metadata and manifest.')}><Download size={14} />Export run</Button>}{assets.length > 0 && canPublish && capabilities.googlePublishConfigured && <Button type="button" className="cs-quiet" disabled={disabled} onClick={async () => { const result = await action('Publishing to Google Drive', () => api.publishStudioRun({ runId: run.id })); if (result) setPublished(result); }}><Upload size={14} />Publish to Google Drive</Button>}<small>Generated drafts stay here for review.</small></div>{(delivery || run.deliveryMessage) && <div className="cs-delivery-receipt"><strong>{run.deliveryMessage || `Google Drive delivery: ${readable(delivery.status)}`}</strong>{folderUrl && <MarkdownContent>{`[Open Google Drive folder](${folderUrl})`}</MarkdownContent>}</div>}
   </section>;
 }
 
 function CreateContent({ workspace, catalog, catalogLoading, capabilities, sourceDraft, reports, runs, selectedRun, focusRunId, onRunFocused, assets, api, action, disabled, onUseReport, onCreated, onSelectRun, onViewAsset, onSettings, askAdmin = 'an admin', promptChanges = [] }) {
+  const confirm = useConfirm();
   const [step, setStep] = useState(0);
   const [source, setSource] = useState({ kind: 'text', title: '', text: '', evidence: [] });
   const [deliverableIds, setDeliverableIds] = useState([]);
@@ -422,6 +481,10 @@ function CreateContent({ workspace, catalog, catalogLoading, capabilities, sourc
     if (!selected.length) { setFormError('Choose at least one deliverable.'); setStep(1); return; }
     if (images.length && !capabilities.imagesConfigured) { setFormError('Configure the image provider or remove image outputs before generating.'); setStep(1); return; }
     if (!Number.isFinite(Number(budget)) || Number(budget) <= 0) { setFormError('Set a positive generation budget.'); return; }
+    // No per-draft estimate exists for Create content yet (follow-up: an estimateContentRun method), so the confirmation
+    // names what will be made and the allowance it may use.
+    const ok = await confirm({ title: `Generate ${plural(selected.length, 'draft')}?`, lines: [`This can spend up to ${money(Number(budget))} on AI${images.length ? ' and image generation' : ''}, your spending allowance for this run.`, capabilities.aiProvider === 'codex' ? CODEX_UNCAPPED : '', 'Nothing is published automatically.'], items: selected.map((item) => displayLabel(item)).slice(0, 12), confirmLabel: 'Generate drafts' });
+    if (!ok) return;
     const result = await action('Starting content generation', () => api.createContentRun({ workspaceId: workspace.id, source, deliverableIds: selected.map((item) => item.id), imageVariants: Number(imageVariants), maxBudgetUsd: Number(budget) }));
     if (result) onCreated(result.run || result);
   }
@@ -450,17 +513,16 @@ const newestItem = (a, b) => String(b.createdAt || '').localeCompare(String(a.cr
 // assets by set and channel team, drafts and pictures. The tree (left) and the open folder (right) move together;
 // searching or filtering lists matching files flat, each with the folders it sits in. The preview reads the file that
 // was picked, or else the newest file in the open folder.
-function StudioLibrary({ workspace, inputs, studio = {}, selectedId, onSelect, api, action, disabled, onCreate, onUseAsset, onNotice, onOpenTrends, renderLegacy, folderRequest = null, linkOrigin = '', onOpenPrompt }) {
+// The reader matches Simple's: Edit (with the brand check), Copy link, Share, Make channel assets, Ask AI about this and
+// How this was made. `onAsk(text, context)` opens the Ask AI drawer; `onMakeAssets(report)` opens the asset dialog over
+// this page; `onContext({ report, folder })` says what is open, for Ask AI.
+function StudioLibrary({ workspace, inputs, studio = {}, selectedId, onSelect, api, action, disabled, onCreate, onUseAsset, onNotice, onOpenTrends, renderLegacy, folderRequest = null, linkOrigin = '', onOpenPrompt, onAsk, onMakeAssets, onContext, web = false }) {
   const viewer = useViewer();
   const can = (method) => canCall(viewer, method);
+  const guard = useUnsavedGuard();
   const editionId = workspace?.editionId || 'general';
-  const [helpImages, setHelpImages] = useState([]);
-  useEffect(() => {
-    let cancelled = false;
-    if (typeof api.listHelpImages !== 'function') return undefined;
-    Promise.resolve().then(() => api.listHelpImages()).then((rows) => { if (!cancelled) setHelpImages(list(rows)); }).catch(() => { if (!cancelled) setHelpImages([]); });
-    return () => { cancelled = true; };
-  }, [api.listHelpImages]);
+  // Ask AI's pictures, read again whenever Ask AI makes one (the drawer sits over this page, which stays mounted).
+  const helpImages = useHelpImages(api, []);
   const tree = useMemo(() => buildLibraryTree({ ...inputs, editionId, helpImages }), [inputs, editionId, helpImages]);
   const studioItem = (id) => (id ? tree.itemsByKey[`studio:${id}`] || null : null);
   const [cwd, setCwd] = useState(() => studioItem(selectedId)?.location || '');
@@ -475,6 +537,8 @@ function StudioLibrary({ workspace, inputs, studio = {}, selectedId, onSelect, a
   const [loading, setLoading] = useState(false);
   const [readError, setReadError] = useState('');
   const [thumbs, setThumbs] = useState({});
+  const [editing, setEditing] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const itemRefs = useRef(new Map());
   const previewRef = useRef(null);
   const folderId = tree.nodes[cwd] ? cwd : ''; // a folder that emptied out falls back to the top
@@ -510,8 +574,12 @@ function StudioLibrary({ workspace, inputs, studio = {}, selectedId, onSelect, a
     setLoading(true);
     Promise.resolve().then(() => (selected.source === 'help' ? api.readHelpImage({ id: selected.id }) : api.readStudioAsset({ assetId: selected.id }))).then((result) => { if (!cancelled) { setPayload(result); setLoading(false); } }).catch((failure) => { if (!cancelled) { setReadError(failure?.message || 'Could not read this asset.'); setLoading(false); } });
     return () => { cancelled = true; };
-  }, [selected?.key, selected?.edited?.at, api.readStudioAsset, api.readHelpImage]);
+  }, [selected?.key, selected?.edited?.at, reloadKey, api.readStudioAsset, api.readHelpImage]);
+  useEffect(() => { setEditing(false); }, [selected?.key]);
+  // Unsaved edits are asked about before another file or folder replaces the editor.
+  const mayLeave = () => !editing || guard.confirmLeave();
   function openFolder(id) {
+    if (!mayLeave()) return;
     const next = id === TREE_ROOT ? '' : id;
     setCwd(next); if (next) reveal(next); setFocusId(id);
     setHelpKey(''); if (selectedId) onSelect('');
@@ -525,6 +593,7 @@ function StudioLibrary({ workspace, inputs, studio = {}, selectedId, onSelect, a
   }, [folderRequest?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   function toggle(id, open) { setExpanded((current) => { const next = new Set(current); if (open ?? !next.has(id)) next.add(id); else next.delete(id); return next; }); }
   function pick(item, { place = false } = {}) {
+    if (item.key !== selected?.key && !mayLeave()) return;
     if (item.source === 'legacy') { openFolder('legacy'); return; }
     if (place) { setCwd(item.location); reveal(item.location); }
     if (item.source === 'help') { setHelpKey(item.key); if (selectedId) onSelect(''); } else { setHelpKey(''); onSelect(item.id); }
@@ -628,6 +697,17 @@ function StudioLibrary({ workspace, inputs, studio = {}, selectedId, onSelect, a
   const shareLink = linkOrigin && selected?.source === 'studio' ? (kitSource ? linkFor('assets', kitSource, { origin: linkOrigin }) : selected.kind !== 'image' ? linkFor('report', selected.id, { origin: linkOrigin }) : '') : '';
   async function copyLink() { onNotice?.((await copyText(shareLink)) ? LINK_COPIED : 'The link couldn’t be copied. Try again.'); }
   const where = selected ? pathTo(tree, selected.location).map((node) => node.title).join(' › ') : '';
+  // A written studio file (not a picture) gets the reader's tools; a channel asset (in a kit) is edited the same way.
+  const written = Boolean(selected && selected.source === 'studio' && selected.kind !== 'image' && selected.kind !== 'video');
+  const fileAsset = written ? assetOf(selected) || selected.asset || selected : null;
+  const canEdit = written && Boolean(api.editStudioAsset) && can('editStudioAsset') && canEditAsset(fileAsset) && Boolean(markdown);
+  const brand = useMemo(() => brandFrom(workspace || { editionId }), [workspace?.id, workspace?.knowledge?.forbiddenClaims, workspace?.knowledge?.voice, workspace?.knowledge?.editorialRules, editionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const loadedEdit = payload?.edited?.at ? { at: payload.edited.at, byName: payload.edited.byName || payload.edited.by?.name || '' } : null;
+  const ask = (id) => { const entry = MARKETER_ASKS.find(([key]) => key === id) || MARKETER_ASKS[0]; onAsk(entry[3](selected.title), reportAskContext(selected.title, markdown)); };
+  const mayMake = written && !selected.kitRunId && onMakeAssets;
+  // What's open, for Ask AI: the file, the folder, and the trend and research run it is filed under.
+  useEffect(() => { const trail = selected ? pathTo(tree, selected.location) : pathTo(tree, folderId); onContext?.({ report: written ? selected.title : '', folder: folder?.title || '', trend: trail.find((node) => node.type === 'trend')?.title || '', run: trail.find((node) => node.type === 'research-run')?.title || '' }); }, [selected?.key, folder?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  function saved(result) { setEditing(false); if (result?.restored) setReloadKey((value) => value + 1); else setPayload((current) => ({ ...(current || {}), markdown: result?.markdown ?? markdown, edited: result?.asset?.edited || current?.edited || null })); }
   return <div className="cs-library"><SectionHeading page title="Your asset library" detail={`Research runs, trends, channel assets, drafts and pictures for ${workspace?.name || 'this workspace'}.`} action={onCreate ? <Button type="button" onClick={onCreate}><Plus size={15} />Create content</Button> : null} />
     {!tree.roots.length ? <>{pendingLine}<EmptyState icon={FolderOpen} title="Make something worth sharing" detail="Run a research program or turn a source brief into your first content pack. Real outputs will appear here." action={onCreate ? 'Create content' : undefined} onAction={onCreate} /></> : <div className="cs-library-layout">
       <section className="cs-panel cs-library-list" aria-label="Find files">
@@ -643,8 +723,8 @@ function StudioLibrary({ workspace, inputs, studio = {}, selectedId, onSelect, a
       <div className="cs-library-main">
         <section className="cs-panel cs-library-folder" aria-label={filter.active ? 'Search results' : 'Folder'}>{filter.active ? results : folderView}</section>
         {selected && <section ref={previewRef} className="cs-panel cs-asset-preview" aria-label="Asset preview"><div className="cs-asset-head"><div className="cs-panel-title"><div><span className="cs-eyebrow">{selected.label || TYPE_LABEL[selected.type]}</span><h3>{selected.title}</h3>{where && <small className="cs-asset-where">{where}</small>}</div>{selected.source === 'studio' && <AssetStatusMenu api={api} asset={assetOf(selected) || selected} align="end" onNotice={onNotice} />}</div>
-          <div className="cs-asset-tools">{selected.source === 'help' ? (typeof api.saveHelpImage === 'function' && can('saveHelpImage') && <Button type="button" className="cs-quiet" disabled={disabled || loading} onClick={() => savePicture(selected)}><Download size={14} />Save picture</Button>) : <>{shareLink && <Button type="button" className="cs-quiet" onClick={copyLink}><Link2 size={14} aria-hidden="true" />Copy link</Button>}<Button type="button" className="cs-quiet" disabled={disabled || loading} onClick={() => action('Opening asset', () => api.openStudioAsset({ assetId: selected.id }))}><FolderOpen size={14} />Open file</Button>{can('exportStudioRun') && <Button type="button" className="cs-quiet" disabled={disabled || !selected.runId} onClick={() => action('Exporting asset pack', () => api.exportStudioRun({ runId: selected.runId }), 'Run exported with source metadata and a manifest.')}><Download size={14} />Export pack</Button>}{selected.kitRunId && can('saveAssetKitFolder') && <Button type="button" className="cs-quiet" disabled={disabled} onClick={() => saveFolder(selected.kitRunId)}><FolderOpen size={14} />Save folder</Button>}{selected.kind !== 'image' && onUseAsset && <Button type="button" className="cs-quiet" disabled={disabled || loading} onClick={() => onUseAsset(selected.asset)}>Create from this<ArrowRight size={14} /></Button>}</>}</div></div>
-          {loading ? <div className="cs-preview-loading" role="status"><LoaderCircle className="spin" size={22} />Loading saved output…</div> : readError ? <div className="cs-alert" role="alert">{readError}</div> : selected.kind === 'image' ? imageUrl ? <figure className="cs-generated-image"><img src={imageUrl} alt={payload?.asset?.altText || selected.title || 'Generated campaign visual'} /><figcaption>{selected.source === 'help' ? `Made in Ask AI${selected.prompt ? ` · ${selected.prompt}` : ''}` : `Generated image · Review visual claims and brand fit before use.${generationReceipt?.model ? ` Model: ${generationReceipt.model}.` : ''}`}</figcaption></figure> : <EmptyState icon={ImageIcon} title="Image preview is unavailable" detail="The saved file may still be available through Open file. No placeholder image is substituted." /> : markdown ? <><MarkdownContent>{markdown}</MarkdownContent>{selected.source === 'studio' && <HowItWasMade asset={assetOf(selected) || selected} studio={studio} api={api} onOpenPrompt={onOpenPrompt} />}</> : <EmptyState icon={FileText} title="No readable content was returned" detail="Open the saved file or review the run’s output status." />}{generationReceipt && <details className="cs-details"><summary>Generation receipt</summary><dl className="cs-receipt">{Object.entries(generationReceipt).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value)).map(([key, value]) => <React.Fragment key={key}><dt>{readable(key)}</dt><dd>{String(value)}</dd></React.Fragment>)}</dl></details>}</section>}
+          <div className="cs-asset-tools">{selected.source === 'help' ? (typeof api.saveHelpImage === 'function' && can('saveHelpImage') && <Button type="button" className="cs-quiet" disabled={disabled || loading} onClick={() => savePicture(selected)}><Download size={14} />Save picture</Button>) : <>{canEdit && !editing && <Button type="button" className="cs-quiet" {...writeProps(viewer, disabled || loading)} onClick={() => setEditing(true)}><PenLine size={14} aria-hidden="true" />Edit</Button>}{shareLink && <Button type="button" className="cs-quiet" onClick={copyLink}><Link2 size={14} aria-hidden="true" />Copy link</Button>}{written && <ReportShareMenu api={api} studio={studio} asset={fileAsset} markdown={markdown} shareLink={shareLink} action={(fn, done) => action('Saving to Google', fn, done)} busy={disabled} disabled={loading || editing} onToast={(text) => onNotice?.(text)} />}<Button type="button" className="cs-quiet" disabled={disabled || loading} onClick={() => action('Opening asset', () => api.openStudioAsset({ assetId: selected.id }))}>{web ? <Download size={14} /> : <FolderOpen size={14} />}{web ? 'Download' : 'Open file'}</Button>{can('exportStudioRun') && <Button type="button" className="cs-quiet" disabled={disabled || !selected.runId} onClick={() => action('Exporting asset pack', () => api.exportStudioRun({ runId: selected.runId }), 'Run exported with source metadata and a manifest.')}><Download size={14} />Export pack</Button>}{selected.kitRunId && can('saveAssetKitFolder') && <Button type="button" className="cs-quiet" disabled={disabled} onClick={() => saveFolder(selected.kitRunId)}><FolderOpen size={14} />Save folder</Button>}{selected.kind !== 'image' && onUseAsset && <Button type="button" className="cs-quiet" disabled={disabled || loading} onClick={() => onUseAsset(selected.asset)}>Create from this<ArrowRight size={14} /></Button>}{mayMake && <Button type="button" className="cs-quiet" {...writeProps(viewer, disabled)} onClick={() => onMakeAssets(fileAsset)}><Images size={14} aria-hidden="true" />Make channel assets</Button>}{written && onAsk && <span className="cs-ask-split" role="group" aria-label="Ask AI about this report"><Button type="button" {...writeProps(viewer, !markdown || editing)} onClick={() => ask('next')}><Sparkles size={14} aria-hidden="true" />Ask AI about this</Button><MoreMenu label="More questions for Ask AI" icon={ChevronDown} disabled={!markdown || editing || viewer.preview} align="end" items={MARKETER_ASKS.map(([id, label, icon]) => ({ label, icon, onSelect: () => ask(id) }))} /></span>}</>}</div></div>
+          {loading ? <div className="cs-preview-loading" role="status"><LoaderCircle className="spin" size={22} />Loading saved output…</div> : readError ? <div className="cs-alert" role="alert">{readError}</div> : selected.kind === 'image' ? imageUrl ? <figure className="cs-generated-image"><img src={imageUrl} alt={payload?.asset?.altText || selected.title || 'Generated campaign visual'} /><figcaption>{selected.source === 'help' ? `Made in Ask AI${selected.prompt ? ` · ${selected.prompt}` : ''}` : `Generated image · Review visual claims and brand fit before use.${generationReceipt?.model ? ` Model: ${generationReceipt.model}.` : ''}`}</figcaption></figure> : <EmptyState icon={ImageIcon} title="Image preview is unavailable" detail="The saved file may still be available through Open file. No placeholder image is substituted." /> : markdown ? (editing ? <AssetEditor api={api} asset={fileAsset} markdown={markdown} edited={loadedEdit} web={web} onSaved={saved} onCancel={() => setEditing(false)} brand={brand} onAsk={onAsk} /> : <><MarkdownContent>{markdown}</MarkdownContent>{selected.source === 'studio' && <HowItWasMade asset={assetOf(selected) || selected} studio={studio} api={api} onOpenPrompt={onOpenPrompt} />}</>) : <EmptyState icon={FileText} title="No readable content was returned" detail="Open the saved file or review the run’s output status." />}{generationReceipt && <details className="cs-details"><summary>Generation receipt</summary><dl className="cs-receipt">{Object.entries(generationReceipt).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value)).map(([key, value]) => <React.Fragment key={key}><dt>{readable(key)}</dt><dd>{String(value)}</dd></React.Fragment>)}</dl></details>}</section>}
       </div>
     </div>}
   </div>;

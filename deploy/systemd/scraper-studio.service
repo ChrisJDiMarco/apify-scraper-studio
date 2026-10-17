@@ -1,0 +1,47 @@
+# Scraper Studio (browser) as a systemd service, without Docker. Install:
+#   sudo useradd --system --home-dir /var/lib/scraper-studio-home --shell /usr/sbin/nologin studio
+#   sudo install -d -m 700 -o root -g root /etc/scraper-studio
+#   sudo install -m 600 -o root -g root secrets.env /etc/scraper-studio/secrets     # STUDIO_SECRET_KEY=…
+#   sudo install -m 644 studio.env.example /etc/scraper-studio/studio.env           # then edit
+#   the app in /opt/scraper-studio (git checkout; npm ci --omit=dev --ignore-scripts; npm run build:web)
+#   sudo cp scraper-studio.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now scraper-studio
+[Unit]
+Description=Scraper Studio (browser)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=studio
+Group=studio
+WorkingDirectory=/opt/scraper-studio
+# systemd opens the root-only secrets file and hands it over as standard input on every start and restart; the studio
+# user can't open it itself.
+StandardInput=file:/etc/scraper-studio/secrets
+Environment=STUDIO_RUNTIME=web STUDIO_SECRETS_FD=0 STUDIO_DATA_DIR=/var/lib/scraper-studio STUDIO_DRAIN_SECONDS=120
+EnvironmentFile=/etc/scraper-studio/studio.env
+ExecStart=/usr/bin/node /opt/scraper-studio/scripts/studio-web.cjs
+# The data folder and the service user's home (where Claude Code or Codex keep their sign-in), both created 0700 and
+# owned by the service user. The home stays outside the data folder, so backups never carry those sign-ins.
+StateDirectory=scraper-studio scraper-studio-home
+StateDirectoryMode=0700
+Environment=HOME=/var/lib/scraper-studio-home
+UMask=0077
+Restart=on-failure
+RestartSec=5
+# SIGTERM starts the drain; give running work STUDIO_DRAIN_SECONDS plus a margin before SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=150
+# Hardening: only the two state folders are writable.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -199,7 +199,7 @@
     },
     "reviewStatus": "draft"
   },
-  "output": "/Users/chrisdimarco/Projects/apify-scraper-studio/docs/verification/live-image/Design/brand-image-image-7f20ef9042797a02a192e0d2474f37b4.png",
+  "output": "docs/verification/live-image/Design/brand-image-image-7f20ef9042797a02a192e0d2474f37b4.png",
   "status": "passed",
   "finishedAt": "2026-09-27T22:27:09.916Z",
   "visualReview": {

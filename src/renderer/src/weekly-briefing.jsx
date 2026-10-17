@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, ArrowUp, Check, CircleCheck, ClipboardCopy, ExternalLink, FileText, LoaderCircle, Megaphone, Radar, Rocket, Sparkles, TrendingUp, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, Check, CircleCheck, ClipboardCopy, ExternalLink, FileText, ListChecks, LoaderCircle, Megaphone, Radar, Rocket, Sparkles, TrendingUp, TriangleAlert, X } from 'lucide-react';
 import { WhatChanged, DecidedBy, WhyItMatters, decisionOf, decidedLine } from './trend-pulse.jsx';
 import { TrendYesButton, channelLabel, routingChannels } from './trend-decision-sheet.jsx';
 import { copyText } from './role-screens.jsx';
 import { adminNames, can as canCall, canRun as canRunCall, useViewer, writeProps } from './viewer.js';
 import { number } from './ui.jsx';
 import { buildTrendBoard } from '../../shared/trend-board.js';
+import { linkFor } from './deep-links.js';
+import { nextSteps, setupChecklist } from './next-steps.js';
+import { defaultProgram, lastProgramId, readChoice, rememberProgram, saveChoice } from './choices.js';
 import './weekly-briefing.css';
 
 // Home in both layouts: what this week brought and what needs this person. Five cards, each from state the studio
@@ -15,8 +18,10 @@ import './weekly-briefing.css';
 //
 // onOpenTarget({ kind: 'trend'|'report'|'run'|'folder'|'page', id, page }) takes the person there; onDecide(card,
 // decision) is the layout's Yes/Skip (optimistic in Simple); onAsk(text, context) opens Ask AI; onStartResearch(program)
-// starts a research run behind the layout's cost confirmation.
-const DAY = 86400000;
+// starts a research run behind the layout's cost confirmation. Next up (next-steps.js) uses the layout's onWriteReports(),
+// onRetryRun(runId), onMakeAssets({ kind: 'report', assetId }) and onCreate(kind) (the New menu), each behind its own
+// confirmation; a step whose way is missing isn't offered. `linkOrigin` puts links in the Slack copy; `postsApi` (an api
+// with readTrendPosts) shows two real posts on a trend that needs an OK.
 const ACTIVE = new Set(['queued', 'running']);
 const list = (value) => (Array.isArray(value) ? value : []);
 const time = (value) => { const ms = Date.parse(value || ''); return Number.isFinite(ms) ? ms : NaN; };
@@ -78,36 +83,45 @@ export function briefingData({ state = {}, viewer = {}, now = new Date(), board:
   for (const asset of assets) if (asset.review?.status === 'published' && inWeek(asset.review.at) && !shipped.some((row) => row.link && row.link === asset.review.link)) shipped.push({ key: `asset:${asset.id}`, at: asset.review.at, channel: asset.review.by?.name || 'Someone', verb: 'published', title: asset.title, link: webLink(asset.review.link), assetId: asset.id });
   shipped.sort((a, b) => time(b.at) - time(a.at));
   const live = [...researchRuns.map((run) => ({ ...run, runKind: 'research' })), ...contentRuns.map((run) => ({ ...run, runKind: 'content' }))].filter((run) => ACTIVE.has(run.status)).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  // Research that stopped before finding trends: never a quiet week (the board keeps it until a newer run of the program finds trends).
+  const stopped = list(board.scouting).filter((scout) => scout.status === 'failed');
   const latestRun = researchRuns.filter((run) => run.origin !== 'quick-scan' && list(run.discoveredThemes).length && inWeek(run.createdAt)).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] || null;
-  return { workspace, editionId, board, week, channels, focus, waiting, ready, allReady, forYou, shipped, live, latestRun, programs, reportsEver: allReady.length };
+  return { workspace, editionId, board, week, channels, focus, waiting, ready, allReady, forYou, shipped, live, stopped, latestRun, programs, reportsEver: allReady.length };
 }
 
-// The briefing as Slack-flavored Markdown (*bold*, • bullets), for "Copy briefing for Slack".
-export function briefingMarkdown(data, { changes = null } = {}) {
+// The briefing as Slack-flavored Markdown (*bold*, • bullets), for "Copy briefing for Slack". With `origin` (the share
+// links' address, deep-links.js) each row links to what it names in Slack's <url|text> form, and a footer opens the
+// studio; without one (the Mac with no Studio web address) it stays plain text.
+export function briefingMarkdown(data, { changes = null, origin = '' } = {}) {
   const title = `*This week in ${data.workspace?.name || 'the studio'}* · week of ${data.week.label}`;
   const section = (heading, rows) => (rows.length ? [`*${heading}*`, ...rows.map((row) => `• ${row}`)].join('\n') : '');
+  const slack = (kind, id, text) => { const url = origin ? linkFor(kind, id, { origin }) : ''; return url ? ` <${url}|${text}>` : ''; };
   const changeRows = changes?.comparable ? [['New', changes.newTrends], ['Rising', changes.rising], ['Fading', changes.fading]].filter(([, rows]) => list(rows).length).map(([label, rows]) => `${label}: ${list(rows).slice(0, 5).map((row) => row.name).join(', ')}`) : [];
   const parts = [
     title,
-    section(`Needs your OK (${data.waiting.length})`, data.waiting.slice(0, 8).map((card) => card.name)),
+    section('Needs attention', list(data.stopped).map((scout) => `Research stopped: ${scout.title}${scout.message || scout.error ? ` (${scout.message || scout.error})` : ''}`)),
+    section(`Needs your OK (${data.waiting.length})`, data.waiting.slice(0, 8).map((card) => `${card.name}${slack('trend', card.themeId, 'Review')}`)),
     section('What changed since the last research run', changeRows),
-    section('Ready for channels', data.ready.map((row) => `${row.card.name}${row.using.length ? ` · Using: ${row.using.map((channel) => channel.short).join(', ')}` : ''}${row.quiet.length ? ` · No answer: ${row.quiet.length > 3 ? plural(row.quiet.length, 'channel') : row.quiet.map((channel) => channel.short).join(', ')}` : ''}${row.by?.note ? ` · Note: “${row.by.note}”` : ''}`)),
+    section('Ready for channels', data.ready.map((row) => `${row.card.name}${row.report ? slack('report', row.report.id, 'Read') : ''}${row.using.length ? ` · Using: ${row.using.map((channel) => channel.short).join(', ')}` : ''}${row.quiet.length ? ` · No answer: ${row.quiet.length > 3 ? plural(row.quiet.length, 'channel') : row.quiet.map((channel) => channel.short).join(', ')}` : ''}${row.by?.note ? ` · Note: “${row.by.note}”` : ''}`)),
     section('Shipped', data.shipped.map((row) => `${row.channel} ${row.verb || 'used'} ${quote(row.title)}${row.link ? ` ${row.link}` : ''}`)),
     section('Working now', data.live.slice(0, 5).map((run) => `${run.kit ? 'Channel assets' : run.runKind === 'research' ? (run.origin === 'quick-scan' ? 'Quick scan' : 'Research run') : 'Writing'}: ${run.kit?.sourceTitle || run.title || 'Untitled'}`)),
   ].filter(Boolean);
-  return parts.length > 1 ? parts.join('\n\n') : `${title}\n\nQuiet week so far. New trends show up here after the next research run.`;
+  const studio = origin ? `Open the studio: ${origin}` : '';
+  return parts.length > 1 ? [...parts, studio].filter(Boolean).join('\n\n') : [`${title}\n\nQuiet week so far. New trends show up here after the next research run.`, studio].filter(Boolean).join('\n\n');
 }
 
-export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout = 'simple', busy = false, board = null, now = null, onOpenTarget, onDecide, onDecideWithNote, onAsk, onOpenTracker, onStartResearch }) {
+export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout = 'simple', busy = false, board = null, now = null, onOpenTarget, onDecide, onDecideWithNote, onAsk, onOpenTracker, onStartResearch, linkOrigin = '', postsApi = null, onWriteReports, onRetryRun, onMakeAssets, onCreate, web: webIn }) {
   const contextViewer = useViewer(); const viewer = viewerIn || contextViewer;
   const can = (method) => canCall(viewer, method); const canRun = (method) => canRunCall(viewer, method);
   const data = useMemo(() => briefingData({ state, viewer, now: now || new Date(), board }), [state.contentStudio, viewer, board, now]); // eslint-disable-line react-hooks/exhaustive-deps
-  const { workspace, week, channels, waiting, ready, forYou, shipped, live, latestRun, programs } = data;
+  const { workspace, week, channels, waiting, ready, forYou, shipped, live, stopped, latestRun, programs } = data;
   const askAdmin = adminNames(state, 'an admin');
   const needsSetup = state.keys && !state.keys.APIFY_API_TOKEN;
   const open = (target) => onOpenTarget?.(target);
-  const [programId, setProgramId] = useState('');
-  const program = programs.find((row) => row.id === programId) || [...programs].sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))[0] || null;
+  // One rule for every Find new trends: the program picked here, else the one this person chose last, else the newest.
+  const [programId, setProgramIdState] = useState('');
+  const setProgramId = (id) => { setProgramIdState(id); rememberProgram(viewer, id); };
+  const program = defaultProgram(programs, { id: programId, lastId: lastProgramId(viewer) });
   const [copied, setCopied] = useState('');
   const [draft, setDraft] = useState('');
   const [problem, setProblem] = useState('');
@@ -126,6 +140,35 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
   const trendOf = useMemo(() => { const byTheme = new Map(); for (const trend of list(history?.trends)) for (const id of list(trend.themeIds)) if (!byTheme.has(id)) byTheme.set(id, trend); return (card) => byTheme.get(card.themeId) || null; }, [history]);
 
   const canDecide = can('decideResearchTheme');
+  // Next up: what this person should do now that the cards below don't already show (Needs your OK has its own card).
+  const steps = useMemo(() => nextSteps({ state, viewer, can, board: data.board, now: (now || new Date()).getTime(), askAdmin, origin: linkOrigin, exclude: canDecide ? ['decide'] : [] }), [state.contentStudio, state.keys, viewer, data.board, now, linkOrigin, canDecide]); // eslint-disable-line react-hooks/exhaustive-deps
+  const handlers = { 'write-reports': onWriteReports, retry: onRetryRun, 'make-assets': onMakeAssets, create: onCreate, open: onOpenTarget, copy: true };
+  // A stopped run stays visible even where Try again isn't wired: it opens the run instead.
+  const shownSteps = steps.map((step) => (step.action?.kind === 'retry' && !onRetryRun ? { ...step, action: { kind: 'open', target: { kind: 'run', id: step.action.runId, page: 'research' }, label: 'See why' } } : step)).filter((step) => handlers[step.action?.kind]).slice(0, 3);
+  async function runStep(step) {
+    const act = step.action || {};
+    if (act.kind === 'open') open(act.target);
+    else if (act.kind === 'write-reports') Promise.resolve(onWriteReports?.()).catch((failure) => setProblem(failure?.message || 'The reports couldn’t be started. Try again.'));
+    else if (act.kind === 'retry') onRetryRun?.(act.runId);
+    else if (act.kind === 'make-assets') onMakeAssets?.({ kind: 'report', assetId: act.assetId });
+    else if (act.kind === 'create') onCreate?.(act.create);
+    else if (act.kind === 'copy') { const done = await copyText(act.text); setCopied(done ? act.done || 'Copied.' : 'That couldn’t be copied. Try again.'); setTimeout(() => setCopied(''), 2400); }
+  }
+  // Get the studio ready (admins): until every required step is done, or the person hides it. People and channel owners
+  // come from getTeam on the browser studio, read only while the card shows.
+  const admin = can('saveSettings');
+  const web = webIn ?? (Boolean(viewer.web) || viewer.via === 'web');
+  const [team, setTeam] = useState(null);
+  const [setupHidden, setSetupHidden] = useState(() => readChoice(viewer, 'setup.hidden', '') === '1');
+  const setup = useMemo(() => setupChecklist({ state, web, team, channels }), [state, web, team, channels]);
+  const showSetup = admin && !setupHidden && !setup.complete;
+  useEffect(() => {
+    if (!showSetup || !web || team || typeof api.getTeam !== 'function' || !can('getTeam')) return undefined;
+    let live = true;
+    Promise.resolve().then(() => api.getTeam()).then((result) => { if (live) setTeam(result || null); }, () => {});
+    return () => { live = false; };
+  }, [showSetup, web]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hideSetup = () => { setSetupHidden(true); saveChoice(viewer, 'setup.hidden', '1'); };
   const decide = (card, decision) => {
     setProblem('');
     if (onDecide) { onDecide(card, decision); return; }
@@ -134,8 +177,9 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
   };
   const decideWithNote = onDecideWithNote || (api.decideResearchTheme && canRun('decideResearchTheme') ? (card, choice) => api.decideResearchTheme({ runId: card.runId, themeId: card.themeId, decision: 'approved', note: choice.note, channels: choice.channels }) : undefined);
   const startResearch = can('startResearchRun') && onStartResearch && !needsSetup ? () => onStartResearch(program) : undefined;
-  const quiet = !waiting.length && !ready.length && !shipped.length && !live.length && !forYou.length && !(changes?.comparable && (changes.counts?.new || changes.counts?.rising || changes.counts?.fading));
-  async function copyBriefing() { const done = await copyText(briefingMarkdown(data, { changes })); setCopied(done ? 'Copied. Paste it into Slack.' : 'The briefing couldn’t be copied. Try again.'); setTimeout(() => setCopied(''), 2400); }
+  const quiet = !waiting.length && !ready.length && !shipped.length && !live.length && !forYou.length && !stopped.length && !shownSteps.length && !(changes?.comparable && (changes.counts?.new || changes.counts?.rising || changes.counts?.fading));
+  // Links go in when there is an address to build them on; without one, the copy says where to add it (once a session).
+  async function copyBriefing() { const done = await copyText(briefingMarkdown(data, { changes, origin: linkOrigin })); setCopied(done ? `Copied. Paste it into Slack.${linkOrigin ? '' : admin ? ' Add a Studio web address in Settings to include links.' : ''}` : 'The briefing couldn’t be copied. Try again.'); setTimeout(() => setCopied(''), linkOrigin ? 2400 : 4800); }
   function submit(event) { event.preventDefault(); const text = draft.trim(); if (!text || !onAsk || viewer.preview) return; onAsk(text, ''); setDraft(''); }
   const openTrend = (entry) => (entry?.reportAssetId ? open({ kind: 'report', id: entry.reportAssetId, page: 'reports' }) : open({ kind: 'trend', id: list(entry?.themeIds)[0] || entry?.trendId || '', page: 'trends' }));
   const linkButton = (link) => (api.openSourceUrl ? <button type="button" className="wb-link-chip" title={link} onClick={() => api.openSourceUrl(link)}><ExternalLink size={13} aria-hidden="true" /><span>{linkText(link)}</span></button> : <a className="wb-link-chip" href={link} target="_blank" rel="noreferrer" title={link}><ExternalLink size={13} aria-hidden="true" /><span>{linkText(link)}</span></a>);
@@ -156,14 +200,33 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
     {problem && <p className="wb-problem" role="alert">{problem}</p>}
 
     {needsSetup && (can('saveSettings')
-      ? <button type="button" className="wb-setup" onClick={() => open({ kind: 'page', id: 'settings', page: 'settings' })}><span className="wb-setup-dot" aria-hidden="true" /><span><strong>Finish setup to start collecting</strong><small>Connect your Apify account in Settings. It takes about a minute.</small></span><ArrowRight size={16} aria-hidden="true" /></button>
+      ? !showSetup && <button type="button" className="wb-setup" onClick={() => open({ kind: 'page', id: 'settings', page: 'settings' })}><span className="wb-setup-dot" aria-hidden="true" /><span><strong>Finish setup to start collecting</strong><small>Connect your Apify account in Settings. It takes about a minute.</small></span><ArrowRight size={16} aria-hidden="true" /></button>
       : <div className="wb-setup is-note" role="note"><span className="wb-setup-dot" aria-hidden="true" /><span><strong>Setup isn’t finished</strong><small>Ask {askAdmin} to connect Apify. Then research can start collecting.</small></span></div>)}
 
-    {onAsk && layout === 'simple' && <form className="wb-ask" data-spot="home.ask" onSubmit={submit}>
+    {onAsk && <form className="wb-ask" data-spot="home.ask" onSubmit={submit}>
       <Sparkles size={18} aria-hidden="true" />
       <input aria-label="Ask AI" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ask about this week, or tell me what to do…" />
       <button type="submit" aria-label="Ask" {...writeProps(viewer, !draft.trim())}><ArrowUp size={17} aria-hidden="true" /></button>
     </form>}
+
+    {showSetup && <section className="wb-card wb-setup-card" aria-labelledby="wb-setup-title" data-spot="home.setup">
+      <header className="wb-card-head"><span className="wb-icon tone-purple" aria-hidden="true"><ListChecks size={17} /></span><h2 id="wb-setup-title"><span className="wb-title-text">Get the studio ready</span> <span className="wb-count">{number(setup.done)} of {number(setup.total)}</span></h2><button type="button" className="wb-link" onClick={hideSetup}>Hide</button></header>
+      <span className="wb-progress" role="progressbar" aria-label="Setup done" aria-valuemin={0} aria-valuemax={setup.total} aria-valuenow={setup.done}><span style={{ width: `${Math.max(4, Math.round((setup.done / Math.max(1, setup.total)) * 100))}%` }} /></span>
+      <ul className="wb-setup-list">{setup.items.map((item) => { const doable = item.action.kind === 'create' ? Boolean(onCreate) : Boolean(onOpenTarget); return <li key={item.id} className={item.done ? 'is-done' : ''}>
+        <span className="wb-setup-mark" aria-hidden="true">{item.done ? <Check size={13} /> : null}</span>
+        <span className="wb-setup-copy"><strong>{item.label}{item.optional && !item.done ? <em> (optional)</em> : null}</strong><small>{item.done ? 'Done.' : item.detail}</small><span className="sr-only">{item.done ? ', done' : ', to do'}</span></span>
+        {!item.done && doable && <button type="button" className="wb-quiet" onClick={() => (item.action.kind === 'create' ? onCreate(item.action.create) : open(item.action.target))}>{item.action.label}</button>}
+      </li>; })}</ul>
+    </section>}
+
+    {(shownSteps.length > 0 || (!quiet && !waiting.length)) && <section className="wb-next" aria-labelledby="wb-next-title" data-spot="home.next">
+      <h2 id="wb-next-title" className="wb-next-title">Next up</h2>
+      {shownSteps.length ? <ul className="wb-next-list">{shownSteps.map((step) => <li key={step.id} className={`wb-next-card tone-${step.tone}`}>
+        <span className="wb-next-icon" aria-hidden="true">{step.tone === 'attention' ? <TriangleAlert size={16} /> : <ArrowRight size={16} />}</span>
+        <span className="wb-next-copy"><strong>{step.title}</strong>{step.detail && <small>{step.detail}</small>}</span>
+        <button type="button" className={step.tone === 'attention' ? 'wb-quiet' : 'wb-primary'} {...(['write-reports', 'retry', 'make-assets'].includes(step.action.kind) ? writeProps(viewer, busy) : {})} onClick={() => runStep(step)}>{step.action.label}</button>
+      </li>)}</ul> : <p className="wb-empty">Nothing waiting on you.</p>}
+    </section>}
 
     {quiet && <section className="wb-quiet-week" aria-labelledby="wb-quiet-title">
       <CircleCheck size={26} aria-hidden="true" />
@@ -171,51 +234,66 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
       {startResearch && <button type="button" className="wb-primary" {...writeProps(viewer, busy)} onClick={startResearch}><Radar size={15} aria-hidden="true" />Start research</button>}
     </section>}
 
-    <div className="wb-grid">
-      {canDecide && <section className="wb-card wb-needs" aria-labelledby="wb-needs-title" data-spot="home.trends">
-        <header className="wb-card-head"><span className="wb-icon tone-purple" aria-hidden="true"><TrendingUp size={17} /></span><h2 id="wb-needs-title">Needs your OK <span className="wb-count">{number(waiting.length)}</span></h2>{waiting.length > 3 && <button type="button" className="wb-link" onClick={() => open({ kind: 'page', id: 'trends', page: 'trends' })}>See all<ArrowRight size={14} aria-hidden="true" /></button>}</header>
-        {waiting.length ? <ul className="wb-list">{waiting.slice(0, 3).map((card) => <li key={card.key} className="wb-trend">
-          <div className="wb-trend-copy"><button type="button" className="wb-title-link" onClick={() => open({ kind: 'trend', id: card.themeId, page: 'trends' })}>{card.name}</button><WhyItMatters card={card} trend={trendOf(card)} onAsk={onAsk && can('askHelp') ? (text) => onAsk(text, '') : undefined} /></div>
-          <div className="wb-trend-actions"><TrendYesButton card={card} channels={channels} className="wb-yes" size={14} disabled={busy} onDecide={decide} onDecideWithNote={decideWithNote} /><button type="button" className="wb-skip" aria-label={`Skip ${card.name}`} {...writeProps(viewer, busy)} onClick={() => decide(card, 'passed')}>Skip</button></div>
-        </li>)}</ul> : <p className="wb-empty">Nothing needs your OK. New trends arrive after each research run.</p>}
-      </section>}
+    {/* Two columns: what needs this person on the left, context on the right. Each column stacks, so cards of
+        different heights never leave gaps; an empty card shrinks to one line. */}
+    <div className="wb-layout">
+      <div className="wb-col wb-col-main">
+        {canDecide && <section className={`wb-card wb-needs${waiting.length ? '' : ' is-empty'}`} aria-labelledby="wb-needs-title" data-spot="home.trends">
+          <header className="wb-card-head"><span className="wb-icon tone-purple" aria-hidden="true"><TrendingUp size={17} /></span><h2 id="wb-needs-title"><span className="wb-title-text">Needs your OK</span> <span className="wb-count">{number(waiting.length)}</span></h2>{waiting.length > 3 && <button type="button" className="wb-link" onClick={() => open({ kind: 'page', id: 'trends', page: 'trends' })}>See all<ArrowRight size={14} aria-hidden="true" /></button>}</header>
+          {waiting.length ? <ul className="wb-list">{waiting.slice(0, 3).map((card) => <li key={card.key} className="wb-trend">
+            <div className="wb-trend-copy"><button type="button" className="wb-title-link" onClick={() => open({ kind: 'trend', id: card.themeId, page: 'trends' })}>{card.name}</button><WhyItMatters card={card} trend={trendOf(card)} api={postsApi} onAsk={onAsk && can('askHelp') ? (text) => onAsk(text, '') : undefined} /></div>
+            <div className="wb-trend-actions"><TrendYesButton card={card} channels={channels} className="wb-yes" size={14} disabled={busy} onDecide={decide} onDecideWithNote={decideWithNote} /><button type="button" className="wb-skip" aria-label={`Skip ${card.name}`} {...writeProps(viewer, busy)} onClick={() => decide(card, 'passed')}>Skip</button></div>
+          </li>)}</ul> : <p className="wb-empty">Nothing needs your OK. New trends arrive after each research run.</p>}
+        </section>}
 
-      {historyOn && <div className="wb-changes" data-spot="home.changes"><WhatChanged changes={history === undefined ? undefined : changes} error={historyError} onOpenTrend={openTrend} onOpenTracker={onOpenTracker} onStartResearch={startResearch} limit={3} /></div>}
+        <section className={`wb-card wb-ready${ready.length || data.allReady.length ? '' : ' is-empty'}`} aria-labelledby="wb-ready-title" data-spot="home.latest">
+          <header className="wb-card-head"><span className="wb-icon tone-mint" aria-hidden="true"><FileText size={17} /></span><h2 id="wb-ready-title"><span className="wb-title-text">Ready for channels</span> <span className="wb-count">{number(ready.length)}</span></h2><button type="button" className="wb-link" data-spot="home.reports" onClick={() => open({ kind: 'page', id: 'reports', page: 'reports' })}>All reports<ArrowRight size={14} aria-hidden="true" /></button></header>
+          {ready.length ? <ul className="wb-list">{ready.map((row) => <li key={row.card.themeId} className="wb-ready-row">
+            <button type="button" className="wb-title-link" onClick={() => (row.report ? open({ kind: 'report', id: row.report.id, page: 'reports' }) : open({ kind: 'trend', id: row.card.themeId, page: 'trends' }))}>{row.card.name}</button>
+            <DecidedBy by={row.by} decision="approved" channelName={(id) => channelLabel(channels, id)} />
+            <ul className="wb-chips" aria-label={`Channel answers for ${row.card.name}`}>
+              {row.channels.filter((channel) => channel.answer || (row.routed.length && channel.offered)).map((channel) => <li key={channel.id} className={`wb-chip ${channel.answer || 'none'}`} title={channel.name}>{channel.answer === 'using' ? <Check size={12} aria-hidden="true" /> : channel.answer === 'not-using' ? <X size={12} aria-hidden="true" /> : null}{channel.short}<span className="sr-only">: {channel.answer === 'using' ? 'using' : channel.answer === 'not-using' ? 'not for us' : 'no answer'}</span></li>)}
+              {!row.routed.length && row.quiet.length > 0 && <li className="wb-chip none">{row.using.length || row.channels.some((channel) => channel.answer) ? `No answer from ${plural(row.quiet.length, 'channel')}` : `No answer yet from ${plural(row.quiet.length, 'channel')}`}</li>}
+            </ul>
+          </li>)}</ul>
+            : data.allReady.length ? <>
+              {/* No new briefs this week: the latest earlier ones, so the card is still a way into the work. */}
+              <p className="wb-empty wb-empty-lead">No new briefs this week. The latest ones:</p>
+              <ul className="wb-list wb-earlier">{data.allReady.slice(0, 3).map((row) => <li key={row.card.themeId} className="wb-earlier-row">
+                <button type="button" className="wb-title-link" onClick={() => (row.report ? open({ kind: 'report', id: row.report.id, page: 'reports' }) : open({ kind: 'trend', id: row.card.themeId, page: 'trends' }))}>{row.card.name}</button>
+                <small className="wb-muted">Trends report + editorial toolkit{Number.isFinite(time(row.readyAt)) ? ` · ${dayLabel(new Date(time(row.readyAt)))}` : ''}</small>
+              </li>)}</ul>
+            </>
+            : <p className="wb-empty">No reports yet. Say yes to a trend on Trends, then press Write reports. Its trends report and editorial toolkit land here.</p>}
+        </section>
 
-      <section className="wb-card wb-ready" aria-labelledby="wb-ready-title" data-spot="home.latest">
-        <header className="wb-card-head"><span className="wb-icon tone-mint" aria-hidden="true"><FileText size={17} /></span><h2 id="wb-ready-title">Ready for channels <span className="wb-count">{number(ready.length)}</span></h2><button type="button" className="wb-link" data-spot="home.reports" onClick={() => open({ kind: 'page', id: 'reports', page: 'reports' })}>All reports<ArrowRight size={14} aria-hidden="true" /></button></header>
-        {ready.length ? <ul className="wb-list">{ready.map((row) => <li key={row.card.themeId} className="wb-ready-row">
-          <button type="button" className="wb-title-link" onClick={() => (row.report ? open({ kind: 'report', id: row.report.id, page: 'reports' }) : open({ kind: 'trend', id: row.card.themeId, page: 'trends' }))}>{row.card.name}</button>
-          <DecidedBy by={row.by} decision="approved" channelName={(id) => channelLabel(channels, id)} />
-          <ul className="wb-chips" aria-label={`Channel answers for ${row.card.name}`}>
-            {row.channels.filter((channel) => channel.answer || (row.routed.length && channel.offered)).map((channel) => <li key={channel.id} className={`wb-chip ${channel.answer || 'none'}`} title={channel.name}>{channel.answer === 'using' ? <Check size={12} aria-hidden="true" /> : channel.answer === 'not-using' ? <X size={12} aria-hidden="true" /> : null}{channel.short}<span className="sr-only">: {channel.answer === 'using' ? 'using' : channel.answer === 'not-using' ? 'not for us' : 'no answer'}</span></li>)}
-            {!row.routed.length && row.quiet.length > 0 && <li className="wb-chip none">{row.using.length || row.channels.some((channel) => channel.answer) ? `No answer from ${plural(row.quiet.length, 'channel')}` : `No answer yet from ${plural(row.quiet.length, 'channel')}`}</li>}
-          </ul>
-        </li>)}</ul> : <p className="wb-empty">{data.reportsEver ? 'No new briefs this week. Earlier ones are in Reports.' : 'No reports yet. Say yes to a trend on Trends, then press Write reports. Its trends report and editorial toolkit land here.'}</p>}
-      </section>
+        {forYou.length > 0 && <section className="wb-card wb-for-you" aria-labelledby="wb-for-you-title">
+          <header className="wb-card-head"><span className="wb-icon tone-ink" aria-hidden="true"><Megaphone size={17} /></span><h2 id="wb-for-you-title"><span className="wb-title-text">Ready for your channels</span></h2></header>
+          <ul className="wb-list">{forYou.map((row) => <li key={row.card.themeId} className="wb-ready-row">
+            <button type="button" className="wb-title-link" onClick={() => (row.report ? open({ kind: 'report', id: row.report.id, page: 'reports' }) : open({ kind: 'trend', id: row.card.themeId, page: 'trends' }))}>{row.card.name}</button>
+            <ul className="wb-chips" aria-label={`Your channels for ${row.card.name}`}>{row.focus.map((channel) => <li key={channel.id} className={`wb-chip ${channel.answer || 'none'}`}>{channel.answer === 'using' ? <Check size={12} aria-hidden="true" /> : null}{channel.name}<span className="sr-only">: {channel.answer === 'using' ? 'using' : channel.answer === 'not-using' ? 'not for us' : 'no answer'}</span></li>)}</ul>
+          </li>)}</ul>
+        </section>}
+      </div>
 
-      {forYou.length > 0 && <section className="wb-card wb-for-you" aria-labelledby="wb-for-you-title">
-        <header className="wb-card-head"><span className="wb-icon tone-ink" aria-hidden="true"><Megaphone size={17} /></span><h2 id="wb-for-you-title">Ready for your channels</h2></header>
-        <ul className="wb-list">{forYou.map((row) => <li key={row.card.themeId} className="wb-ready-row">
-          <button type="button" className="wb-title-link" onClick={() => (row.report ? open({ kind: 'report', id: row.report.id, page: 'reports' }) : open({ kind: 'trend', id: row.card.themeId, page: 'trends' }))}>{row.card.name}</button>
-          <ul className="wb-chips" aria-label={`Your channels for ${row.card.name}`}>{row.focus.map((channel) => <li key={channel.id} className={`wb-chip ${channel.answer || 'none'}`}>{channel.answer === 'using' ? <Check size={12} aria-hidden="true" /> : null}{channel.name}<span className="sr-only">: {channel.answer === 'using' ? 'using' : channel.answer === 'not-using' ? 'not for us' : 'no answer'}</span></li>)}</ul>
-        </li>)}</ul>
-      </section>}
+      <div className="wb-col wb-col-side">
+        {historyOn && <div className="wb-changes" data-spot="home.changes"><WhatChanged changes={history === undefined ? undefined : changes} error={historyError} onOpenTrend={openTrend} onOpenTracker={onOpenTracker} onStartResearch={startResearch} limit={3} /></div>}
 
-      <section className="wb-card wb-shipped" aria-labelledby="wb-shipped-title">
-        <header className="wb-card-head"><span className="wb-icon tone-mint" aria-hidden="true"><Rocket size={17} /></span><h2 id="wb-shipped-title">Shipped <span className="wb-count">{number(shipped.length)}</span></h2></header>
-        {shipped.length ? <ul className="wb-list">{shipped.slice(0, 8).map((row) => <li key={row.key} className="wb-shipped-row"><span><strong>{row.channel}</strong> {row.verb || 'used'} {quote(row.title)}</span>{row.link ? linkButton(row.link) : <small className="wb-muted">No link yet</small>}</li>)}</ul>
-          : <p className="wb-empty">Nothing shipped yet this week. When a channel says it’s using a trend, it shows here with the link.</p>}
-      </section>
+        {live.length > 0 && <section className="wb-card wb-working" aria-labelledby="wb-working-title" data-spot="home.working">
+          <header className="wb-card-head"><span className="wb-icon tone-ink" aria-hidden="true"><LoaderCircle className="spin" size={17} /></span><h2 id="wb-working-title"><span className="wb-title-text">Working now</span> <span className="wb-count">{number(live.length)}</span></h2></header>
+          <ul className="wb-list">{live.slice(0, 5).map((run) => { const progress = run.progress?.total > 0 ? Math.min(100, Math.round(((run.progress.completed ?? run.progress.done ?? 0) / run.progress.total) * 100)) : null; return <li key={run.id} className="wb-run">
+            <button type="button" className="wb-title-link" onClick={() => open(run.kit ? { kind: 'folder', id: run.kit.sourceKey || '', page: 'assets' } : { kind: 'run', id: run.id, page: run.runKind === 'research' ? 'research' : 'create' })}>{run.kit ? `Channel assets · ${run.kit.sourceTitle || run.title}` : run.title || 'Research run'}</button>
+            <small className="wb-muted">{run.status === 'queued' ? 'Starting soon' : run.message || (run.stage ? `${readable(run.stage)}…` : 'Working…')}</small>
+            {progress !== null && <span className="wb-progress" role="progressbar" aria-label={`${run.title || 'Run'} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${Math.max(4, progress)}%` }} /></span>}
+          </li>; })}</ul>
+        </section>}
 
-      {live.length > 0 && <section className="wb-card wb-working" aria-labelledby="wb-working-title" data-spot="home.working">
-        <header className="wb-card-head"><span className="wb-icon tone-ink" aria-hidden="true"><LoaderCircle className="spin" size={17} /></span><h2 id="wb-working-title">Working now <span className="wb-count">{number(live.length)}</span></h2></header>
-        <ul className="wb-list">{live.slice(0, 5).map((run) => { const progress = run.progress?.total > 0 ? Math.min(100, Math.round(((run.progress.completed ?? run.progress.done ?? 0) / run.progress.total) * 100)) : null; return <li key={run.id} className="wb-run">
-          <button type="button" className="wb-title-link" onClick={() => open(run.kit ? { kind: 'folder', id: run.kit.sourceKey || '', page: 'assets' } : { kind: 'run', id: run.id, page: run.runKind === 'research' ? 'research' : 'create' })}>{run.kit ? `Channel assets · ${run.kit.sourceTitle || run.title}` : run.title || 'Research run'}</button>
-          <small className="wb-muted">{run.status === 'queued' ? 'Starting soon' : run.message || (run.stage ? `${readable(run.stage)}…` : 'Working…')}</small>
-          {progress !== null && <span className="wb-progress" role="progressbar" aria-label={`${run.title || 'Run'} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${Math.max(4, progress)}%` }} /></span>}
-        </li>; })}</ul>
-      </section>}
+        <section className={`wb-card wb-shipped${shipped.length ? '' : ' is-empty'}`} aria-labelledby="wb-shipped-title">
+          <header className="wb-card-head"><span className="wb-icon tone-mint" aria-hidden="true"><Rocket size={17} /></span><h2 id="wb-shipped-title"><span className="wb-title-text">Shipped</span> <span className="wb-count">{number(shipped.length)}</span></h2></header>
+          {shipped.length ? <ul className="wb-list">{shipped.slice(0, 8).map((row) => <li key={row.key} className="wb-shipped-row"><span><strong>{row.channel}</strong> {row.verb || 'used'} {quote(row.title)}</span>{row.link ? linkButton(row.link) : <small className="wb-muted">No link yet</small>}</li>)}</ul>
+            : <p className="wb-empty">Nothing shipped yet this week. When a channel says it’s using a trend, it shows here with the link.</p>}
+        </section>
+      </div>
     </div>
   </div>;
 }
