@@ -90,7 +90,9 @@ describe('deriveQuickScanProgram', () => {
     }
     const lite = buildCollectionPlan(deriveQuickScanProgram(saved(), normalizeScan({ topic: 'SEO', lookbackHours: 12 }), { now }), { now });
     const startAt = '2026-10-17T00:00:00.000Z';
-    const bySource = Object.fromEntries(lite.jobs.map((job) => [job.sourceId, job.recipe.input]));
+    // A lite scan's 8 X accounts split into 2 jobs of 5 and 3; each source's first job is checked.
+    const bySource = Object.fromEntries([...lite.jobs].reverse().map((job) => [job.sourceId, job.recipe.input]));
+    expect(lite.jobs.filter((job) => job.sourceId === 'x').map((job) => job.targets.length)).toEqual([5, 3]);
     expect(bySource.x.searchTerms[0]).toBe(`from:account0 since_time:${Date.parse(startAt) / 1000}`);
     expect(bySource['linkedin-profile'].postedLimitDate).toBe(startAt);
     expect(bySource.reddit).toMatchObject({ postDateLimit: startAt, commentDateLimit: startAt, skipComments: true });

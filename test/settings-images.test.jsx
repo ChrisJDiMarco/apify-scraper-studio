@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsView } from '../src/renderer/src/settings-view.jsx';
 
 const state = (configured = false) => ({ keys: { OPENAI_API_KEY: configured }, settings: { maxItems: 1000, sheets: {} }, sheetRuns: [] });
 const props = (configured = false) => ({ state: state(configured), meta: {}, onSaveKey: vi.fn(async () => true), onClearKey: vi.fn(async () => true), onTestImages: vi.fn(async () => ({ configured: true, model: 'fixture-image-model', accessVerified: true, generationVerified: false, message: 'The selected image model is available.' })) });
 const draft = 'test-only-input'; // Deliberately not a real API credential.
+// Source collection (Apify) has its own Setup needed badge, and the diagnostics cards repeat the last image check, so
+// image assertions look inside the Image generation section.
+const imageSection = () => within(screen.getByRole('region', { name: 'Image generation' }));
 afterEach(cleanup);
 
 describe('image provider setup', () => {
@@ -17,12 +20,15 @@ describe('image provider setup', () => {
     expect(screen.getByRole('heading', { name: 'Image generation' })).toBeVisible();
     expect(screen.getByLabelText('OpenAI API key')).toHaveAttribute('type', 'password');
     expect(screen.getByLabelText('OpenAI API key')).toHaveAttribute('autoComplete', 'off');
-    expect(screen.getByText('Setup needed')).toBeVisible();
+    expect(imageSection().getByText('Setup needed')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Save image key' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Check image access' })).toBeDisabled();
-    expect(screen.getByText(/Desktop credentials are stored on this computer/)).toHaveTextContent('backend and never sent to browsers');
+    expect(screen.getByText('The image key is stored on this computer.')).toBeVisible();
     expect(handlers.onTestImages).not.toHaveBeenCalled();
     expect(handlers.onSaveKey).not.toHaveBeenCalled();
+    cleanup();
+    render(<SettingsView {...props()} meta={{ runtime: 'web' }} />);
+    expect(screen.getByText('The image key is saved on the studio server and never sent to browsers.')).toBeVisible();
   });
   it('sends only an explicit credential save and clears the password field after success', async () => {
     const handlers = props(); render(<SettingsView {...handlers} />);
@@ -59,7 +65,7 @@ describe('image provider setup', () => {
     render(<SettingsView {...handlers} />);
     fireEvent.click(screen.getByRole('button', { name: 'Check image access' }));
     expect(await screen.findByText('Image access needs attention')).toBeVisible();
-    expect(screen.getByText('Image access is not enabled for this project.')).toBeVisible();
+    expect(imageSection().getByText('Image access is not enabled for this project.')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Check image access' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Connection unavailable.');
     expect(screen.getByText('Credential saved')).toBeVisible();

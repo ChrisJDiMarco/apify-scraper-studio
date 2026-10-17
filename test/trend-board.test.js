@@ -82,7 +82,7 @@ describe('trend board decisions', () => {
     board = boardFor(api);
     expect(board.columns.ready[0].contentRunCount).toBe(1);
     expect(board.columns.ready[0].assetCount).toBeGreaterThan(0);
-  });
+  }, 30000); // a research run and its reports; slow when the suite runs in parallel.
 });
 
 describe('trend board layout', () => {

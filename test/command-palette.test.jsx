@@ -8,8 +8,8 @@ import { CommandPalette } from '../src/renderer/src/mission-command.jsx';
 afterEach(cleanup);
 
 const items = [
-  { id: 'datasets', label: 'Open datasets', shortcut: 'Cmd+D' },
-  { id: 'reports', label: 'Open reports', shortcut: 'Cmd+R' },
+  { id: 'datasets', label: 'Open datasets', shortcut: '⌘1' },
+  { id: 'reports', label: 'Open reports', shortcut: '⌘2' },
   { id: 'scraper', label: 'Create a scraper' },
 ];
 
@@ -41,7 +41,7 @@ describe('command palette keyboard access', () => {
     const trigger = launch();
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toHaveAttribute('aria-modal', 'true');
     expect(screen.getByRole('textbox', { name: 'Search commands' })).toHaveFocus();
-    expect(screen.getByPlaceholderText('Search pages and actions…')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search reports, trends and pages…')).toBeInTheDocument();
     press('Escape');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
@@ -130,7 +130,7 @@ describe('command palette keyboard access', () => {
     launch();
     const input = screen.getByRole('textbox', { name: 'Search commands' });
     fireEvent.change(input, { target: { value: 'No such command' } });
-    expect(screen.getByText('No commands')).toBeInTheDocument();
+    expect(screen.getByText('No matches')).toBeInTheDocument();
     press('ArrowDown');
     press('ArrowUp');
     press('Enter');
@@ -151,11 +151,13 @@ describe('command palette keyboard access', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('does not advertise unimplemented per-command shortcuts', () => {
+  // App passes a shortcut only for pages whose ⌘ number is wired (nav-model order), so the palette teaches real keys.
+  it('shows the shortcut a page carries beside it, hidden from screen readers, and none for actions without one', () => {
     render(<Harness />);
     launch();
-    expect(screen.queryByText('Cmd+D')).not.toBeInTheDocument();
-    expect(screen.queryByText('Cmd+R')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('button', { name: 'Open datasets' })).getByText('⌘1')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(screen.getByRole('button', { name: 'Open reports' })).getByText('⌘2')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create a scraper' }).querySelector('.palette-shortcut')).toBeNull();
     expect(screen.getByText('Esc')).toBeInTheDocument();
   });
 

@@ -199,11 +199,12 @@ describe('the gate on the browser studio', () => {
     const { member } = await chris('team:member-access', { id: 'member-riley', grants: ['startResearch'], denies: [] });
     expect(member).toMatchObject({ grants: ['startResearch'], capabilities: expect.arrayContaining(['startResearch']) });
     expect((await riley('state')).viewer.capabilities).toContain('startResearch');
-    // Preview exactly what she sees, then a custom role.
+    // Preview exactly what she sees, then a custom role. The team list is admin-only, so it is read before the preview.
+    const access = (await chris('team:list')).access;
     const asRiley = (await chris('team:view-as', { memberId: 'member-riley' })).viewer;
     expect(asRiley).toMatchObject({ preview: true, role: 'editor', previewName: 'Riley', previewChanges: 1, viewAs: { memberId: 'member-riley' } });
     await expect(chris('studio:startResearchRun', { programId: 'program-pulse' })).rejects.toMatchObject({ status: 403, code: 'preview' });
-    const access = (await chris('team:list')).access;
+    await expect(chris('team:list')).rejects.toMatchObject({ status: 403 }); // a preview of an editor can't list the team
     await expect(chris('team:save-role', { label: 'Viewer', base: 'editor', template: 'viewer', rev: access.rev })).rejects.toMatchObject({ status: 403, code: 'preview' }); // still previewing
     await chris('team:view-as', { role: 'admin' });
     const { role } = await chris('team:save-role', { label: 'Viewer', base: 'editor', template: 'viewer', rev: access.rev });

@@ -81,7 +81,7 @@ describe('durable research scheduling', () => {
     h.api.saveResearchProgram({ ...h.api.publicState().programs[0], schedule: { ...h.api.publicState().programs[0].schedule, enabled: true } });
     h.setTime('2026-09-30T13:01:00Z'); expect(h.api.checkDueResearchSchedules()[0].status).toBe('started');
     await h.api.waitForIdle(); expect(h.collect).toHaveBeenCalledTimes(2);
-  });
+  }, 30000); // several scheduled research runs; slow when the suite runs in parallel.
   it('also blocks a schedule behind a manual run awaiting review', async () => {
     const h = harness({ review: true }); h.api.saveResearchProgram(program());
     h.api.startResearchRun({ programId: 'program-a' }); await h.api.waitForIdle();

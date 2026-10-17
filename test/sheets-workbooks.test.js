@@ -106,7 +106,7 @@ describe('research run as a Golden Thread workbook', () => {
     expect(velocity.rows[0][column(velocity, 'Novelty')]).toBe('NEW ANGLE');
     expect(velocity.rows[0][column(velocity, 'Taxonomy Category')]).toBe('AI Search / GEO / AIO');
     expect(Number(velocity.rows[0][column(velocity, 'Count')])).toBeGreaterThan(0);
-  });
+  }, 30000); // a research run through classification; slow when the suite runs in parallel.
 
   it('never reads runs from another workspace', async () => {
     const { api } = harness();

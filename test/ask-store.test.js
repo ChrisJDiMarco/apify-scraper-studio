@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,7 +6,10 @@ import crypto from 'node:crypto';
 import askStoreModule from '../src/main/ask-store.js';
 const { createAskStore, askHistory, looksSecret, MAX_ACTIVE_MEMORY, MAX_CONVERSATIONS, MAX_MESSAGES, HISTORY_TURNS } = askStoreModule;
 const roots = [];
-afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
+// Every write fsyncs the file and its folder (about 25 ms a turn on a Mac). The cap tests write hundreds of times to check
+// what is kept, not durability, so they skip the fsyncs; the atomic-write test above keeps them.
+const skipFsync = () => vi.spyOn(fs, 'fsyncSync').mockImplementation(() => {});
 
 const ALEX = 'member-11111111-1111-4111-8111-111111111111';
 const SAM = 'guest:sam@example.com';
@@ -86,7 +89,7 @@ describe('conversations', () => {
   });
 
   it('caps conversations per person, deleting the oldest unpinned ones first', () => {
-    const h = harness();
+    skipFsync(); const h = harness();
     const pinned = h.store.appendTurn(ALEX, turn('Keep me'));
     h.store.renameConversation(ALEX, { conversationId: pinned.conversation.id, pinned: true });
     h.advance(1000);
@@ -97,17 +100,17 @@ describe('conversations', () => {
     expect(rows.some((row) => row.id === pinned.conversation.id)).toBe(true);
     expect(rows.some((row) => row.id === oldest.conversation.id)).toBe(false);
     expect(fs.existsSync(path.join(h.folder(ALEX), 'c', `${oldest.conversation.id}.json`))).toBe(false);
-  });
+  }, 30000); // hundreds of atomic writes; slow when the suite runs in parallel.
 
   it('caps messages per conversation and keeps the newest', () => {
-    const h = harness();
+    skipFsync(); const h = harness();
     const first = h.store.appendTurn(ALEX, turn('Question 0'));
     for (let index = 1; index < MAX_MESSAGES / 2 + 5; index++) h.store.appendTurn(ALEX, turn(`Question ${index}`, { conversationId: first.conversation.id }));
     const conversation = h.store.readConversation(ALEX, first.conversation.id);
     expect(conversation.messages).toHaveLength(MAX_MESSAGES);
     expect(conversation.messages.at(-2).content).toBe(`Question ${MAX_MESSAGES / 2 + 4}`);
     expect(conversation.messages.some((message) => message.content === 'Question 0')).toBe(false);
-  });
+  }, 30000); // hundreds of atomic writes; slow when the suite runs in parallel.
 });
 
 describe('history', () => {
@@ -215,7 +218,7 @@ describe('memory', () => {
   });
 
   it('caps active memory, dropping the oldest unpinned items first', () => {
-    const h = harness();
+    skipFsync(); const h = harness();
     const keep = h.store.saveMemory(ALEX, { text: 'Pinned and old.', pinned: true });
     h.advance(1000);
     const oldest = h.store.saveMemory(ALEX, { text: 'Oldest unpinned item.' });
@@ -224,7 +227,7 @@ describe('memory', () => {
     expect(items).toHaveLength(MAX_ACTIVE_MEMORY);
     expect(items.some((item) => item.id === keep.id)).toBe(true);
     expect(items.some((item) => item.id === oldest.id)).toBe(false);
-  });
+  }, 30000); // hundreds of atomic writes; slow when the suite runs in parallel.
 
   it('spots secret-shaped text', () => {
     for (const text of ['my key is sk-ant-api03-abcdefghijklmnopqrstuvwxyz', 'token: 3f2a9c1e7b6d4a5f8e9c0b1a2d3e4f56', 'https://script.google.com/macros/s/AKfycb/exec', 'password = correct-horse', 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig'])

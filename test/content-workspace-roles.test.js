@@ -64,7 +64,7 @@ describe('who did what in the research pipeline', () => {
     expect(h.api.createContentRun({ source: { kind: 'report', assetId: reportAsset.id }, deliverableIds: ['social'], maxBudgetUsd: 1, createdBy: CHRIS }).createdBy).toEqual(ALEX);
     expect(h.api.createAssetKit({ source: { kind: 'report', assetId: reportAsset.id }, deliverableIds: ['blogshort'] }).createdBy).toEqual(ALEX);
     await h.api.waitForIdle();
-  });
+  }, 30000); // a whole research run and its reports; slow when the suite runs in parallel.
 
   it('credits automatic approval and schedules to the system', async () => {
     const h = researchHarness(); h.api.saveResearchProgram(program({ autoApproveThemes: true, budgets: { collectionUsd: 1, aiUsd: 40 } }));
@@ -80,7 +80,7 @@ describe('who did what in the research pipeline', () => {
     expect(result.status).toBe('started');
     expect(scheduled.api.readStudioRun({ runId: result.runId }).createdBy).toEqual(SYSTEM);
     await scheduled.api.waitForIdle();
-  });
+  }, 30000); // two research runs; slow when the suite runs in parallel.
 
   it('won’t start a program’s search twice by accident, and says who started the first', async () => {
     const h = researchHarness(); h.api.saveResearchProgram(program());

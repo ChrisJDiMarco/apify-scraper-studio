@@ -107,7 +107,7 @@ describe('Prompt Library in the content workspace', () => {
     // "Latest run" previews now read this run.
     expect((await h.api.previewPrompt({ id: 'research.discovery', sample: 'latest' }))).toMatchObject({ sample: 'latest', sampleLabel: expect.stringMatching(/X posts from “Weekly research”/) });
     expect((await h.api.previewPrompt({ id: 'reports.editorial-toolkit', sample: 'latest' })).sampleLabel).toMatch(/^The trends report for/);
-  });
+  }, 30000); // a research run and its reports; slow when the suite runs in parallel.
 
   it('snapshots Create content and channel asset prompts, and refreshes them on a retry only when asked', async () => {
     let failing = true;
@@ -132,7 +132,7 @@ describe('Prompt Library in the content workspace', () => {
     const made = h.api.createAssetKit({ source, deliverableIds: ['social', 'blogshort'] }); await h.api.waitForIdle();
     expect(Object.keys(input(h, made.id).prompts)).toEqual(['assets.shared', 'assets.blogshort', 'assets.social', 'system.repair']);
     expect(h.api.readStudioRun({ runId: made.id }).prompts['assets.social']).toEqual({ version: 2, custom: true });
-  });
+  }, 30000); // content runs, an asset kit and a retry; slow when the suite runs in parallel.
 
   it('runs a confirmed test with the stage’s own checks and records it, refusing a stale estimate', async () => {
     const h = harness();

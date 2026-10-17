@@ -14,6 +14,11 @@ import { accessLogCsv } from '../src/renderer/src/access-log.jsx';
 import roles from '../src/main/roles.js';
 import teamStoreModule from '../src/main/team-store.js';
 
+// Node 25+ ships its own localStorage global, which is undefined without --localstorage-file and hides jsdom's, so the
+// remembered tab gets an in-memory store (as sheets-widths does).
+const stored = new Map();
+Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, String(value)), removeItem: (key) => stored.delete(key), clear: () => stored.clear() } });
+
 // The access summary comes from the real team store, so the page sees exactly what getTeam sends.
 const storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'people-view-'));
 afterAll(() => fs.rmSync(storeRoot, { recursive: true, force: true }));
