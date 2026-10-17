@@ -12,13 +12,16 @@ const SAM = { id: 'member-sam', name: 'Sam', email: 'sam@semrush.com', role: 'ch
 const RILEY = { id: 'member-riley', name: 'Riley', email: 'riley@semrush.com', role: 'editor', channelId: null, via: 'link', disabled: false, memberSince: at('08-02') };
 const CHRIS = { id: 'member-chris', name: 'Chris', email: 'chris@semrush.com', role: 'admin', channelId: null, via: 'proxy', disabled: false, memberSince: at('08-01') };
 
-function fakeTeam() {
-  const logs = []; const events = [];
+// policy/access/members: the team's compiled role policy, people's own grants and denies, and members by id (for a
+// person preview). Left out, the gate falls back to the built-in defaults, as older team stores did.
+function fakeTeam({ policy = null, access = {}, members = {} } = {}) {
+  const logs = []; const events = []; const audits = [];
   return {
-    logs, events,
+    logs, events, audits,
     prefsFor: () => ({ uiMode: '', welcomedAt: '' }), admins: () => [{ id: 'member-chris', name: 'Chris' }, { id: 'member-pat', name: 'Pat' }],
     logEvent: (event) => events.push(event), log: (kind, workspaceId, detail, by) => { logs.push({ kind, workspaceId, detail, by }); return {}; },
     adoptionsFor: () => fixture.adoptions(), listMembers: () => fixture.members(),
+    ...(policy ? { accessPolicy: () => policy, accessFor: (id) => access[id] || { grants: [], denies: [] }, memberById: (id) => members[id] || null, audit: (rows, by) => { audits.push({ rows, by }); return rows; } } : {}),
   };
 }
 function fakeWorkspace({ pictures = true } = {}) {
@@ -35,8 +38,8 @@ function fakeWorkspace({ pictures = true } = {}) {
     picturesReady: () => pictures,
   };
 }
-function setup({ identity = ALEX, viewAs = null, web = true, pictures = true } = {}) {
-  const team = fakeTeam(); const workspace = fakeWorkspace({ pictures }); const call = { user: identity, session: { viewAs } };
+function setup({ identity = ALEX, viewAs = null, web = true, pictures = true, team: teamOptions } = {}) {
+  const team = fakeTeam(teamOptions); const workspace = fakeWorkspace({ pictures }); const call = { user: identity, session: { viewAs } };
   const access = createAccess({ teamStore: team, workspace, web, localName: 'Chris', currentCall: () => call });
   return { team, workspace, call, access, viewer: () => access.currentViewer() };
 }
@@ -251,5 +254,83 @@ describe('the state each person receives', () => {
     const admin = setup({ identity: CHRIS });
     expect(admin.access.project(base, admin.viewer()).contentStudio.adoptionsByTheme['theme-aio'].blog).toMatchObject({ status: 'using', byName: 'Alex' });
     expect(admin.access.project(base, admin.viewer())).not.toBe(first);
+  });
+});
+
+describe('capabilities at the gate', () => {
+  const viewerRole = { id: 'role-viewer-ab12', label: 'Viewer', base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'] };
+  const reviewerRole = { id: 'role-reviewers-cd34', label: 'Channel reviewer', base: 'channel', capabilities: ['readAssets', 'markTrendsUsed', 'makeAssets'] };
+  const policy = roles.compilePolicy({ rev: 3, builtIn: { editor: { grant: [], deny: ['startResearch'] } }, roles: [viewerRole, reviewerRole] });
+  const SAM_VIEWER = { ...SAM, role: 'editor', roleId: 'role-viewer-ab12', channelId: null };
+  const JORDAN = { id: 'member-jordan', name: 'Jordan', email: 'jordan@semrush.com', role: 'channel', roleId: 'role-reviewers-cd34', channelId: 'blog', via: 'link', disabled: false, memberSince: at('10-01') };
+
+  it('refuses a capability the role policy turned off, naming it and who to ask', () => {
+    const { access, viewer } = setup({ identity: RILEY, team: { policy } });
+    expect(viewer()).toMatchObject({ role: 'editor', roleId: 'editor', base: 'editor' });
+    expect(viewer().capabilities).not.toContain('startResearch');
+    expect(refused(() => access.check('startResearchRun', { programId: 'p' }, viewer()))).toMatchObject({ status: 403, code: 'capabilityOff', message: 'Your access doesn’t include “Start research”. Ask Chris or Pat if you need it.' });
+    expect(access.check('decideResearchTheme', { runId: 'r', themeId: 't', decision: 'approved' }, viewer())).toMatchObject({ decision: 'approved' });
+  });
+
+  it('lets a person-level grant allow the call, and a person-level deny refuse one the role has', () => {
+    const { access, viewer } = setup({ identity: RILEY, team: { policy, access: { 'member-riley': { grants: ['startResearch'], denies: ['askAi'] } } } });
+    expect(access.check('startResearchRun', { programId: 'p' }, viewer())).toEqual({ programId: 'p' });
+    expect(refused(() => access.check('askHelp', { question: 'hi' }, viewer()))).toMatchObject({ code: 'capabilityOff' });
+  });
+
+  it('gives a custom channel-based role the channel owner’s scopes and result projections', () => {
+    const { access, viewer, workspace } = setup({ identity: JORDAN, team: { policy } });
+    expect(viewer()).toMatchObject({ role: 'channel', base: 'channel', roleId: 'role-reviewers-cd34', roleLabel: 'Channel reviewer', channelId: 'blog' });
+    const payload = { workspaceId: 'general', source: { kind: 'report', assetId: 'asset-aio-toolkit-2' }, deliverableIds: ['social'], maxBudgetUsd: 900 };
+    expect(access.check('createAssetKit', payload, viewer())).toEqual({ source: { kind: 'report', assetId: 'asset-aio-toolkit-2' }, deliverableIds: ['blogshort', 'bloglong'], onlyIfIdle: true });
+    expect(refused(() => access.check('cancelStudioRun', { runId: 'content-kit-blog' }, viewer()))).toMatchObject({ code: 'capabilityOff' }); // no Stop and retry work
+    expect(refused(() => access.check('readStudioRun', { runId: 'research-new' }, viewer()))).toMatchObject({ code: 'forbidden' });
+    const run = access.after('createAssetKit', workspace.findRun('content-kit-shared'), viewer());
+    expect(JSON.stringify(run)).not.toMatch(/costUsd|receipts|maxBudgetUsd/);
+  });
+
+  it('never sends money to a role without See costs, in state or in an answer', () => {
+    const { access, viewer, workspace } = setup({ identity: SAM_VIEWER, team: { policy } });
+    expect(viewer()).toMatchObject({ role: 'editor', roleLabel: 'Viewer', capabilities: ['core', 'readAssets', 'readResearch'] });
+    const run = access.after('readStudioRun', workspace.findRun('content-kit-shared'), viewer(), {});
+    expect(run).toMatchObject({ id: 'content-kit-shared' });
+    expect(JSON.stringify(run)).not.toMatch(/costUsd|receipts|maxBudgetUsd|reservedUsd/);
+    expect(JSON.stringify(access.project(fixture.baseState(), viewer()))).not.toMatch(/"costUsd"|"receipts"|"maxBudgetUsd"/);
+    expect(refused(() => access.check('askHelp', { question: 'hi' }, viewer()))).toMatchObject({ code: 'capabilityOff' });
+  });
+
+  it('previews one person by memberId, with their own access, read-only', () => {
+    const riley = { id: 'member-riley', name: 'Riley Jones', role: 'editor', channelId: null, grants: [], denies: ['askAi'], disabled: false };
+    const { access, viewer } = setup({ identity: CHRIS, viewAs: { memberId: 'member-riley' }, team: { policy, members: { 'member-riley': riley } } });
+    expect(viewer()).toMatchObject({ preview: true, role: 'editor', previewName: 'Riley Jones', viewAs: { memberId: 'member-riley', role: 'editor', channelId: null } });
+    expect(viewer().capabilities).not.toContain('askAi');
+    expect(refused(() => access.check('decideResearchTheme', {}, viewer()))).toMatchObject({ code: 'preview', message: 'You’re previewing as Riley Jones. Switch back to Admin to make changes.' });
+    expect(access.check('readStudioRun', { runId: 'research-new' }, viewer())).toEqual({ runId: 'research-new' });
+    expect(access.check('setViewAs', { role: 'admin' }, viewer())).toEqual({ role: 'admin' });
+  });
+
+  it('writes the access log from what a handler reports and takes it out of the answer; revoking a link is logged', () => {
+    const { access, team, viewer } = setup({ identity: CHRIS, team: { policy } });
+    const row = { kind: 'link-revoked', target: { type: 'member', id: 'member-alex', name: 'Alex' }, changes: [], affected: 1 };
+    expect(access.after('revokeSignInLink', { ok: true, audit: [row] }, viewer(), { id: 'member-alex' })).toEqual({ ok: true });
+    expect(access.after('saveRolePolicy', { access: { rev: 4 }, affected: 2, audit: [{ kind: 'policy-changed', target: { type: 'role', id: 'editor', name: 'Editor' }, changes: [], affected: 2 }] }, viewer(), {})).toEqual({ access: { rev: 4 }, affected: 2 });
+    expect(team.audits).toEqual([{ rows: [row], by: { id: 'member-chris', name: 'Chris' } }, expect.objectContaining({ by: { id: 'member-chris', name: 'Chris' } })]);
+    // An empty list writes nothing, and a method that isn't audited keeps its answer as it is.
+    access.after('saveMemberAccess', { member: {}, audit: [] }, viewer(), {});
+    expect(team.audits).toHaveLength(2);
+    team.audit = () => { throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); };
+    expect(access.after('deleteRole', { ok: true, moved: 0, audit: [row] }, viewer(), {})).toEqual({ ok: true, moved: 0 });
+    expect(team.events).toContainEqual(expect.objectContaining({ event: 'audit-not-logged', method: 'deleteRole', code: 'ENOSPC' }));
+  });
+
+  it('answers the browser server: who may upload, who a request acts as, and a key per view', () => {
+    const { access } = setup({ team: { policy } });
+    expect(access.canUpload(CHRIS, { viewAs: null })).toBe(true);
+    expect(access.canUpload(RILEY, { viewAs: null })).toBe(true);
+    expect(access.canUpload(SAM_VIEWER, { viewAs: null })).toBe(false); // no method of theirs reads a file
+    expect(access.canUpload(ALEX, { viewAs: null })).toBe(false);
+    expect(access.canUpload(CHRIS, { viewAs: { role: 'editor' } })).toBe(false); // never in a preview
+    expect(access.effectiveFor(CHRIS, { viewAs: { role: 'role-reviewers-cd34', channelId: 'social' } })).toEqual({ role: 'channel', roleId: 'role-reviewers-cd34', channelId: 'social', preview: true });
+    expect(access.viewKeyFor(CHRIS, { viewAs: { role: 'editor' } })).not.toBe(access.viewKeyFor(CHRIS, { viewAs: { role: 'role-viewer-ab12' } }));
   });
 });

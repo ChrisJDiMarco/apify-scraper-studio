@@ -71,3 +71,44 @@ html:active-view-transition-type(trend-move)::view-transition-group(*) { animati
 .tb-tier.tier-strong { background: #eaf2ff; color: #23498a; }
 .tb-tier.tier-monitor { background: #fff4dc; color: #7a5410; }
 .tb-tier.tier-low { background: var(--cs-soft); color: var(--cs-muted); }
+
+/* Yes with a caret, and the "Yes, with a note" sheet (trend-decision-sheet.jsx). Used in Simple, the board and the
+   briefing, so it reads the frame's --s-* tokens rather than Content Studio's. */
+.td-yes { position: relative; display: inline-flex; align-items: stretch; gap: 0; }
+.td-yes > button:first-child { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+.td-caret-wrap { position: relative; display: inline-flex; }
+.td-yes .td-caret { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; padding-left: 6px !important; padding-right: 8px !important; border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; box-shadow: inset 1px 0 0 color-mix(in srgb, currentColor 22%, transparent); }
+.td-yes .td-caret svg { margin: 0; }
+.td-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; min-width: 190px; }
+.td-sheet { max-width: 520px; }
+.td-body { display: grid; gap: 12px; }
+.td-channels { margin: 0; padding: 0; border: 0; display: grid; gap: 10px; }
+.td-channels legend { margin-bottom: 10px; padding: 0; font-size: 14px; font-weight: 650; color: var(--s-ink, #181e15); }
+.td-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.td-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 13px; font: inherit; font-size: 13px; font-weight: 600; color: var(--s-ink, #181e15); background: var(--s-card, #fff); border: 1px solid var(--s-line-strong, #cfd6d0); border-radius: 999px; cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
+button.td-chip { min-height: 34px; box-shadow: none; }
+button.td-chip:hover:not(:disabled) { color: var(--s-ink, #181e15); background: var(--s-bg, #f4f6f5); border-color: var(--s-ink, #181e15); }
+button.td-chip[aria-pressed="true"]:hover:not(:disabled) { color: var(--s-soft-ink, #5a2fa0); background: var(--s-soft, #f1eaff); }
+.td-chip[aria-pressed="true"] { color: var(--s-soft-ink, #5a2fa0); background: var(--s-soft, #f1eaff); border-color: var(--s-accent-strong, #a873f2); }
+.td-chip:focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 2px; }
+.td-note textarea { width: 100%; resize: vertical; min-height: 76px; font: inherit; }
+.td-count { margin: -6px 0 0; justify-self: end; font-size: 12px; color: var(--s-muted, #62685e); font-variant-numeric: tabular-nums; }
+.td-count.over { color: var(--s-danger, #8a2f1c); font-weight: 650; }
+@media (pointer: coarse) { .td-chip { min-height: 44px; } .td-yes .td-caret { min-width: 44px; } }
+
+/* Who decided, and why a trend matters (trend-pulse.jsx) */
+.tp-decided { display: grid; gap: 3px; min-width: 0; }
+.tp-decided p { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; font-size: 12px; line-height: 1.45; color: var(--s-muted, #62685e); }
+.tp-decided svg { flex: none; }
+.tp-decided-for { display: inline-flex; align-items: center; gap: 4px; color: var(--s-soft-ink, #5a2fa0); font-weight: 600; }
+.tp-decided-note { color: var(--s-ink, #181e15) !important; font-style: italic; }
+.tp-decided-note span { overflow-wrap: anywhere; }
+.tp-why { display: grid; gap: 4px; min-width: 0; }
+.tp-why-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; font-size: 12px; line-height: 1.45; color: var(--s-muted, #62685e); }
+.tp-why-label { font-weight: 650; color: var(--s-ink, #181e15); }
+.tp-why-fits { color: var(--s-mint-ink, #1f5a4c); font-weight: 600; }
+button.tp-why-ask { justify-self: start; display: inline-flex; align-items: center; gap: 5px; min-height: 0; padding: 0; box-shadow: none; font: inherit; font-size: 12px; font-weight: 600; color: var(--s-soft-ink, #5a2fa0); background: none; border: 0; cursor: pointer; }
+button.tp-why-ask:hover:not(:disabled) { color: var(--s-soft-ink, #5a2fa0); text-decoration: underline; background: none; }
+.tb-card-actions .td-yes > button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 12px; font-size: 12px; }
+.tb-card .tp-decided, .tb-card .tp-why { padding-top: 2px; }
+button.td-chip:disabled { opacity: .5; cursor: not-allowed; }

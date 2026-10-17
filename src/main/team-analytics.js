@@ -6,8 +6,9 @@ const kit = require('../shared/asset-kit');
 const { readyTrends, channelOf } = require('./channel-view');
 
 const DAY_MS = 86400000;
-// A trend counts as offered to a channel when its brief was ready no more than 14 days before the channel's first owner
-// joined; older briefs sit in the owner's "Earlier" group and don't count against them.
+// A trend counts as offered to a channel when it was routed there (or to every channel) and its brief was ready no more
+// than 14 days before the channel's first owner joined; older briefs sit in the owner's "Earlier" group and don't count
+// against them.
 const OFFER_GRACE_MS = 14 * DAY_MS;
 const RANGES = [7, 30, 90, 365];
 const PRIORITY = Object.freeze({ 'FAST-TRACK': 'top', STRONG: 'strong', MONITOR: 'watch' });
@@ -45,7 +46,8 @@ function buildTrendAnalytics({ contentStudio = {}, adoptions = [], activity = []
 
   // Channels and their owners: enabled channel owners; ownerSince is the earliest owner's createdAt.
   const channels = folders.map((folder) => {
-    const owners = list(members).filter((member) => member && member.role === 'channel' && member.channelId === folder.id && !member.disabled);
+    // Owners by role base, so a custom role built on the channel base owns its channel too.
+    const owners = list(members).filter((member) => member && (member.role === 'channel' || member.base === 'channel') && member.channelId === folder.id && !member.disabled);
     return { id: folder.id, name: folder.name, short: folder.short, owners: owners.map((member) => ({ id: member.id, name: member.name || '' })), ownerSince: earliest(owners.map((member) => member.createdAt)) };
   });
 
@@ -84,9 +86,12 @@ function buildTrendAnalytics({ contentStudio = {}, adoptions = [], activity = []
     const discovered = newest ? discoveredOf(newest).find((entry) => entry?.id === theme.id) : null;
     const tier = theme.scoring?.priorityTier || ready.get(theme.id)?.priorityTier || discovered?.scoring?.priorityTier || '';
     const firstDetectedAt = theme.firstDetectedAt || earliest(runs.map((run) => run.createdAt));
-    return [theme.id, { themeId: theme.id, name: ready.get(theme.id)?.name || theme.name || discovered?.name || 'Untitled trend', firstDetectedAt, decision, decidedBy: decision !== 'pending' && by ? { name: by.name || '', at: by.at || null } : null, priority: PRIORITY[tier] || null }];
+    const routedTo = decision === 'approved' ? list(by?.channels).filter((id) => typeof id === 'string') : [];
+    return [theme.id, { themeId: theme.id, name: ready.get(theme.id)?.name || theme.name || discovered?.name || 'Untitled trend', firstDetectedAt, decision, decidedBy: decision !== 'pending' && by ? { name: by.name || '', at: by.at || null, ...(by.note ? { note: String(by.note) } : {}) } : null, routedTo, priority: PRIORITY[tier] || null }];
   }));
-  const offeredTo = (trend, channel) => Boolean(trend) && channel.ownerSince != null && time(trend.readyAt) >= time(channel.ownerSince) - OFFER_GRACE_MS;
+  // Routing comes from the decision on the run that made the brief ready (readyTrends), else the trend's newest decision.
+  const routedTo = (trend) => (trend?.decidedBy ? list(trend.decidedBy.channels) : list(info.get(trend?.themeId)?.routedTo));
+  const offeredTo = (trend, channel) => Boolean(trend) && channel.ownerSince != null && time(trend.readyAt) >= time(channel.ownerSince) - OFFER_GRACE_MS && (!routedTo(trend).length || routedTo(trend).includes(channel.id));
 
   const found = [...info.values()].filter((theme) => inWindow(theme.firstDetectedAt));
   const briefs = [...ready.values()].filter((trend) => inWindow(trend.readyAt));
@@ -111,7 +116,7 @@ function buildTrendAnalytics({ contentStudio = {}, adoptions = [], activity = []
       const key = `${themeId}|${channel.id}`; const reply = answer(themeId, channel.id); const drafts = made.get(key);
       return [channel.id, { status: reply ? reply.status : drafts ? 'generated' : 'none', link: reply?.link || '', byName: reply ? reply.by?.name || '' : drafts?.byName || '', at: reply ? reply.at || reply.updatedAt || null : drafts?.at || null, assetCount: assetCounts.get(key) || 0, offered: offeredTo(trend, channel) }];
     }));
-    return { themeId, name: theme.name, firstDetectedAt: theme.firstDetectedAt, readyAt: trend?.readyAt || null, decision: theme.decision, decidedBy: theme.decidedBy, ready: Boolean(trend), priority: theme.priority, cells };
+    return { themeId, name: theme.name, firstDetectedAt: theme.firstDetectedAt, readyAt: trend?.readyAt || null, decision: theme.decision, decidedBy: theme.decidedBy, routedTo: trend ? routedTo(trend) : theme.routedTo, ready: Boolean(trend), priority: theme.priority, cells };
   }).sort((a, b) => (time(b.readyAt) || 0) - (time(a.readyAt) || 0) || (time(b.firstDetectedAt) || 0) - (time(a.firstDetectedAt) || 0) || a.name.localeCompare(b.name));
 
   // Per channel, over the briefs ready in the window that were offered to it. The four answer buckets add up to offered.
@@ -146,11 +151,11 @@ function describe(row, { trendName, channelName }) {
   switch (row.kind) {
     case 'trend-decision': {
       if (Number.isFinite(detail.approved) || Number.isFinite(detail.passed)) {
-        const parts = [Number(detail.approved) > 0 && `approved ${plural(Number(detail.approved), 'trend')}`, Number(detail.passed) > 0 && `passed on ${plural(Number(detail.passed), 'trend')}`].filter(Boolean);
+        const parts = [Number(detail.approved) > 0 && `approved ${plural(Number(detail.approved), 'trend')}`, Number(detail.passed) > 0 && `skipped ${plural(Number(detail.passed), 'trend')}`].filter(Boolean);
         return `${who} ${parts.length ? parts.join(' and ') : 'reviewed the trends'}`;
       }
       if (detail.decision === 'approved') return `${who} approved ${trend}`;
-      if (detail.decision === 'passed') return `${who} passed on ${trend}`;
+      if (detail.decision === 'passed') return `${who} skipped ${trend}`;
       return `${who} put ${trend} back up for review`;
     }
     case 'adoption': {
@@ -174,7 +179,7 @@ function describe(row, { trendName, channelName }) {
       return `${who} changed ${person}’s access${as ? ` to ${as}` : ''}`;
     }
     case 'link-issued': return `${who} made a new sign-in link for ${person}`;
-    case 'research-started': return `${who} started a search with ${quote(detail.programName || 'a research program')}`;
+    case 'research-started': return detail.origin === 'quick-scan' ? `${who} ran a quick scan on ${quote(detail.topic || 'a topic')}` : `${who} started a search with ${quote(detail.programName || 'a research program')}`;
     default: return `${who} made a change`;
   }
 }

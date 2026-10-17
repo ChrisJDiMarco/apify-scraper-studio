@@ -1,46 +1,89 @@
 {
-  "//": "Who may call what. src/main/roles.js is the only reader of the policy; the renderer gets viewer.allowed, nav, modes and hiddenPages in state and may import this file for labels and copy only. Every method in studio-api-channels.json sits in exactly one methodRoles group (test/roles.test.js); a method missing here is admin-only. A composite method is classified at least as high as anything it can run.",
+  "//": "Who may call what. src/main/roles.js is the only reader of the policy; the renderer gets viewer.allowed, capabilities, nav, modes and hiddenPages in state and may import this file for labels and copy only. Every method in studio-api-channels.json sits in exactly one capability (test/roles.test.js); a method in none is admin-only. A composite method's capability is the same as, or requires, the capability of everything it can run. Admins hold every capability; editor- and channel-based roles hold what their role grants, adjusted per person (deny wins). lock 'admin' capabilities can never be granted; lock 'always' is held by everyone with a role. A channel-based role can only ever call channelSafeMethods. An editor-based role holding a spends capability also needs seeCosts, and a role without seeCosts never receives money fields.",
+  "policyVersion": 1,
   "roles": [
     { "id": "admin", "label": "Admin", "description": "Everything, including settings, people and analytics." },
     { "id": "editor", "label": "Editor", "description": "Finds trends, writes and edits reports, makes assets for any channel." },
     { "id": "channel", "label": "Channel owner", "description": "Sees new trends and their channel’s assets, and says which trends they used." }
   ],
-  "methodRoles": [
-    {
-      "roles": ["admin", "editor", "channel"],
-      "methods": ["appMeta", "state", "contentCatalog", "openSourceUrl", "planAssetKit", "createAssetKit", "saveAssetKitFolder", "readStudioAsset", "openStudioAsset", "cancelStudioRun", "retryStudioRun", "setViewPrefs"]
-    },
-    {
-      "roles": ["admin", "channel"],
-      "methods": ["setTrendAdoption"]
-    },
-    {
-      "roles": ["admin", "editor"],
-      "methods": ["publishStudioRun", "startResearchRun", "approveResearchThemes", "decideResearchTheme", "continueResearchRun", "createContentRun", "exportStudioRun", "importStudioSource", "readReferenceDoc", "askHelp", "createHelpImage", "saveHelpImage", "listHelpImages", "readHelpImage", "estimateResearchProgram", "setThemeStatus", "editStudioAsset", "restoreStudioAsset", "readStudioRun", "listWorkbooks", "readWorkbook", "importWorkbook", "pullGoogleSheet", "saveWorkbookEdits", "renameWorkbook", "removeWorkbook", "exportWorkbookXlsx", "exportWorkbookToGoogle", "saveBrandProfile", "selectBrandProfile", "pickImportFile", "previewImportDataset", "importDataset", "compareDatasets", "saveMonitor", "readResearchReview", "saveResearchReview", "exportResearchReview", "refreshApifyActors", "searchSources", "previewSearchSources", "askFindings", "listMissions", "saveMission", "runMission", "runActionGraph", "pauseMission", "discoverApifyResource", "testRecipe", "saveRecipeVersion", "getJob", "retryJob", "readJobLog", "searchEvidence", "readEvidence", "exportMissionBundle", "planIntent", "runIntent", "runIntentAction", "saveRecipe", "runRecipe", "readDataset", "exportDataset", "syncTrendBoardToMonday", "exportDatasetToSheets", "readAnalysis", "analyzeDataset", "openAnalysisOutput", "revealAnalysisOutput", "openAsset", "revealAsset", "cancelJob", "generateAssets", "saveCard", "moveCard", "saveAsset", "exportAssetPack"]
-    },
-    {
-      "roles": ["admin"],
-      "methods": ["saveResearchProgram", "scheduleMission", "selectContentWorkspace", "saveContentWorkspace", "saveWorkspaceTaxonomy", "saveReferenceDoc", "deleteReferenceDoc", "addBrandImage", "readBrandImage", "setBrandImageRole", "removeBrandImage", "exportSetup", "openSetupFile", "applySetup", "importProductRegistry", "deleteBrandProfile", "checkAi", "checkCodex", "testImageProvider", "saveKey", "clearKey", "saveSettings", "deleteRecipe", "testSheetsBridge", "saveMondayBoard", "clearMondayBoard", "archiveAndClearSheets", "importWorkingSheets", "replaySheetRun", "openDataFolder", "openAssetsFolder", "openWorkspace", "getTeam", "saveMember", "removeMember", "createSignInLink", "revokeSignInLink", "getTrendAnalytics", "setViewAs"]
-    }
+  "capabilityGroups": [
+    { "id": "research", "label": "Research" },
+    { "id": "reports", "label": "Reports and channel assets" },
+    { "id": "ai", "label": "AI and prompts" },
+    { "id": "data", "label": "Data and exports" },
+    { "id": "studio", "label": "Studio setup" },
+    { "id": "admin", "label": "Admin only" },
+    { "id": "everyone", "label": "Everyone" }
   ],
+  "capabilities": [
+    { "id": "core", "group": "everyone", "label": "Open the studio", "description": "Sign in, see the studio and choose their own layout.", "lock": "always", "defaults": ["admin", "editor", "channel"], "bases": ["editor", "channel"],
+      "methods": ["appMeta", "state", "contentCatalog", "openSourceUrl", "setViewPrefs"] },
+    { "id": "readResearch", "group": "research", "label": "See research and evidence", "description": "Research runs, trends, the trend tracker and the posts behind them.", "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["readStudioRun", "readTrendHistory", "readResearchReview", "searchEvidence", "readEvidence", "readReferenceDoc"] },
+    { "id": "startResearch", "group": "research", "label": "Start research", "description": "Run research programs and continue paused runs, after seeing the cost.", "spends": true, "requires": ["readResearch"], "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["startResearchRun", "continueResearchRun", "estimateResearchProgram"] },
+    { "id": "quickScans", "group": "research", "label": "Run quick scans", "description": "Small, recent scans planned with Ask AI, after seeing the cost.", "spends": true, "requires": ["readResearch"], "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["estimateQuickScan", "startQuickScan"] },
+    { "id": "approveTrends", "group": "research", "label": "Approve trends", "description": "Say Yes or Skip to new trends, and archive old ones.", "requires": ["readResearch"], "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["approveResearchThemes", "decideResearchTheme", "setThemeStatus"] },
+    { "id": "readAssets", "group": "reports", "label": "Read reports and assets", "description": "Open trends reports, editorial toolkits and channel assets.", "defaults": ["admin", "editor", "channel"], "bases": ["editor", "channel"],
+      "methods": ["readStudioAsset", "openStudioAsset"] },
+    { "id": "writeReports", "group": "reports", "label": "Write reports", "description": "Write trends reports, and content from a report, a Google Doc or pasted text.", "spends": true, "requires": ["readResearch", "readAssets"], "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["createContentRun", "importStudioSource"] },
+    { "id": "editReports", "group": "reports", "label": "Edit reports", "description": "Edit and restore reports, move assets through review, and save research reviews.", "requires": ["readAssets"], "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["editStudioAsset", "restoreStudioAsset", "saveResearchReview", "setAssetStatus"] },
+    { "id": "makeAssets", "group": "reports", "label": "Make channel assets", "description": "Make channel assets from a report. Channel owners make them for their own channel.", "spends": true, "requires": ["readAssets"], "defaults": ["admin", "editor", "channel"], "bases": ["editor", "channel"],
+      "methods": ["planAssetKit", "createAssetKit", "saveAssetKitFolder"] },
+    { "id": "manageRuns", "group": "reports", "label": "Stop and retry work", "description": "Stop work that is running, and finish what is left.", "spends": true, "defaults": ["admin", "editor", "channel"], "bases": ["editor", "channel"],
+      "methods": ["cancelStudioRun", "retryStudioRun", "cancelJob", "getJob", "readJobLog"] },
+    { "id": "markTrendsUsed", "group": "reports", "label": "Mark trends used", "description": "Say whether a channel is using a trend, with its link and planned date.", "requires": ["readAssets"], "defaults": ["admin", "channel"], "bases": ["editor", "channel"],
+      "methods": ["setTrendAdoption"] },
+    { "id": "askAi", "group": "ai", "label": "Use Ask AI", "description": "Ask about the studio and its research, keep conversations and memory, and make pictures.", "spends": true, "requires": ["readAssets", "readResearch"], "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["askHelp", "listAskConversations", "readAskConversation", "renameAskConversation", "deleteAskConversation", "recordAskOutcome", "listAskMemory", "saveAskMemory", "forgetAskMemory", "createHelpImage", "saveHelpImage", "listHelpImages", "readHelpImage"] },
+    { "id": "viewPrompts", "group": "ai", "label": "See AI prompts", "description": "Read every prompt behind research, reports and assets, and preview them for free.", "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["listPrompts", "readPrompt", "previewPrompt", "diffPromptVersions", "estimatePromptTest"] },
+    { "id": "editPrompts", "group": "ai", "label": "Edit AI prompts", "description": "Change the editable parts of a prompt, restore older versions and run paid tests.", "spends": true, "requires": ["viewPrompts"], "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["savePromptVersion", "revertPrompt", "testPrompt"] },
+    { "id": "sheets", "group": "data", "label": "Use Sheets", "description": "Open, import, edit and export workbooks, including the trend tracker.", "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["listWorkbooks", "readWorkbook", "importWorkbook", "pullGoogleSheet", "saveWorkbookEdits", "renameWorkbook", "removeWorkbook", "exportWorkbookXlsx", "exportWorkbookToGoogle"] },
+    { "id": "dataTools", "group": "data", "label": "Use data tools", "description": "Scrapers, datasets, dataset reports, playbooks and workflows.", "spends": true, "requires": ["manageRuns"], "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["pickImportFile", "previewImportDataset", "importDataset", "compareDatasets", "saveMonitor", "refreshApifyActors", "searchSources", "previewSearchSources", "askFindings", "listMissions", "saveMission", "runMission", "runActionGraph", "pauseMission", "discoverApifyResource", "testRecipe", "saveRecipeVersion", "retryJob", "exportMissionBundle", "planIntent", "runIntent", "runIntentAction", "saveRecipe", "runRecipe", "readDataset", "exportDataset", "exportDatasetToSheets", "readAnalysis", "analyzeDataset", "openAnalysisOutput", "revealAnalysisOutput", "openAsset", "revealAsset", "generateAssets", "saveCard", "moveCard", "saveAsset", "exportAssetPack", "saveBrandProfile", "selectBrandProfile"] },
+    { "id": "deleteScrapers", "group": "data", "label": "Delete scrapers", "description": "Remove saved scrapers for good.", "requires": ["dataTools"], "defaults": ["admin"], "bases": ["editor"],
+      "methods": ["deleteRecipe"] },
+    { "id": "exportPublish", "group": "data", "label": "Export and publish", "description": "Publish reports to Google Docs, export runs and reviews, and sync the trend board to Monday.", "requires": ["readAssets", "readResearch"], "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["publishStudioRun", "exportStudioRun", "exportResearchReview", "syncTrendBoardToMonday"] },
+    { "id": "seeCosts", "group": "studio", "label": "See costs and budgets", "description": "Costs, budgets and estimates. Anyone who can start paid work has this too.", "projection": "money", "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": [] },
+    { "id": "managePrograms", "group": "studio", "label": "Manage research programs", "description": "Create and edit research programs, with their sources, budgets and schedules.", "requires": ["readResearch", "seeCosts"], "defaults": ["admin"], "bases": ["editor"],
+      "methods": ["saveResearchProgram", "scheduleMission"] },
+    { "id": "editBrand", "group": "studio", "label": "Edit brand knowledge", "description": "Voice, rules, reference documents, brand images and the product list.", "defaults": ["admin"], "bases": ["editor"],
+      "methods": ["saveWorkspaceTaxonomy", "saveReferenceDoc", "deleteReferenceDoc", "addBrandImage", "readBrandImage", "setBrandImageRole", "removeBrandImage", "importProductRegistry", "deleteBrandProfile"] },
+    { "id": "manageWorkspaces", "group": "studio", "label": "Switch workspaces", "description": "Switch or create workspaces. Switching moves everyone using the studio.", "defaults": ["admin"], "bases": ["editor"],
+      "methods": ["selectContentWorkspace", "saveContentWorkspace"] },
+    { "id": "seeAnalytics", "group": "studio", "label": "See team analytics", "description": "Which channels used which trends, and the team’s recent activity.", "defaults": ["admin"], "bases": ["editor"],
+      "methods": ["getTrendAnalytics"] },
+    { "id": "settings", "group": "admin", "label": "Settings and connections", "description": "Keys, AI routes, connections, setup files and prompt locks.", "lock": "admin", "defaults": ["admin"], "bases": [],
+      "methods": ["saveKey", "clearKey", "saveSettings", "checkAi", "checkCodex", "testImageProvider", "testSheetsBridge", "saveMondayBoard", "clearMondayBoard", "openDataFolder", "openAssetsFolder", "openWorkspace", "exportSetup", "openSetupFile", "applySetup", "archiveAndClearSheets", "importWorkingSheets", "replaySheetRun", "setPromptLock"] },
+    { "id": "manageAccess", "group": "admin", "label": "People and access", "description": "Invite people, change roles and what each role can do, preview access and read the access log.", "lock": "admin", "defaults": ["admin"], "bases": [],
+      "methods": ["getTeam", "saveMember", "removeMember", "createSignInLink", "revokeSignInLink", "setViewAs", "saveRolePolicy", "saveRole", "deleteRole", "saveMemberAccess", "inviteMembers", "readAccessLog", "previewAccess"] }
+  ],
+  "channelSafeMethods": ["appMeta", "state", "contentCatalog", "openSourceUrl", "setViewPrefs", "planAssetKit", "createAssetKit", "saveAssetKitFolder", "readStudioAsset", "openStudioAsset", "cancelStudioRun", "retryStudioRun", "setTrendAdoption"],
   "noRoleMethods": ["appMeta", "state"],
   "identityMethods": ["appMeta", "state", "setViewAs", "setViewPrefs"],
-  "readMethods": ["appMeta", "state", "contentCatalog", "openSourceUrl", "planAssetKit", "saveAssetKitFolder", "readStudioAsset", "openStudioAsset", "readStudioRun", "readReferenceDoc", "listHelpImages", "readHelpImage", "listWorkbooks", "readWorkbook", "readResearchReview", "listMissions", "getJob", "readJobLog", "searchEvidence", "readEvidence", "readDataset", "readAnalysis", "estimateResearchProgram", "openAsset", "revealAsset", "openAnalysisOutput", "revealAnalysisOutput"],
-  "simpleNav": {
-    "admin": { "main": ["home", "reports", "trends", "assets", "ask"], "admin": ["analytics", "people"], "bottom": ["settings"] },
-    "editor": { "main": ["home", "reports", "trends", "assets", "ask"], "admin": [], "bottom": [] },
-    "channel": { "main": ["trends", "assets"], "admin": [], "bottom": [] }
+  "readMethods": ["appMeta", "state", "listPrompts", "readPrompt", "previewPrompt", "diffPromptVersions", "estimatePromptTest", "readAccessLog", "previewAccess", "listAskConversations", "readAskConversation", "listAskMemory", "estimateQuickScan", "readTrendHistory", "contentCatalog", "openSourceUrl", "planAssetKit", "saveAssetKitFolder", "readStudioAsset", "openStudioAsset", "readStudioRun", "readReferenceDoc", "listHelpImages", "readHelpImage", "listWorkbooks", "readWorkbook", "readResearchReview", "listMissions", "getJob", "readJobLog", "searchEvidence", "readEvidence", "readDataset", "readAnalysis", "estimateResearchProgram", "openAsset", "revealAsset", "openAnalysisOutput", "revealAnalysisOutput"],
+  "//pages": "Each page and the capability that shows it, in this order for hiddenPages. Simple and Advanced share one namespace; the Advanced data-tools pages hide as one group (pageGroups), so a role without data tools keeps Simple Reports. channelPages are the channel owner's shell.",
+  "pages": { "settings": "settings", "knowledge": "editBrand", "analytics": "seeAnalytics", "people": "manageAccess", "prompts": "viewPrompts", "home": "core", "trends": "readResearch", "reports": "readAssets", "assets": "readAssets", "inbox": "core", "calendar": "readAssets", "ask": "askAi", "overview": "core", "research": "readResearch", "board": "readResearch", "sheets": "sheets", "create": "writeReports", "library": "readAssets" },
+  "pageGroups": { "data-tools": "dataTools" },
+  "channelPages": { "trends": "readAssets", "assets": "readAssets", "plan": "markTrendsUsed", "inbox": "core" },
+  "navOrder": {
+    "full": { "main": ["home", "trends", "reports", "assets", "inbox", "calendar", "ask"], "admin": ["prompts", "analytics", "people"], "bottom": ["settings"] },
+    "channel": { "main": ["trends", "assets", "plan", "inbox"], "admin": [], "bottom": [] }
   },
-  "hiddenPages": {
-    "admin": [],
-    "editor": ["settings", "knowledge", "analytics", "people"],
-    "channel": []
-  },
-  "viewModes": {
-    "admin": ["simple", "classic"],
-    "editor": ["simple", "classic"],
-    "channel": ["simple"]
-  },
+  "roleTemplates": [
+    { "id": "viewer", "label": "Viewer", "description": "Reads reports, trends and evidence. Sees no costs and changes nothing.", "base": "editor", "capabilities": ["core", "readAssets", "readResearch"] },
+    { "id": "analyst", "label": "Analyst", "description": "Researches with quick scans, Ask AI, Sheets and data tools, and sees what they cost.", "base": "editor", "capabilities": ["core", "readAssets", "readResearch", "quickScans", "askAi", "viewPrompts", "sheets", "dataTools", "seeCosts", "manageRuns"] },
+    { "id": "channel-reviewer", "label": "Channel reviewer", "description": "Reads their channel’s trends and assets, and says which trends they used.", "base": "channel", "capabilities": ["core", "readAssets", "markTrendsUsed"] }
+  ],
   "copy": {
     "forbidden": "Only editors and admins can do that. Ask an admin if you need it.",
     "adminOnly": "Only an admin can do that.",
@@ -60,6 +103,15 @@
     "askPictures": "Pictures aren’t set up for your team. Ask {admin} to turn them on.",
     "askDrive": "Google Drive isn’t connected. Ask {admin} to connect it.",
     "askConnection": "The studio’s AI or data connection needs attention. Ask {admin}.",
-    "askBudget": "This needs an admin to finish. Ask {admin}."
+    "askBudget": "This needs an admin to finish. Ask {admin}.",
+    "capabilityOff": "Your access doesn’t include “{what}”. Ask {admin} if you need it.",
+    "lockedCapability": "Only admins can have “{what}”.",
+    "notForChannelRoles": "Channel owners see only their channel, so they can’t have “{what}”.",
+    "needsCapability": "“{what}” also needs {needs}.",
+    "policyConflict": "{name} changed roles at {time}, after you opened them. Reload to see the latest.",
+    "adminAccess": "Admins can do everything, so their access can’t be adjusted.",
+    "roleInUse": "This role has {count}. Choose a role to move them to first.",
+    "roleName": "Choose a role name that isn’t already used.",
+    "roleBase": "A role’s type can’t change after it’s made."
   }
 }

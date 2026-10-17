@@ -1,0 +1,243 @@
+/* The left sidebar (studio-sidebar.jsx): one look for every layout and role, built on the frame's --s-* tokens
+   (studio-frame.css). One saturated element, the New button. The current page is a soft pill with a 3px accent bar
+   that slides between rows. Rows are 36px, 44px on touch. Rail mode (.is-rail) is 64px of icons with tooltips.
+   The global CSS (premium.css, styles.css) loads after this file, so every rule here carries .studio-frame plus a class,
+   and hover rules carry :hover:not(:disabled), to win over its bare `button` rules without !important. */
+.studio-frame {
+  --s-rail-width: 64px;
+  --sb-row: 36px; --sb-radius: 10px;
+  --sb-hover: rgba(24, 30, 21, .05);
+  --sb-active-bg: var(--s-soft); --sb-active-ink: var(--s-soft-ink); --sb-active-bar: var(--s-accent-strong);
+  --sb-live: var(--s-mint-ink);
+  --sb-warn: #b7791f; /* amber, 3.4:1 on the sidebar background */
+  --sb-pop-shadow: 0 18px 44px rgba(24, 30, 21, .16);
+}
+.studio-frame[data-rail] { --s-sidebar-width: var(--s-rail-width); }
+/* Dark values, switched on with data-theme="dark" on the root or the frame (as help-assistant.css does). */
+:root[data-theme="dark"] .studio-frame, .studio-frame[data-theme="dark"] {
+  --sb-hover: rgba(238, 242, 238, .07);
+  --sb-warn: #f0b44c;
+  --sb-pop-shadow: 0 18px 44px rgba(0, 0, 0, .5);
+}
+
+/* ── The box ─────────────────────────────────────────────────────────────── */
+.app-shell.studio-frame .studio-sidebar { position: relative; z-index: 20; display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; padding: 16px 12px 0; color: var(--s-ink); background: var(--s-sidebar-bg); border-right: 1px solid var(--s-line); box-shadow: none; }
+/* The Mac's traffic lights sit in the top-left corner; that strip drags the window. */
+.app-shell.studio-frame.is-desktop .studio-sidebar { padding-top: 44px; }
+.app-shell.studio-frame.is-desktop .studio-sidebar::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 38px; -webkit-app-region: drag; }
+.app-shell.studio-frame .studio-sidebar :is(button, select, input, a, label) { -webkit-app-region: no-drag; }
+/* A plain base for every control in here; the rules below give each its look. */
+.studio-frame .studio-sidebar :where(button) { display: inline-flex; align-items: center; gap: 0; min-height: 0; margin: 0; padding: 0; font: inherit; line-height: 1.2; color: inherit; background: transparent; border: 0; border-radius: var(--sb-radius); box-shadow: none; cursor: pointer; transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease; }
+.studio-frame .studio-sidebar :where(button):disabled { cursor: not-allowed; }
+.studio-frame .studio-sidebar :where(button):hover:not(:disabled) { transform: none; box-shadow: none; }
+.studio-frame .studio-sidebar :where(button, label, [tabindex]):focus-visible { outline: 2px solid var(--s-focus); outline-offset: 2px; }
+.studio-frame .sb-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.studio-frame .studio-sidebar .sb-kbd { flex: none; padding: 1px 6px; font-family: inherit; font-size: 11px; font-weight: 550; line-height: 1.5; letter-spacing: .02em; color: var(--s-muted); background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 6px; font-variant-numeric: tabular-nums; }
+
+/* ── Head: wordmark, collapse, workspace switcher ────────────────────────── */
+.studio-frame .sb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; padding: 0 0 0 8px; }
+.studio-frame .sb-wordmark { display: block; width: 112px; max-width: 100%; height: auto; }
+.studio-frame .sb-brand { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.studio-frame .sb-mark { display: grid; place-items: center; flex: none; width: 30px; height: 30px; color: var(--s-mint-ink); background: var(--s-mint); border-radius: 8px; }
+.studio-frame .sb-brand-text { font-size: 16px; font-weight: 700; letter-spacing: -.5px; line-height: 1.1; color: var(--s-ink); white-space: nowrap; }
+.studio-frame .sb-brand-text span { font-weight: 400; color: var(--s-muted); }
+.studio-frame .studio-sidebar .sb-collapse { justify-content: center; flex: none; width: 32px; height: 32px; color: var(--s-muted); border-radius: 8px; }
+.studio-frame .studio-sidebar .sb-collapse:hover:not(:disabled) { color: var(--s-ink); background: var(--sb-hover); }
+.studio-frame .sb-drawer-close { flex: none; }
+
+.studio-frame .sb-menu-wrap, .studio-frame .sb-working-wrap, .studio-frame .sb-account-wrap { position: relative; display: block; min-width: 0; }
+.studio-frame .sb-switcher { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 30px 6px 6px; text-align: left; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 12px; }
+.studio-frame .sb-switcher.is-static { padding-right: 10px; }
+.studio-frame .studio-sidebar button.sb-switcher { border: 1px solid var(--s-line); background: var(--s-card); border-radius: 12px; }
+.studio-frame .studio-sidebar button.sb-switcher:hover:not(:disabled), .studio-frame .studio-sidebar button.sb-switcher[aria-expanded="true"] { color: var(--s-ink); background: var(--s-card); border-color: var(--s-line-strong); }
+.studio-frame .studio-sidebar button.sb-switcher:disabled { opacity: .7; }
+.studio-frame .sb-tile { display: grid; place-items: center; flex: none; width: 30px; height: 30px; font-size: 13px; font-weight: 700; color: var(--s-card); background: var(--s-ink); border-radius: 8px; }
+.studio-frame .sb-tile.is-general { color: var(--s-soft-ink); background: var(--s-soft); }
+.studio-frame .sb-tile.is-channel { color: var(--s-mint-ink); background: var(--s-mint); }
+.studio-frame .sb-switcher-copy { display: grid; flex: 1; min-width: 0; gap: 1px; }
+.studio-frame .sb-switcher-copy strong { font-size: 13px; font-weight: 650; line-height: 1.3; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-frame .sb-switcher-copy small { font-size: 11.5px; font-weight: 500; line-height: 1.3; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-frame .sb-switcher-chevron { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); color: var(--s-muted); pointer-events: none; }
+
+/* ── Actions: New (the one saturated element), Search, Ask AI ────────────── */
+.studio-frame .sb-actions { display: grid; gap: 6px; }
+.studio-frame .studio-sidebar .sb-create { display: flex; gap: 8px; width: 100%; min-height: 38px; padding: 0 10px 0 14px; font-size: 13.5px; font-weight: 650; color: var(--s-on-accent); background: var(--s-accent); border-radius: 999px; }
+.studio-frame .studio-sidebar .sb-create:hover:not(:disabled), .studio-frame .studio-sidebar .sb-create[aria-expanded="true"] { color: var(--s-on-accent); background: var(--s-accent-strong); }
+.studio-frame .studio-sidebar .sb-create .sb-kbd { color: var(--s-on-accent); background: rgba(255, 255, 255, .38); border-color: transparent; }
+.studio-frame .studio-sidebar .sb-search { display: flex; gap: 10px; width: 100%; min-height: 36px; padding: 0 8px 0 12px; font-size: 13px; font-weight: 500; color: var(--s-muted); background: var(--s-card); border: 1px solid var(--s-line); }
+.studio-frame .studio-sidebar .sb-search:hover:not(:disabled) { color: var(--s-ink); background: var(--s-card); border-color: var(--s-line-strong); }
+.studio-frame .studio-sidebar .sb-ask { display: flex; gap: 10px; width: 100%; min-height: var(--sb-row); padding: 0 8px 0 11px; font-size: 13.5px; font-weight: 600; color: var(--s-ink); }
+.studio-frame .studio-sidebar .sb-ask svg { flex: none; color: var(--s-soft-ink); }
+.studio-frame .studio-sidebar .sb-ask:hover:not(:disabled) { color: var(--s-ink); background: var(--sb-hover); }
+.studio-frame .studio-sidebar .sb-ask:is([aria-current="page"], [aria-expanded="true"]), .studio-frame .studio-sidebar .sb-ask:is([aria-current="page"], [aria-expanded="true"]):is(:hover, :focus-visible):not(:disabled) { color: var(--sb-active-ink); background: var(--sb-active-bg); box-shadow: inset 3px 0 0 var(--sb-active-bar); }
+
+/* ── Page groups ─────────────────────────────────────────────────────────── */
+/* The nav scrolls on its own; the 4px inset keeps focus rings clear of its clipping edge. */
+.studio-frame .sb-nav { position: relative; display: grid; align-content: start; gap: 2px; flex: 1 1 auto; min-height: 0; margin: 0 -4px; padding: 2px 4px 12px; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+.studio-frame .sb-group { display: grid; gap: 2px; }
+.studio-frame .sb-group + .sb-group { margin-top: 10px; }
+.studio-frame .sb-group-label { display: block; padding: 6px 10px 4px; font-size: 11px; font-weight: 650; line-height: 1.3; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted); }
+.studio-frame .studio-sidebar .sb-item { position: relative; z-index: 1; display: flex; gap: 10px; width: 100%; min-height: var(--sb-row); padding: 0 8px 0 10px; font-size: 13.5px; font-weight: 550; text-align: left; color: var(--s-ink); }
+.studio-frame .studio-sidebar .sb-item svg { flex: none; color: var(--s-muted); }
+.studio-frame .studio-sidebar .sb-item:hover:not(:disabled) { color: var(--s-ink); background: var(--sb-hover); }
+.studio-frame .studio-sidebar .sb-item[aria-current="page"] { font-weight: 650; color: var(--sb-active-ink); }
+.studio-frame .studio-sidebar .sb-item[aria-current="page"] svg { color: var(--sb-active-ink); }
+/* The pill is the current row's background; before it is measured (first paint, tests) the row carries it itself. */
+.studio-frame .studio-sidebar .sb-nav:has(> .sb-indicator) .sb-item[aria-current="page"], .studio-frame .studio-sidebar .sb-nav:has(> .sb-indicator) .sb-item[aria-current="page"]:hover:not(:disabled) { background: transparent; }
+.studio-frame .studio-sidebar .sb-nav:not(:has(> .sb-indicator)) .sb-item[aria-current="page"], .studio-frame .studio-sidebar .sb-nav:not(:has(> .sb-indicator)) .sb-item[aria-current="page"]:focus-visible { background: var(--sb-active-bg); box-shadow: inset 3px 0 0 var(--sb-active-bar); }
+.studio-frame .sb-indicator { position: absolute; top: 0; left: 0; z-index: 0; border-radius: var(--sb-radius); background: var(--sb-active-bg); box-shadow: inset 3px 0 0 var(--sb-active-bar); pointer-events: none; }
+.studio-frame .sb-indicator.settled { transition: transform 300ms var(--spring-settle, var(--s-ease)), width 300ms var(--spring-settle, var(--s-ease)), height 300ms var(--spring-settle, var(--s-ease)); }
+/* Badges count work waiting on this person; dots mark live work, and amber means something needs setting up. */
+.studio-frame .sb-badge { display: inline-grid; place-items: center; flex: none; min-width: 20px; height: 20px; padding: 0 6px; font-size: 11.5px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: var(--s-on-accent); background: var(--s-accent); border-radius: 999px; }
+.studio-frame .sb-item[aria-current="page"] .sb-badge { color: var(--s-ink); background: var(--s-card); }
+.studio-frame :is(.sb-live, .sb-warn) { flex: none; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; }
+.studio-frame .sb-live { background: var(--sb-live); animation: sb-pulse 1.6s ease-in-out infinite; }
+.studio-frame .sb-warn { background: var(--sb-warn); }
+
+/* Data tools: a toggle that remembers its state; closed, it names the page open inside. */
+.studio-frame .sb-group.is-collapsible { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--s-line); }
+.studio-frame .studio-sidebar .sb-group-toggle { display: flex; gap: 10px; width: 100%; min-height: var(--sb-row); padding: 0 8px 0 10px; font-size: 13px; font-weight: 600; text-align: left; color: var(--s-muted); }
+.studio-frame .studio-sidebar .sb-group-toggle svg { flex: none; color: var(--s-muted); }
+.studio-frame .studio-sidebar .sb-group-toggle:hover:not(:disabled) { color: var(--s-ink); background: var(--sb-hover); }
+.studio-frame .sb-chevron { transition: transform 200ms var(--spring-settle, var(--s-ease)); }
+.studio-frame .sb-chevron.is-open { transform: rotate(180deg); }
+.studio-frame .sb-current { flex: none; max-width: 96px; overflow: hidden; padding: 2px 8px; font-size: 11.5px; font-weight: 600; color: var(--sb-active-ink); background: var(--sb-active-bg); border-radius: 999px; text-overflow: ellipsis; white-space: nowrap; }
+.studio-frame .sb-sub { display: grid; gap: 6px; margin-top: 2px; }
+.studio-frame .sb-subgroup { display: grid; gap: 2px; }
+.studio-frame .sb-sublabel { display: block; padding: 6px 10px 2px 38px; font-size: 11px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--s-muted); }
+.studio-frame .sb-sub .sb-item { font-size: 13px; }
+.studio-frame .sb-rise { display: block; animation: craft-rise-in 220ms var(--spring-settle, var(--s-ease)) both; animation-delay: calc(var(--i, 0) * 22ms); }
+
+/* ── Footer: Working, the layout switch, the account ─────────────────────── */
+.studio-frame .sb-foot { display: grid; gap: 8px; margin: 0 -12px; padding: 10px 12px 12px; border-top: 1px solid var(--s-line); }
+.studio-frame .sb-working { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; min-height: 30px; padding: 0 12px; font-size: 12.5px; font-weight: 600; line-height: 1.3; color: var(--s-mint-ink); background: var(--s-mint); border-radius: 999px; white-space: nowrap; }
+.studio-frame .sb-working svg { flex: none; }
+.studio-frame .studio-sidebar button.sb-working { border-radius: 999px; }
+.studio-frame .studio-sidebar button.sb-working:hover:not(:disabled), .studio-frame .studio-sidebar button.sb-working[aria-expanded="true"] { color: var(--s-mint-ink); background: color-mix(in srgb, var(--s-mint) 80%, var(--s-mint-ink)); }
+.studio-frame .sb-dot-count { position: absolute; top: -4px; right: -4px; display: grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10.5px; font-weight: 700; color: var(--s-card); background: var(--s-mint-ink); border-radius: 999px; }
+.studio-frame .sb-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; background: var(--sb-hover); border: 1px solid var(--s-line); border-radius: 999px; }
+.studio-frame .studio-sidebar .sb-layout label { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 28px; padding: 0 10px; font-size: 12.5px; font-weight: 600; line-height: 1; color: var(--s-muted); border-radius: 999px; cursor: pointer; transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease; }
+.studio-frame .studio-sidebar .sb-layout label:hover { color: var(--s-ink); }
+.studio-frame .studio-sidebar .sb-layout label:is(.checked, :has(input:checked)) { color: var(--s-ink); background: var(--s-card); box-shadow: 0 1px 3px rgba(24, 30, 21, .12), 0 0 0 1px var(--s-line); }
+.studio-frame .studio-sidebar .sb-layout label:has(input:focus-visible) { outline: 2px solid var(--s-focus); outline-offset: 1px; }
+.studio-frame .studio-sidebar .sb-layout input { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; margin: 0; opacity: 0; cursor: pointer; }
+.studio-frame .sb-layout .sb-text { flex: none; }
+.studio-frame .studio-sidebar .sb-account { display: flex; gap: 10px; width: 100%; min-height: 44px; padding: 6px 8px 6px 6px; text-align: left; color: var(--s-ink); border-radius: 12px; }
+.studio-frame .studio-sidebar .sb-account:hover:not(:disabled), .studio-frame .studio-sidebar .sb-account[aria-expanded="true"] { color: var(--s-ink); background: var(--sb-hover); }
+.studio-frame .sb-avatar { position: relative; display: grid; place-items: center; flex: none; width: 32px; height: 32px; font-size: 12px; font-weight: 700; letter-spacing: .02em; color: var(--s-card); background: var(--s-ink); border-radius: 50%; }
+.studio-frame .sb-account.is-preview .sb-avatar { color: var(--s-soft-ink); background: var(--s-soft); box-shadow: inset 0 0 0 1.5px var(--s-accent-strong); }
+.studio-frame .sb-avatar-eye { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 18px; height: 18px; color: var(--s-on-accent); background: var(--s-accent); border: 2px solid var(--s-card); border-radius: 50%; }
+.studio-frame .sb-account-copy { display: grid; flex: 1; min-width: 0; gap: 1px; }
+.studio-frame .sb-account-copy strong { font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-frame .sb-account-copy small { font-size: 11.5px; line-height: 1.3; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.studio-frame .sb-account-more { flex: none; color: var(--s-muted); }
+
+/* ── Menus and popovers ──────────────────────────────────────────────────── */
+.studio-frame .sb-pop { position: absolute; z-index: 60; display: grid; gap: 2px; min-width: 100%; max-height: min(70vh, 520px); overflow-y: auto; padding: 6px; color: var(--s-ink); text-align: left; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 14px; box-shadow: var(--sb-pop-shadow); animation: studio-pop 160ms ease both; }
+.studio-frame .sb-pop:focus { outline: none; }
+.studio-frame .sb-pop.place-bottom { top: calc(100% + 6px); left: 0; }
+.studio-frame .sb-pop.place-top { bottom: calc(100% + 6px); left: 0; }
+.studio-frame .sb-pop.place-right { top: 0; left: calc(100% + 12px); width: 264px; min-width: 0; }
+.studio-frame .sb-pop.place-right-up { bottom: 0; left: calc(100% + 12px); width: 264px; min-width: 0; }
+.studio-frame .sb-new-menu:is(.place-bottom, .place-top) { width: max(100%, 272px); }
+.studio-frame .sb-account-menu:is(.place-bottom, .place-top) { width: max(100%, 248px); }
+.studio-frame .studio-sidebar .sb-menu-item { display: flex; gap: 10px; width: 100%; min-height: 36px; padding: 6px 10px; font-size: 13.5px; font-weight: 550; text-align: left; color: var(--s-ink); border-radius: 9px; }
+.studio-frame .studio-sidebar .sb-menu-item:hover:not(:disabled) { color: var(--s-ink); background: var(--s-bg); }
+.studio-frame .studio-sidebar .sb-menu-item:focus-visible { color: var(--s-ink); background: var(--s-bg); outline: 2px solid var(--s-focus); outline-offset: -2px; }
+.studio-frame .studio-sidebar .sb-menu-item:disabled { opacity: .55; }
+.studio-frame .studio-sidebar .sb-menu-item.is-indent { padding-left: 36px; }
+.studio-frame .sb-menu-item svg { flex: none; color: var(--s-muted); }
+.studio-frame .sb-menu-copy { display: grid; flex: 1; min-width: 0; gap: 1px; }
+.studio-frame .sb-menu-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-frame .sb-menu-copy small { font-size: 12px; font-weight: 500; line-height: 1.35; color: var(--s-muted); white-space: normal; }
+.studio-frame .sb-menu-check { display: grid; place-items: center; flex: none; width: 16px; height: 16px; color: var(--s-soft-ink); }
+.studio-frame .sb-menu-group { display: grid; gap: 2px; }
+.studio-frame .sb-menu-heading { padding: 8px 10px 4px; font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted); }
+.studio-frame .sb-menu-sep { height: 1px; margin: 4px 6px; background: var(--s-line); }
+.studio-frame .sb-menu-note { margin: 4px 10px; font-size: 12.5px; line-height: 1.45; color: var(--s-muted); }
+.studio-frame .sb-menu-who { display: grid; gap: 1px; margin: 0 0 4px; padding: 6px 10px 10px; border-bottom: 1px solid var(--s-line); }
+.studio-frame .sb-menu-who strong { font-size: 13.5px; font-weight: 650; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-frame .sb-menu-who small { font-size: 12px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Working now: each live run with Open and Stop. */
+.studio-frame .sb-working-pop { gap: 0; width: 288px; min-width: 0; padding: 10px; }
+.studio-frame .studio-sidebar .sb-pop-title { margin: 2px 4px 8px; font-size: 11px; font-weight: 650; line-height: 1.3; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted); }
+.studio-frame .sb-run-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.studio-frame .sb-run { display: grid; gap: 8px; padding: 10px; background: var(--s-bg); border-radius: 10px; }
+.studio-frame .sb-run-copy { display: grid; gap: 2px; min-width: 0; }
+.studio-frame .sb-run-copy strong { font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--s-ink); overflow-wrap: anywhere; }
+.studio-frame .sb-run-copy small { font-size: 12px; line-height: 1.4; color: var(--s-muted); }
+.studio-frame .sb-run-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.studio-frame .studio-sidebar .sb-run-button { gap: 5px; min-height: 28px; padding: 0 11px; font-size: 12.5px; font-weight: 600; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; }
+.studio-frame .studio-sidebar .sb-run-button:hover:not(:disabled) { color: var(--s-ink); background: var(--s-card); border-color: var(--s-line-strong); }
+.studio-frame .studio-sidebar .sb-run-button.is-stop, .studio-frame .studio-sidebar .sb-run-button.is-stop:hover:not(:disabled) { color: var(--s-danger); }
+.studio-frame .studio-sidebar .sb-run-button:disabled { opacity: .6; }
+/* Rail tooltips sit beside the control, outside the nav's scroll box. */
+.studio-frame .sb-tip { position: fixed; z-index: 120; max-width: 280px; padding: 5px 9px; font-size: 12.5px; font-weight: 600; line-height: 1.3; color: var(--s-card); background: var(--s-ink); border-radius: 7px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); white-space: nowrap; pointer-events: none; transform: translateY(-50%); animation: studio-fade 120ms ease both; }
+
+/* ── Dialogs opened from the account menu ────────────────────────────────── */
+.studio-frame .sb-keys-section { display: grid; gap: 8px; }
+.studio-frame .sb-keys-section h3 { margin: 0; font-size: 12px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted); }
+.studio-frame .sb-keys { display: grid; gap: 2px; margin: 0; }
+.studio-frame .sb-keys-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 36px; padding: 4px 0; border-bottom: 1px solid var(--s-line); }
+.studio-frame .sb-keys-row:last-child { border-bottom: 0; }
+.studio-frame .sb-keys-row dt { font-size: 14px; color: var(--s-ink); }
+.studio-frame .sb-keys-row dd { display: flex; gap: 4px; margin: 0; }
+.studio-frame .sb-keys-row kbd { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 7px; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--s-ink); background: var(--s-bg); border: 1px solid var(--s-line-strong); border-bottom-width: 2px; border-radius: 7px; }
+.studio-frame .sb-channels-form { display: contents; }
+.studio-frame .sb-channels { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; }
+.studio-frame .sb-channel { position: relative; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; font-size: 14px; font-weight: 550; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 12px; cursor: pointer; }
+.studio-frame .sb-channel.is-on { background: var(--s-soft); border-color: var(--s-accent); }
+.studio-frame .sb-channel:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.studio-frame .sb-channel:has(input:focus-visible) { outline: 2px solid var(--s-focus); outline-offset: 2px; }
+.studio-frame .sb-channel input { flex: none; width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; accent-color: var(--s-soft-ink); box-shadow: none; }
+
+/* ── Rail: 64px of icons, with tooltips; names stay for screen readers ───── */
+/* 64px less the 1px border leaves 63: 12px and 11px either side of the 40px buttons. */
+.app-shell.studio-frame .studio-sidebar.is-rail { gap: 10px; padding-left: 12px; padding-right: 11px; }
+.studio-frame .is-rail .sb-head { flex-direction: column; justify-content: center; padding: 0; }
+.studio-frame .is-rail :is(.sb-wordmark, .sb-brand, .sb-switcher-copy, .sb-switcher-chevron, .sb-kbd, .sb-group-label, .sb-sublabel, .sb-account-copy, .sb-account-more, .sb-current, .sb-chevron) { display: none; }
+.studio-frame .is-rail .sb-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.studio-frame .studio-sidebar.is-rail :is(.sb-item, .sb-ask, .sb-search, .sb-create, .sb-group-toggle, .sb-collapse) { justify-content: center; width: 40px; height: 40px; min-height: 40px; padding: 0; }
+.studio-frame .studio-sidebar.is-rail .sb-create { border-radius: 12px; }
+.studio-frame .studio-sidebar.is-rail .sb-search { color: var(--s-ink); background: transparent; border-color: transparent; }
+.studio-frame .studio-sidebar.is-rail .sb-search:hover:not(:disabled) { background: var(--sb-hover); border-color: transparent; }
+.studio-frame .studio-sidebar.is-rail .sb-switcher, .studio-frame .studio-sidebar.is-rail button.sb-switcher { justify-content: center; width: 40px; min-height: 40px; padding: 0; background: transparent; border-color: transparent; }
+.studio-frame .is-rail :is(.sb-actions, .sb-group, .sb-sub, .sb-subgroup, .sb-foot) { justify-items: center; }
+.studio-frame .is-rail .sb-rise { display: flex; justify-content: center; }
+.studio-frame .is-rail .sb-nav { margin: 0 -11px 0 -12px; padding: 2px 11px 12px 12px; }
+.studio-frame .is-rail .sb-group + .sb-group, .studio-frame .is-rail .sb-group.is-collapsible { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--s-line); }
+.studio-frame .is-rail .sb-sub { gap: 2px; }
+.studio-frame .is-rail .sb-badge { position: absolute; top: 5px; right: 5px; min-width: 0; width: 8px; height: 8px; padding: 0; font-size: 0; color: transparent; box-shadow: 0 0 0 2px var(--s-sidebar-bg, var(--s-card)); }
+.studio-frame .is-rail .sb-item .sb-badge { background: var(--s-accent-strong); } /* a dot that still shows on the current row */
+.studio-frame .is-rail :is(.sb-live, .sb-warn) { position: absolute; top: 6px; right: 6px; margin: 0; }
+.studio-frame .studio-sidebar.is-rail .sb-working { position: relative; justify-content: center; width: 40px; height: 32px; padding: 0; }
+.studio-frame .is-rail .sb-foot { margin: 0 -11px 0 -12px; padding: 10px 11px 12px 12px; }
+.studio-frame .is-rail .sb-layout { grid-template-columns: 1fr; padding: 3px; border-radius: 12px; }
+.studio-frame .studio-sidebar.is-rail .sb-layout label { width: 32px; min-height: 28px; padding: 0; border-radius: 9px; }
+.studio-frame .studio-sidebar.is-rail .sb-account { justify-content: center; width: 40px; min-height: 40px; padding: 4px; }
+
+/* ── Touch: every row a thumb uses is at least 44px tall ─────────────────── */
+@media (pointer: coarse) {
+  .studio-frame .studio-sidebar :is(.sb-item, .sb-ask, .sb-search, .sb-create, .sb-group-toggle, .sb-menu-item) { min-height: 44px; }
+  .studio-frame .studio-sidebar .sb-collapse { width: 44px; height: 44px; }
+  .studio-frame .studio-sidebar .sb-layout label { min-height: 40px; }
+  .studio-frame .studio-sidebar :is(.sb-run-button, .sb-working) { min-height: 40px; }
+  .studio-frame .studio-sidebar.is-rail :is(.sb-item, .sb-ask, .sb-search, .sb-create, .sb-group-toggle) { width: 44px; height: 44px; }
+}
+
+/* ── Under 860px: a modal drawer, always expanded ────────────────────────── */
+@media (max-width: 860px) {
+  .app-shell.studio-frame .studio-sidebar { position: fixed; z-index: 90; top: 0; bottom: 0; left: 0; display: flex; width: min(320px, 86vw); padding-top: 16px; background: var(--s-card); border-right: 0; transform: translateX(-104%); visibility: hidden; transition: transform 260ms var(--spring-settle, var(--s-ease)), visibility 0s linear 260ms; }
+  .app-shell.studio-frame.is-desktop .studio-sidebar { padding-top: 44px; }
+  .app-shell.studio-frame .studio-sidebar.is-open { transform: none; visibility: visible; box-shadow: var(--s-shadow-pop); transition: transform 260ms var(--spring-settle, var(--s-ease)), visibility 0s; }
+  .app-shell.studio-frame .studio-sidebar.is-open:focus { outline: none; }
+  .app-shell.studio-frame[data-mode="channel"] .studio-sidebar { display: none; }
+}
+
+@keyframes sb-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.78); } }
+@media (prefers-reduced-motion: reduce) {
+  .studio-frame .sb-live { animation: none; }
+  .studio-frame :is(.sb-indicator.settled, .sb-chevron, .sb-rise, .sb-pop, .sb-tip) { transition: none; animation: none; }
+  .app-shell.studio-frame .studio-sidebar { transition: none; }
+}
+@media (prefers-contrast: more) { .studio-frame { --sb-hover: rgba(24, 30, 21, .09); } }

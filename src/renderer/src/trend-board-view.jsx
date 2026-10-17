@@ -2,17 +2,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Check, CircleAlert, FileText, LoaderCircle, Radar, RotateCcw, Sparkles, SquareKanban, Undo2, X } from 'lucide-react';
 import { Button, formatDate, number, withViewTransition } from './ui.jsx';
 import { PASSED_STAGE, TREND_STAGES, buildTrendBoard, generationPlan } from '../../shared/trend-board.js';
+import { DecidedBy, Sparkline, WhyItMatters, decisionOf } from './trend-pulse.jsx';
+import { TrendYesButton, channelLabel, fitsFor, routingChannels } from './trend-decision-sheet.jsx';
+import { can as canCall, canRun, useViewer, writeProps } from './viewer.js';
 import './trend-board.css';
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const money = (value) => (Number.isFinite(Number(value)) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value)) : '—');
 const PLATFORMS = { x: 'X', linkedin: 'LinkedIn', reddit: 'Reddit' };
-const NOVELTY = { 'NEW TOPIC': 'New topic', 'NEW ANGLE': 'New angle', EVERGREEN: 'Evergreen' };
 const DROP_DECISION = { potential: 'pending', approved: 'approved', passed: 'passed' };
 // A stable view-transition name lets a card glide to its new column instead of popping.
 const transitionName = (key) => `trend-${key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 const splitKey = (key) => { const at = key.indexOf(':'); return [key.slice(0, at), key.slice(at + 1)]; };
 const plural = (count, word) => `${number(count)} ${word}${count === 1 ? '' : 's'}`;
+const nameKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 function scoutingText(scout) {
   if (scout.status === 'failed') return scout.error || 'Scouting stopped before any trends were found.';
@@ -21,22 +24,38 @@ function scoutingText(scout) {
   return 'Collecting posts and conversations';
 }
 
-function TrendCard({ card, disabled, dragging, onDecide, onDragStart, onDragEnd, onOpenRun, onReadReport, onCreateAssets }) {
+// `trend` is the trend history's record for this card (momentum and posts per run across research runs), or null; `by`
+// is who decided it (run.decisionsBy), with their note and routed channels; `fits` names the person's own channels it
+// fits (My channels).
+function TrendCard({ card, trend = null, by = null, channels = [], fits = [], disabled, mayDecide = false, write = { disabled: Boolean(disabled) }, preview = false, dragging, onDecide, onDecideWithNote, onAsk, onDragStart, onDragEnd, onOpenRun, onReadReport, onCreateAssets }) {
   const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0];
-  return <article className={`tb-card ${card.needsAttention ? 'attention' : ''} ${dragging ? 'dragging' : ''}`} style={{ viewTransitionName: transitionName(card.key) }} draggable={card.canDecide && !disabled} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', card.key); onDragStart(card.key); }} onDragEnd={onDragEnd} aria-label={card.name}>
-    {(card.priorityTier || card.novelty) && <div className="tb-card-meta">{card.priorityTier && <span className={`tb-tier tier-${card.priorityTier.toLowerCase().replace(/[^a-z]+/g, '-')}`} title={card.priorityScore != null ? `Priority score ${card.priorityScore}` : undefined}>{card.priorityTier}</span>}{card.novelty && <span className="tb-tag">{NOVELTY[card.novelty] || card.novelty}</span>}</div>}
+  return <article className={`tb-card ${card.needsAttention ? 'attention' : ''} ${dragging ? 'dragging' : ''}`} style={{ viewTransitionName: transitionName(card.key) }} draggable={mayDecide && card.canDecide && !disabled && !preview} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', card.key); onDragStart(card.key); }} onDragEnd={onDragEnd} aria-label={card.name}>
+    {card.priorityTier && <div className="tb-card-meta"><span className={`tb-tier tier-${card.priorityTier.toLowerCase().replace(/[^a-z]+/g, '-')}`} title={card.priorityScore != null ? `Priority score ${card.priorityScore}` : undefined}>{card.priorityTier}</span></div>}
     <h4>{card.name}</h4>
     {card.description && <p className="tb-card-description">{card.description}</p>}
-    <div className="tb-card-facts"><span>{plural(card.evidenceCount, 'source')}</span>{card.velocity && <span>{card.velocity === 'NEW' ? 'New' : card.velocity === 'EMERGING' ? 'Seen twice' : `Seen in ${card.detectionCount} runs`}</span>}{card.category && <span>{card.category}</span>}{card.platforms.map((platform) => <span key={platform}>{PLATFORMS[platform] || platform}</span>)}{card.discoveredAt && <span>{formatDate(card.discoveredAt)}</span>}{card.programName && <span className="tb-card-program" title={card.programName}>{card.programName}</span>}</div>
-    {card.stage === 'potential' && <div className="tb-card-actions"><Button type="button" className="tb-ok" disabled={disabled} onClick={() => onDecide(card, 'approved')}><Check size={14} aria-hidden="true" />Approve</Button><Button type="button" className="cs-quiet" disabled={disabled} onClick={() => onDecide(card, 'passed')}><X size={14} aria-hidden="true" />Pass</Button></div>}
-    {card.stage === 'approved' && card.canDecide && <div className="tb-card-actions"><span className="tb-state"><Check size={13} aria-hidden="true" />Approved</span><Button type="button" className="cs-quiet" disabled={disabled} onClick={() => onDecide(card, 'pending')}><Undo2 size={13} aria-hidden="true" />Undo</Button></div>}
+    {card.stage !== 'passed' && <WhyItMatters card={card} trend={trend} fits={fits} onAsk={card.stage === 'potential' ? onAsk : undefined} />}
+    <div className="tb-card-facts"><span>{plural(card.evidenceCount, 'source')}</span>{list(trend?.spark).length > 1 && <span className="tb-card-spark"><Sparkline points={trend.spark} label={`Posts per research run for ${card.name}, oldest to newest: ${trend.spark.map((value) => number(value)).join(', ')}`} /></span>}{card.category && <span>{card.category}</span>}{card.platforms.map((platform) => <span key={platform}>{PLATFORMS[platform] || platform}</span>)}{card.discoveredAt && <span>{formatDate(card.discoveredAt)}</span>}{card.programName && <span className="tb-card-program" title={card.programName}>{card.programName}</span>}</div>
+    {card.stage !== 'potential' && <DecidedBy by={by} decision={card.decision} channelName={(id) => channelLabel(channels, id)} />}
+    {card.stage === 'potential' && mayDecide && <div className="tb-card-actions"><TrendYesButton card={card} channels={channels} className="tb-ok" size={14} ariaLabel={`Yes, use ${card.name}`} disabled={disabled} onDecide={onDecide} onDecideWithNote={onDecideWithNote} /><Button type="button" className="cs-quiet" aria-label={`Skip ${card.name}`} {...write} onClick={() => onDecide(card, 'passed')}><X size={14} aria-hidden="true" />Skip</Button></div>}
+    {card.stage === 'approved' && card.canDecide && mayDecide && <div className="tb-card-actions">{!by && <span className="tb-state"><Check size={13} aria-hidden="true" />Approved</span>}<Button type="button" className="cs-quiet" {...write} onClick={() => onDecide(card, 'pending')}><Undo2 size={13} aria-hidden="true" />Undo</Button></div>}
     {card.stage === 'production' && <div className="tb-card-actions"><span className={`tb-state ${card.needsAttention ? 'attention' : ''}`}>{card.needsAttention ? <CircleAlert size={13} aria-hidden="true" /> : <LoaderCircle size={13} className="spin" aria-hidden="true" />}{card.activity}</span>{card.needsAttention && <Button type="button" className="cs-quiet" onClick={() => onOpenRun(card.runId)}>Open run<ArrowRight size={13} aria-hidden="true" /></Button>}</div>}
-    {card.stage === 'ready' && <div className="tb-card-actions">{report && <Button type="button" className="cs-quiet" onClick={() => onReadReport(report)}><FileText size={13} aria-hidden="true" />Read report</Button>}{report && <Button type="button" className="tb-ok" disabled={disabled} onClick={() => onCreateAssets(report)}><Sparkles size={13} aria-hidden="true" />{card.contentRunCount ? 'Create more' : 'Create assets'}</Button>}{card.assetCount > 0 && <small className="tb-asset-count">{plural(card.assetCount, 'asset')} made</small>}</div>}
-    {card.stage === 'passed' && card.canDecide && <div className="tb-card-actions"><Button type="button" className="cs-quiet" disabled={disabled} onClick={() => onDecide(card, 'pending')}><RotateCcw size={13} aria-hidden="true" />Reconsider</Button></div>}
+    {card.stage === 'ready' && <div className="tb-card-actions">{report && <Button type="button" className="cs-quiet" onClick={() => onReadReport(report)}><FileText size={13} aria-hidden="true" />Read trends report</Button>}{report && <Button type="button" className="tb-ok" disabled={disabled} onClick={() => onCreateAssets(report)}><Sparkles size={13} aria-hidden="true" />{card.contentRunCount ? 'Create more' : 'Create assets'}</Button>}{card.assetCount > 0 && <small className="tb-asset-count">{plural(card.assetCount, 'asset')} made</small>}</div>}
+    {card.stage === 'passed' && card.canDecide && mayDecide && <div className="tb-card-actions"><Button type="button" className="cs-quiet" {...write} onClick={() => onDecide(card, 'pending')}><RotateCcw size={13} aria-hidden="true" />Reconsider</Button></div>}
   </article>;
 }
 
-export function TrendBoardView({ studio = {}, monday, api, action, disabled, pageHeading = false, onFindTrends, onOpenRun, onOpenSheets, onReadReport, onCreateAssets, onSettings }) {
+// `onAsk(question)` (optional) opens Ask AI for "What people are saying".
+export function TrendBoardView({ studio = {}, monday, api, action, disabled, pageHeading = false, onFindTrends, onOpenRun, onOpenSheets, onReadReport, onCreateAssets, onSettings, onAsk }) {
+  const viewer = useViewer();
+  // What this role may do here (in an admin's preview, the previewed role's), and write buttons that stay off in a preview.
+  const mayDecide = canCall(viewer, 'decideResearchTheme');
+  const mayWrite = canCall(viewer, 'approveResearchThemes') && canCall(viewer, 'continueResearchRun');
+  const write = writeProps(viewer, disabled);
+  const editionId = list(studio.workspaces).find((workspace) => workspace.id === studio.activeWorkspaceId)?.editionId || 'general';
+  const channels = useMemo(() => routingChannels(editionId), [editionId]);
+  // "Fits Social": the person's own channels (My channels) a trend is open to, routed there or to every channel.
+  // Only a routed yes says which of the person's channels it fits; before that every trend is open to all of them.
+  const fitsOf = (by) => (list(by?.channels).length ? fitsFor(by, viewer.prefs?.focusChannels, channels) : []);
   const [pending, setPending] = useState({}); // optimistic decisions so a card moves the instant it is decided
   const [boardError, setBoardError] = useState('');
   const [confirmRunId, setConfirmRunId] = useState('');
@@ -52,6 +71,21 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
     return { ...run, decisions };
   }), [studio.researchRuns, pending]);
   const board = useMemo(() => buildTrendBoard({ researchRuns, contentRuns: studio.contentRuns, assets: studio.assets, programs: studio.programs }), [researchRuns, studio.contentRuns, studio.assets, studio.programs]);
+  // Momentum across research runs (readTrendHistory), read again when a run moves on. Without it the cards show this
+  // run's own facts, as before.
+  const [history, setHistory] = useState(null);
+  const runsKey = list(studio.researchRuns).map((run) => `${run.id}:${run.status || ''}:${run.stage || ''}:${Object.keys(run.decisions || {}).length}:${list(run.reportRunIds).length}`).join('|');
+  useEffect(() => {
+    if (typeof api?.readTrendHistory !== 'function') return undefined;
+    let cancelled = false;
+    Promise.resolve().then(() => api.readTrendHistory({})).then((result) => { if (!cancelled) setHistory(result || null); }).catch(() => { if (!cancelled) setHistory(null); });
+    return () => { cancelled = true; };
+  }, [runsKey, studio.activeWorkspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const trendOf = useMemo(() => {
+    const byTheme = new Map(); const byName = new Map();
+    for (const trend of list(history?.trends)) { for (const id of list(trend.themeIds)) if (!byTheme.has(id)) byTheme.set(id, trend); if (!byName.has(nameKey(trend.name))) byName.set(nameKey(trend.name), trend); }
+    return (card) => byTheme.get(card.themeId) || byName.get(nameKey(card.name)) || null;
+  }, [history]);
   // Forget an optimistic decision once the saved state agrees with it.
   useEffect(() => {
     setPending((current) => {
@@ -61,7 +95,7 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
   }, [studio.researchRuns]);
 
   function decide(card, decision) {
-    if (!card?.canDecide || card.decision === decision) return;
+    if (!card?.canDecide || card.decision === decision || !canRun(viewer, 'decideResearchTheme')) return;
     setBoardError('');
     withViewTransition(() => setPending((current) => ({ ...current, [card.key]: decision })), ['trend-move']);
     Promise.resolve(api.decideResearchTheme({ runId: card.runId, themeId: card.themeId, decision })).catch((error) => {
@@ -69,7 +103,15 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
       setBoardError(error?.message || 'That decision could not be saved. Try again.');
     });
   }
+  // "Yes, with a note…": saved before the card moves, so a refusal stays in the sheet with the note still typed.
+  async function decideWithNote(card, { note, channels: routed }) {
+    if (!card?.canDecide) return;
+    setBoardError('');
+    await api.decideResearchTheme({ runId: card.runId, themeId: card.themeId, decision: 'approved', note, channels: routed });
+    withViewTransition(() => setPending((current) => ({ ...current, [card.key]: 'approved' })), ['trend-move']);
+  }
   async function generate(runId) {
+    if (!canRun(viewer, 'approveResearchThemes') || !canRun(viewer, 'continueResearchRun')) return;
     const { approved } = generationPlan(board.cards, runId);
     setConfirmRunId('');
     await action('Starting reports', async () => {
@@ -90,7 +132,7 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
     if (card && stage in DROP_DECISION) decide(card, DROP_DECISION[stage]);
   }
   const dragCard = board.cards.find((row) => row.key === dragKey);
-  const approvedRuns = [...new Set(board.columns.approved.filter((card) => card.canDecide).map((card) => card.runId))];
+  const approvedRuns = mayWrite ? [...new Set(board.columns.approved.filter((card) => card.canDecide).map((card) => card.runId))] : [];
   const runById = new Map(list(studio.researchRuns).map((run) => [run.id, run]));
   const Heading = pageHeading ? 'h1' : 'h2';
   const empty = !board.cards.length && !board.scouting.length;
@@ -105,11 +147,11 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
 
   return <div className="tb-board">
     <div className={`cs-section-heading ${pageHeading ? 'cs-page-heading' : ''}`}>
-      <div><Heading>Trend board</Heading><p>Research scouts the trends. You decide which ones become reports and campaigns.</p></div>
+      <div><Heading id={pageHeading ? 'content-studio-title' : undefined}>Trend board</Heading><p>Research scouts the trends. You decide which ones become reports and campaigns.</p></div>
       <div className="tb-head-actions">{mondayControl}<Button type="button" disabled={disabled} onClick={onFindTrends}><Radar size={15} aria-hidden="true" />Find new trends</Button></div>
     </div>
     {(boardError || syncNote || monday?.lastError) && <p className={`tb-note ${boardError || monday?.lastError ? 'attention' : ''}`} role={boardError ? 'alert' : 'status'}>{boardError || syncNote || `Last Monday.com sync: ${monday.lastError}`}</p>}
-    {empty ? <div className="cs-empty"><span><Radar size={24} aria-hidden="true" /></span><h3>No trends on the board yet</h3><p>Run a research program. Every trend it finds lands in Potential trends for your OK, and nothing is written or spent until you approve it.</p><Button type="button" onClick={onFindTrends}>Set up research<ArrowRight size={14} aria-hidden="true" /></Button></div>
+    {empty ? <div className="cs-empty"><span><Radar size={24} aria-hidden="true" /></span><h3>No trends on the board yet</h3><p>A research run reads the posts your program follows and brings every trend it finds to Needs your OK. Say yes to the ones worth a report, add a note for the channels if you like, then press Write reports. Nothing is written or spent until you do.</p><Button type="button" onClick={onFindTrends}>{list(studio.programs).length ? 'Find new trends' : 'Set up research'}<ArrowRight size={14} aria-hidden="true" /></Button></div>
       : <div className="tb-columns" style={{ '--tb-columns': stages.length }}>
         {stages.map((stage) => {
           const cards = board.columns[stage.id];
@@ -124,17 +166,17 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
               {stage.id === 'approved' && approvedRuns.map((runId) => {
                 const plan = generationPlan(board.cards, runId); const run = runById.get(runId); const confirming = confirmRunId === runId;
                 return <div key={runId} className={`tb-batch ${confirming ? 'confirming' : ''}`}>
-                  <div><strong>{plan.approved[0]?.programName}</strong><small>{plural(plan.approved.length, 'approved trend')}{plan.undecided.length ? ` · ${number(plan.undecided.length)} still in Potential` : ''}</small></div>
-                  {confirming ? <><p>Writes an evidence report and editorial toolkit for each approved trend, using up to {money(run?.maxBudgetUsd)} of this run’s AI budget.{plan.undecided.length ? ` ${plural(plan.undecided.length, 'undecided trend')} will be passed.` : ''}</p><div className="tb-card-actions"><Button type="button" className="tb-ok" disabled={disabled} onClick={() => generate(runId)}><Sparkles size={13} aria-hidden="true" />Generate reports</Button><Button type="button" className="cs-quiet" onClick={() => setConfirmRunId('')}>Not yet</Button></div></>
-                    : <Button type="button" className="tb-ok" disabled={disabled} onClick={() => setConfirmRunId(runId)}><Sparkles size={13} aria-hidden="true" />Generate reports</Button>}
+                  <div><strong>{plan.approved[0]?.programName}</strong><small>{plural(plan.approved.length, 'approved trend')}{plan.undecided.length ? ` · ${number(plan.undecided.length)} still need your OK` : ''}</small></div>
+                  {confirming ? <><p>Writes a trends report and an editorial toolkit for each approved trend{run?.maxBudgetUsd != null && Number.isFinite(Number(run.maxBudgetUsd)) ? `, using up to ${money(run.maxBudgetUsd)} of this run’s AI budget` : ''}.{plan.undecided.length ? ` ${plural(plan.undecided.length, 'undecided trend')} will be skipped.` : ''}</p><div className="tb-card-actions"><Button type="button" className="tb-ok" {...write} onClick={() => generate(runId)}><Sparkles size={13} aria-hidden="true" />Write reports</Button><Button type="button" className="cs-quiet" onClick={() => setConfirmRunId('')}>Not yet</Button></div></>
+                    : <Button type="button" className="tb-ok" {...write} onClick={() => setConfirmRunId(runId)}><Sparkles size={13} aria-hidden="true" />Write reports</Button>}
                 </div>;
               })}
-              {cards.map((card) => <TrendCard key={card.key} card={card} disabled={disabled} dragging={dragKey === card.key} onDecide={decide} onDragStart={setDragKey} onDragEnd={() => { setDragKey(''); setDropStage(''); }} onOpenRun={onOpenRun} onReadReport={onReadReport} onCreateAssets={onCreateAssets} />)}
-              {!cards.length && !(stage.id === 'potential' && board.scouting.length) && !(stage.id === 'approved' && approvedRuns.length) && <p className="tb-column-empty">{droppable ? 'Drop here' : stage.id === 'potential' ? 'New trends from research land here.' : stage.id === 'approved' ? 'OK a trend to move it here.' : stage.id === 'production' ? 'Nothing generating right now.' : stage.id === 'ready' ? 'Finished reports appear here.' : 'Passed trends stay here in case you change your mind.'}</p>}
+              {cards.map((card) => { const by = decisionOf(studio.researchRuns, card); return <TrendCard key={card.key} card={card} trend={trendOf(card)} by={by} channels={channels} fits={fitsOf(by)} disabled={disabled} mayDecide={mayDecide} write={write} preview={Boolean(viewer.preview)} dragging={dragKey === card.key} onDecide={decide} onDecideWithNote={typeof api?.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk} onDragStart={setDragKey} onDragEnd={() => { setDragKey(''); setDropStage(''); }} onOpenRun={onOpenRun} onReadReport={onReadReport} onCreateAssets={onCreateAssets} />; })}
+              {!cards.length && !(stage.id === 'potential' && board.scouting.length) && !(stage.id === 'approved' && approvedRuns.length) && <p className="tb-column-empty">{droppable ? 'Drop here' : stage.empty}</p>}
             </div>
           </section>;
         })}
       </div>}
-    {!empty && board.columns.passed.length > 0 && <Button type="button" className="cs-quiet tb-passed-toggle" aria-expanded={showPassed} onClick={() => withViewTransition(() => setShowPassed((open) => !open), ['trend-move'])}>{showPassed ? 'Hide passed trends' : `Show ${plural(board.columns.passed.length, 'passed trend')}`}</Button>}
+    {!empty && board.columns.passed.length > 0 && <Button type="button" className="cs-quiet tb-passed-toggle" aria-expanded={showPassed} onClick={() => withViewTransition(() => setShowPassed((open) => !open), ['trend-move'])}>{showPassed ? 'Hide skipped trends' : `Show ${plural(board.columns.passed.length, 'skipped trend')}`}</Button>}
   </div>;
 }

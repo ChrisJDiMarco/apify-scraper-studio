@@ -112,7 +112,7 @@ export function DatasetsView({ state, selectedDatasetId, onDatasetSelect, payloa
       <span className="data-welcome-icon"><Database size={28} aria-hidden="true" /></span>
       <span className="data-eyebrow">YOUR DATA, IN ONE PLACE</span>
       <h2>Good insights start with good data.</h2>
-      <p>Run your first scraper to collect posts, conversations, or leads. Then explore the results, export a spreadsheet, or turn them into an AI report.</p>
+      <p>Run your first scraper to collect posts, conversations, or leads. Then explore the results, export a spreadsheet, or turn them into a dataset report.</p>
       <div className="button-row"><Button onClick={() => onNavigate('automation')}>Start a scraper <ArrowRight size={16} aria-hidden="true" /></Button><Button className="ghost" onClick={() => onNavigate('imports')}>Import data</Button></div>
       <div className="data-welcome-steps"><span><b>1</b> Choose a scraper</span><span><b>2</b> Collect your data</span><span><b>3</b> Find the insight</span></div>
     </section>
@@ -251,7 +251,7 @@ export function ReportsView({ state, selectedDatasetId, initialReportPresetId, i
       <h2>Your next insight is waiting.</h2>
       <p>Collect a dataset, then let your AI assistant find trends, leads, and opportunities inside it. Every report stays connected to the data behind it.</p>
       <Button onClick={() => onNavigate?.('automation')}>Start a scraper <ArrowRight size={16} aria-hidden="true" /></Button>
-      <div className="data-welcome-steps"><span><b>1</b> Collect a dataset</span><span><b>2</b> Choose your question</span><span><b>3</b> Get an AI report</span></div>
+      <div className="data-welcome-steps"><span><b>1</b> Collect a dataset</span><span><b>2</b> Choose your question</span><span><b>3</b> Get a dataset report</span></div>
     </section>
   );
 
@@ -282,7 +282,7 @@ export function ReportsView({ state, selectedDatasetId, initialReportPresetId, i
       <div className="panel analysis-output report-reader">
         {selectedAnalysis ? <>
           <div className="panel-head">
-            <div><span className="data-eyebrow">REPORT VIEWER</span><h3>{selectedAnalysis.reportPresetName || label(selectedAnalysis.kind)}</h3><p>{formatDate(selectedAnalysis.startedAt)} · {label(selectedAnalysis.status)}</p></div>
+            <div><span className="data-eyebrow">REPORT VIEWER</span><h3>{selectedAnalysis.reportPresetName || label(selectedAnalysis.kind)}</h3><p>{formatDate(selectedAnalysis.startedAt) || 'Not started'} · {label(selectedAnalysis.status)}</p></div>
             <div className="button-row"><Button className="ghost" disabled={!selectedHasFile || busy} onClick={() => onOpenAnalysisOutput(selectedAnalysis.id)}>Open file</Button><Button className="ghost" disabled={!selectedHasFile || busy} onClick={() => onRevealAnalysisOutput(selectedAnalysis.id)}>Show in Finder</Button>{selectedAnalysis.status === 'failed' && <Button disabled={busy || !selectedAnalysis.datasetId} onClick={() => onAnalyze(selectedAnalysis.datasetId, selectedAnalysis.kind, { reportPresetId: selectedAnalysis.reportPresetId })}>Retry</Button>}</div>
           </div>
           {selectedAnalysis.aiReceipt && <div className="report-helper">AI: {modelLabel(selectedAnalysis.aiReceipt.actualModel) || selectedAnalysis.aiReceipt.provider} · {selectedAnalysis.coverage?.includedItems ?? '—'} source records included{selectedAnalysis.coverage?.omittedItems ? ` · ${selectedAnalysis.coverage.omittedItems} outside this sample` : ''}</div>}
@@ -297,7 +297,7 @@ export function ReportsView({ state, selectedDatasetId, initialReportPresetId, i
 function AnalysisList({ analyses, selectedId, onSelect, onRetry, busy, empty }) {
   return <div className="stack">{analyses.map((analysis) => <article className={`analysis-card ${selectedId === analysis.id ? 'active' : ''}`} key={analysis.id}>
     <div className="analysis-head"><Badge tone={statusTone(analysis.status)}>{label(analysis.status)}</Badge><strong>{analysis.reportPresetName || label(analysis.kind)}</strong></div>
-    <small>{formatDate(analysis.startedAt)}</small>
+    <small>{formatDate(analysis.startedAt) || 'Not started'}</small>
     <p>{short(analysis.error || analysis.preview || (analysis.status === 'running' ? 'Analysis is in progress.' : 'Select to read this analysis.'), 160)}</p>
     <div className="button-row"><Button className="ghost" aria-pressed={selectedId === analysis.id} onClick={() => onSelect(analysis.id)}>View</Button>{analysis.status === 'failed' && <Button disabled={busy || !analysis.datasetId} onClick={() => onRetry(analysis.datasetId, analysis.kind, { reportPresetId: analysis.reportPresetId })}>Retry</Button>}</div>
     {(analysis.reportPath || analysis.outputPath) && <details className="analysis-file-details"><summary>File details</summary><code>{analysis.reportPath || analysis.outputPath}</code></details>}

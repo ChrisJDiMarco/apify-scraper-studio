@@ -9,11 +9,12 @@ const SHEETS = {
   linkedin: { name: 'LinkedIn', columns: ['post_url', 'Date', 'post_text', 'Total Reactions', 'Comments', 'Username', 'Headline', 'First Name', 'Last Name', 'Profile URL', 'Theme', 'Confidence Score', 'Reasoning', 'prevalence_score', 'Entities_Tools', 'Entities_People', 'Entities_Companies', 'Pain_Point_Type', 'Urgency_Signal'] },
   summary: { name: 'Theme Summary Data', columns: ['Theme', 'X Post Count', 'X Reposts', 'X Replies', 'X Likes', 'X Quotes', 'X Views', 'X Bookmarks', 'X Prevalence Score', 'LI Post Count', 'LI Reactions', 'LI Comment Count', 'LI Prevalence Score', 'Reddit Post Count', 'Reddit Comments', 'Reddit Upvotes', 'Reddit Prevalence Score', 'Overall Prevalence Score', 'Weighted Prevalence Score'] },
   counts: { name: 'Post Counts Reference', columns: ['Theme', 'X Post Count', 'LI Post Count', 'Reddit Post Count'] },
-  velocity: { name: 'Trend Velocity', columns: ['Theme', 'Trend Report Link', 'Strategy Report Link', 'Visual Report Link', 'Date', 'Count', 'Velocity', 'Novelty', 'Theme Description', 'Priority Tier', 'Priority Score', 'Content Gap Signal', 'Taxonomy Category', 'Taxonomy Zone', 'Semrush Articles', 'Semrush Last 6Mo', 'Semrush Velocity', 'Editorial Action', 'Gap Rationale'] },
+  velocity: { name: 'Trend Velocity', columns: ['Theme', 'Trend Report', 'Trend Report Link', 'Strategy Report Link', 'Visual Report Link', 'Date', 'Count', 'Velocity', 'Momentum', 'Novelty', 'Theme Description', 'Priority Tier', 'Priority Score', 'Content Gap Signal', 'Taxonomy Category', 'Taxonomy Zone', 'Semrush Articles', 'Semrush Last 6Mo', 'Semrush Velocity', 'Editorial Action', 'Gap Rationale'] },
   taxonomy: { name: 'Taxonomy Lookup', columns: ['Category', 'Article Count', '% Share', 'Velocity', 'Last 6Mo', '6Mo Rate', 'Saturation', 'Zone', 'Top Keywords', 'Top Phrases', 'Timeline', 'Gap Analysis Notes', 'Editorial Action'] },
   batches: { name: 'Batch Analysis Log', columns: ['output', 'timestamp', 'batch_number', 'items_processed', 'batch_source', 'platform_breakdown', 'status'] },
 };
 const PLATFORM_LABEL = { x: 'Twitter', linkedin: 'LinkedIn', reddit: 'Reddit' };
+const MOMENTUM_LABEL = { new: 'New', rising: 'Rising', steady: 'Steady', fading: 'Fading' }; // trend-history.js MOMENTUM_LABELS
 
 const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 const at = (object, path) => path.split('.').reduce((value, key) => (isObject(value) ? value[key] : undefined), object);
@@ -125,23 +126,27 @@ function buildResearchWorkbook(source = {}) {
 
   // Trend Velocity — the n8n "command center": one row per tracked theme with its detection
   // count, velocity tier, taxonomy cross-reference and priority tier, newest detections first.
+  // Count comes from the Trend tracker (renamed and reworded trends are linked across runs), and Velocity from that count.
   const repository = (source.themes || []).filter((theme) => theme?.id && (theme.detectionCount || theme.scoring || theme.history));
   const reportLinks = source.repositoryReports || {};
   const currentReports = new Map((source.reports || []).map((entry) => [entry.themeId, entry]));
+  const tracked = source.trackerCounts || {}; const visuals = source.visuals || {};
   const linkFor = (themeId, deliverableId) => currentReports.get(themeId)?.assets?.find((asset) => asset.deliverableId === deliverableId)?.url || (reportLinks[themeId] || []).find((doc) => doc.deliverableId === deliverableId && doc.url)?.url || '';
+  const reportTitle = (themeId) => currentReports.get(themeId)?.assets?.find((asset) => asset.deliverableId === 'evidence-report')?.title || (reportLinks[themeId] || []).find((doc) => doc.deliverableId === 'evidence-report' && doc.title)?.title || tracked[themeId]?.reportTitle || '';
   const detections = source.detections || [];
+  const runsWithTrends = Number.isInteger(source.trendRuns) ? source.trendRuns : new Set(detections.map((entry) => entry.runId)).size;
   if (repository.length) {
     const sorted = [...repository].sort((a, b) => String(b.lastDetectedAt || b.updatedAt || '').localeCompare(String(a.lastDetectedAt || a.updatedAt || '')) || (b.scoring?.priorityScore || 0) - (a.scoring?.priorityScore || 0));
     sheets.push({ id: 'velocity', name: SHEETS.velocity.name, columns: SHEETS.velocity.columns,
       rows: sorted.map((theme) => {
-        const scoring = theme.scoring || {}; const tax = scoring.taxonomy || {};
-        const count = new Set(detections.filter((entry) => entry.themeId === theme.id).map((entry) => entry.runId)).size || theme.detectionCount || 1;
-        const first = theme.firstDetectedAt || theme.updatedAt || '';
-        return [theme.name, linkFor(theme.id, 'evidence-report'), linkFor(theme.id, 'editorial-toolkit'), '', first ? String(first).slice(0, 16).replace('T', ' ') : '', count, scoring.velocity || (count >= 3 ? 'ACCELERATING' : count === 2 ? 'EMERGING' : 'NEW'), theme.novelty, theme.description,
+        const scoring = theme.scoring || {}; const tax = scoring.taxonomy || {}; const trend = tracked[theme.id];
+        const count = trend?.runsSeen || new Set(detections.filter((entry) => entry.themeId === theme.id).map((entry) => entry.runId)).size || theme.detectionCount || 1;
+        const first = theme.firstDetectedAt || theme.updatedAt || ''; const visual = visuals[theme.id];
+        return [theme.name, reportTitle(theme.id), linkFor(theme.id, 'evidence-report') || trend?.reportUrl || '', linkFor(theme.id, 'editorial-toolkit'), visual?.url || visual?.title || '—', first ? String(first).slice(0, 16).replace('T', ' ') : '', count, count >= 3 ? 'ACCELERATING' : count === 2 ? 'EMERGING' : 'NEW', MOMENTUM_LABEL[trend?.momentum] || '', theme.novelty, theme.description,
           scoring.priorityTier || '', scoring.priorityScore ?? '', scoring.gapSignal || '', tax.category || theme.taxonomyCategory || '', tax.zone || '', tax.articleCount ?? '', tax.last6Mo ?? '', tax.velocity || '', tax.editorialAction || '', scoring.gapRationale || ''].map(cell);
       }),
       rowKeys: sorted.map((theme) => theme.id), frozenColumns: 1,
-      note: 'Count is how many research runs detected the theme. Velocity: NEW (1), EMERGING (2), ACCELERATING (3+). Priority uses the n8n Calculate Trend Velocity formula.' });
+      note: `Count is how many research runs found the trend, linked across runs as in the Trend tracker (${runsWithTrends} research ${runsWithTrends === 1 ? 'run has' : 'runs have'} found trends so far). Velocity: NEW (1), EMERGING (2), ACCELERATING (3+). Momentum compares the trend’s share of posts with its previous run. Report links fill in when “Publish reports to Google Drive” is on for the program and Google Drive is set up in Settings; until then Trend Report names the studio’s report, which opens in Library. Visual Report Link names the channel assets’ hero picture. Priority uses the n8n Calculate Trend Velocity formula.` });
   } else sheets.push(emptySheet('velocity', 'Velocity builds up across runs', 'Each run adds or updates a row per theme with its detection count and priority tier. Run the program again later to see themes accelerate.'));
 
   const taxonomy = source.taxonomy?.categories || [];

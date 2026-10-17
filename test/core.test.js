@@ -91,6 +91,11 @@ describe('IPC validation helpers', () => {
       redditTab: 'Reddit',
     });
     expect(() => validateSettings({ sheets: { workingSpreadsheetUrl: 'not google' } }, { maxItems: 1000 })).toThrow(/Spreadsheet/);
+    // The Studio web address (share links from the Mac): normalized like deep-links' normalizeOrigin, kept when not sent.
+    expect(validateSettings({ studioWebAddress: 'studio.example.com/team/' }, { maxItems: 1000 }).studioWebAddress).toBe('https://studio.example.com/team');
+    expect(validateSettings({}, { maxItems: 1000, studioWebAddress: 'https://studio.example.com' }).studioWebAddress).toBe('https://studio.example.com');
+    expect(validateSettings({ studioWebAddress: '' }, { maxItems: 1000, studioWebAddress: 'https://studio.example.com' }).studioWebAddress).toBe('');
+    expect(() => validateSettings({ studioWebAddress: 'ftp://studio.example.com' }, { maxItems: 1000 })).toThrow(/web address/);
 
     expect(validateExportPayload({ datasetId: 'dataset-1', format: 'csv' })).toEqual({ datasetId: 'dataset-1', format: 'csv', reveal: true });
     expect(validateExportPayload({ datasetId: 'dataset-1', format: 'csv', reveal: false })).toMatchObject({ reveal: false });

@@ -1,13 +1,15 @@
 // Trend board: one card per discovered research theme, placed in the column its real run state implies.
 // Pure and renderer-side; Monday.com sync receives the same cards (see src/main/monday-sync.js).
 
+// The same stage words in both layouts. `empty` is what an empty column says comes next. Monday.com keeps its own
+// Status labels (STAGE_LABELS in src/main/monday-sync.js), so renaming these never renames items on a connected board.
 export const TREND_STAGES = [
-  { id: 'potential', label: 'Potential trends', hint: 'Scouted by research. Needs your OK.' },
-  { id: 'approved', label: 'Approved', hint: 'OK’d. Generate reports when you’re ready.' },
-  { id: 'production', label: 'In production', hint: 'Reports and assets being written.' },
-  { id: 'ready', label: 'Ready to use', hint: 'Reports done. Create assets any time.' },
+  { id: 'potential', label: 'Needs your OK', hint: 'Found by research. Say yes or skip.', empty: 'New trends from research land here for your OK.' },
+  { id: 'approved', label: 'Approved', hint: 'Write reports when you’re ready.', empty: 'Say yes to a trend and it waits here until you write reports.' },
+  { id: 'production', label: 'Being written', hint: 'Reports, or assets made from them, being written.', empty: 'Nothing is being written. Write reports for approved trends to start.' },
+  { id: 'ready', label: 'Ready', hint: 'Reports done. Create assets any time.', empty: 'Finished trends reports and editorial toolkits appear here.' },
 ];
-export const PASSED_STAGE = { id: 'passed', label: 'Passed', hint: 'Not taken forward.' };
+export const PASSED_STAGE = { id: 'passed', label: 'Skipped', hint: 'Not taken forward.', empty: 'Skipped trends stay here in case you change your mind.' };
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const ACTIVE = new Set(['queued', 'running']);
@@ -44,9 +46,13 @@ export function buildTrendBoard({ researchRuns = [], contentRuns = [], assets = 
   const cards = [];
   const scouting = [];
   // A failed run that found no trends leaves the board once a newer run of the same program has found
-  // themes (waiting for review, or finished); it stays in the program's run history.
-  const supersededFailure = (run) => list(researchRuns).some((other) => other !== run && run.programId && other.programId === run.programId && ['awaiting-review', 'succeeded', 'partial'].includes(other.status) && String(other.createdAt || '') > String(run.createdAt || ''));
+  // themes (waiting for review, or finished); it stays in the program's run history. A quick scan isn't the program's
+  // search, so it never replaces one.
+  const supersededFailure = (run) => list(researchRuns).some((other) => other !== run && other.origin !== 'quick-scan' && run.programId && other.programId === run.programId && ['awaiting-review', 'succeeded', 'partial'].includes(other.status) && String(other.createdAt || '') > String(run.createdAt || ''));
   for (const run of list(researchRuns)) {
+    // Quick scans stop after finding trends, with no review: their themes are a pulse in chat and the Trend tracker,
+    // never cards to decide (and a running scan isn't the program's search).
+    if (run.origin === 'quick-scan') continue;
     const discovered = list(run.discoveredThemes).length ? run.discoveredThemes : list(run.themes);
     const programName = programNames.get(run.programId);
     if (!discovered.length) {

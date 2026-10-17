@@ -1,0 +1,1 @@
+First read /tmp/context.json for dataset profile, health, and run rules. Then read the SOURCE_ITEMS section below. Group the normalized social posts/comments into conversation threads. Anchor every thread to itemIds. Return only schema-valid JSON.

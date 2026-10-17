@@ -12,7 +12,7 @@ import fixture from './fixtures/roles-state.js';
 
 // The renderer shell against the real policy: viewers come from roles.buildViewer and state from roles.projectState,
 // exactly as the main process sends them, so these tests see what each role really receives.
-afterEach(() => { cleanup(); delete window.apifyStudio; vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); delete window.apifyStudio; vi.restoreAllMocks(); try { window.localStorage.clear(); } catch { /* no storage */ } });
 const admins = [{ id: 'member-chris', name: 'Chris' }];
 const identities = {
   admin: { id: 'local', name: 'Chris', email: '', role: 'admin', channelId: null, via: 'desktop' },
@@ -20,9 +20,13 @@ const identities = {
   channel: { id: 'member-alex', name: 'Alex', email: 'alex@semrush.com', role: 'channel', channelId: 'blog', via: 'link', memberSince: fixture.at('10-01') },
   nobody: { id: 'guest:pat@semrush.com', name: 'pat', email: 'pat@semrush.com', role: null, via: 'proxy' },
 };
-const GREETING = { level: 1, name: /Good (morning|afternoon|evening)/ };
+// Home is the weekly briefing in both layouts (weekly-briefing.jsx).
+const GREETING = { level: 1, name: /^This week in/ };
 const REPORT = 'AI Overviews eat clicks — Comprehensive Trends Report';
+// Simple's Reports lists one row per trend, named after the trend; the row opens its Trends report.
+const ROW = (trend) => new RegExp(`^${trend}`);
 const labels = (nav) => within(nav).getAllByRole('button').map((button) => button.textContent.replace(/\d+$/, ''));
+const mainNav = () => screen.getByRole('navigation', { name: 'Main' });
 
 // A tiny studio server: who is signed in, their View as and layout, and the state the gate would project for them.
 function openStudio(who, { viewAs = null, uiMode = 'simple', api: extra = {} } = {}) {
@@ -52,30 +56,33 @@ function openStudio(who, { viewAs = null, uiMode = 'simple', api: extra = {} } =
 }
 
 describe('One frame for every role', () => {
-  it('gives an editor the five Simple tabs, but no Settings, admin pages, View as or ⌘,', async () => {
+  it('gives an editor the Simple pages and Ask AI, but no Settings, Studio pages, View as or ⌘,', async () => {
     openStudio('editor');
     await screen.findByRole('heading', GREETING);
-    expect(labels(screen.getByRole('navigation', { name: 'Main' }))).toEqual(['Home', 'Reports', 'Trends', 'Assets', 'Ask AI']);
-    expect(screen.queryByRole('navigation', { name: 'Admin' })).not.toBeInTheDocument();
+    expect(labels(mainNav())).toEqual(['Home', 'Trends', 'Reports', 'Assets', 'Inbox', 'Calendar']);
+    expect(within(mainNav()).queryByRole('group', { name: 'Studio' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: 'View as' })).not.toBeInTheDocument();
-    expect(document.querySelector('[data-spot="nav.role"]')).toHaveTextContent('Editor');
+    fireEvent.click(screen.getByRole('button', { name: /^Account:/ }));
+    expect(screen.queryByRole('group', { name: 'View as' })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('menu', { name: 'Account' }), { key: 'Escape' });
+    expect(document.querySelector('[data-spot="nav.workspace"]')).toHaveTextContent('Editor');
     expect(screen.getByRole('radiogroup', { name: 'Layout' })).toBeInTheDocument();
     fireEvent.keyDown(window, { key: ',', metaKey: true });
     expect(screen.queryByRole('heading', { level: 1, name: 'Settings' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', GREETING)).toBeInTheDocument();
     // Ask AI speaks to an editor without promising Settings.
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Ask AI/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
     expect(screen.queryByRole('button', { name: /Show me where to turn on pictures/ })).not.toBeInTheDocument();
   });
 
   it('keeps Brand knowledge, Settings and program setup out of an editor’s Advanced layout', async () => {
     openStudio('editor', { uiMode: 'classic' });
-    const primary = await screen.findByRole('navigation', { name: 'Primary' });
-    expect(labels(primary)).toEqual(['Overview', 'Research programs', 'Sheets', 'Trend board', 'Create content', 'Library', 'More tools']);
-    fireEvent.click(within(primary).getByRole('button', { name: 'More tools' }));
-    expect(within(primary).queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
-    fireEvent.click(within(primary).getByRole('button', { name: 'Research programs' }));
+    const primary = await screen.findByRole('navigation', { name: 'Main' });
+    await within(primary).findByRole('group', { name: 'Research' });
+    expect(labels(primary)).toEqual(['Home', 'Inbox', 'Research programs', 'Trend board', 'Sheets', 'Create content', 'Library', 'Calendar', 'Data tools']);
+    fireEvent.click(within(primary).getByRole('button', { name: 'Data tools' }));
+    expect(within(primary).queryByRole('button', { name: /^Settings/ })).not.toBeInTheDocument();
+    fireEvent.click(within(primary).getByRole('button', { name: /^Research programs/ }));
     expect((await screen.findAllByRole('heading', { name: 'AI search pulse' })).length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: 'Edit program' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Pause schedule|Resume schedule/ })).not.toBeInTheDocument();
@@ -86,25 +93,26 @@ describe('One frame for every role', () => {
     expect(screen.queryByRole('heading', { name: 'Connect your tools' })).not.toBeInTheDocument();
   });
 
-  it('shows an admin the same program controls, and Analytics and People in the Admin nav', async () => {
+  it('shows an admin the same program controls, and Analytics, People and Settings in the Studio group', async () => {
     openStudio('admin', { uiMode: 'classic' });
-    const primary = await screen.findByRole('navigation', { name: 'Primary' });
+    const primary = await screen.findByRole('navigation', { name: 'Main' });
+    await within(primary).findByRole('group', { name: 'Research' });
     expect(labels(primary)).toContain('Brand knowledge');
-    fireEvent.click(within(primary).getByRole('button', { name: 'Research programs' }));
+    fireEvent.click(within(primary).getByRole('button', { name: /^Research programs/ }));
     expect(await screen.findByRole('button', { name: 'Edit program' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pause schedule' })).toBeInTheDocument();
-    expect(labels(screen.getByRole('navigation', { name: 'Admin' }))).toEqual(['Analytics', 'People & roles']);
+    expect(labels(within(primary).getByRole('group', { name: 'Studio' }))).toEqual(['Analytics', 'People & access', 'Settings']);
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
   });
 
-  it('gives a channel owner their own shell: Trends with a count, My assets, and nothing else', async () => {
+  it('gives a channel owner their own shell: Trends with a count, My assets, My plan and Inbox, and nothing else', async () => {
     const { project } = openStudio('channel');
     const newTrends = project().contentStudio.channelView.counts.newTrends;
     expect(newTrends).toBeGreaterThan(0);
     expect(await screen.findByRole('heading', { level: 1, name: 'Trends for Semrush Blog' })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Main' });
-    expect(labels(nav)).toEqual(['Trends', 'My assets']);
-    expect(within(nav).getByRole('button', { name: `Trends, ${newTrends} new` }).querySelector('.simple-count')).toHaveTextContent(String(newTrends));
+    expect(labels(nav)).toEqual(['Trends', 'My assets', 'My plan', 'Inbox']);
+    expect(within(nav).getByRole('button', { name: `Trends, ${newTrends} new` }).querySelector('.sb-badge')).toHaveTextContent(String(newTrends));
     expect(document.querySelector('.studio-frame')).toHaveAttribute('data-mode', 'channel');
     expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
@@ -147,7 +155,9 @@ describe('One frame for every role', () => {
     const { api } = openStudio('admin', { viewAs: { role: 'editor' } });
     await screen.findByRole('heading', GREETING);
     expect(screen.getByText('Previewing what an editor sees. Buttons that change things are off.')).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'View as' })).toHaveValue('editor');
+    fireEvent.click(screen.getByRole('button', { name: /^Account: Chris, Viewing as Editor/ }));
+    expect(screen.getByRole('menuitemradio', { name: 'Editor' })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.keyDown(screen.getByRole('menu', { name: 'Account' }), { key: 'Escape' });
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Back to Admin' }));
     await waitFor(() => expect(api.setViewAs).toHaveBeenCalledWith({ role: 'admin' }));
@@ -176,9 +186,9 @@ describe('View as an editor shows what an editor sees', () => {
     fireEvent.click(main().getByRole('button', { name: /Trends/ }));
     await screen.findByRole('heading', { level: 1, name: 'Trends' });
     seen.subhead = screen.getByRole('heading', { level: 1, name: 'Trends' }).parentElement.querySelector('p').textContent;
-    for (const name of [/Yes, use it/, /^Skip$/, /Find new trends/]) seen[String(name)] = states(name);
+    for (const name of [/Yes, use it/, /^Skip /, /Find new trends/]) seen[String(name)] = states(name); // Skip is named after its trend
     fireEvent.click(main().getByRole('button', { name: /Reports/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /Local packs shrink — Comprehensive Trends Report/ }));
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') }))[0]);
     await screen.findByText(/Original text/);
     for (const name of ['Edit', 'Make channel assets', 'Ask AI about this']) seen[name] = states(name);
     return seen;
@@ -200,9 +210,9 @@ describe('View as an editor shows what an editor sees', () => {
     expect(preview.send).toBe(PREVIEW);
     // Settings, Analytics and People stay out of an editor preview: an editor doesn't have them.
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('navigation', { name: 'Admin' })).not.toBeInTheDocument();
+    expect(main().queryByRole('group', { name: 'Studio' })).not.toBeInTheDocument();
     // Ask AI is there, as for an editor, but sends nothing.
-    fireEvent.click(main().getByRole('button', { name: /Ask AI/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
     expect(screen.getByRole('button', { name: 'Send question' })).toBeDisabled();
     expect(api.askHelp).not.toHaveBeenCalled();
   });
@@ -216,7 +226,7 @@ describe('The layout switch', () => {
     const advanced = within(screen.getByRole('radiogroup', { name: 'Layout' })).getByRole('radio', { name: 'Advanced' });
     advanced.focus();
     fireEvent.click(advanced);
-    expect(await screen.findByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
+    expect(await within(mainNav()).findByRole('group', { name: 'Research' })).toBeInTheDocument();
     await waitFor(() => expect(api.setViewPrefs).toHaveBeenCalledWith({ uiMode: 'classic' }));
     expect(document.activeElement).toBe(advanced);
     expect(advanced).toBeChecked();
@@ -229,12 +239,16 @@ describe('The layout switch', () => {
     const { api } = openStudio('admin');
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Trends/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Full board' }));
-    const primary = await screen.findByRole('navigation', { name: 'Primary' });
-    expect(within(primary).getByRole('button', { name: 'Trend board' })).toHaveAttribute('aria-current', 'page');
+    await screen.findByRole('heading', { level: 1, name: 'Trends' });
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    const palette = await screen.findByRole('dialog', { name: 'Command palette' });
+    fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'Trend board' } });
+    fireEvent.click(within(palette).getByRole('button', { name: /Open Trend board/ }));
+    const primary = mainNav();
+    expect(await within(primary).findByRole('button', { name: /^Trend board/ })).toHaveAttribute('aria-current', 'page');
     const layout = within(screen.getByRole('radiogroup', { name: 'Layout' }));
     expect(layout.getByRole('radio', { name: 'Advanced' })).toBeChecked();
-    expect(screen.queryByRole('button', { name: /Back to Simple/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Advanced page' })).toHaveTextContent('Your layout is still Simple.');
     fireEvent.click(layout.getByRole('radio', { name: 'Simple' }));
     const main = await screen.findByRole('navigation', { name: 'Main' });
     expect(within(main).getByRole('button', { name: /Trends/ })).toHaveAttribute('aria-current', 'page');
@@ -249,7 +263,7 @@ describe('Simple reader', () => {
     await screen.findByRole('heading', GREETING);
     const main = () => within(screen.getByRole('navigation', { name: 'Main' }));
     fireEvent.click(main().getByRole('button', { name: /Reports/ }));
-    fireEvent.click((await screen.findAllByRole('button', { name: new RegExp(`^${REPORT}`) }))[0]); // the newest of two runs
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('AI Overviews eat clicks') }))[0]); // the newest of two runs
     expect(await screen.findByText('Original text.')).toBeInTheDocument();
     expect(screen.getByText('Used by Semrush Blog')).toBeInTheDocument();
     const uses = screen.getByRole('region', { name: 'Where it’s used' });
@@ -281,7 +295,7 @@ describe('Simple reader', () => {
     const { server, push } = openStudio('admin', { api: { readStudioAsset, editStudioAsset } });
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Reports/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /Local packs shrink — Comprehensive Trends Report/ }));
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') }))[0]);
     expect(await screen.findByText('Original text.')).toBeInTheDocument();
     const id = reads[0];
     // Riley's save reaches this screen as a state push. Opening the editor before the text is read again still starts
@@ -313,7 +327,7 @@ describe('Simple reader', () => {
     const { server, push } = openStudio('editor', { api: { readStudioAsset } });
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Reports/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /Local packs shrink — Comprehensive Trends Report/ }));
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') }))[0]);
     expect(await screen.findByText('Original text.')).toBeInTheDocument();
     const id = readStudioAsset.mock.calls[0][0].assetId;
     version = 1;
@@ -327,7 +341,7 @@ describe('Simple reader', () => {
     const { server, push } = openStudio('editor');
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Reports/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /Local packs shrink — Comprehensive Trends Report/ }));
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') }))[0]);
     await screen.findByText('Original text.');
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     fireEvent.change(await screen.findByRole('textbox', { name: /^Text of / }), { target: { value: 'Half-written edit…' } });
@@ -348,7 +362,7 @@ describe('Simple reader', () => {
     openStudio('editor');
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Reports/ }));
-    fireEvent.click((await screen.findAllByRole('button', { name: new RegExp(`^${REPORT}`) }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('AI Overviews eat clicks') }))[0]);
     expect(await screen.findByText('Original text.')).toBeInTheDocument();
     expect(screen.getByText('Used by Semrush Blog')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Where it’s used' })).getByText(/Semrush Blog/)).toBeInTheDocument();
@@ -360,6 +374,7 @@ describe('Simple reader', () => {
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Trends/ }));
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     fireEvent.click(await screen.findByRole('button', { name: /Find new trends/ }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
     expect(confirm.mock.calls[0][0]).toMatch(/started a search with this program at .+\. It’s still running\. Start another\?/);
     await waitFor(() => expect(api.startResearchRun).toHaveBeenCalledWith({ programId: 'program-pulse', datasetIds: [], again: true }));
   });
@@ -372,6 +387,7 @@ describe('Simple reader', () => {
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Trends/ }));
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     fireEvent.click(await screen.findByRole('button', { name: /Find new trends/ }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
     expect(confirm.mock.calls[0][0]).toMatch(/started a search with this program at .+\. Its trends are waiting for review\. Start another\?/);
     await waitFor(() => expect(api.startResearchRun).toHaveBeenCalledWith({ programId: 'program-pulse', datasetIds: [], again: true }));
   });
@@ -417,3 +433,23 @@ describe('Buttons follow the role', () => {
     expect(screen.queryByRole('menuitem', { name: /Rename this workbook/ })).not.toBeInTheDocument();
   });
 });
+
+describe('A custom role from People & access', () => {
+  // The same shell for a role an admin made: a Viewer reads reports, trends and evidence, and nothing else.
+  it('gives a Viewer no Ask AI, Sheets, Create content or Data tools, and no money in its state', async () => {
+    const policy = roles.compilePolicy({ roles: [{ id: 'role-viewer-ab12', label: 'Viewer', base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'] }] });
+    const build = roles.buildViewer;
+    vi.spyOn(roles, 'buildViewer').mockImplementation((options) => build({ ...options, identity: { ...options.identity, roleId: 'role-viewer-ab12' }, policy }));
+    const { project } = openStudio('editor', { uiMode: 'classic' });
+    expect(project().viewer).toMatchObject({ role: 'editor', roleId: 'role-viewer-ab12', roleLabel: 'Viewer', capabilities: ['core', 'readAssets', 'readResearch'] });
+    expect(project().viewer.hiddenPages).toEqual(expect.arrayContaining(['ask', 'sheets', 'create', 'data-tools', 'prompts']));
+    expect(JSON.stringify(project())).not.toMatch(/"costUsd"|"maxBudgetUsd"|"receipts"/);
+    const primary = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(primary).queryByRole('button', { name: /^Data tools/ })).not.toBeInTheDocument();
+    expect(within(primary).queryByRole('button', { name: /^Sheets/ })).not.toBeInTheDocument();
+    expect(within(primary).queryByRole('button', { name: /^Create content/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ask AI' })).not.toBeInTheDocument();
+    expect(within(primary).getByRole('button', { name: /^Library/ })).toBeInTheDocument();
+  });
+});
+

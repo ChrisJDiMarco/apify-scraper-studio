@@ -58,6 +58,15 @@
 .sheets-run-note.newer { color: #24415f; background: #eef4fb; border-color: #d5e3f3; }
 .sheets-view .sheets-run-note button { min-height: 26px; padding: 3px 10px; font-size: 11.5px; border-radius: 999px; flex: 0 0 auto; }
 
+/* Trend tracker: a momentum chip per label (each filters the timeline) and the run the numbers come from. */
+.sheets-tracker-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 20px; background: var(--sheet-chrome); border-bottom: 1px solid var(--sheet-line); }
+.sheets-view button.sheets-momentum { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 3px 11px 3px 4px; font-size: 12px; font-weight: 500; color: var(--ink); background: var(--sheet-bg); border: 1px solid var(--sheet-line-strong); border-radius: 999px; box-shadow: none; transform: none; }
+.sheets-view button.sheets-momentum:hover:not(:disabled) { color: var(--ink); background: var(--sheet-select-chrome); border-color: var(--sheet-select); box-shadow: none; transform: none; }
+.sheets-view button.sheets-momentum.on { background: var(--sheet-select-chrome); border-color: var(--sheet-select); box-shadow: inset 0 0 0 1px var(--sheet-select); }
+.sheets-view button.sheets-momentum strong { font-weight: 650; font-variant-numeric: tabular-nums; }
+.sheets-tracker-since { flex: 1 1 220px; min-width: 0; margin-left: 4px; overflow: hidden; font-size: 11.5px; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.sheets-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
 /* Toolbar */
 .sheets-toolbar { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 6px 20px; background: #fff; border-bottom: 1px solid var(--sheet-line); overflow-x: auto; scrollbar-width: none; }
 .sheets-toolbar-gap { flex: 1; }

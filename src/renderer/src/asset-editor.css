@@ -22,3 +22,45 @@
 .studio-editor-preview .markdown-content h2 { margin: 34px 0 10px; font-size: 22px; letter-spacing: -.4px; }
 .studio-editor.is-unavailable { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; background: var(--s-bg, #f4f6f5); border-radius: 14px; }
 @media (max-width: 560px) { .studio-editor-actions { width: 100%; margin-left: 0; } .studio-editor-actions .studio-primary { margin-left: auto; } .studio-editor-text { min-height: 280px; } }
+
+/* Brand check: a quiet bar under the editor bar; open, it lists each spot worth a second look. */
+.studio-brand-check { display: grid; gap: 8px; padding: 10px 14px; background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: 14px; }
+.studio-brand-check.has-findings { border-color: color-mix(in srgb, var(--s-warn-ink, #6b5413) 30%, var(--s-line, #e3e8e4)); }
+.studio-brand-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; }
+button.studio-brand-toggle { display: inline-flex; box-shadow: none; align-items: center; gap: 8px; min-height: 32px; padding: 0; font: inherit; font-size: 14px; font-weight: 650; color: var(--s-ink, #181e15); background: none; border: 0; cursor: pointer; }
+button.studio-brand-toggle:hover:not(:disabled) { color: var(--s-ink, #181e15); background: none; }
+.studio-brand-toggle svg.open { transform: rotate(180deg); }
+.studio-brand-toggle:focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 2px; border-radius: 6px; }
+.studio-brand-count { padding: 2px 9px; font-size: 12px; font-weight: 650; color: var(--s-mint-ink, #1f5a4c); background: var(--s-mint, #dceeeb); border-radius: 999px; }
+.studio-brand-count.warn { color: var(--s-warn-ink, #6b5413); background: var(--s-warn, #fff4dc); }
+.studio-brand-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; max-height: 280px; overflow: auto; }
+.studio-brand-list button { display: grid; min-height: 0; justify-content: stretch; box-shadow: none; grid-template-columns: minmax(0, 1fr); gap: 2px; width: 100%; padding: 8px 10px; font: inherit; text-align: left; color: var(--s-ink, #181e15); background: var(--s-bg, #f4f6f5); border: 0; border-radius: 10px; cursor: pointer; }
+.studio-brand-list button:hover:not(:disabled) { color: var(--s-ink, #181e15); background: var(--s-line, #e3e8e4); }
+.studio-brand-list button:focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 1px; }
+.studio-brand-kind { font-size: 11px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--s-muted, #62685e); }
+.studio-brand-message { font-size: 13.5px; line-height: 1.45; }
+.studio-brand-excerpt { font-size: 12.5px; color: var(--s-muted, #62685e); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Status chip and its menu: Draft · In review · Approved · Scheduled · Published. */
+.studio-status-wrap { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.studio-status { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 2px 10px; font: inherit; font-size: 12px; font-weight: 650; line-height: 1.2; color: var(--s-muted, #62685e); background: var(--s-bg, #f4f6f5); border: 0; border-radius: 999px; white-space: nowrap; }
+.studio-status.is-menu { cursor: pointer; }
+.studio-status.is-menu:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--s-line-strong, #cfd6d0); background: var(--s-bg, #f4f6f5); }
+.studio-status:focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 2px; }
+.studio-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .75; }
+.studio-status.status-in-review { color: var(--s-warn-ink, #6b5413); background: var(--s-warn, #fff4dc); }
+.studio-status.status-approved { color: var(--s-soft-ink, #5a2fa0); background: var(--s-soft, #f1eaff); }
+.studio-status.status-scheduled { color: var(--s-ink, #181e15); background: var(--s-card, #fff); box-shadow: inset 0 0 0 1px var(--s-line-strong, #cfd6d0); }
+.studio-status.status-published { color: var(--s-mint-ink, #1f5a4c); background: var(--s-mint, #dceeeb); }
+.studio-status-dot.status-in-review { color: var(--s-warn-ink, #6b5413); } .studio-status-dot.status-approved { color: var(--s-soft-ink, #5a2fa0); } .studio-status-dot.status-published { color: var(--s-mint-ink, #1f5a4c); } .studio-status-dot.status-draft, .studio-status-dot.status-scheduled { color: var(--s-muted, #62685e); }
+.studio-status-menu, .studio-status-form { position: absolute; top: calc(100% + 4px); z-index: 40; min-width: 200px; }
+.studio-status-menu.align-start, .studio-status-form.align-start { left: 0; } .studio-status-menu.align-end, .studio-status-form.align-end { right: 0; }
+.studio-status-menu [role="menuitemradio"] { display: flex; align-items: center; gap: 8px; width: 100%; }
+.studio-status-check { margin-left: auto; }
+.studio-status-form { display: grid; gap: 8px; width: min(320px, 86vw); padding: 12px; }
+.studio-status-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.studio-status-problem { max-width: 260px; font-size: 12px; }
+.studio-menu [role="menuitemradio"] { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-height: 38px; padding: 0 12px; font: inherit; font-size: 14px; font-weight: 550; text-align: left; color: var(--s-ink, #181e15); background: transparent; border: 0; border-radius: 10px; box-shadow: none; white-space: nowrap; cursor: pointer; }
+.studio-menu [role="menuitemradio"]:is(:hover, :focus-visible) { color: var(--s-ink, #181e15); background: var(--s-bg, #f4f6f5); outline: none; }
+.studio-menu [role="menuitemradio"][aria-checked="true"] { font-weight: 650; }
+@media (pointer: coarse) { .studio-menu [role="menuitemradio"] { min-height: 44px; } }

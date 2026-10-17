@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownAZ, ArrowUpAZ, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, Columns3, Download, EyeOff, FilePlus2, FileSpreadsheet, Filter, FilterX, Link2, List, LoaderCircle, Maximize2, Minimize2, MoveHorizontal, Pencil, Redo2, Search, Sheet, Snowflake, Trash2, Undo2, Upload, WrapText, X } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, Columns3, Download, EyeOff, FilePlus2, FileSpreadsheet, Filter, FilterX, Link2, List, LoaderCircle, Maximize2, Minimize2, MoveHorizontal, Pencil, Redo2, Search, Sheet, Snowflake, Trash2, TrendingUp, Undo2, Upload, WrapText, X } from 'lucide-react';
 import { SheetGrid } from './sheet-grid.jsx';
+import { MOMENTUM_COPY, MomentumBadge, dayLabel } from './trend-pulse.jsx';
 import { cellAddress, columnKeys, columnLetter, defaultColumnWidth, distinctValues, formatStat, inferColumnType, isChipColumn, matchesFilter, parseTSV, prettyCell, selectionBounds, selectionStats, sortRowIndexes, toCSV, toHTMLTable, toTSV } from '../../shared/sheet-model.js';
 import { number } from './ui.jsx';
 import { adminNames, useCan, useViewer, writeProps } from './viewer.js';
@@ -162,7 +163,8 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
   }, [workbooks, workbookId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const listing = workbooks?.find((entry) => entry.id === workbookId);
-  const listingVersion = listing ? `${listing.updatedAt}|${listing.status || ''}|${listing.stage || ''}|${listing.rowCount}` : '';
+  // The Trend tracker also reloads when a run changes its trends' momentum or the run count.
+  const listingVersion = listing ? `${listing.updatedAt}|${listing.status || ''}|${listing.stage || ''}|${listing.rowCount}${listing.kind === 'tracker' ? `|${listing.runCount}|${listing.quickScanCount}|${JSON.stringify(listing.counts || {})}` : ''}` : '';
 
   // Pending edits are written to the workbook they were made in, before anything else replaces them.
   const flushSave = useCallback(() => {
@@ -384,6 +386,14 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
 
   function chooseSheet(id) { if (id === sheet?.id) return; setSheetId(id); setFormulaDraft(null); setMenu(null); requestAnimationFrame(() => gridRef.current?.focus()); }
   function chooseWorkbook(id) { flushSave(); setWorkbookId(id); setMenu(null); setFind({ open: false, query: '', index: 0 }); }
+  // The Trend tracker's momentum chips filter its timeline to one label; pressing the chip that is on clears it.
+  function filterMomentum(label) {
+    if (!workbook) return;
+    const key = `${workbook.id}:timeline`; const current = view[key]?.filters?.Momentum?.values;
+    const next = current?.length === 1 && current[0] === label ? null : { values: [label] };
+    setView((all) => ({ ...all, [key]: { ...(all[key] || {}), filters: { ...(all[key]?.filters || {}), Momentum: next }, selection: null } }));
+    if (sheet?.id !== 'timeline') chooseSheet('timeline');
+  }
 
   async function importFile(targetId) {
     setMenu(null); setPending('import');
@@ -426,6 +436,9 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
   }
 
   const research = workbook?.kind === 'research';
+  const tracker = workbook?.kind === 'tracker'; // the cross-run Trend tracker, rebuilt from every research run
+  const trackerRuns = workbook?.summary?.runCount ?? listing?.runCount ?? 0;
+  const momentumFilter = tracker ? view[`${workbook.id}:timeline`]?.filters?.Momentum?.values : null;
   const activeFilters = Object.entries(filters).filter(([, filter]) => filter);
   const editCount = Object.values(edits.sheets || {}).reduce((sum, rows) => sum + Object.values(rows).reduce((inner, cells) => inner + Object.keys(cells).length, 0), 0);
   const activeColumn = active ? columns[active.column] : null;
@@ -460,9 +473,11 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
     </section>;
   }
 
+  const trackers = workbooks.filter((entry) => entry.kind === 'tracker');
   const research_runs = workbooks.filter((entry) => entry.kind === 'research');
-  const imported = workbooks.filter((entry) => entry.kind !== 'research');
-  const headerMeta = workbook ? [research ? 'Research run' : workbook.source?.kind === 'google-sheets' ? 'Pulled from Google Sheets' : `Imported${workbook.source?.fileName ? ` from ${workbook.source.fileName}` : ''}`, `${workbook.sheets.length} tabs`, relative(listing?.updatedAt) && `Updated ${relative(listing?.updatedAt)}`].filter(Boolean).join(' · ') : '';
+  const imported = workbooks.filter((entry) => entry.kind !== 'research' && entry.kind !== 'tracker');
+  const headerMeta = workbook ? [tracker ? `All research runs · ${number(trackerRuns)} ${trackerRuns === 1 ? 'run' : 'runs'}` : research ? 'Research run' : workbook.source?.kind === 'google-sheets' ? 'Pulled from Google Sheets' : `Imported${workbook.source?.fileName ? ` from ${workbook.source.fileName}` : ''}`, `${workbook.sheets.length} tabs`, relative(listing?.updatedAt) && `Updated ${relative(listing?.updatedAt)}`].filter(Boolean).join(' · ') : '';
+  const trackerSummary = tracker ? workbook.summary || null : null;
 
   return <section className="sheets-view" onKeyDown={onViewKeyDown}>
     <header className="sheets-bar">
@@ -474,7 +489,7 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
         <span className="sheets-meta">{headerMeta}</span>
       </div>
       <div className="sheets-actions">
-        <span className={`sheets-save ${saveState}`} role="status" title={research ? 'Edits stay in this workbook. They don’t change the research run.' : 'Edits are saved with this workbook.'}>
+        <span className={`sheets-save ${saveState}`} role="status" title={research ? 'Edits stay in this workbook. They don’t change the research run.' : tracker ? 'Edits stay in the Trend tracker and survive each rebuild. They don’t change your research runs.' : 'Edits are saved with this workbook.'}>
           {saveState === 'saving' || saveState === 'pending' ? <><LoaderCircle className="spin" size={13} aria-hidden="true" />Saving…</> : saveState === 'error' ? 'Not saved' : editCount ? <><Check size={13} aria-hidden="true" />{number(editCount)} {editCount === 1 ? 'edit' : 'edits'} saved</> : null}
         </span>
         <button type="button" className="ghost icon-button" aria-label="Undo" title="Undo (⌘Z)" disabled={!history.undo.length} onClick={() => step('undo')}><Undo2 size={16} /></button>
@@ -486,6 +501,14 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
 
     {newerRun && <div className="sheets-run-note newer"><span>{`This is the ${relative(listing.createdAt)} run. A newer run of this program started ${relative(newerRun.createdAt)}.`}</span><button type="button" className="ghost" onClick={() => chooseWorkbook(newerRun.id)}>Open the newer run<ArrowUpRight size={14} aria-hidden="true" /></button></div>}
     {statusCopy && <div className={`sheets-run-note ${workbook.status}`}><span>{statusCopy}</span><button type="button" className="ghost" onClick={() => onNavigate?.(workbook.status === 'awaiting-review' ? 'trend-board' : 'research-programs')}>{workbook.status === 'awaiting-review' ? 'Review themes' : 'Open run'}<ArrowUpRight size={14} aria-hidden="true" /></button></div>}
+    {/* Trend tracker summary: how many trends are rising, new, steady and fading; each chip filters the timeline. */}
+    {trackerSummary && <div className="sheets-tracker-strip" role="group" aria-label="Trend momentum across research runs" data-spot="sheets.momentum">
+      {['rising', 'new', 'steady', 'fading'].map((momentum) => {
+        const label = MOMENTUM_COPY[momentum].label; const total = trackerSummary.counts?.[momentum] || 0; const on = momentumFilter?.length === 1 && momentumFilter[0] === label;
+        return <button key={momentum} type="button" className={`ghost sheets-momentum${on ? ' on' : ''}`} aria-pressed={on} disabled={!total && !on} title={on ? 'Show every trend on the timeline' : `Show only ${label.toLowerCase()} trends on the timeline`} onClick={() => filterMomentum(label)}><MomentumBadge momentum={momentum} /><strong>{number(total)}</strong><span className="sheets-sr-only">{total === 1 ? ' trend' : ' trends'}</span></button>;
+      })}
+      <span className="sheets-tracker-since">{[trackerSummary.sinceRun ? `Since ${dayLabel(trackerSummary.sinceRun.date) || 'the last run'} · ${trackerSummary.sinceRun.title}` : 'Momentum appears once a research run finds trends', trackerSummary.quickScanCount ? `${number(trackerSummary.quickScanCount)} quick ${trackerSummary.quickScanCount === 1 ? 'scan' : 'scans'}` : ''].filter(Boolean).join(' · ')}</span>
+    </div>}
 
     <div className="sheets-toolbar" role="toolbar" aria-label="Sheet tools">
       <div className={`sheets-find${find.open ? ' open' : ''}`}>
@@ -528,7 +551,7 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
             onColumnMenu={(column, anchor) => setMenu({ kind: 'column', column, anchor })} onResizeColumn={setColumnWidth} onAutoFitColumn={autoFit}
             onCommit={commitCell} onClear={clearCells} onCopy={copyRange} onPaste={pasteAt} onUndo={() => step('undo')} onRedo={() => step('redo')} onFind={openFind}
             onOpenUrl={(url) => api.openSourceUrl(url)} onContextMenu={(point) => setMenu({ kind: 'context', ...point, anchor: { left: point.x, right: point.x, top: point.y, bottom: point.y } })}
-            emptyState={sheet.empty ? <div className="sheet-empty-card"><strong>{sheet.empty.title}</strong><span>{sheet.empty.detail}</span>{sheet.id === 'taxonomy' && <button type="button" className="ghost" onClick={() => importFile()}><Upload size={14} aria-hidden="true" />Import your Google Sheet</button>}{['summary', 'counts', 'themes'].includes(sheet.id) && research && <button type="button" className="ghost" onClick={() => onNavigate?.(workbook.status === 'awaiting-review' ? 'trend-board' : 'research-programs')}>{workbook.status === 'awaiting-review' ? 'Review themes' : 'Open Research programs'}<ArrowUpRight size={14} aria-hidden="true" /></button>}</div>
+            emptyState={sheet.empty ? <div className="sheet-empty-card"><strong>{sheet.empty.title}</strong><span>{sheet.empty.detail}</span>{sheet.id === 'taxonomy' && <button type="button" className="ghost" onClick={() => importFile()}><Upload size={14} aria-hidden="true" />Import your Google Sheet</button>}{['summary', 'counts', 'themes'].includes(sheet.id) && research && <button type="button" className="ghost" onClick={() => onNavigate?.(workbook.status === 'awaiting-review' ? 'trend-board' : 'research-programs')}>{workbook.status === 'awaiting-review' ? 'Review themes' : 'Open Research programs'}<ArrowUpRight size={14} aria-hidden="true" /></button>}{tracker && onNavigate && <button type="button" className="ghost" onClick={() => onNavigate('research-programs')}>Open Research programs<ArrowUpRight size={14} aria-hidden="true" /></button>}</div>
               : activeFilters.length ? <div className="sheet-empty-card"><strong>No rows match these filters</strong><span>Loosen a filter to see more of this tab.</span><button type="button" className="ghost" onClick={() => patchView({ filters: {} })}><FilterX size={14} aria-hidden="true" />Clear filters</button></div>
                 : <div className="sheet-empty-card"><strong>This tab is empty</strong></div>} />}
     </div>
@@ -546,6 +569,8 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
 
     {toast && <div className={`sheets-toast${toast.error ? ' error' : ''}`} role={toast.error ? 'alert' : 'status'} key={toast.error || toast.notice}><span>{toast.error || toast.notice}</span>{toast.action && <button type="button" className="sheets-toast-action" onClick={() => toast.action.run()}>{toast.action.label}<ArrowUpRight size={13} aria-hidden="true" /></button>}<button type="button" aria-label="Dismiss" onClick={() => setToast(null)}><X size={13} /></button></div>}
     {menu?.kind === 'workbooks' && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Workbooks" width={360} className="sheets-workbook-menu">
+      {trackers.length > 0 && <p className="sheet-menu-label">Across runs</p>}
+      {trackers.map((entry) => <button key={entry.id} type="button" role="menuitemcheckbox" aria-checked={entry.id === workbookId} className="sheet-menu-item workbook" onClick={() => chooseWorkbook(entry.id)}><TrendingUp size={15} aria-hidden="true" /><span><strong>{entry.name}</strong><small>{[`${number(entry.rowCount)} ${entry.rowCount === 1 ? 'trend' : 'trends'}`, `${number(entry.runCount)} research ${entry.runCount === 1 ? 'run' : 'runs'}`, entry.quickScanCount ? `${number(entry.quickScanCount)} quick ${entry.quickScanCount === 1 ? 'scan' : 'scans'}` : ''].filter(Boolean).join(' · ')}</small></span>{entry.id === workbookId && <Check size={15} aria-hidden="true" />}</button>)}
       {research_runs.length > 0 && <p className="sheet-menu-label">Research runs</p>}
       {research_runs.map((entry) => <button key={entry.id} type="button" role="menuitemcheckbox" aria-checked={entry.id === workbookId} className="sheet-menu-item workbook" onClick={() => chooseWorkbook(entry.id)}><Sheet size={15} aria-hidden="true" /><span><strong>{entry.name}</strong><small>{[relative(entry.createdAt), `${number(entry.rowCount)} posts`, entry.status && entry.status !== 'succeeded' ? entry.status.replace('-', ' ') : ''].filter(Boolean).join(' · ')}</small></span>{entry.id === workbookId && <Check size={15} aria-hidden="true" />}</button>)}
       {imported.length > 0 && <p className="sheet-menu-label">Imported</p>}

@@ -55,7 +55,13 @@ function Message({ message, onOpenSourceUrl }) {
   </article>;
 }
 
-export function FindingsChatView({ state, selectedDatasetId, onDatasetSelect, busy, onAskQuestion, onNavigate, onOpenSourceUrl }) {
+// Research program posts aren't datasets yet, so this page can't see them; Ask AI can (trends, reports and runs).
+function ResearchNote({ onOpenAskAi, className = '' }) {
+  return <p className={['findings-sidebar-note', className].filter(Boolean).join(' ')}>Posts from research programs aren’t datasets yet, so they don’t show up here. To ask about trends, reports and research runs, use Ask AI.{onOpenAskAi && <>{' '}<button type="button" className="data-inline-link" onClick={onOpenAskAi}>Open Ask AI</button></>}</p>;
+}
+
+// "Ask your datasets": questions across up to eight collected datasets, with the sources behind every answer.
+export function FindingsChatView({ state, selectedDatasetId, onDatasetSelect, busy, onAskQuestion, onNavigate, onOpenSourceUrl, onOpenAskAi }) {
   const datasets = state?.datasets || [];
   const conversations = state?.conversations || [];
   const [datasetIds, setDatasetIds] = useState(() => [datasets.find((dataset) => dataset.id === selectedDatasetId)?.id || datasets[0]?.id].filter(Boolean));
@@ -150,16 +156,18 @@ export function FindingsChatView({ state, selectedDatasetId, onDatasetSelect, bu
 
   if (!datasets.length) return <section className="panel findings-empty">
     <span className="findings-empty-icon"><MessageCircle size={30} aria-hidden="true" /></span>
-    <span className="data-eyebrow">TALK TO YOUR FINDINGS</span>
-    <h2>Turn collected data into a conversation.</h2>
-    <p>Search with your scrapers first. Then ask questions, compare platforms, and follow the evidence behind every answer.</p>
-    <Button onClick={() => onNavigate?.('search')}>Start a search <ArrowRight size={16} aria-hidden="true" /></Button>
+    <span className="data-eyebrow">ASK YOUR DATASETS</span>
+    <h2>Ask questions about the data you collect.</h2>
+    <p>Search platforms or run a scraper first. Then ask across up to eight datasets, compare platforms, and follow the evidence behind every answer.</p>
+    <div className="button-row"><Button onClick={() => onNavigate?.('search')}>Start a search <ArrowRight size={16} aria-hidden="true" /></Button>{onOpenAskAi && <Button className="ghost" onClick={onOpenAskAi}><Sparkles size={15} aria-hidden="true" />Ask AI about your research</Button>}</div>
+    <ResearchNote />
   </section>;
 
   return <section className="findings-workspace">
     <aside className="panel findings-sidebar">
       <div className="panel-head"><h3>Your evidence</h3><Badge>{availableIds.length} / {MAX_DATASETS} selected</Badge></div>
       <p className="findings-sidebar-note">Choose up to eight datasets to ask about. Changing this selection starts a new conversation.</p>
+      <ResearchNote onOpenAskAi={onOpenAskAi} />
       <fieldset className="findings-dataset-list" disabled={locked}><legend className="findings-sr-only">Datasets for this conversation</legend>{datasets.map((dataset) => <label key={dataset.id} className={`findings-dataset ${availableIds.includes(dataset.id) ? 'selected' : ''}`}>
         <input type="checkbox" checked={availableIds.includes(dataset.id)} disabled={!availableIds.includes(dataset.id) && availableIds.length >= MAX_DATASETS} onChange={() => changeSelection(dataset.id)} />
         <span><strong>{datasetTitle(dataset)}</strong>{' '}<small>{dataset.platform || 'Web'} · {number(dataset.itemCount)} records</small></span>
@@ -170,7 +178,7 @@ export function FindingsChatView({ state, selectedDatasetId, onDatasetSelect, bu
       <div className="findings-history">{conversations.length ? conversations.map((item) => <button type="button" key={item.id} className={`ghost ${item.id === conversationId ? 'active' : ''}`} aria-pressed={item.id === conversationId} disabled={locked} onClick={() => openConversation(item)}><MessageCircle size={14} aria-hidden="true" /><span>{item.title || 'Conversation'}</span></button>) : <p>Your saved conversations will appear here.</p>}</div>
     </aside>
     <div className="panel findings-main">
-      <header className="findings-heading"><div><span className="data-eyebrow">YOUR RESEARCH, EXPLAINED</span><h2 title={conversation?.title || 'Ask your findings'}>{conversation?.title || 'Ask your findings'}</h2><p>{number(selectedRows)} records across {availableIds.length} dataset{availableIds.length === 1 ? '' : 's'} · Answers use a bounded evidence sample</p></div><span className="findings-assistant-mark"><Sparkles size={22} aria-hidden="true" /></span></header>
+      <header className="findings-heading"><div><span className="data-eyebrow">YOUR RESEARCH, EXPLAINED</span><h2 title={conversation?.title || 'Ask your datasets'}>{conversation?.title || 'Ask your datasets'}</h2><p>{number(selectedRows)} records across {availableIds.length} dataset{availableIds.length === 1 ? '' : 's'} · Answers use a bounded evidence sample</p></div><span className="findings-assistant-mark"><Sparkles size={22} aria-hidden="true" /></span></header>
       <div ref={transcript} className="findings-transcript" role="log" aria-label="Findings conversation" aria-live="polite" aria-busy={pending}>
         {!messages.length && !pending ? <div className="findings-welcome"><span className="findings-welcome-icon"><Sparkles size={25} aria-hidden="true" /></span><h3>What would you like to understand?</h3><p>Find patterns, challenge a conclusion, or turn the research into next steps. Start with a question below.</p><div className="findings-starters">{STARTERS.map((question) => <button type="button" key={question} className="ghost" disabled={locked || !availableIds.length} onClick={() => { setDraft(question); composer.current?.focus(); }}>{question}<ArrowRight size={15} aria-hidden="true" /></button>)}</div></div> : messages.map((message, index) => <Message key={message.id || `${conversationId}-${index}`} message={message} onOpenSourceUrl={onOpenSourceUrl} />)}
         {pending && <><Message message={{ role: 'user', content: pendingQuestion }} /><div className="findings-working" role="status"><span />Reading your selected evidence…</div></>}
@@ -178,7 +186,7 @@ export function FindingsChatView({ state, selectedDatasetId, onDatasetSelect, bu
       <form className="findings-composer" onSubmit={submit}>
         {error && <div className="findings-error" role="alert"><span>{error}</span><Button type="button" className="ghost" disabled={locked || !draft.trim() || !availableIds.length || availableIds.length > MAX_DATASETS} onClick={submit}><RefreshCw size={14} aria-hidden="true" />Retry</Button></div>}
         {!availableIds.length && <p className="findings-selection-note">Select at least one dataset to start.</p>}
-        <div className="findings-composer-box"><textarea ref={composer} aria-label="Question about your findings" placeholder="Ask a question about your findings…" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={4000} rows={3} disabled={locked || !availableIds.length} onKeyDown={(event) => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit(event); }} /><Button type="submit" disabled={locked || !draft.trim() || !availableIds.length || availableIds.length > MAX_DATASETS || !onAskQuestion} aria-label={pending ? 'Answering question' : 'Ask question'}><ArrowUp size={19} aria-hidden="true" /></Button></div>
+        <div className="findings-composer-box"><textarea ref={composer} aria-label="Question about your findings" placeholder="Ask a question about these datasets…" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={4000} rows={3} disabled={locked || !availableIds.length} onKeyDown={(event) => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit(event); }} /><Button type="submit" disabled={locked || !draft.trim() || !availableIds.length || availableIds.length > MAX_DATASETS || !onAskQuestion} aria-label={pending ? 'Answering question' : 'Ask question'}><ArrowUp size={19} aria-hidden="true" /></Button></div>
         <div className="findings-composer-foot"><span>AI answers can be mistaken. Open the sources before acting.</span><span>⌘ / Ctrl + Enter</span></div>
       </form>
     </div>

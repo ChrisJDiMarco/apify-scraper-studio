@@ -129,7 +129,20 @@ function validateSettings(value, current = {}) {
     sheets: validateSheetSettings(settings.sheets, current.sheets || {}),
     // simple: the guided Home / Reports / Trends / Ask AI layout (the default); classic: the full sidebar app.
     uiMode: enumValue(settings.uiMode ?? current.uiMode ?? 'simple', 'Layout', ['simple', 'classic']),
+    // Where the browser studio lives, so the Mac app can build share links ('' hides Copy link there).
+    studioWebAddress: webAddressValue(settings.studioWebAddress ?? current.studioWebAddress ?? ''),
   };
+}
+
+// The same rule as the renderer's deep-links normalizeOrigin: an http(s) address with a real host and no sign-in in it,
+// kept as origin plus path without a trailing slash.
+function webAddressValue(value) {
+  const text = stringValue(value, 'Studio web address', { max: 500 });
+  if (!text) return '';
+  let url;
+  try { url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`); } catch (_) { throw new Error('Enter the studio’s web address, like https://studio.example.com.'); }
+  if (/\s/.test(text) || !['http:', 'https:'].includes(url.protocol) || url.username || url.password || !url.hostname || (!url.hostname.includes('.') && url.hostname !== 'localhost')) throw new Error('Enter the studio’s web address, like https://studio.example.com.');
+  return `${url.origin}${url.pathname.replace(/\/(index\.html)?$/i, '')}`;
 }
 
 function validateMoveCardPayload(value) {

@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import App, { ActionQueue } from '../src/renderer/src/App.jsx';
+import App from '../src/renderer/src/App.jsx';
 import { DatasetsView } from '../src/renderer/src/dataset-report-views.jsx';
 import { CommandPalette, MissionCommandCenter } from '../src/renderer/src/mission-command.jsx';
 import { AssetsView } from '../src/renderer/src/pipeline-view.jsx';
@@ -50,38 +50,6 @@ describe('renderer safety states', () => {
     expect(screen.getByText('Dataset is empty')).toBeInTheDocument();
     screen.getByRole('button', { name: 'Open scrapers' }).click();
     expect(onNavigate).toHaveBeenCalledWith('automation');
-  });
-
-  it('runs next-best actions with exact action payloads', () => {
-    const action = {
-      id: 'generate-report',
-      label: 'Generate report',
-      detail: 'Turn rows into intelligence.',
-      view: 'reports',
-      action: 'analyze-dataset',
-      args: { datasetId: 'ds-1', kind: 'report', reportPresetId: 'lead-list' },
-    };
-    const onRunAction = vi.fn();
-    render(<ActionQueue actions={[action]} busy={false} onRunAction={onRunAction} onNavigate={vi.fn()} />);
-
-    screen.getByRole('button', { name: /Generate report/ }).click();
-    expect(onRunAction).toHaveBeenCalledWith(action);
-  });
-
-  it('preserves next-best navigation args', () => {
-    const action = {
-      id: 'inspect-dataset-health',
-      label: 'Inspect dataset quality',
-      detail: 'Missing useful fields.',
-      view: 'datasets',
-      action: 'navigate',
-      args: { datasetId: 'ds-2' },
-    };
-    const onNavigate = vi.fn();
-    render(<ActionQueue actions={[action]} busy={false} onRunAction={vi.fn()} onNavigate={onNavigate} />);
-
-    screen.getByRole('button', { name: /Inspect dataset quality/ }).click();
-    expect(onNavigate).toHaveBeenCalledWith('datasets', { datasetId: 'ds-2' });
   });
 
   it('renders V5 mission command with evidence, jobs, artifacts, and release diagnostics', () => {

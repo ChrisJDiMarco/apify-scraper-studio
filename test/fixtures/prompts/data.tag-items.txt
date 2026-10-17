@@ -1,0 +1,1 @@
+Read the SOURCE_ITEMS section below. Tag every normalized social item. Keep summaries short, classify intent/sentiment/stance consistently, and cite item IDs in evidenceIds. Return only schema-valid JSON.

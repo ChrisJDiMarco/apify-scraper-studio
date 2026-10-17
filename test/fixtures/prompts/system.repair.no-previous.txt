@@ -1,0 +1,4 @@
+
+
+YOUR PREVIOUS RESPONSE WAS REJECTED BY VALIDATION: The draft broke 2 rules.
+Return a complete, corrected response for the whole task.

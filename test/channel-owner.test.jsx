@@ -269,7 +269,7 @@ describe('ChannelTrends: preview, groups and empty states', () => {
 
   it('says why a list is empty: nothing yet, everything answered, or an empty filter', () => {
     const { rerender } = render(<ChannelTrends api={api()} view={view([])} viewer={viewer()} />);
-    expect(screen.getByText('No trends yet. When the team approves a trend and its brief is written, it shows up here.')).toBeInTheDocument();
+    expect(screen.getByText(/^No trends for Semrush Blog yet\. The team reviews new trends each week; when a brief is ready, it appears here with a count next to Trends\./)).toBeInTheDocument();
     rerender(<ChannelTrends api={api()} view={view([trend({ adoption: { status: 'not-using', link: '', note: '', at: now, byName: 'Alex Smith', byMe: true }, isNew: false })])} viewer={viewer()} />);
     expect(screen.getByRole('button', { name: /All/, pressed: true })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^New/ }));
@@ -353,7 +353,7 @@ describe('ChannelAssets', () => {
   it('shows a loading state until the channel view arrives', () => {
     render(<><ChannelTrends api={api()} viewer={viewer()} /><ChannelAssets api={api()} viewer={viewer()} /></>);
     expect(screen.getAllByRole('status', { name: 'Loading' })).toHaveLength(2);
-    expect(screen.queryByText(/No trends yet/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No trends for/)).not.toBeInTheDocument();
   });
 
   it('focuses the trend it was opened for, and has a plain empty state', () => {
@@ -366,7 +366,7 @@ describe('ChannelAssets', () => {
     rerender(<ChannelAssets api={api()} view={view([trend()], { runs: [done, other], assets })} viewer={viewer()} focusThemeId="theme-1" />);
     expect(screen.getByRole('heading', { level: 1, name: 'My assets · Semrush Blog' })).toHaveFocus();
     rerender(<ChannelAssets api={api()} view={view([trend()])} viewer={viewer()} />);
-    expect(screen.getByText('No drafts yet. On Trends, choose a trend and press Generate for my channel.')).toBeInTheDocument();
+    expect(screen.getByText('No drafts yet. On Trends, open a trend’s brief and press Generate for my channel. Your drafts land here, grouped by trend, and you can download each set as a folder.')).toBeInTheDocument();
   });
 
   it('loads picture thumbnails once and opens them in a lightbox', async () => {
@@ -404,3 +404,30 @@ describe('links', () => {
     expect(linkLabel('https://www.semrush.com/blog/ai-overviews/')).toBe('semrush.com/blog/ai-overviews/');
   });
 });
+
+describe('ChannelTrends: routing and plans', () => {
+  it('says who suggested a trend for this channel, and For us lists only those', () => {
+    const forUs = trend({ themeId: 'theme-1', name: 'AI Overviews', forUs: true, offered: true, decidedBy: { name: 'Riley', at: '2026-10-14T10:00:00.000Z', auto: false }, suggestion: { byName: 'Riley', at: '2026-10-14T10:00:00.000Z', note: 'Lead with the CTR data.', channels: [{ id: 'blog', name: 'Semrush Blog' }] } });
+    const elsewhere = trend({ themeId: 'theme-2', name: 'Local packs', forUs: false, offered: false, isNew: false, suggestion: { byName: 'Riley', note: '', channels: [{ id: 'social', name: 'Semrush Social Team' }, { id: 'pr', name: 'Semrush PR' }] } });
+    render(<ChannelTrends api={api()} view={view([forUs, elsewhere])} viewer={viewer()} />);
+    expect(within(card('AI Overviews')).getByText('Suggested for Semrush Blog by Riley')).toBeInTheDocument();
+    expect(within(card('AI Overviews')).getByText(/Lead with the CTR data\./)).toBeInTheDocument();
+    expect(within(card('AI Overviews')).getByText(`Approved by Riley · ${day('2026-10-14T10:00:00.000Z')}`)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^For us/ }));
+    expect(card('AI Overviews')).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'Local packs' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^All/ }));
+    expect(within(card('Local packs')).getByText('Suggested for Semrush Social Team and Semrush PR by Riley')).toBeInTheDocument();
+  });
+
+  it('adds the date a trend in use goes out, and only then sends plannedFor', async () => {
+    const services = api();
+    render(<ChannelTrends api={services} view={view([trend({ isNew: false, adoption: { status: 'using', link: '', note: '', plannedFor: '', at: now, byName: 'Alex Smith', byMe: true } })])} viewer={viewer()} />);
+    fireEvent.click(within(card('AI Overviews')).getByRole('button', { name: /Add the date it goes out/ }));
+    fireEvent.change(screen.getByLabelText('Planned for'), { target: { value: '2030-01-15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(services.setTrendAdoption).toHaveBeenCalledWith({ themeId: 'theme-1', status: 'using', link: '', note: '', plannedFor: '2030-01-15' }));
+    expect(within(card('AI Overviews')).getByText(/^Planned for /)).toBeInTheDocument();
+  });
+});
+

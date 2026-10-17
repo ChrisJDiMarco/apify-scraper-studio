@@ -1,9 +1,12 @@
-// Sheets storage: research runs open as live workbooks; imported spreadsheets and every reviewer edit are
-// kept under <userData>/workbooks. No Electron dependency, so the browser host can serve the same calls.
+// Sheets storage: research runs and the cross-run Trend tracker open as live workbooks; imported spreadsheets and
+// every reviewer edit are kept under <userData>/workbooks. No Electron dependency, so the browser host can serve the same calls.
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const { buildResearchWorkbook } = require('../shared/research-workbook');
+// The cross-run Trend tracker, loaded on use so a host without it still opens every other workbook.
+const trendHistory = () => require('../shared/trend-history');
+const TREND_TRACKER_ID = 'trend-tracker'; // trend-history.js TREND_TRACKER_ID
 const { readWorkbookFile } = require('./workbook-import');
 const { buildXlsx, exactNumber } = require('../shared/xlsx-writer');
 
@@ -35,6 +38,7 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
   const indexFile = path.join(root, 'index.json');
   const stamp = () => new Date(clock()).toISOString();
   const researchCache = new Map();
+  let trackerCache = null;
 
   function writeJson(target, value) {
     const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
@@ -44,27 +48,41 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
   const readIndex = () => { const index = readJson(indexFile, null); return index?.version === 1 && Array.isArray(index.workbooks) ? index : { version: 1, workbooks: [] }; };
   const editsFile = (id) => path.join(root, `${safeId(id)}.edits.json`);
   const workbookFile = (id) => path.join(root, `${safeId(id)}.json`);
-  const readEdits = (id) => readJson(editsFile(id), { version: 1, sheets: {} });
+  // Every workspace has its own Trend tracker under the same id, so its edits are kept per workspace.
+  const editsKey = (id) => (id === TREND_TRACKER_ID ? `${id}-${activeWorkspaceId()}` : id);
+  const readEdits = (id) => readJson(editsFile(editsKey(id)), { version: 1, sheets: {} });
   const importedMeta = (id) => readIndex().workbooks.find((row) => row.id === id && row.workspaceId === activeWorkspaceId());
+  const trackerListing = () => { try { return contentWorkspace.listTrendHistorySources?.() || null; } catch (_) { return null; } };
 
   function summary(workbook) { return workbook.sheets.map((sheet) => ({ id: sheet.id, name: sheet.name, rowCount: sheet.rows.length, columnCount: sheet.columns.length })); }
 
   function list() {
     const research = contentWorkspace.listResearchWorkbookSources().map((source) => ({ id: source.runId, kind: 'research', programId: source.programId || '', name: source.title, createdAt: source.createdAt, updatedAt: source.updatedAt, status: source.status, stage: source.stage, rowCount: source.evidenceCount, themeCount: source.themeCount }));
     const imported = readIndex().workbooks.filter((row) => row.workspaceId === activeWorkspaceId()).map(({ id, name, source, createdAt, updatedAt, sheets }) => ({ id, kind: 'import', name, source, createdAt, updatedAt, rowCount: (sheets || []).reduce((sum, sheet) => sum + sheet.rowCount, 0), sheetCount: (sheets || []).length }));
-    return [...research, ...imported].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    // The Trend tracker leads the list as soon as any run has found trends.
+    const tracker = trackerListing();
+    const trackers = tracker?.trendCount ? [{ id: TREND_TRACKER_ID, kind: 'tracker', name: 'Trend tracker', createdAt: tracker.createdAt, updatedAt: tracker.updatedAt, rowCount: tracker.trendCount, runCount: tracker.runCount, quickScanCount: tracker.quickScanCount, counts: tracker.counts, sinceRun: tracker.sinceRun }] : [];
+    return [...trackers, ...[...research, ...imported].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))];
   }
 
   async function read({ workbookId } = {}) {
     const id = safeId(workbookId);
+    if (id === TREND_TRACKER_ID) {
+      const tracker = trackerListing(); if (!tracker) fail('The Trend tracker isn’t available on this studio host yet.');
+      const key = `${activeWorkspaceId()}|${tracker.version}`;
+      if (trackerCache?.key !== key) trackerCache = { key, workbook: trendHistory().buildTrendTrackerWorkbook(await contentWorkspace.readTrendHistorySource(), { now: clock() }) };
+      return { ...trackerCache.workbook, edits: readEdits(id) };
+    }
     const meta = importedMeta(id);
     if (meta) { const workbook = readJson(workbookFile(id), null); if (!workbook) fail('This imported workbook is missing its data. Import the file again.'); return { ...workbook, kind: 'import', source: meta.source, edits: readEdits(id) }; }
     const listing = contentWorkspace.listResearchWorkbookSources().find((row) => row.runId === id);
     if (!listing) fail('This workbook is not in the selected workspace.');
+    // Trend Velocity counts runs across the workspace, so a newer run refreshes older runs' workbooks too.
+    const version = `${listing.version}|${trackerListing()?.version || ''}`;
     const cached = researchCache.get(id);
-    if (cached?.version === listing.version) return { ...cached.workbook, edits: readEdits(id) };
+    if (cached?.version === version) return { ...cached.workbook, edits: readEdits(id) };
     const workbook = buildResearchWorkbook(await contentWorkspace.readResearchWorkbookSource({ runId: id }));
-    researchCache.set(id, { version: listing.version, workbook });
+    researchCache.set(id, { version, workbook });
     while (researchCache.size > 3) researchCache.delete(researchCache.keys().next().value);
     return { ...workbook, edits: readEdits(id) };
   }
@@ -106,7 +124,8 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
 
   function saveEdits({ workbookId, edits } = {}) {
     const id = safeId(workbookId);
-    if (!importedMeta(id) && !contentWorkspace.listResearchWorkbookSources().some((row) => row.runId === id)) fail('This workbook is not in the selected workspace.');
+    const tracker = id === TREND_TRACKER_ID && Boolean(trackerListing());
+    if (!tracker && !importedMeta(id) && !contentWorkspace.listResearchWorkbookSources().some((row) => row.runId === id)) fail('This workbook is not in the selected workspace.');
     if (!edits || typeof edits !== 'object' || Array.isArray(edits) || typeof edits.sheets !== 'object') fail('Edits must be grouped by sheet.');
     const clean = { version: 1, sheets: {} };
     for (const [sheetId, rows] of Object.entries(edits.sheets)) {
@@ -120,13 +139,13 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
       }
     }
     if (JSON.stringify(clean).length > MAX_EDITS_BYTES) fail('This workbook has too many edits to save. Export it and start a fresh copy.');
-    writeJson(editsFile(id), { ...clean, savedAt: stamp() });
+    writeJson(editsFile(editsKey(id)), { ...clean, savedAt: stamp() });
     return { workbookId: id, savedAt: stamp() };
   }
 
   function remove({ workbookId } = {}) {
     const id = safeId(workbookId); const meta = importedMeta(id);
-    if (!meta) fail('Only imported workbooks can be removed. Research runs stay with their program.');
+    if (!meta) fail(id === TREND_TRACKER_ID ? 'The Trend tracker is rebuilt from your research runs, so it stays in Sheets. Only imported workbooks can be removed.' : 'Only imported workbooks can be removed. Research runs stay with their program.');
     const index = readIndex(); writeJson(indexFile, { version: 1, workbooks: index.workbooks.filter((row) => row.id !== id) });
     for (const target of [workbookFile(id), editsFile(id)]) fs.rmSync(target, { force: true });
     return { workbookId: id, removed: true };
@@ -135,7 +154,7 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
   function rename({ workbookId, name } = {}) {
     const id = safeId(workbookId); const clean = String(name || '').trim().slice(0, 160); if (!clean) fail('Give the workbook a name.');
     const index = readIndex(); const meta = index.workbooks.find((row) => row.id === id && row.workspaceId === activeWorkspaceId());
-    if (!meta) fail('Only imported workbooks can be renamed.');
+    if (!meta) fail(id === TREND_TRACKER_ID ? 'The Trend tracker keeps its name. Only imported workbooks can be renamed.' : 'Only imported workbooks can be renamed.');
     meta.name = clean; meta.updatedAt = stamp(); writeJson(indexFile, index);
     const workbook = readJson(workbookFile(id), null); if (workbook) writeJson(workbookFile(id), { ...workbook, name: clean });
     return { ...meta, kind: 'import' };

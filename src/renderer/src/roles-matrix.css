@@ -1,0 +1,66 @@
+/* Roles: what each role can do. A table with roles across and capabilities down, grouped; the first column and the
+   header stay put while it scrolls. Below 860px it shows one role at a time, so the page never scrolls sideways.
+   Tokens only, so the frame's dark values apply here too. */
+.roles-tab-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; }
+.studio-frame .roles-tab-head .studio-hint { max-width: 640px; font-size: 13.5px; }
+.roles-tab-actions { display: flex; align-items: flex-end; gap: 10px; }
+.roles-conflict { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px 14px; color: var(--s-warn-ink); background: var(--s-warn); border-radius: var(--s-radius-row); }
+.studio-frame .roles-conflict p { margin: 0; font-size: 14px; }
+
+.roles-matrix-scroll { max-height: min(72dvh, 900px); overflow: auto; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-row); overscroll-behavior: contain; }
+.roles-matrix { width: 100%; min-width: 640px; border-collapse: separate; border-spacing: 0; }
+.studio-frame .roles-matrix caption { padding: 14px 16px 6px; font-size: 15px; font-weight: 650; text-align: left; color: var(--s-ink); caption-side: top; }
+.studio-frame .roles-matrix :is(th, td) { text-transform: none; letter-spacing: normal; padding: 10px 12px; font-size: 13.5px; font-weight: 500; text-align: left; vertical-align: middle; color: var(--s-ink); background: var(--s-card); border-bottom: 1px solid var(--s-line); }
+.roles-matrix thead :is(th, td) { position: sticky; top: 0; z-index: 2; }
+.studio-frame .roles-matrix thead th { min-width: 132px; text-align: center; background: color-mix(in srgb, var(--s-bg) 55%, var(--s-card)); }
+.roles-matrix .roles-matrix-corner { left: 0; z-index: 3; background: color-mix(in srgb, var(--s-bg) 55%, var(--s-card)); }
+.roles-matrix-role-head { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.studio-frame .roles-matrix-role strong { font-size: 14px; font-weight: 650; }
+.studio-frame .roles-matrix-role small { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 2px; font-size: 12px; font-weight: 550; color: var(--s-muted); }
+.roles-matrix-role.role-admin strong { color: var(--s-ink); }
+.studio-frame .roles-matrix-role .studio-icon-button { width: 30px; height: 30px; min-height: 30px; }
+/* Each group is its own tbody with a heading row. */
+.studio-frame .roles-matrix-group > th { padding: 14px 16px 6px; font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted); background: var(--s-card); border-bottom: 1px solid var(--s-line); }
+.studio-frame .roles-matrix-cap { position: sticky; left: 0; z-index: 1; min-width: 240px; max-width: 360px; box-shadow: 1px 0 0 var(--s-line); }
+.studio-frame .roles-matrix-cap strong { display: block; font-size: 14px; font-weight: 650; }
+.studio-frame .roles-matrix-cap small { display: block; margin-top: 2px; font-size: 12.5px; line-height: 1.45; color: var(--s-muted); }
+.studio-frame .roles-matrix-cap .people-access-cascade { color: var(--s-soft-ink); font-weight: 600; }
+.studio-frame .roles-matrix-cell { text-align: center; }
+.studio-frame .roles-matrix-cell.is-pending { background: color-mix(in srgb, var(--s-soft) 55%, var(--s-card)); }
+
+/* A switch per cell: a 34×20 track; fixed cells show a check and lock, a lock, or a dash. */
+.studio-frame .roles-matrix-switch { position: relative; display: inline-grid; place-items: center; min-width: 44px; min-height: 36px; padding: 0 6px; color: var(--s-muted); background: transparent; border: 0; border-radius: 10px; box-shadow: none; cursor: pointer; }
+.studio-frame .roles-matrix-switch:hover:not(:disabled):not(.is-fixed) { background: var(--s-bg); }
+.roles-matrix-switch:focus-visible { outline: 2px solid var(--s-focus); outline-offset: 1px; }
+.studio-frame .roles-matrix-switch:disabled { cursor: not-allowed; opacity: .6; }
+.roles-matrix-track { position: relative; display: block; width: 34px; height: 20px; background: var(--s-line-strong); border-radius: 999px; transition: background-color 160ms var(--s-ease); }
+.roles-matrix-track > span { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: var(--s-card); border-radius: 50%; box-shadow: 0 1px 2px rgba(24, 30, 21, .25); transition: transform 160ms var(--s-ease); }
+.roles-matrix-switch.is-on .roles-matrix-track { background: var(--s-accent-strong); }
+.roles-matrix-switch.is-on .roles-matrix-track > span { transform: translateX(14px); }
+.studio-frame .roles-matrix-switch.is-fixed { cursor: help; }
+.roles-matrix-cell.is-admin .roles-matrix-switch, .roles-matrix-cell.is-always .roles-matrix-switch { color: var(--s-mint-ink); }
+.roles-matrix-cell.is-locked .roles-matrix-switch { color: var(--s-faint); }
+.roles-matrix-cell.is-unavailable .roles-matrix-switch { color: var(--s-faint); }
+.roles-matrix-lock { position: absolute; right: 8px; bottom: 6px; }
+/* Changed from the built-in default (a dot), or not saved yet (a ringed dot). */
+.roles-matrix-dot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; background: var(--s-soft-ink); border-radius: 50%; }
+.roles-matrix-dot.is-pending { background: var(--s-accent-strong); box-shadow: 0 0 0 2px var(--s-card), 0 0 0 3px var(--s-accent-strong); }
+.roles-matrix-new { position: absolute; bottom: -2px; left: 50%; transform: translateX(-50%); padding: 0 5px; font-size: 10px; font-weight: 700; color: var(--s-soft-ink); background: var(--s-soft); border-radius: 999px; }
+
+/* The dirty bar: what's waiting to be saved. */
+.roles-dirty-bar { position: sticky; bottom: 12px; z-index: 5; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; padding: 12px 14px 12px 18px; color: var(--s-ink); background: var(--s-card); border: 1px solid color-mix(in srgb, var(--s-accent) 50%, var(--s-line)); border-radius: var(--s-radius-row); box-shadow: var(--s-shadow); animation: roles-rise 180ms var(--s-ease) both; }
+.studio-frame .roles-dirty-bar p { margin: 0; font-size: 14px; }
+.roles-dirty-bar > div { display: flex; gap: 8px; }
+@keyframes roles-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+@media (pointer: coarse) { .studio-frame .roles-matrix-switch { min-width: 48px; min-height: 44px; } }
+@media (max-width: 860px) {
+  .roles-matrix { min-width: 0; }
+  .roles-matrix-scroll { max-height: none; overflow: visible; }
+  .roles-matrix thead :is(th, td) { position: static; }
+  .studio-frame .roles-matrix-cap { position: static; min-width: 0; max-width: none; box-shadow: none; }
+  .studio-frame .roles-matrix thead th { min-width: 0; }
+  .roles-tab-actions { width: 100%; justify-content: space-between; }
+  .roles-dirty-bar { bottom: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { .roles-matrix-track, .roles-matrix-track > span { transition: none; } .roles-dirty-bar { animation: none; } }

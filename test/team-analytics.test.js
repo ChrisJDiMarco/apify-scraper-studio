@@ -81,6 +81,18 @@ describe('trend analytics', () => {
     expect(channel(build({ members: later }), 'blog')).toMatchObject({ offered: 1, using: 0, noAnswer: 1 }); // only Local packs is offered now
   });
 
+  it('offered: only to the channels a trend was routed to, or every channel when none were picked', () => {
+    const studio = fixture.contentStudio(); const run = studio.researchRuns.find((entry) => entry.id === 'research-new');
+    run.decisionsBy['theme-local'] = { id: 'member-riley', name: 'Riley', at: fixture.at('10-10', '10:57:00'), note: 'Lead with the map pack data.', channels: ['social'] };
+    const report = build({ contentStudio: studio });
+    expect(row(report, 'theme-local')).toMatchObject({ routedTo: ['social'], decidedBy: { name: 'Riley', note: 'Lead with the map pack data.' } });
+    expect(row(report, 'theme-local').cells.social.offered).toBe(true);
+    expect(row(report, 'theme-local').cells.blog.offered).toBe(false);
+    expect(row(report, 'theme-aio')).toMatchObject({ routedTo: [] });
+    expect(row(report, 'theme-aio').cells.blog.offered).toBe(true);
+    expect(channel(report, 'blog')).toMatchObject({ offered: 1 }); // AI Overviews only; Local packs went to Social
+  });
+
   it('generated cell: a succeeded job for the channel in a kit made from the trend', () => {
     const cells = row(build(), 'theme-aio').cells;
     expect(cells.social).toEqual({ status: 'generated', link: '', byName: 'Jordan', at: fixture.at('10-13'), assetCount: 4, offered: true });
@@ -162,9 +174,9 @@ describe('trend analytics', () => {
       'Riley edited “TREND: AI Overviews”',
       'Jordan generated drafts of “AI Overviews eat clicks” for 4 channels',
       'Jordan generated drafts of “AI Overviews” for Semrush Blog and Semrush Social Team',
-      'Riley approved 3 trends and passed on 1 trend',
+      'Riley approved 3 trends and skipped 1 trend',
       'Riley put “Voice search returns” back up for review',
-      'Riley passed on “Voice search returns”',
+      'Riley skipped “Voice search returns”',
       'Riley approved “Agentic checkout”',
       'Sam cleared the answer on “Local packs shrink” for Semrush Social Team',
       'Sam said “Local packs shrink” isn’t for Semrush Social Team',

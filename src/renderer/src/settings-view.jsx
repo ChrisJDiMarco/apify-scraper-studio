@@ -5,6 +5,27 @@ import { BrandImages } from './brand-images.jsx';
 import { DEFAULT_PROGRAM_AI } from './research-program-fields.jsx';
 import { SetupShare } from './setup-share.jsx';
 import { Badge, Button, JsonBlock, short, statusTone } from './ui.jsx';
+import { normalizeOrigin } from './deep-links.js';
+
+// The Mac app's "Studio web address": the browser studio's address, so Copy link in reports, the Library and channel
+// briefs can build links teammates open there. The browser studio uses its own address, so it never shows this.
+function StudioWebAddress({ settings = {}, busy, onSaveSettings }) {
+  const saved = settings.studioWebAddress || '';
+  const [value, setValue] = useState(saved);
+  const [problem, setProblem] = useState('');
+  useEffect(() => { setValue(saved); setProblem(''); }, [saved]);
+  const clean = normalizeOrigin(value);
+  function save() {
+    if (value.trim() && !clean) { setProblem('Enter the studio’s web address, like https://studio.example.com.'); return; }
+    setProblem(''); onSaveSettings({ studioWebAddress: value.trim() ? clean : '' });
+  }
+  return <section className="settings-block settings-links" aria-labelledby="settings-links-title" data-spot="settings.web-address">
+    <div className="panel-head"><div><h3 id="settings-links-title">Studio web address</h3><p>Copy link in reports, the Library and channel briefs builds links on the browser studio’s address, so teammates open them there. Leave it blank and Copy link stays hidden on this Mac.</p></div><Badge tone={saved ? 'ready' : 'neutral'}>{saved ? 'Links on' : 'Optional'}</Badge></div>
+    <label htmlFor="settings-web-address">Browser studio address</label>
+    <div className="inline"><input id="settings-web-address" type="url" inputMode="url" autoComplete="url" spellCheck="false" placeholder="https://studio.example.com" value={value} aria-invalid={problem ? 'true' : undefined} aria-describedby={problem ? 'settings-web-address-error' : undefined} onChange={(event) => { setValue(event.target.value); setProblem(''); }} /><Button type="button" disabled={busy || (!value.trim() && !saved) || (Boolean(clean) && clean === saved)} onClick={save}>Save</Button>{saved && <Button type="button" className="ghost" disabled={busy} onClick={() => { setValue(''); onSaveSettings({ studioWebAddress: '' }); }}>Clear</Button>}</div>
+    {problem ? <p id="settings-web-address-error" className="error-line" role="alert">{problem}</p> : <small>{clean && clean !== saved ? `Links will start with ${clean}/#/…` : saved ? `Links start with ${saved}/#/…` : 'Ask whoever runs the browser studio for its address.'}</small>}
+  </section>;
+}
 
 // Where the Sheets bridge creates Google Docs and Google Sheets. Each accepts a folder link or ID; blank means My Drive.
 const DRIVE_FOLDERS = [
@@ -165,20 +186,27 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
     } finally { setSavingAi(false); }
   }
 
+  // What a saved secret's field says. In the browser studio, keys live on the studio server, never in the browser.
+  const savedHere = web ? 'Saved on the studio server' : 'Stored securely on this device';
+  // Run the checks the diagnostics cards report on: the writing route (Claude or Codex) and, when a key is saved, images.
+  async function checkConnections() {
+    await Promise.all([checkAi(), imagesConfigured && onTestImages ? checkImages() : null]);
+  }
+
   const sourceSettings = (
       <div className="field-grid two">
         <label data-spot="settings.apify">Apify API token
           <div className="inline">
-            <input aria-label="Apify API token" autoComplete="off" type="password" value={token} placeholder={state.keys.APIFY_API_TOKEN ? 'Stored securely on this device' : 'Paste token'} onChange={(event) => setToken(event.target.value)} />
+            <input aria-label="Apify API token" autoComplete="off" type="password" value={token} placeholder={state.keys.APIFY_API_TOKEN ? savedHere : 'Paste token'} onChange={(event) => setToken(event.target.value)} />
             <Button disabled={busy || !token} onClick={() => { onSaveKey('APIFY_API_TOKEN', token).then((saved) => { if (saved) setToken(''); }); }}>Save</Button>
-            <Button className="ghost" disabled={busy} onClick={() => onClearKey('APIFY_API_TOKEN')}>Clear</Button>
+            <Button className="ghost" disabled={busy || !state.keys.APIFY_API_TOKEN} onClick={() => onClearKey('APIFY_API_TOKEN')}>Clear</Button>
           </div>
         </label>
         <label>Maximum rows to download
           <div className="inline">
             <input aria-label="Maximum rows to download" type="number" min="1" max="10000" value={maxItems} onChange={(event) => setMaxItems(event.target.value)} />
             <Button disabled={busy || !Number.isInteger(Number(maxItems)) || Number(maxItems) < 1 || Number(maxItems) > 10000} onClick={() => onSaveSettings({ maxItems })}>Save</Button>
-          </div><small>Actor input controls scraping volume and cost. This limits the rows downloaded.</small>
+          </div><small>The most rows the studio downloads from one scraper run. Each scraper’s own settings decide how much it collects and what it costs; research programs set their own limits.</small>
         </label>
 
       </div>
@@ -198,8 +226,8 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
           <Badge tone={state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'ready' : 'neutral'}>{state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'Sheets saved' : 'Sheets optional'}</Badge>
         </div>
       </div>
-      {setupApi?.openSetupFile && <section className="settings-block settings-setup" aria-labelledby="settings-setup-title"><div className="panel-head"><div><h3 id="settings-setup-title">Share your setup</h3><p>Give a teammate this workspace's research program and knowledge in one file, or load one they shared with you.</p></div></div><SetupShare api={setupApi} web={web} onOpenPrograms={onOpenPrograms} /></section>}
-      {semrush && <section className="settings-block settings-sources" aria-labelledby="settings-sources-title"><div className="panel-head"><div><h3 id="settings-sources-title">Source collection</h3><p>Connect Apify to research the accounts and communities you choose.</p></div><Badge tone={state.keys.APIFY_API_TOKEN ? 'ready' : 'neutral'}>{state.keys.APIFY_API_TOKEN ? 'Credential saved' : 'Setup needed'}</Badge></div>{sourceSettings}</section>}
+      {/* First, in both editions: without Apify nothing new can be collected. */}
+      <section className="settings-block settings-sources" aria-labelledby="settings-sources-title"><div className="panel-head"><div><h3 id="settings-sources-title">Source collection</h3><p>{semrush ? 'Connect Apify to research the accounts and communities you choose.' : 'Connect Apify to run your scrapers and research the accounts and communities you choose.'}</p></div><Badge tone={state.keys.APIFY_API_TOKEN ? 'ready' : 'warning'}>{state.keys.APIFY_API_TOKEN ? 'Credential saved' : 'Setup needed'}</Badge></div>{sourceSettings}</section>
       <section className="settings-block" aria-labelledby="settings-ai-title">
         <div className="panel-head"><div><h3 id="settings-ai-title">Writing & research</h3><p>Claude writes the research, reports and drafts. {web ? 'The studio server reaches it with an Anthropic API key, or Claude Code if it is installed there.' : 'Reach it through the Claude app on this Mac or an Anthropic API key.'}</p></div><Badge tone={aiChecks[savedProvider]?.ok ? 'ready' : 'neutral'}>{ROUTE_BADGE[savedProvider] || 'Claude'}</Badge></div>
         {aiProvider !== 'codex' && <fieldset className="settings-route" disabled={busy || savingAi || checkingAi}><legend>How to reach Claude</legend>
@@ -227,30 +255,20 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
         <p className="settings-image-intro">Your writing provider stays separate. Images use an OpenAI API credential and have their own API usage and billing.</p>
         <label htmlFor="settings-image-key">OpenAI API key</label>
         <div className="settings-image-key-row"><span className="settings-image-key-input"><KeyRound size={15} aria-hidden="true" /><input id="settings-image-key" aria-label="OpenAI API key" type="password" autoComplete="off" spellCheck="false" value={imageKey} disabled={imageBusy} placeholder={imagesConfigured ? 'Enter a replacement credential' : 'Paste your OpenAI API key'} onChange={event => { setImageKey(event.target.value); setImageError(''); }} /></span><Button type="button" disabled={imageBusy || !imageKey.trim()} onClick={saveImageCredential}>{imageAction === 'save' ? 'Saving…' : 'Save image key'}</Button>{imagesConfigured && <Button type="button" className="ghost" disabled={imageBusy} onClick={removeImageCredential}>Remove saved key</Button>}</div>
-        <p className="settings-image-storage">Desktop credentials are stored on this computer. In a hosted studio, image credentials are configured on the backend and never sent to browsers.</p>
+        <p className="settings-image-storage">{web ? 'The image key is saved on the studio server and never sent to browsers.' : 'The image key is stored on this computer.'}</p>
         <div className="settings-image-check"><Button type="button" className="ghost" disabled={imageBusy || !imagesConfigured || !onTestImages} onClick={checkImages}>{imageAction === 'check' ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <ShieldCheck size={15} aria-hidden="true" />}{imageAction === 'check' ? 'Checking image access…' : 'Check image access'}</Button><small>Checks model access without generating an image or starting a paid generation.</small></div>
         {imageCheck && <div className={`settings-image-receipt ${imageCheck.accessVerified ? 'verified' : ''}`} role="status"><strong>{imageCheck.accessVerified ? 'Image model access confirmed' : imageCheck.configured ? 'Image access needs attention' : 'Image credential is not configured'}</strong>{imageCheck.model && <span>Model: {imageCheck.model}</span>}{imageCheck.message && <p>{imageCheck.message}</p>}<small>No image was generated by this check. Generation is verified when an image request completes.</small></div>}
         {imageError && <p className="error-line" role="alert">{imageError}</p>}
       </section>
       {setupApi?.addBrandImage && <BrandImages api={setupApi} workspace={activeWorkspace} busy={busy} imagesConfigured={imagesConfigured} />}
-      <details className="settings-health" data-spot="settings.diagnostics"><summary>Connection diagnostics</summary><div className="readiness-grid">
-        {readinessItems(state, meta, aiChecks.codex).map((original) => original.id === 'codex' ? { id: 'ai', label: aiProvider === 'codex' ? 'Codex CLI' : 'Claude', tone: aiStatus?.ok ? 'ready' : aiStatus?.error ? 'warning' : 'neutral', detail: aiStatus?.ok ? routeSummary(aiStatus) : aiStatus?.error || 'Not checked yet.' } : original).map((item) => (
-          <article className="readiness-card" key={item.id}>
-            <Badge tone={item.tone}>{item.label}</Badge>
-            <p>{short(item.detail, 160)}</p>
-          </article>
-        ))}
-      </div>
-      </details>
-      {!semrush && sourceSettings}
       <details className="settings-block" data-spot="settings.google-docs"><summary>Google Docs <span>Import private research documents</span></summary>
         <p>Connect a Google OAuth access token with Docs read permission for imports and Drive file creation permission for delivery. Tokens expire; reconnect when prompted. You can also upload a DOCX file without a Google connection.</p>
         {state.keys.GOOGLE_SHEETS_WEBHOOK_URL && <p><small>Publishing to Google Drive uses your Sheets bridge, so this token is only needed for imports.</small></p>}
-        <label>Google Docs access token<div className="inline"><input aria-label="Google Docs access token" type="password" autoComplete="off" value={docsToken} placeholder={state.keys.GOOGLE_DOCS_ACCESS_TOKEN ? 'Stored securely on this device' : 'Paste an authorized access token'} onChange={event => setDocsToken(event.target.value)}/><Button disabled={busy || !docsToken} onClick={() => onSaveKey('GOOGLE_DOCS_ACCESS_TOKEN', docsToken).then(saved => { if (saved) setDocsToken(''); })}>Connect Docs</Button><Button className="ghost" disabled={busy} onClick={() => onClearKey('GOOGLE_DOCS_ACCESS_TOKEN')}>Disconnect</Button></div></label>
+        <label>Google Docs access token<div className="inline"><input aria-label="Google Docs access token" type="password" autoComplete="off" value={docsToken} placeholder={state.keys.GOOGLE_DOCS_ACCESS_TOKEN ? savedHere : 'Paste an authorized access token'} onChange={event => setDocsToken(event.target.value)}/><Button disabled={busy || !docsToken} onClick={() => onSaveKey('GOOGLE_DOCS_ACCESS_TOKEN', docsToken).then(saved => { if (saved) setDocsToken(''); })}>Connect Docs</Button><Button className="ghost" disabled={busy || !state.keys.GOOGLE_DOCS_ACCESS_TOKEN} onClick={() => onClearKey('GOOGLE_DOCS_ACCESS_TOKEN')}>Disconnect</Button></div></label>
       </details>
       {onSaveMondayBoard && <details className="settings-block settings-monday" open={Boolean(state.monday?.connected && !state.monday?.boardId) || undefined}><summary>Monday.com <span>{state.monday?.boardName ? `Trend board syncs to ${state.monday.boardName}` : state.monday?.connected ? 'Connected · choose a board' : 'Mirror the trend board'}</span></summary>
-        <p>Each trend on the Trend board becomes a Monday.com item, and its Status column follows the card: Potential trend, Approved, In production, Ready to use, or Passed. Use a personal API token from Monday.com (your avatar → Developers → My access tokens).</p>
-        <label>Monday.com API token<div className="inline"><input aria-label="Monday.com API token" type="password" autoComplete="off" value={mondayToken} placeholder={state.keys.MONDAY_API_TOKEN ? 'Stored securely on this device' : 'Paste a personal API token'} onChange={event => setMondayToken(event.target.value)}/><Button disabled={busy || !mondayToken} onClick={() => onSaveKey('MONDAY_API_TOKEN', mondayToken.trim()).then(saved => { if (saved) setMondayToken(''); })}>Connect</Button><Button className="ghost" disabled={busy || !state.keys.MONDAY_API_TOKEN} onClick={() => onClearKey('MONDAY_API_TOKEN')}>Disconnect</Button></div></label>
+        <p>Each trend on the Trend board becomes a Monday.com item, and its Status column follows the card with Monday’s own labels: Potential trend (Needs your OK), Approved, In production (Being written), Ready to use (Ready) or Passed (Skipped). Use a personal API token from Monday.com (your avatar → Developers → My access tokens).</p>
+        <label>Monday.com API token<div className="inline"><input aria-label="Monday.com API token" type="password" autoComplete="off" value={mondayToken} placeholder={state.keys.MONDAY_API_TOKEN ? savedHere : 'Paste a personal API token'} onChange={event => setMondayToken(event.target.value)}/><Button disabled={busy || !mondayToken} onClick={() => onSaveKey('MONDAY_API_TOKEN', mondayToken.trim()).then(saved => { if (saved) setMondayToken(''); })}>Connect</Button><Button className="ghost" disabled={busy || !state.keys.MONDAY_API_TOKEN} onClick={() => onClearKey('MONDAY_API_TOKEN')}>Disconnect</Button></div></label>
         <label>Board ID<div className="inline"><input aria-label="Monday.com board ID" inputMode="numeric" value={mondayBoard} placeholder="The number in the board’s URL, e.g. 1234567890" onChange={event => setMondayBoard(event.target.value.replace(/[^0-9]/g, ''))}/><Button disabled={busy || !state.keys.MONDAY_API_TOKEN || !mondayBoard} onClick={() => onSaveMondayBoard({ boardId: mondayBoard })}>Use this board</Button>{state.monday?.boardId && <Button className="ghost" disabled={busy} onClick={() => { setMondayBoard(''); onClearMondayBoard(); }}>Forget board</Button>}</div></label>
         {state.monday?.boardId && <p className="settings-note">Board <strong>{state.monday.boardName || state.monday.boardId}</strong> · {state.monday.statusColumnId ? 'Status column found' : 'No Status column yet'} · {state.monday.notesColumnId ? 'Long text column found for trend notes' : 'Add a Long text column to include trend notes'}{state.monday.syncedCount ? ` · ${state.monday.syncedCount} trends synced` : ''}</p>}
         {(state.monday?.warnings || []).map(warning => <p key={warning} className="settings-note">{warning}</p>)}
@@ -262,9 +280,9 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
         <div className="field-grid two">
           <label>Apps Script webhook URL
             <div className="inline">
-              <input aria-label="Apps Script webhook URL" autoComplete="off" type="password" value={sheetWebhook} placeholder={state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? 'Stored securely on this device' : 'Paste Apps Script web app URL'} onChange={(event) => setSheetWebhook(event.target.value)} />
+              <input aria-label="Apps Script webhook URL" autoComplete="off" type="password" value={sheetWebhook} placeholder={state.keys.GOOGLE_SHEETS_WEBHOOK_URL ? savedHere : 'Paste Apps Script web app URL'} onChange={(event) => setSheetWebhook(event.target.value)} />
               <Button disabled={busy || !sheetWebhook} onClick={() => { onSaveKey('GOOGLE_SHEETS_WEBHOOK_URL', sheetWebhook).then((saved) => { if (saved) setSheetWebhook(''); }); }}>Save</Button>
-              <Button className="ghost" disabled={busy} onClick={() => onClearKey('GOOGLE_SHEETS_WEBHOOK_URL')}>Clear</Button>
+              <Button className="ghost" disabled={busy || !state.keys.GOOGLE_SHEETS_WEBHOOK_URL} onClick={() => onClearKey('GOOGLE_SHEETS_WEBHOOK_URL')}>Clear</Button>
             </div>
           </label>
           <label>Working spreadsheet URL
@@ -330,6 +348,22 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
             ))}
           </div>
         )}
+      </details>
+      {!web && <StudioWebAddress settings={state.settings} busy={busy} onSaveSettings={onSaveSettings} />}
+      {setupApi?.openSetupFile && <section className="settings-block settings-setup" aria-labelledby="settings-setup-title"><div className="panel-head"><div><h3 id="settings-setup-title">Share your setup</h3><p>Give a teammate this workspace's research program and knowledge in one file, or load one they shared with you.</p></div></div><SetupShare api={setupApi} web={web} onOpenPrograms={onOpenPrograms} /></section>}
+      <details className="settings-health" data-spot="settings.diagnostics"><summary>Connection diagnostics</summary>
+        <div className="settings-diagnostics-check"><Button type="button" className="ghost" disabled={busy || checkingAi || savingAi || Boolean(imageAction)} onClick={checkConnections}>{checkingAi || imageAction === 'check' ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <ShieldCheck size={15} aria-hidden="true" />}{checkingAi || imageAction === 'check' ? 'Checking…' : 'Check connections'}</Button><small>{`Checks ${aiName}${imagesConfigured ? ' and image access' : ''} again.`}{aiProvider === 'codex' ? '' : ' Through the Claude app this sends one tiny request per model (a few cents); the API key check is free.'}</small></div>
+        <div className="readiness-grid">
+        {readinessItems(state, meta, aiChecks.codex).map((original) => original.id === 'codex' ? { id: 'ai', label: aiProvider === 'codex' ? 'Codex CLI' : 'Claude', tone: aiStatus?.ok ? 'ready' : aiStatus?.error ? 'warning' : 'neutral', detail: aiStatus?.ok ? routeSummary(aiStatus) : aiStatus?.error || 'Not checked yet. Choose Check connections.' }
+          : original.id === 'apify' ? { ...original, detail: state.keys?.APIFY_API_TOKEN ? (web ? 'Saved on the studio server' : original.detail) : 'Not connected yet. Add the token under Source collection, at the top of this page.' }
+          : web && original.id === 'workspace' ? { ...original, label: 'Studio server', tone: 'ready', detail: 'Workspace data is saved on the studio server.' }
+          : original).concat(imagesConfigured ? [{ id: 'images', label: 'Images', tone: imageCheck?.accessVerified ? 'ready' : imageCheck ? 'warning' : 'neutral', detail: imageCheck ? imageCheck.message || (imageCheck.accessVerified ? `Model access confirmed${imageCheck.model ? ` · ${imageCheck.model}` : ''}` : 'Image access needs attention.') : 'Not checked yet. Choose Check connections.' }] : []).map((item) => (
+          <article className="readiness-card" key={item.id}>
+            <Badge tone={item.tone}>{item.label}</Badge>
+            <p>{short(item.detail, 160)}</p>
+          </article>
+        ))}
+        </div>
       </details>
       <details className="settings-block"><summary>{web ? 'Studio details' : 'Local files & workspace details'}</summary>{!web && <div className="button-row">
         <Button className="ghost" disabled={busy} onClick={onOpenDataFolder}>Open data folder</Button>

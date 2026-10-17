@@ -1,0 +1,9 @@
+{
+  "limits": { "lookbackHours": [1, 168], "itemsPerPlatform": [10, 1000], "maxTargets": [1, 50], "commentsPerPost": [0, 50], "aiBudgetUsd": [0.25, 50], "collectionBudgetUsd": [0.25, 50] },
+  "presets": {
+    "lite": { "label": "Small and cheap", "itemsPerPlatform": 60, "maxTargets": { "x": 8, "linkedin": 6, "reddit": 4 }, "commentsPerPost": 0, "lookbackHours": 12, "aiBudgetUsd": 1.5, "collectionBudgetUsd": 1.5 },
+    "standard": { "label": "Balanced", "itemsPerPlatform": 200, "maxTargets": { "x": 20, "linkedin": 15, "reddit": 8 }, "commentsPerPost": 5, "lookbackHours": 24, "aiBudgetUsd": 5, "collectionBudgetUsd": 5 },
+    "deep": { "label": "Thorough", "itemsPerPlatform": 600, "maxTargets": { "x": 50, "linkedin": 40, "reddit": 20 }, "commentsPerPost": 10, "lookbackHours": 72, "aiBudgetUsd": 15, "collectionBudgetUsd": 15 }
+  },
+  "platformLabels": { "x": "X", "linkedin": "LinkedIn", "reddit": "Reddit" }
+}

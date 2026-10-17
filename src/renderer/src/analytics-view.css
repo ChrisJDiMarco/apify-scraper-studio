@@ -111,3 +111,11 @@
 }
 @media (pointer: coarse) { .app-shell.studio-frame[data-edition] .analytics-cell, .studio-frame .analytics-cell { width: 40px; height: 40px; } }
 @media (prefers-reduced-motion: reduce) { .analytics-popover { animation: none; } .analytics-month-toggle svg, .analytics-cell { transition: none; } }
+
+/* Spent this month (admins), under the funnel: one tile and what it counts. */
+.analytics-spend { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.analytics-spend .analytics-tile.is-spend { list-style: none; min-width: 240px; }
+.analytics-spend .studio-hint { flex: 1 1 260px; margin: 0; }
+.analytics-codex { display: block; margin-top: 4px; color: var(--s-warn-ink); }
+.analytics-routed { color: var(--s-soft-ink); font-weight: 600; }
+.analytics-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }

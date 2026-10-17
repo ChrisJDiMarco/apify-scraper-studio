@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, BarChart3, Check, ChevronDown, ClipboardCopy, Download, ExternalLink, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { DialogClose, copyText, trapTab, useNarrow, useToast } from './role-screens.jsx';
-import { formatDay, formatTime, plural } from './viewer.js';
+import { baseOf, formatDay, formatTime, hasCapability, plural } from './viewer.js';
 import { linkLabel, normalizeLink } from './channel-owner.jsx';
 import './analytics-view.css';
 
@@ -10,16 +10,38 @@ import './analytics-view.css';
 const RANGES = [7, 30, 90, 365];
 const list = (value) => (Array.isArray(value) ? value : []);
 const percent = (part, whole) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
-const DECISION = { approved: ['Approved', 'using'], passed: ['Passed', 'not-using'], pending: ['Not decided yet', 'generated'] };
+// One vocabulary in both layouts: Approved · Skipped · Needs your OK.
+const DECISION = { approved: ['Approved', 'using'], passed: ['Skipped', 'not-using'], pending: ['Needs your OK', 'generated'] };
+const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: Number(value) >= 100 ? 0 : 2 }).format(Number(value) || 0);
+const finite = (value) => Number.isFinite(Number(value)) && value !== null && value !== '';
+
+// "Spent this month" (admins): AI and Apify spend recorded on this workspace's runs started since the 1st, from the
+// pushed state (which carries money only for roles that see costs). A research run's own cost is counted once; its
+// report runs are content runs. Codex reports no AI cost, so a month with Codex runs says so.
+export function monthSpend(state, now = new Date()) {
+  const studio = state?.contentStudio || {};
+  const since = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const mine = (run) => !studio.activeWorkspaceId || !run?.workspaceId || run.workspaceId === studio.activeWorkspaceId;
+  const inMonth = (run) => mine(run) && Date.parse(run.createdAt || '') >= since;
+  const research = list(studio.researchRuns).filter(inMonth); const content = list(studio.contentRuns).filter(inMonth);
+  const known = [...research, ...content].some((run) => finite(run.costUsd) || finite(run.ownCostUsd));
+  if (!known) return null;
+  const ai = research.reduce((sum, run) => sum + (Number(run.ownCostUsd ?? run.costUsd) || 0), 0) + content.reduce((sum, run) => sum + (Number(run.costUsd) || 0), 0);
+  const apify = research.reduce((sum, run) => sum + (Number(run.collectionReceipt?.costUsd) || 0), 0);
+  const codex = [...research, ...content].some((run) => run.ai?.route === 'codex' || list(run.receipts).some((row) => row?.provider === 'codex'));
+  return { totalUsd: ai + apify, aiUsd: ai, apifyUsd: apify, researchRuns: research.filter((run) => run.origin !== 'quick-scan').length, quickScans: research.filter((run) => run.origin === 'quick-scan').length, assetSets: content.filter((run) => run.kit).length, codex, month: new Date(since).toLocaleDateString(undefined, { month: 'long' }) };
+}
 const STATUS_TEXT = { using: 'Using', 'not-using': 'Not for us', generated: 'Drafts made, no answer yet', none: 'No answer yet' };
 const quoteJoin = (names) => { const rows = names.map((name) => `“${name}”`); return rows.length <= 1 ? rows[0] || '' : `${rows.slice(0, -1).join(', ')} and ${rows[rows.length - 1]}`; };
 const monthKey = (trend) => String(trend.readyAt || trend.firstDetectedAt || '').slice(0, 7) || 'undated';
 const monthLabel = (key) => (key === 'undated' ? 'No date' : new Date(`${key}-01T00:00:00.000Z`).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }));
 
+// A trend routed to other channels (or not to this one) wasn't offered here.
+const routedAway = (trend, channel) => list(trend?.routedTo).length > 0 && !list(trend.routedTo).includes(channel?.id);
 // One channel's answer in words, for the cell's accessible name: "Semrush Blog: using, link added, by Alex, Oct 12".
-export function cellLabel(channel, cell = {}) {
+export function cellLabel(channel, cell = {}, trend = null) {
   const status = cell.status || 'none';
-  const words = status === 'using' ? 'using' : status === 'not-using' ? 'not for us' : status === 'generated' ? 'drafts made, no answer yet' : cell.offered === false ? (list(channel.owners).length ? 'from before the owner joined' : 'no owner yet') : 'no answer yet';
+  const words = status === 'using' ? 'using' : status === 'not-using' ? 'not for us' : status === 'generated' ? 'drafts made, no answer yet' : cell.offered === false ? (routedAway(trend, channel) ? 'sent to other channels' : list(channel.owners).length ? 'from before the owner joined' : 'no owner yet') : 'no answer yet';
   return [`${channel.name}: ${words}`, cell.link ? 'link added' : '', cell.byName ? `by ${cell.byName}` : '', cell.at ? formatDay(cell.at) : ''].filter(Boolean).join(', ');
 }
 
@@ -33,6 +55,7 @@ export function csvCell(value) {
 export function analyticsCsv(data) {
   const channels = list(data?.channels);
   const header = ['Trend', 'Decision', 'Decided by', 'Decided at', 'Brief ready', 'Channel', 'Answer', 'Link', 'Answered by', 'Answered at', 'Drafts made', 'Offered to the channel'];
+  // (Offered: routed to the channel, or to every channel, and ready while it had an owner.)
   const rows = list(data?.trends).flatMap((trend) => channels.map((channel) => {
     const cell = trend.cells?.[channel.id] || {};
     return [trend.name, DECISION[trend.decision]?.[0] || trend.decision || '', trend.decidedBy?.name || '', trend.decidedBy?.at || '', trend.readyAt || '', channel.name, STATUS_TEXT[cell.status || 'none'], cell.link || '', cell.byName || '', cell.at || '', Number(cell.assetCount) || 0, cell.offered === false ? 'No' : 'Yes'];
@@ -79,7 +102,7 @@ function CellIcon({ cell }) {
 }
 function CellButton({ trend, channel, open, onOpen }) {
   const cell = trend.cells?.[channel.id] || { status: 'none' };
-  return <button type="button" className={`analytics-cell status-${cell.status || 'none'}${cell.offered === false ? ' not-offered' : ''}`} aria-label={cellLabel(channel, cell)} aria-haspopup="dialog" aria-expanded={open} onClick={(event) => onOpen(trend, channel, event.currentTarget)}><CellIcon cell={cell} /></button>;
+  return <button type="button" className={`analytics-cell status-${cell.status || 'none'}${cell.offered === false ? ' not-offered' : ''}`} aria-label={cellLabel(channel, cell, trend)} aria-haspopup="dialog" aria-expanded={open} onClick={(event) => onOpen(trend, channel, event.currentTarget)}><CellIcon cell={cell} /></button>;
 }
 
 // One cell's detail: the link, who answered and when, and for admins a way to correct the answer.
@@ -117,7 +140,7 @@ function CellPopover({ api, open, admin, narrow = false, onClose, onChanged }) {
     onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(true); } else trapTab(event, panel.current); }}>
     <div className="analytics-popover-head"><div><small>{channel.name}</small><h3 id={titleId}>{trend.name}</h3></div><DialogClose onClose={() => onClose(true)} /></div>
     <p className={`studio-chip ${cell.status || 'none'}`}><CellIcon cell={cell} />{STATUS_TEXT[cell.status || 'none']}</p>
-    {cell.offered === false && <p className="studio-hint">{list(channel.owners).length ? 'This trend was ready before the channel’s owner joined, so it doesn’t count against them.' : 'This channel has no owner yet.'}</p>}
+    {cell.offered === false && <p className="studio-hint">{routedAway(trend, channel) ? 'This trend was sent to other channels, so it doesn’t count against this one.' : list(channel.owners).length ? 'This trend was ready before the channel’s owner joined, so it doesn’t count against them.' : 'This channel has no owner yet.'}</p>}
     {cell.link && <button type="button" className="channel-link-chip analytics-popover-link" title={cell.link} onClick={() => api.openSourceUrl?.(cell.link)}><ExternalLink size={14} aria-hidden="true" /><span>{linkLabel(cell.link)}</span></button>}
     {(cell.byName || cell.at) && <p className="studio-hint">Answered{cell.byName ? ` by ${cell.byName}` : ''}{cell.at ? ` · ${formatDay(cell.at)}` : ''}</p>}
     {Number(cell.assetCount) > 0 && <p className="studio-hint">{plural(cell.assetCount, 'draft')} made for this channel.</p>}
@@ -144,7 +167,7 @@ function MatrixTable({ data, months, openMonths, onToggle, openCell, onOpen, lab
         return <tbody key={month.key}>
           <tr className="analytics-month"><th scope="colgroup" colSpan={channels.length + 1}><button type="button" className="analytics-month-toggle" aria-expanded={expanded} onClick={() => onToggle(month.key)}><ChevronDown size={15} className={expanded ? 'open' : ''} aria-hidden="true" />{month.label}<span className="studio-count">{month.rows.length}</span></button></th></tr>
           {expanded && month.rows.map((trend) => <tr key={trend.themeId}>
-            <th scope="row" className="analytics-trend-col"><span className="analytics-trend"><strong>{trend.name}</strong><span className="analytics-trend-meta"><span className={`studio-chip ${DECISION[trend.decision]?.[1] || 'none'}`}>{DECISION[trend.decision]?.[0] || 'Not decided yet'}</span>{trend.decision !== 'pending' && <small>{trend.decidedBy ? `by ${trend.decidedBy.name}${trend.decidedBy.at ? ` · ${formatDay(trend.decidedBy.at)}` : ''}` : 'Decided by: Not recorded'}</small>}</span></span></th>
+            <th scope="row" className="analytics-trend-col"><span className="analytics-trend"><strong>{trend.name}</strong><span className="analytics-trend-meta"><span className={`studio-chip ${DECISION[trend.decision]?.[1] || 'none'}`}>{DECISION[trend.decision]?.[0] || 'Needs your OK'}</span>{trend.decision !== 'pending' && <small>{trend.decidedBy ? `by ${trend.decidedBy.name}${trend.decidedBy.at ? ` · ${formatDay(trend.decidedBy.at)}` : ''}` : 'Decided by: Not recorded'}</small>}{list(trend.routedTo).length > 0 && <small className="analytics-routed">For {trend.routedTo.map((id) => channels.find((channel) => channel.id === id)?.short || id).join(', ')}</small>}</span></span></th>
             {channels.map((channel) => <td key={channel.id}><CellButton trend={trend} channel={channel} open={openCell?.trend.themeId === trend.themeId && openCell?.channel.id === channel.id} onOpen={onOpen} /></td>)}
           </tr>)}
         </tbody>;
@@ -161,14 +184,15 @@ function MatrixCards({ data, months, openMonths, onToggle, openCell, onOpen }) {
       <button type="button" className="analytics-month-toggle" aria-expanded={expanded} onClick={() => onToggle(month.key)}><ChevronDown size={15} className={expanded ? 'open' : ''} aria-hidden="true" />{month.label}<span className="studio-count">{month.rows.length}</span></button>
       {expanded && month.rows.map((trend) => <article key={trend.themeId} className="analytics-card" aria-label={trend.name}>
         <strong>{trend.name}</strong>
-        <span className="analytics-trend-meta"><span className={`studio-chip ${DECISION[trend.decision]?.[1] || 'none'}`}>{DECISION[trend.decision]?.[0] || 'Not decided yet'}</span>{trend.decision !== 'pending' && <small>{trend.decidedBy ? `by ${trend.decidedBy.name}` : 'Decided by: Not recorded'}</small>}</span>
+        <span className="analytics-trend-meta"><span className={`studio-chip ${DECISION[trend.decision]?.[1] || 'none'}`}>{DECISION[trend.decision]?.[0] || 'Needs your OK'}</span>{trend.decision !== 'pending' && <small>{trend.decidedBy ? `by ${trend.decidedBy.name}` : 'Decided by: Not recorded'}</small>}{list(trend.routedTo).length > 0 && <small className="analytics-routed">For {trend.routedTo.map((id) => channels.find((channel) => channel.id === id)?.short || id).join(', ')}</small>}</span>
         <ul className="analytics-strip">{channels.map((channel) => <li key={channel.id}><CellButton trend={trend} channel={channel} open={openCell?.trend.themeId === trend.themeId && openCell?.channel.id === channel.id} onOpen={onOpen} /><span aria-hidden="true">{channel.short || channel.name}</span></li>)}</ul>
       </article>)}
     </section>;
   })}</div>;
 }
 
-export function AnalyticsView({ api, viewer = {}, web = false }) {
+// `state` (optional) adds the admin-only Spent this month tile; `onFindTrends` adds Find new trends to an empty range.
+export function AnalyticsView({ api, viewer = {}, web = false, state = null, onFindTrends }) {
   const [days, setDays] = useState(90);
   const [includeAll, setIncludeAll] = useState(false);
   const [data, setData] = useState(null);
@@ -184,6 +208,8 @@ export function AnalyticsView({ api, viewer = {}, web = false }) {
   const matrixTitle = useId();
   const available = typeof api?.getTrendAnalytics === 'function';
   const admin = (viewer.realRole || viewer.role || 'admin') === 'admin' && !viewer.preview;
+  // Money only for an admin who sees costs (in a preview, as the previewed role would).
+  const spend = useMemo(() => ((baseOf(viewer) || 'admin') === 'admin' && hasCapability(viewer, 'seeCosts') ? monthSpend(state) : null), [state?.contentStudio, viewer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!available) { setLoading(false); return undefined; }
@@ -239,11 +265,12 @@ export function AnalyticsView({ api, viewer = {}, web = false }) {
     {data && <>
       <ol className="analytics-funnel" aria-label="From trend to use">
         <li className="analytics-tile"><strong>{totals.trendsFound ?? 0}</strong><span>Trends found</span><small>In the last {days} days</small></li>
-        <li className="analytics-tile"><strong>{totals.approved ?? 0}</strong><span>Approved</span><small>{totals.passed ?? 0} passed · {totals.pending ?? 0} not decided</small></li>
+        <li className="analytics-tile"><strong>{totals.approved ?? 0}</strong><span>Approved</span><small>{totals.passed ?? 0} skipped · {totals.pending ?? 0} {(totals.pending ?? 0) === 1 ? 'needs' : 'need'} your OK</small></li>
         <li className="analytics-tile"><strong>{totals.briefsReady ?? 0}</strong><span>Briefs ready</span><small>{plural(totals.assetsGenerated ?? 0, 'draft')} made from them</small></li>
         <li className="analytics-tile is-key"><strong>{totals.inUse ?? 0} of {totals.briefsReady ?? 0}</strong><span>In use by a channel</span><small>{percent(totals.inUse ?? 0, totals.briefsReady ?? 0)}% of ready briefs</small></li>
         <li className="analytics-tile"><strong>{totals.linksAdded ?? 0}</strong><span>Links added</span><small>Where channels used them</small></li>
       </ol>
+      {spend && <section className="analytics-spend" aria-label="Spent this month"><div className="analytics-tile is-spend"><strong>{money(spend.totalUsd)}</strong><span>Spent this month</span><small>{[`AI ${money(spend.aiUsd)}`, spend.apifyUsd ? `Apify ${money(spend.apifyUsd)}` : '', plural(spend.researchRuns, 'research run'), spend.quickScans ? plural(spend.quickScans, 'quick scan') : '', plural(spend.assetSets, 'asset set')].filter(Boolean).join(' · ')}</small>{spend.codex && <small className="analytics-codex">AI spend isn’t reported on Codex.</small>}</div><p className="studio-hint">Runs started since {spend.month} 1 in this workspace. Every paid run still shows its estimate before it starts.</p></section>}
 
       <section className="analytics-section" aria-labelledby="analytics-channels-title">
         <h2 id="analytics-channels-title" className="studio-section-title">Channels</h2>
@@ -268,10 +295,10 @@ export function AnalyticsView({ api, viewer = {}, web = false }) {
       <section className="analytics-section">
         <div className="analytics-section-head">
           <h2 id={matrixTitle} className="studio-section-title">Trends × channels</h2>
-          <div className="studio-filters"><button type="button" aria-pressed={includeAll} onClick={() => { setIncludeAll((value) => !value); setOpenCell(null); }}>Show passed and pending</button></div>
+          <div className="studio-filters"><button type="button" aria-pressed={includeAll} onClick={() => { setIncludeAll((value) => !value); setOpenCell(null); }}>Show skipped and waiting</button></div>
         </div>
         <div className="analytics-legend" aria-hidden="true">{[['using', 'Using'], ['using has-link', 'Link added'], ['generated', 'Drafts made'], ['not-using', 'Not for us'], ['none', 'No answer']].map(([status, text]) => <span key={text}><span className={`analytics-cell is-key status-${status.split(' ')[0]}`}><CellIcon cell={{ status: status.split(' ')[0], link: status.includes('link') }} /></span>{text}</span>)}</div>
-        {!months.length ? <div className="studio-empty"><BarChart3 size={24} aria-hidden="true" /><p>No trends in this range yet.</p>{days < 365 && <button type="button" className="studio-quiet small" onClick={() => setDays(365)}>Show the last 365 days<ArrowRight size={14} aria-hidden="true" /></button>}</div>
+        {!months.length ? <div className="studio-empty"><BarChart3 size={24} aria-hidden="true" /><p>No briefs were ready in the last {days} days. {days < 365 ? 'Show the last 365 days, or find new trends.' : 'Find new trends: approved trends get a brief, and each channel’s answers show up here.'}</p><div className="analytics-empty-actions">{days < 365 && <button type="button" className="studio-quiet small" onClick={() => setDays(365)}>Show the last 365 days<ArrowRight size={14} aria-hidden="true" /></button>}{onFindTrends && <button type="button" className="studio-quiet small" onClick={onFindTrends}>Find new trends<ArrowRight size={14} aria-hidden="true" /></button>}</div></div>
           : narrow ? <MatrixCards data={data} months={months} openMonths={openMonths} onToggle={toggleMonth} openCell={openCell} onOpen={openPopover} />
           : <MatrixTable data={data} months={months} openMonths={openMonths} onToggle={toggleMonth} openCell={openCell} onOpen={openPopover} labelledBy={matrixTitle} />}
       </section>

@@ -452,7 +452,7 @@ describe('Ask AI', () => {
     expect(editor).toContain('Pictures are off. Ask an admin to turn them on.');
     expect(editor).not.toContain('Settings → Image generation');
     expect(editor).not.toMatch(/^(settings\.[\w-]+|nav\.(settings|people|analytics|workspace)):/m);
-    expect(editor).not.toContain('knowledge = Brand knowledge'); expect(editor).toContain('open-tab: target = home, reports, trends, assets or ask.');
+    expect(editor).not.toContain('knowledge = Brand knowledge'); expect(editor).toContain('open-tab: target = home, trends, reports, assets, inbox, calendar or ask.');
     const admin = help.helpPrompt({ question: 'Can I make pictures?', context: { layout: 'classic' }, guide: '' });
     expect(admin).toContain('Settings → Image generation'); expect(admin).toMatch(/^nav\.settings:/m); expect(admin).toContain('the Advanced layout');
     expect(help.helpSchema(undefined, { role: 'editor' }).properties.pages.items.properties.page.enum).not.toContain('settings');
@@ -462,6 +462,47 @@ describe('Ask AI', () => {
     expect(reply.actions).toEqual([{ kind: 'open-tab', label: 'Trends', target: 'trends' }]);
     expect(reply.show.steps.map((step) => step.target)).toEqual(['nav.trends']);
     expect(help.cleanReply(raw, { role: 'admin' }).show.steps).toHaveLength(4);
+  });
+  it('reads a prompt, then offers one checked edit as a prompt-change card that saves only on Apply', async () => {
+    const blank = { promptId: '', blockId: '', text: '', note: '' };
+    const first = { answer: 'Checking that prompt.', pages: [], followUps: [], actions: [], show: { autoStart: false, steps: [] }, lookups: [{ kind: 'prompt', target: 'Find candidate trends' }] };
+    const proposal = { promptId: 'research.discovery', blockId: 'empty', text: 'Return no candidates when the batch has no specific trend backed by at least two posts.', note: 'Asks for two posts per trend.' };
+    const second = { answer: 'Here is a stricter rule to review.', pages: [], followUps: [], actions: [{ kind: 'edit-prompt', label: 'Review the change', target: 'Find candidate trends', prompt: proposal }, { kind: 'edit-prompt', label: 'A second edit', target: 'Find candidate trends', prompt: { ...proposal, blockId: 'role' } }, { kind: 'open-tab', label: 'Trends', target: 'trends', prompt: blank }], show: { autoStart: false, steps: [] }, lookups: [], cards: [] };
+    const app = mainHarness({ cliResults: [{ stdout: claudeSuccess({ ok: true }) }, { stdout: claudeSuccess(first) }, { stdout: claudeSuccess(second) }] });
+    const reply = await app.invoke('help:ask', { question: 'Make finding trends stricter', page: { id: 'simple-mode', layout: 'simple' }, requestId: 'req-prompt-1234' });
+    const calls = app.spawns.filter((spawn) => spawn.args.includes('--print') && spawn.stdin.includes('You are Ask AI'));
+    expect(calls).toHaveLength(2);
+    expect(calls[0].stdin).toContain('PROMPTS (the instructions behind research');
+    expect(calls[0].stdin).toContain('edit-prompt: target');
+    expect(calls[0].stdin).toContain('"id": "research.discovery"');
+    expect(JSON.parse(calls[0].args[calls[0].args.indexOf('--json-schema') + 1]).properties.actions.items.properties.prompt.properties.promptId.enum).toContain('research.discovery');
+    expect(calls[1].stdin).toContain('"kind": "editable"');
+    // One edit per reply; nothing was saved by the answer itself.
+    expect(reply.message.actions.map((action) => action.kind)).toEqual(['edit-prompt', 'open-tab']);
+    expect((await app.invoke('studio:readPrompt', { id: 'research.discovery' })).version).toBe(0);
+    const card = reply.message.cards.find((row) => row.type === 'prompt-change');
+    expect(card).toMatchObject({ actionIndexes: [0], data: { promptId: 'research.discovery', blockId: 'empty', blockLabel: 'When nothing qualifies', version: 0, nextVersion: 1, problems: [], canApply: true, locked: false, text: proposal.text } });
+    expect(card.data.diff.map((line) => line.op)).toEqual(['del', 'add']);
+    const saved = await app.invoke('studio:savePromptVersion', { id: 'research.discovery', blocks: { empty: card.data.text }, expectedVersion: card.data.version, note: card.data.note, source: 'ask-ai', conversationId: reply.conversation.id });
+    expect(saved).toMatchObject({ version: 1, changed: true });
+    expect(saved.detail.history[0]).toMatchObject({ source: 'ask-ai', conversationId: reply.conversation.id, note: 'Asks for two posts per trend.' });
+  });
+  it('checks a prompt edit against the studio’s rules and the lock, and keeps prompt features from callers without access', async () => {
+    const broken = { answer: 'Shorter fields.', pages: [], followUps: [], actions: [{ kind: 'edit-prompt', label: 'Review', target: 'Find candidate trends', prompt: { promptId: 'research.discovery', blockId: 'fields', text: 'Return names only.', note: 'Shorter.' } }], show: { autoStart: false, steps: [] }, lookups: [], cards: [] };
+    const app = mainHarness({ cliResults: [{ stdout: claudeSuccess({ ok: true }) }, { stdout: claudeSuccess(broken) }] });
+    await app.invoke('studio:setPromptLock', { id: 'research.discovery', locked: true });
+    const reply = await app.invoke('help:ask', { question: 'Shorter fields', page: { layout: 'classic' }, requestId: 'req-prompt-5678' });
+    const card = reply.message.cards.find((row) => row.type === 'prompt-change');
+    expect(card.data).toMatchObject({ canApply: false, locked: true });
+    expect(card.data.problems).toEqual(expect.arrayContaining([expect.stringContaining('must keep {{painPoints}}')]));
+    const help = mainRequire('./help-assistant');
+    const none = help.helpPrompt({ question: 'Change a prompt', context: { layout: 'simple', role: 'editor' }, guide: '' });
+    expect(none).not.toContain('PROMPTS (the instructions');
+    expect(none).not.toContain('edit-prompt');
+    expect(help.helpSchema(undefined, { role: 'editor' }).properties.actions.items.properties.prompt).toBeUndefined();
+    const readOnly = help.helpPrompt({ question: 'Change a prompt', context: { layout: 'simple', role: 'editor' }, guide: '', promptAccess: { view: true, edit: false } });
+    expect(readOnly).toContain('They can read prompts here but not change them.');
+    expect(readOnly).not.toContain('edit-prompt:');
   });
   it('turns away empty or oversized questions without calling Claude', async () => {
     const app = mainHarness();

@@ -23,7 +23,7 @@ function MarketingStarters({ onNavigate }) {
     <section className="marketing-starters" aria-labelledby="marketing-starters-title">
       <div className="section-heading">
         <div><h3 id="marketing-starters-title">Start with a question worth answering.</h3><p>Choose a ready-made research brief. Add your context and the pages you want to explore.</p></div>
-        <Button className="text-button" onClick={() => onNavigate('templates')}>Explore all 8 playbooks<ArrowRight size={14} /></Button>
+        <Button className="text-button" onClick={() => onNavigate('templates')}>{`Explore all ${MARKETING_TEMPLATES.length} playbooks`}<ArrowRight size={14} /></Button>
       </div>
       <div className="marketing-starter-grid">
         {STARTERS.map(({ id, icon: Icon, label, tone }) => {
@@ -51,7 +51,8 @@ function ResearchNextSteps({ state, onNavigate }) {
   return <section className="home-research-next" aria-labelledby="home-research-next-title"><div className="section-heading"><div><h3 id="home-research-next-title">Keep the research moving.</h3><p>{actions.length} open {actions.length === 1 ? 'action' : 'actions'} · {dueChecks.length} source {dueChecks.length === 1 ? 'check' : 'checks'} due</p></div><span className="section-caption">YOUR NEXT STEPS</span></div><div className="home-next-grid">{actions.slice(0, 3).map((action) => <button type="button" key={`${action.analysisId}-${action.id}`} onClick={() => onNavigate('reports', { analysisId: action.analysisId, datasetId: state.analyses?.find((analysis) => analysis.id === action.analysisId)?.datasetId })}><span className="home-next-icon"><FileText size={17} aria-hidden="true" /></span><span><strong>{action.title}</strong><small>{action.owner || 'Unassigned'} · {action.dueDate ? `Due ${action.dueDate}` : 'No due date'}</small></span><ArrowRight size={14} aria-hidden="true" /></button>)}{dueChecks.slice(0, 2).map((monitor) => <button type="button" key={monitor.id} onClick={() => onNavigate('compare')}><span className="home-next-icon"><History size={17} aria-hidden="true" /></span><span><strong>{monitor.name}</strong><small>Source check due · collect and compare manually</small></span><ArrowRight size={14} aria-hidden="true" /></button>)}</div></section>;
 }
 
-export function HomeView({ state, onNavigate }) {
+// `web`: the browser studio, where the workspace lives on the studio server rather than this Mac.
+export function HomeView({ state, onNavigate, web = false }) {
   const metrics = summarizeStudio(state);
   const connected = metrics.apifyConnected;
   const hasData = state.datasets.length > 0;
@@ -62,11 +63,11 @@ export function HomeView({ state, onNavigate }) {
     { label: 'Explore your data', detail: 'Find something useful', done: hasData, view: hasData ? 'datasets' : 'automation' },
   ];
   const nextStep = setup.findIndex((step) => !step.done);
-  const recent = [...(state.runs || []).map((run) => ({ ...run, kind: 'scrape', title: state.recipes.find((recipe) => recipe.id === run.recipeId)?.name || run.recipeName || 'Scraper run' })), ...(state.analyses || []).map((run) => ({ ...run, title: run.reportPresetName || `${run.kind === 'report' ? 'AI report' : 'Dataset analysis'}` }))].sort((a, b) => new Date(b.startedAt || b.createdAt || 0) - new Date(a.startedAt || a.createdAt || 0)).slice(0, 4);
+  const recent = [...(state.runs || []).map((run) => ({ ...run, kind: 'scrape', title: state.recipes.find((recipe) => recipe.id === run.recipeId)?.name || run.recipeName || 'Scraper run' })), ...(state.analyses || []).map((run) => ({ ...run, title: run.reportPresetName || `${run.kind === 'report' ? 'Dataset report' : 'Dataset analysis'}` }))].sort((a, b) => new Date(b.startedAt || b.createdAt || 0) - new Date(a.startedAt || a.createdAt || 0)).slice(0, 4);
   return (
     <section className="home-view marketing-home">
       <div className="page-heading">
-        <div><div className="eyebrow"><span />YOUR LOCAL RESEARCH WORKSPACE</div><h2>Research your market. <span>Make your next move.</span></h2><p>Turn the pages you trust into a brief your marketing team can use.</p></div>
+        <div><div className="eyebrow"><span />{web ? 'YOUR SHARED RESEARCH STUDIO' : 'YOUR LOCAL RESEARCH WORKSPACE'}</div><h2>Research your market. <span>Make your next move.</span></h2><p>Turn the pages you trust into a brief your marketing team can use.</p></div>
         <Button className="ghost" onClick={() => onNavigate('automation', { create: true })}><Plus size={16} />New scraper</Button>
       </div>
       <div className="home-search-entry"><div><strong>What would you like to research?</strong><p>Search Reddit, X, and LinkedIn with your connected scrapers. Ask questions about what you find.</p></div><Button onClick={() => onNavigate('search')}>Search platforms<ArrowRight size={16} /></Button></div><div className="marketing-home-intro">
@@ -84,10 +85,10 @@ export function HomeView({ state, onNavigate }) {
       <div className="home-metrics" aria-label="Workspace totals">{[
         { title: 'Saved scrapers', value: metrics.recipes, icon: Globe2, view: 'automation', detail: 'Your reusable collections' },
         { title: 'Collected rows', value: metrics.totalItems, icon: Database, view: 'datasets', detail: `${number(metrics.datasets)} datasets in your workspace` },
-        { title: 'AI reports', value: reports.length, icon: FileText, view: 'reports', detail: 'Completed and ready to review' },
+        { title: 'Dataset reports', value: reports.length, icon: FileText, view: 'reports', detail: 'Completed and ready to review' },
       ].map(({ title, value, icon: Icon, view, detail }) => <button className="home-metric" key={title} onClick={() => onNavigate(view)}><div><span>{title}</span><Icon size={17} /></div><strong>{number(value)}</strong><small>{detail}<ArrowRight size={13} /></small></button>)}</div>
-      <div className="home-bottom"><section className="recent-section"><div className="section-heading"><h3>Recent activity</h3><Button className="text-button" onClick={() => onNavigate('runs')}>View activity<ArrowRight size={14} /></Button></div>{recent.length ? <div className="recent-list">{recent.map((item) => <button className="recent-row" key={`${item.kind}-${item.id}`} onClick={() => onNavigate(item.kind === 'scrape' ? 'runs' : 'reports', { datasetId: item.datasetId })}><span className="recent-icon">{item.kind === 'scrape' ? <Globe2 size={17} /> : <Sparkles size={17} />}</span><div><strong>{item.title}</strong><small>{formatDate(item.startedAt || item.createdAt)}</small></div><Badge tone={statusTone(item.status)}>{item.status || 'Pending'}</Badge></button>)}</div> : <div className="quiet-empty"><span><History size={22} strokeWidth={1.5} /></span><div><strong>A fresh start.</strong><p>Your collections and analyses will appear here as you go.</p></div></div>}</section><aside className="home-tip"><span className="tip-icon"><Workflow size={18} /></span><div><span className="eyebrow">BUILT FOR YOUR FLOW</span><h3>A starting point you can reuse.</h3><p>Keep your source collection for the next research question. Review the results, export a CSV, or ask your AI assistant to draft a report.</p><Button className="text-button" onClick={() => onNavigate('automation')}>Explore scrapers<ArrowRight size={14} /></Button></div></aside></div>
-      <footer className="home-footer"><span><ShieldCheck size={13} />Workspace files are stored on this Mac</span><span>Collection uses Apify · Writing and analysis use {state.settings?.aiProvider === 'codex' ? 'Codex' : 'Claude'}</span></footer>
+      <div className="home-bottom"><section className="recent-section"><div className="section-heading"><h3>Recent activity</h3><Button className="text-button" onClick={() => onNavigate('runs')}>View activity<ArrowRight size={14} /></Button></div>{recent.length ? <div className="recent-list">{recent.map((item) => <button className="recent-row" key={`${item.kind}-${item.id}`} onClick={() => onNavigate(item.kind === 'scrape' ? 'runs' : 'reports', { datasetId: item.datasetId })}><span className="recent-icon">{item.kind === 'scrape' ? <Globe2 size={17} /> : <Sparkles size={17} />}</span><div><strong>{item.title}</strong><small>{formatDate(item.startedAt || item.createdAt) || 'Not started'}</small></div><Badge tone={statusTone(item.status)}>{item.status || 'Pending'}</Badge></button>)}</div> : <div className="quiet-empty"><span><History size={22} strokeWidth={1.5} /></span><div><strong>A fresh start.</strong><p>Your collections and analyses will appear here as you go.</p></div></div>}</section><aside className="home-tip"><span className="tip-icon"><Workflow size={18} /></span><div><span className="eyebrow">BUILT FOR YOUR FLOW</span><h3>A starting point you can reuse.</h3><p>Keep your source collection for the next research question. Review the results, export a CSV, or ask your AI assistant to draft a report.</p><Button className="text-button" onClick={() => onNavigate('automation')}>Explore scrapers<ArrowRight size={14} /></Button></div></aside></div>
+      <footer className="home-footer"><span><ShieldCheck size={13} />{web ? 'Workspace files are saved on the studio server' : 'Workspace files are stored on this Mac'}</span><span>Collection uses Apify · Writing and analysis use {state.settings?.aiProvider === 'codex' ? 'Codex' : 'Claude'}</span></footer>
     </section>
   );
 }

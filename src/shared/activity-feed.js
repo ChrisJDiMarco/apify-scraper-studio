@@ -55,7 +55,7 @@ export function buildActivity(state = {}) {
   }
   for (const run of list(studio.researchRuns)) {
     const finished = !ACTIVE.has(run.status);
-    add({ id: run.id, kind: 'research', title: programs.get(run.programId) || run.title || 'Research run', subtitle: run.status === 'awaiting-review' ? `${list(run.discoveredThemes || run.themes).length} trends waiting for your OK` : humanizeRunMessage(run.message), status: run.status || 'idle', startedAt: run.createdAt, finishedAt: finished ? run.updatedAt : '', costUsd: run.costUsd, error: errorText(run.error), studioRunId: run.id, raw: run });
+    add({ id: run.id, kind: 'research', title: (run.origin === 'quick-scan' ? run.title : programs.get(run.programId)) || run.title || 'Research run', subtitle: run.status === 'awaiting-review' ? `${list(run.discoveredThemes || run.themes).length} trends waiting for your OK` : humanizeRunMessage(run.message), status: run.status || 'idle', startedAt: run.createdAt, finishedAt: finished ? run.updatedAt : '', costUsd: run.costUsd, error: errorText(run.error), studioRunId: run.id, raw: run });
   }
   for (const run of list(studio.contentRuns)) {
     const finished = !ACTIVE.has(run.status);

@@ -36,7 +36,7 @@ async function openSimple({ askHelp } = {}) {
   };
   window.apifyStudio = api;
   render(<App />);
-  await screen.findByRole('heading', { level: 1, name: /Good (morning|afternoon|evening)/ });
+  await screen.findByRole('heading', { level: 1, name: /^This week in/ }); // Home is the weekly briefing
   return api;
 }
 const tab = (name) => fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: new RegExp(name) }));
@@ -108,7 +108,7 @@ describe('Assets: report folders of channel assets', () => {
   it('opens the asset dialog on the report being read', async () => {
     const api = await openSimple();
     tab('Reports');
-    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${TREND} — Comprehensive`) }));
+    fireEvent.click((await screen.findAllByRole('button', { name: new RegExp(`^${TREND}`) }))[0]); // one row per trend, named after it
     fireEvent.click(await screen.findByRole('button', { name: 'Make channel assets' }));
     await waitFor(() => expect(api.planAssetKit).toHaveBeenCalledWith({ source: { kind: 'report', assetId: 'asset-report' } }));
     expect(await screen.findByText('1 earlier run in its folder', { exact: false })).toBeInTheDocument();

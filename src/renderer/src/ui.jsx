@@ -47,9 +47,12 @@ export function number(value) {
   return new Intl.NumberFormat().format(Number(value) || 0);
 }
 
+// A missing or unreadable date is '' so a caller's own fallback (or filter(Boolean)) decides what shows; runs that
+// haven't started say so themselves (`formatDate(run.startedAt) || 'Not started'`).
 export function formatDate(value) {
-  if (!value) return 'Not started';
-  return new Date(value).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 export function statusTone(status) {

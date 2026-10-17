@@ -17,6 +17,10 @@ const kit = () => require('../shared/asset-kit');
 const brandImages = () => require('../shared/brand-images');
 // Reports edited in the studio: Markdown → safe HTML for the edited copy's page.
 const { markdownToHtml, splitTitle } = require('./markdown-html');
+// Prompt Library (SPEC-2 §A): saved prompt versions per workspace; each run keeps its own copy (input.prompts).
+const { createPromptStore } = require('./prompt-store');
+const { snapshotBlocks, REGISTRY: PROMPT_REGISTRY } = require('../shared/prompt-template');
+const promptLabModule = () => require('./prompt-lab');
 // Refusals people read (copy lives in the roles policy data so every screen and doc says the same thing).
 const { copy: COPY } = require('../shared/roles.json');
 const say = (key, vars = {}) => COPY[key].replace(/\{(\w+)\}/g, (_, name) => (vars[name] == null ? '' : String(vars[name])));
@@ -44,7 +48,15 @@ const LEGACY_SEMRUSH_BRAND_FIELDS = Object.freeze({
 // actor() names the person calling a public method ({ id, name }). It is read once, synchronously, at the start of each
 // public method and passed down: the host's call context also follows background work a call starts, so reading it inside
 // a run would credit later automatic steps to whoever started the run.
-function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM } = {}) {
+// getAiProvider (optional, may be async) resolves the AI route in use ('claude' | 'claude-api' | 'codex'), which the "auto"
+// setting alone can't tell; without it the setting decides.
+// getCallerRole (optional) names the caller's role ('admin', 'editor', a custom role id…), read at the entry of the prompt
+// methods like actor(): prompt saves are credited with it and only 'admin' may change a locked prompt or lock one. Without
+// it (tests, a single-person host) the caller counts as an admin. trackJob (optional) registers a cancellable job in the
+// host's job tray ({ id, kind, title, cancellable } → { finish(patch), fail(error), cancelled() }) for prompt test runs.
+// getCallerCapabilities (optional) lists the caller's capability ids ('*' = all): a Prompt Library preview or test uses a
+// recent run's data only when the caller may read it. Without it the caller holds everything.
+function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, trackJob } = {}) {
   if (!root || typeof runAI !== 'function') throw new Error('Studio storage and AI host are required.');
   const stamp = () => new Date(clock()).toISOString();
   const who = () => { let value = null; try { value = actor(); } catch (_) { value = null; } return { id: String(value?.id || SYSTEM.id).slice(0, 320), name: String(value?.name || SYSTEM.name).slice(0, 120) }; };
@@ -69,6 +81,24 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   function write(target, data) { writeBytes(target, JSON.stringify(data, null, 2)); }
   function read(target) { return JSON.parse(fs.readFileSync(target, 'utf8')); }
   function save() { write(stateFile, state); emit(); }
+  // ---------- Prompt Library: saved versions (prompts/<workspaceId>/), and the copy each run starts with ----------
+  const prompts = createPromptStore({ root: path.join(root, 'prompts'), now: clock });
+  const callerRole = () => { if (typeof getCallerRole !== 'function') return 'admin'; try { return String(getCallerRole() || ''); } catch (_) { return ''; } };
+  const callerCaps = () => { if (typeof getCallerCapabilities !== 'function') return new Set(['*']); try { const caps = getCallerCapabilities(); return new Set(Array.isArray(caps) ? caps : []); } catch (_) { return new Set(); } };
+  const PROMPT_IDS = new Set(PROMPT_REGISTRY.prompts.map(entry => entry.id));
+  const RESEARCH_PROMPTS = ['research.discovery', 'research.synthesis', 'research.matching', 'research.tagging', 'reports.trends-report', 'reports.editorial-toolkit', 'system.repair'];
+  const REPORT_PROMPTS = ['reports.trends-report', 'reports.editorial-toolkit', 'system.repair'];
+  const isTextDeliverable = deliverableId => content.CONTENT_DELIVERABLES.find(d => d.id === deliverableId)?.kind === 'text';
+  // The prompts channel assets (kit) or Create content drafts are written with. Kit pictures go through a brief; Create
+  // content pictures use the content-image prompt.
+  function assetPromptIds(deliverableIds = [], { kit: isKit = false } = {}) {
+    const pictures = deliverableIds.some(id => !isTextDeliverable(id));
+    return ['assets.shared', ...deliverableIds.filter(isTextDeliverable).map(id => `assets.${id}`), ...(pictures ? ['pictures.direction', 'pictures.variations', ...(isKit ? ['pictures.kit-brief', 'pictures.kit-image'] : ['pictures.content-image'])] : []), ...(isKit ? ['system.repair'] : [])].filter(id => PROMPT_IDS.has(id));
+  }
+  const promptSnapshot = (w, ids) => prompts.snapshot(w.id, w.editionId, ids);
+  const pickPrompts = (snapshot, ids) => Object.fromEntries(Object.entries(snapshot || {}).filter(([promptId]) => ids.includes(promptId)));
+  // run.prompts: the version of each prompt a run started with, for receipts ("Custom prompts: Find candidate trends v3").
+  const promptRecord = snapshot => Object.fromEntries(Object.entries(snapshot || {}).map(([promptId, entry]) => [promptId, { version: entry.version, custom: Boolean(entry.custom) }]));
   function migrateSemrushBrandDefaults() {
     let changed = false;
     for (const w of state.workspaces) {
@@ -118,7 +148,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // Reference documents can be long; state carries their metadata and readReferenceDoc returns the text.
     // Brand reference images arrive grouped by picture set; readBrandImage returns a picture's bytes.
     const activeView = w => ({ ...w, referenceDocs: (w.referenceDocs || []).map(({ text, ...doc }) => ({ ...doc, characters: String(text || '').length })), brandImageSets: brandImages().brandImageFamilies(w.editionId).map(family => ({ ...family, images: (w.brandImages || []).filter(image => image.family === family.id) })) });
-    return { activeWorkspaceId: state.activeWorkspaceId, workspaces: copy(state.workspaces.map(w => w.id === state.activeWorkspaceId ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() } };
+    return { activeWorkspaceId: state.activeWorkspaceId, workspaces: copy(state.workspaces.map(w => w.id === state.activeWorkspaceId ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() }, promptChanges: recentPromptChanges() };
   }
   function updateScheduledRun(run) {
     if (!run.scheduledFor) return;
@@ -223,14 +253,18 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       // their prompts, schemas and validation, and the toolkit is generated from the report.
       const deliverables = ['evidence-report', 'editorial-toolkit'].map(key => content.CONTENT_DELIVERABLES.find(d => d.id === key));
       const docs = w.referenceDocs || [];
-      const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), referenceDocs: copy(docs), enterpriseProducts: copy(w.enterpriseProducts || (w.editionId === 'semrush' ? SEMRUSH_ENTERPRISE_PRODUCTS : [])), deliverableIds: deliverables.map(d => d.id), research: true };
+      // Report runs write with the prompts their research run started with (its input.prompts); older runs have none.
+      let parentPrompts = null; if (payload.researchRunId) { try { parentPrompts = read(file(payload.researchRunId, 'input.json')).prompts || null; } catch (_) { parentPrompts = null; } }
+      const reportPrompts = pickPrompts(parentPrompts, REPORT_PROMPTS); const hasPrompts = Object.keys(reportPrompts).length > 0;
+      const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), referenceDocs: copy(docs), enterpriseProducts: copy(w.enterpriseProducts || (w.editionId === 'semrush' ? SEMRUSH_ENTERPRISE_PRODUCTS : [])), deliverableIds: deliverables.map(d => d.id), research: true, ...(hasPrompts ? { prompts: reportPrompts } : {}) };
       const warnings = [...(!w.products?.length ? ['No product registry is loaded, so the toolkit’s Enterprise and self-serve angles will state the gap instead of naming products.'] : []), ...(!docs.some(doc => doc.kind === 'registry') && w.products?.length ? ['The toolkit uses the structured registry; add the registry document for the model’s full tool descriptions.'] : [])];
-      const run = { id: id('content'), workspaceId: w.id, type: 'content', title: source.title || 'Research report', sourceAssetId: undefined, researchRunId: payload.researchRunId, themeId: payload.themeId, ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings, ai: payload.ai || null, jobs: deliverables.map(d => ({ id: d.id, label: w.editionId === 'semrush' && d.id === 'evidence-report' ? 'Comprehensive trends report' : d.id === 'editorial-toolkit' ? 'Editorial toolkit brief' : d.label, kind: 'text', status: 'queued' })) };
+      const run = { id: id('content'), workspaceId: w.id, type: 'content', title: source.title || 'Research report', sourceAssetId: undefined, researchRunId: payload.researchRunId, themeId: payload.themeId, ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings, ai: payload.ai || null, ...(hasPrompts ? { prompts: promptRecord(reportPrompts) } : {}), jobs: deliverables.map(d => ({ id: d.id, label: w.editionId === 'semrush' && d.id === 'evidence-report' ? 'Comprehensive trends report' : d.id === 'editorial-toolkit' ? 'Editorial toolkit brief' : d.label, kind: 'text', status: 'queued' })) };
       delete run.sourceAssetId;
       write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save(); return run;
     }
-    const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds: payload.deliverableIds, imageVariants: payload.imageVariants };
-    const plan = content.buildContentPlan(input); const run = { id: id('content'), workspaceId: w.id, type: 'content', title: source.title || 'Content campaign', ...(source.kind === 'report' && source.id ? { sourceAssetId: source.id } : {}), ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, jobs: plan.deliverables.map(d => ({ id: d.id, label: d.label, kind: d.kind, status: 'queued' })) };
+    const snapshot = promptSnapshot(w, assetPromptIds((Array.isArray(payload.deliverableIds) ? payload.deliverableIds : []).filter(key => typeof key === 'string')));
+    const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds: payload.deliverableIds, imageVariants: payload.imageVariants, prompts: snapshot };
+    const plan = content.buildContentPlan(input); const run = { id: id('content'), workspaceId: w.id, type: 'content', title: source.title || 'Content campaign', ...(source.kind === 'report' && source.id ? { sourceAssetId: source.id } : {}), ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, prompts: promptRecord(snapshot), jobs: plan.deliverables.map(d => ({ id: d.id, label: d.label, kind: d.kind, status: 'queued' })) };
     write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save(); return run;
   }
   // ---------- Asset kits (n8n Golden Thread v2: every channel asset from one report) ----------
@@ -279,11 +313,14 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     }
     if (!deliverableIds.length) throw new Error('Choose at least one asset to make.');
     if (!imagesReady && deliverableIds.some(id => kindOf(id) === 'image')) throw new Error('Turn on pictures in Settings first, or leave the pictures out.');
-    const input = { editionId: w.editionId, source: picked.source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds, imageVariants: 3 };
+    // One snapshot of every offered asset's prompts prices the plan and becomes the run's copy (only the chosen ones), so
+    // the estimate someone approves is built from the same text the run writes with.
+    const promptsAll = promptSnapshot(w, assetPromptIds(offered, { kit: true }));
+    const input = { editionId: w.editionId, source: picked.source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds, imageVariants: 3, prompts: pickPrompts(promptsAll, assetPromptIds(deliverableIds, { kit: true })) };
     const plan = content.buildContentPlan(input);
     const ai = kit().kitAi(state.programs.filter(program => program.workspaceId === w.id));
     const references = kitReferenceCounts(w);
-    return { w, picked, input, plan, ai, imagesReady, offered, references, estimate: kit().estimateKit({ plan, ai, references }) };
+    return { w, picked, input, plan, ai, imagesReady, offered, references, promptsAll, estimate: kit().estimateKit({ plan, ai, references }) };
   }
   // Pictures need an image provider on this host and a key in Settings (publicState's capabilities, without building it).
   function picturesReady() { const extra = capabilities(); return Boolean(generateImage) && Boolean(extra.imagesConfigured ?? true); }
@@ -532,7 +569,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       brief = await aiValidated(run, `brief-${job.id}`, kit().IMAGE_BRIEF_SCHEMA, request.prompt, raw => kit().validateImageBrief(raw, request), { model: run.ai.model, effort: kit().BRIEF_EFFORT, estimateUsd: kit().kitBriefEstimate(deliverable, run.ai), message: `Planning ${job.label}` });
       write(briefPath, brief); save();
     }
-    const picture = kit().kitImageDeliverable(deliverable, brief, { editionId: input.editionId, label: job.label, references });
+    const picture = kit().kitImageDeliverable(deliverable, brief, { editionId: input.editionId, label: job.label, references, prompts: input.prompts });
     // The pictures themselves, in the order the prompt numbers them.
     return references.length ? { ...picture, references: references.map(ref => ({ role: ref.role, mime: ref.mime, data: ref.data })) } : picture;
   }
@@ -550,14 +587,19 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   function activeRepository(workspaceId) {
     return state.themes.filter(theme => theme.workspaceId === workspaceId && theme.status !== 'archived').sort((a, b) => String(b.lastDetectedAt || b.updatedAt || '').localeCompare(String(a.lastDetectedAt || a.updatedAt || ''))).slice(0, 150);
   }
+  // Quick scans are pulse observations and never add to a tracked theme's velocity.
   function detectionCount(workspaceId, themeId, runId) {
-    return new Set((state.detections || []).filter(entry => entry.workspaceId === workspaceId && entry.themeId === themeId && entry.runId !== runId).map(entry => entry.runId)).size + 1;
+    return new Set((state.detections || []).filter(entry => entry.workspaceId === workspaceId && entry.themeId === themeId && entry.runId !== runId && entry.origin !== 'quick-scan').map(entry => entry.runId)).size + 1;
   }
   // Runs started before a program field existed still get every default (n8n batch sizes, models…).
   const runProgram = input => ({ ...research.validateResearchProgram(input.program), workspaceId: input.program.workspaceId });
   const withRaw = (items, rawItems) => (Array.isArray(rawItems) && rawItems.length === items.length ? items.map((item, index) => (item.raw || !rawItems[index] ? item : { ...item, raw: rawItems[index] })) : items);
   async function performDiscovery(run) {
     const input = read(file(run.id, 'input.json')); const program = runProgram(input);
+    // A quick scan stops after synthesis: status 'succeeded', stage 'scan-complete', themes only in discoveredThemes.
+    const quick = run.origin === 'quick-scan';
+    const scanDone = (message, themes = []) => { run.themes = []; run.discoveredThemes = copy(themes); run.decisions = {}; run.stage = 'scan-complete'; run.status = 'succeeded'; run.message = message; save(); };
+    const scanWindow = run.quickScan?.lookbackHours ? `the last ${run.quickScan.lookbackHours === 1 ? 'hour' : `${run.quickScan.lookbackHours} hours`}` : 'this window';
     let evidence;
     if (fs.existsSync(file(run.id, 'evidence.json'))) evidence = read(file(run.id, 'evidence.json'));
     else {
@@ -576,6 +618,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const discovery = research.buildDiscoveryBatches({ runId: run.id, items: evidence.items, batchSize: program.discoveryBatchSize });
     const tagging = research.buildAssignmentBatches({ runId: run.id, items: evidence.items, batchSize: program.taggingBatchSize, batchSizes: program.taggingBatchSizes });
     run.counts = { retained: evidence.items.length, discoveryEligible: discovery.receipt.eligibleCount, taggingEligible: tagging.receipt.eligibleCount, platforms: evidence.receipt.platformCounts };
+    // A quiet window is a real answer for a quick scan, not a failure.
+    if (!discovery.batches.length && quick) return scanDone(evidence.items.length ? `None of the ${evidence.items.length} posts from ${scanWindow} had enough engagement to read yet. Try a longer window.` : `The chosen accounts posted nothing in ${scanWindow}. Try a longer window or more accounts.`);
     if (!discovery.batches.length) throw new Error('No evidence met the discovery engagement thresholds. Widen the date window or lower the thresholds and start a new run.');
     const edition = editionFor(run); const settings = stageAi(run, 'discovery');
     run.stage = 'discovery'; run.discoveryProgress = { completed: 0, total: discovery.batches.length }; save();
@@ -585,7 +629,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       check(run); const cache = file(run.id, `${batch.id}.validated.json`); let result;
       if (fs.existsSync(cache)) result = read(cache);
       else {
-        const prompt = researchPrompts.discoveryPrompt({ batch, query: program.query, ...edition });
+        const prompt = researchPrompts.discoveryPrompt({ batch, query: program.query, ...edition, blocks: snapshotBlocks(input.prompts, 'research.discovery') });
         result = await aiValidated(run, batch.id, research.DISCOVERY_SCHEMA, prompt, raw => research.validateCandidates(raw, { runId: run.id, batch }), { ...settings, estimateUsd: estimateCall(settings, prompt, STAGE_OUTPUT_TOKENS.discovery), message: `Discovering trends · ${research.PLATFORM_LABELS[batch.platform]} batch ${batch.platformBatchNumber}` });
         write(cache, { ...result, platform: batch.platform, batchNumber: batch.platformBatchNumber, itemsProcessed: batch.items.length, completedAt: stamp() });
       }
@@ -594,6 +638,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const candidates = discovery.batches.flatMap(batch => byBatch.get(batch.id) || []);
     const merged = research.mergeCandidates(candidates);
     run.candidateCount = { raw: candidates.length, merged: merged.length };
+    if (!merged.length && quick) return scanDone(`The scan read ${evidence.items.length} posts from ${scanWindow} but found no specific, evidence-backed trends.`);
     if (!merged.length) { run.themes = []; run.discoveredThemes = []; run.stage = 'theme-review'; run.status = 'succeeded'; run.message = 'Discovery found no specific, evidence-backed trends in this window.'; save(); return; }
     const w = edition.workspace; const taxonomy = w.taxonomy || null;
     const synthesisCache = file(run.id, 'theme-synthesis.validated.json'); let synthesized;
@@ -601,7 +646,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     else {
       const synthesisSettings = stageAi(run, 'synthesis');
       const sources = Object.fromEntries(Object.entries(discovery.receipt.perPlatform).map(([p]) => [research.PLATFORM_LABELS[p], discovery.batches.filter(b => b.platform === p).reduce((sum, b) => sum + b.items.length, 0)]));
-      const prompt = researchPrompts.synthesisPrompt({ candidates: merged, totalPosts: discovery.receipt.plannedCount, sources, maxThemes: program.maxThemes, taxonomy, query: program.query, ...edition });
+      const prompt = researchPrompts.synthesisPrompt({ candidates: merged, totalPosts: discovery.receipt.plannedCount, sources, maxThemes: program.maxThemes, taxonomy, query: program.query, ...edition, blocks: snapshotBlocks(input.prompts, 'research.synthesis') });
       if (prompt.length > 2500000) throw new Error('Theme synthesis exceeds the context budget. Use a shorter window or fewer sources; every completed discovery batch is saved.');
       run.stage = 'synthesis'; save();
       synthesized = await aiValidated(run, 'theme-synthesis', { ...research.THEMES_SCHEMA, properties: { themes: { ...research.THEMES_SCHEMA.properties.themes, maxItems: program.maxThemes } } }, prompt, raw => research.validateThemes(raw, { runId: run.id, candidates: merged, maxThemes: program.maxThemes, taxonomy }), { ...synthesisSettings, estimateUsd: estimateCall(synthesisSettings, prompt, STAGE_OUTPUT_TOKENS.synthesis), message: 'Synthesizing the top themes' });
@@ -609,14 +654,14 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     }
     let themes = synthesized.themes;
     // n8n "Match Themes": compare against the active repository; a match keeps the tracked theme's
-    // stable ID (so velocity accrues) and the cleaner of the two names.
-    const existing = activeRepository(run.workspaceId);
+    // stable ID (so velocity accrues) and the cleaner of the two names. Quick scans skip it: they never join the repository.
+    const existing = quick ? [] : activeRepository(run.workspaceId);
     if (existing.length && themes.length) {
       const matchingCache = file(run.id, 'theme-matching.validated.json'); let matching;
       if (fs.existsSync(matchingCache)) matching = read(matchingCache);
       else {
         const matchingSettings = stageAi(run, 'matching');
-        const prompt = researchPrompts.matchingPrompt({ themes, existing, ...edition });
+        const prompt = researchPrompts.matchingPrompt({ themes, existing, ...edition, blocks: snapshotBlocks(input.prompts, 'research.matching') });
         run.stage = 'matching'; save();
         matching = await aiValidated(run, 'theme-matching', research.MATCHING_SCHEMA, prompt, raw => research.validateThemeMatches(raw, { themes, existing }), { ...matchingSettings, estimateUsd: estimateCall(matchingSettings, prompt, STAGE_OUTPUT_TOKENS.matching), message: 'Matching themes against the repository' });
         write(matchingCache, matching);
@@ -627,10 +672,11 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         let name = match?.finalName || theme.name; if (names.has(name.toLowerCase())) name = theme.name; names.add(name.toLowerCase());
         return { ...theme, id: previous ? previous.id : theme.id, name, aliases: [...new Set([...(previous?.aliases || []), ...(previous && previous.name !== name ? [previous.name] : []), ...(theme.name !== name ? [theme.name] : [])])].slice(-50), match: { matched: !!previous, existingThemeId: previous?.id || null, existingName: previous?.name || '', nameSource: match?.nameSource || 'new', reason: match?.reason || '' } };
       });
-    } else themes = themes.map(theme => ({ ...theme, match: { matched: false, existingThemeId: null, existingName: '', nameSource: 'new', reason: existing.length ? '' : 'No tracked themes yet.' } }));
+    } else themes = themes.map(theme => ({ ...theme, match: { matched: false, existingThemeId: null, existingName: '', nameSource: 'new', reason: quick ? 'Quick scans are not matched with tracked trends.' : existing.length ? '' : 'No tracked themes yet.' } }));
     // n8n "Calculate Trend Velocity": count, velocity tier, taxonomy cross-reference, priority tier.
     themes = themes.map(theme => ({ ...theme, scoring: intel.scoreTheme({ theme, detectionCount: detectionCount(run.workspaceId, theme.id, run.id), taxonomy }) }));
     recordDetections(run, themes);
+    if (quick) return scanDone(themes.length ? `Found ${themes.length} ${themes.length === 1 ? 'trend' : 'trends'} in ${evidence.items.length} posts from ${scanWindow}.` : `The scan read ${evidence.items.length} posts from ${scanWindow} but found no specific, evidence-backed trends.`, themes);
     run.themes = themes; run.discoveredThemes = copy(themes); run.decisions = {}; run.stage = 'theme-review';
     if (program.autoApproveThemes) {
       run.decisions = Object.fromEntries(themes.map(theme => [theme.id, 'approved'])); run.approvedAt = stamp(); run.autoApproved = true;
@@ -639,11 +685,14 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     }
     run.status = 'awaiting-review'; run.message = 'Review and approve themes before classifying evidence and generating reports.'; save();
   }
+  // Every detection names its origin. A quick scan's are pulse observations for trend history: they never join the tracked
+  // repository (matching, velocity, the Trend board) unless someone promotes a theme.
   function recordDetections(run, themes) {
-    const now = stamp();
+    const now = stamp(); const origin = run.origin === 'quick-scan' ? 'quick-scan' : 'research';
     state.detections = (state.detections || []).filter(entry => entry.runId !== run.id);
     for (const theme of themes) {
-      state.detections.push({ workspaceId: run.workspaceId, themeId: theme.id, runId: run.id, name: theme.name, detectedAt: now });
+      state.detections.push({ workspaceId: run.workspaceId, themeId: theme.id, runId: run.id, name: theme.name, detectedAt: now, origin });
+      if (origin === 'quick-scan') continue;
       const previous = state.themes.find(row => row.workspaceId === run.workspaceId && row.id === theme.id);
       const { candidateIds: _c, evidenceIds: _e, runId: _r, ...fields } = theme;
       const entry = { ...(previous || {}), ...fields, workspaceId: run.workspaceId, status: previous?.status === 'archived' ? 'active' : previous?.status || 'active', firstDetectedAt: previous?.firstDetectedAt || now, lastDetectedAt: now, detectionCount: theme.scoring.count, lastRunId: run.id, evidenceCount: theme.evidenceCount, updatedAt: now };
@@ -670,14 +719,16 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     write(cache, result); return result;
   }
   async function performClassification(run) {
-    const program = runProgram(read(file(run.id, 'input.json'))); const evidence = read(file(run.id, 'evidence.json'));
+    const input = read(file(run.id, 'input.json')); const program = runProgram(input); const evidence = read(file(run.id, 'evidence.json'));
     const { batches } = research.buildAssignmentBatches({ runId: run.id, items: evidence.items, batchSize: program.taggingBatchSize, batchSizes: program.taggingBatchSizes });
-    const edition = editionFor(run); const settings = stageAi(run, 'tagging');
+    // The tagging prompt's text travels with the edition fields into taggingPrompt (and its missing-posts retry).
+    const edition = { ...editionFor(run), blocks: snapshotBlocks(input.prompts, 'research.tagging') }; const settings = stageAi(run, 'tagging');
     run.stage = 'classification'; run.assignmentProgress = { completed: 0, total: batches.length }; save();
     const byBatch = new Map();
     await pool(batches, settings.concurrency, async batch => { check(run); byBatch.set(batch.id, (await classifyBatch(run, program, batch, settings, edition)).assignments); run.assignmentProgress.completed++; save(); });
     let assignments = []; for (const batch of batches) assignments = research.applyAssignments(assignments, byBatch.get(batch.id) || []);
     write(file(run.id, 'assignments.json'), assignments); run.stage = 'reports';
+    writeThemeStats(run, evidence.items, assignments); // the Trend tracker's per-theme numbers, kept beside the tags
     const w = workspace(run.workspaceId, false); run.reportRunIds ||= [];
     const reportSettings = stageAi(run, 'reports');
     const period = run.window?.startDate ? { startDate: run.window.startDate, endDate: run.window.endDate || run.createdAt.slice(0, 10) } : program.window?.startDate && program.window?.endDate ? program.window : { startDate: run.createdAt.slice(0, 10), endDate: run.createdAt.slice(0, 10) };
@@ -721,14 +772,14 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       try {
         let output;
         if (job.id === 'evidence-report') {
-          const request = lib.buildTrendReportRequest({ theme: payload.theme, selection: payload.selection, editionId: input.editionId, brandName: payload.brandName, analysisFocus: payload.analysisFocus, targetAudience: payload.targetAudience });
+          const request = lib.buildTrendReportRequest({ theme: payload.theme, selection: payload.selection, editionId: input.editionId, brandName: payload.brandName, analysisFocus: payload.analysisFocus, targetAudience: payload.targetAudience, blocks: snapshotBlocks(input.prompts, 'reports.trends-report') });
           output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, raw => lib.validateTrendReport(raw, request.context), { ...settings, estimateUsd: estimateCall(settings, request.prompt, STAGE_OUTPUT_TOKENS.report), message: `Writing the trends report · ${payload.theme.name}`, timeoutMs: 2400000 });
         } else {
           const reportJob = run.jobs.find(entry => entry.id === 'evidence-report');
           if (reportJob?.status !== 'succeeded' || !reportJob.assetId) throw new Error('The editorial toolkit is built from the trends report. Generate the report first.');
           const trendReport = read(file(run.id, `${reportJob.assetId}.json`));
           const registryDoc = (input.referenceDocs || []).find(doc => doc.kind === 'registry');
-          const request = lib.buildToolkitRequest({ theme: payload.theme, trendReport, trendReportMarkdown: content.renderContentExport(trendReport), metrics: payload.selection.metrics, registryText: registryDoc?.text || '', products: input.productRegistry || [], referenceDocs: (input.referenceDocs || []).filter(doc => doc.kind !== 'registry'), enterpriseProducts: input.enterpriseProducts || [], editionId: input.editionId, brandName: payload.brandName });
+          const request = lib.buildToolkitRequest({ theme: payload.theme, trendReport, trendReportMarkdown: content.renderContentExport(trendReport), metrics: payload.selection.metrics, registryText: registryDoc?.text || '', products: input.productRegistry || [], referenceDocs: (input.referenceDocs || []).filter(doc => doc.kind !== 'registry'), enterpriseProducts: input.enterpriseProducts || [], editionId: input.editionId, brandName: payload.brandName, blocks: snapshotBlocks(input.prompts, 'reports.editorial-toolkit') });
           output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, raw => lib.validateToolkit(raw, request.context).output, { ...settings, estimateUsd: estimateCall(settings, request.prompt, STAGE_OUTPUT_TOKENS.toolkit), message: `Writing the editorial toolkit · ${payload.theme.name}`, timeoutMs: 2400000 });
         }
         job.assetId = saveTextAsset(run, deliverable, output).id; job.status = 'succeeded';
@@ -798,23 +849,36 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     return html.includes('</main>') ? html.replace(/<\/main>(?![\s\S]*<\/main>)/, `${paragraph}</main>`) : html.replace(/<\/body>/, `${paragraph}</body>`);
   }
   async function launchAndWait(run, fn) { launch(run, fn); await active.get(run.id); }
-  // `by` is the person who started it; schedules start as the system.
-  function startResearchRun(program, datasetIds = [], scheduledFor = '', by = SYSTEM) {
+  // `by` is the person who started it; schedules start as the system. A quick scan passes { origin: 'quick-scan', quickScan }
+  // with its derived program, which is written only to the run's input.json: the saved program and its schedule never change.
+  function startResearchRun(program, datasetIds = [], scheduledFor = '', by = SYSTEM, { origin = '', quickScan = null } = {}) {
+    const scan = origin === 'quick-scan';
     const snapshot = copy(program);
     const recurring = program.schedule && program.schedule.frequency !== 'manual';
     // A saved window wins; schedules search their rolling window; otherwise the n8n default:
-    // the last `lookbackDays` (7) up to now.
+    // the last `lookbackDays` (7) up to now. An hour-level window keeps its exact start (startAt).
     const window = recurring ? { ...researchScheduleWindow(program.schedule, scheduledFor || stamp()), resolvedFrom: 'schedule' } : research.resolveResearchWindow(research.validateResearchProgram(program), clock());
-    snapshot.window = { startDate: window.startDate, endDate: window.endDate || '' };
+    snapshot.window = { startDate: window.startDate, endDate: window.endDate || '', ...(window.startAt ? { startAt: window.startAt } : {}) };
     const validated = research.validateResearchProgram(snapshot);
-    const estimate = research.estimateResearchCost(validated);
-    // Before review only discovery → matching is spent; unattended runs need the whole estimate.
-    const beforeReview = Math.round((estimate.stages.discovery + estimate.stages.synthesis + estimate.stages.matching) * 100) / 100;
-    const required = validated.autoApproveThemes ? estimate.totalUsd : beforeReview;
-    if (!datasetIds.length && required > 0 && validated.budgets.aiUsd < required * 0.5) throw new Error(`This program’s AI budget ($${validated.budgets.aiUsd.toFixed(2)}) is far below the estimated $${required.toFixed(2)} ${validated.autoApproveThemes ? 'for a full unattended run' : 'to discover themes'} from about ${estimate.posts.total.toLocaleString('en-US')} posts with the selected models. Raise the AI budget or choose lighter models, then start again.`);
+    const fullEstimate = research.estimateResearchCost(validated);
+    // Before review only discovery → matching is spent; unattended runs need the whole estimate. A quick scan stops after
+    // synthesis, so only discovery and synthesis are priced (and shown on the run).
+    const beforeReview = Math.round((fullEstimate.stages.discovery + fullEstimate.stages.synthesis + (scan ? 0 : fullEstimate.stages.matching)) * 100) / 100;
+    const estimate = scan ? { ...fullEstimate, stages: { ...fullEstimate.stages, matching: 0, tagging: 0, reports: 0 }, totalUsd: beforeReview } : fullEstimate;
+    const required = validated.autoApproveThemes && !scan ? estimate.totalUsd : beforeReview;
+    if (!datasetIds.length && required > 0 && validated.budgets.aiUsd < required * 0.5) throw new Error(`This ${scan ? 'scan' : 'program'}’s AI budget ($${validated.budgets.aiUsd.toFixed(2)}) is far below the estimated $${required.toFixed(2)} ${validated.autoApproveThemes && !scan ? 'for a full unattended run' : 'to discover themes'} from about ${estimate.posts.total.toLocaleString('en-US')} posts with the selected models. Raise the AI budget or choose lighter models, then start again.`);
     const warnings = validated.budgets.aiUsd < estimate.totalUsd ? [`The AI budget ($${validated.budgets.aiUsd.toFixed(2)}) is below the estimate of $${estimate.totalUsd.toFixed(2)}; the run stops when it is used up and can resume with a higher budget.`] : [];
-    const run = { id: id('research'), workspaceId: program.workspaceId, type: 'research', title: program.name, programId: program.id, createdBy: { id: by.id, name: by.name }, status: 'queued', stage: 'collecting', createdAt: stamp(), maxBudgetUsd: program.budgets.aiUsd, reservedUsd: 0, costUsd: 0, receipts: [], themes: [], window, ai: copy(validated.ai), estimate, warnings, ...(scheduledFor ? { scheduledFor } : {}) };
-    write(file(run.id, 'input.json'), { program: { ...validated, workspaceId: program.workspaceId }, datasetIds: [...new Set(datasetIds)] });
+    // The collection plan is checked before any run exists, so a collection budget below the Actors' minimum charges (or a
+    // roster too large to plan) is refused here instead of failing after the run starts.
+    if (!datasetIds.length && collect) {
+      try { require('../shared/research-collection').buildCollectionPlan(validated, { now: clock() }); }
+      catch (error) { throw Object.assign(new Error(`${safeError(error)} Nothing was started.`), { field: error.field, status: 400 }); }
+    }
+    const run = { id: id('research'), workspaceId: program.workspaceId, type: 'research', title: scan && quickScan?.topic ? `Quick scan · ${quickScan.topic}` : program.name, programId: program.id, createdBy: { id: by.id, name: by.name }, status: 'queued', stage: 'collecting', createdAt: stamp(), maxBudgetUsd: program.budgets.aiUsd, reservedUsd: 0, costUsd: 0, receipts: [], themes: [], window, ai: { ...copy(validated.ai), ...(capabilities().aiProvider === 'codex' ? { route: 'codex' } : {}) }, estimate, warnings, ...(scheduledFor ? { scheduledFor } : {}), ...(origin ? { origin } : {}), ...(quickScan ? { quickScan: copy(quickScan) } : {}) };
+    // The prompts this run writes with, copied now so an edit made while it runs never changes it (a retry may opt in). A
+    // quick scan stops after synthesis, so it keeps only those.
+    const promptCopy = promptSnapshot(workspace(program.workspaceId, false), scan ? ['research.discovery', 'research.synthesis', 'system.repair'] : RESEARCH_PROMPTS); run.prompts = promptRecord(promptCopy);
+    write(file(run.id, 'input.json'), { program: { ...validated, workspaceId: program.workspaceId }, datasetIds: [...new Set(datasetIds)], prompts: promptCopy });
     if (scheduledFor) {
       // The occurrence and the queued run are committed together before launch can
       // reach a provider. A restart never silently replays an interrupted claim.
@@ -823,6 +887,182 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     state.researchRuns.unshift(run);
     return launch(run, () => performDiscovery(run));
   }
+  // ---------- Quick scans (SPEC §2): a small, hour-level research run priced and started from Ask AI ----------
+  const quickScans = () => require('../shared/research-quick-scan');
+  const QUICK_SCAN_RANK_RUNS = 5; // ranking reads this many of the program's latest full runs
+  const rankEvidence = new Map(); const rankMemo = new Map();
+  // The program's latest full research runs in this workspace that saved evidence, newest first, as compact posts. Paths are
+  // checked directly (file() would create run folders) and each file is cached by its time, since saved evidence never
+  // changes. Quick scans are left out so the accounts one scan chose don't keep choosing themselves.
+  function rankingEvidence(program) {
+    const runs = state.researchRuns.filter(run => run.workspaceId === program.workspaceId && run.programId === program.id && run.origin !== 'quick-scan' && /^[a-zA-Z0-9_-]{1,180}$/.test(run.id || '')).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    const out = [];
+    for (const run of runs) {
+      if (out.length >= QUICK_SCAN_RANK_RUNS) break;
+      const target = path.join(root, 'runs', run.id, 'evidence.json');
+      let mtime; try { mtime = fs.statSync(target).mtimeMs; } catch (_) { continue; }
+      let cached = rankEvidence.get(run.id);
+      if (!cached || cached.mtime !== mtime) {
+        try { cached = { mtime, items: (read(target).items || []).map(item => ({ platform: item.platform, author: item.author, community: item.community, url: item.url, title: item.title, text: String(item.text || '').slice(0, 2000) })) }; } catch (_) { continue; }
+        rankEvidence.delete(run.id); rankEvidence.set(run.id, cached); if (rankEvidence.size > 8) rankEvidence.delete(rankEvidence.keys().next().value);
+      }
+      out.push({ runId: run.id, createdAt: run.createdAt, mtime, items: cached.items });
+    }
+    return out;
+  }
+  function rankFor(program, topic) {
+    const evidence = rankingEvidence(program);
+    const key = JSON.stringify([program.id, program.updatedAt || '', topic, evidence.map(run => `${run.runId}:${run.mtime}`)]);
+    if (!rankMemo.has(key)) { rankMemo.set(key, quickScans().rankTargetsForTopic({ program, topic, evidence })); if (rankMemo.size > 6) rankMemo.delete(rankMemo.keys().next().value); }
+    return rankMemo.get(key);
+  }
+  // The program a scan picks accounts from: the one named, else the only (or most recently saved) one in this workspace.
+  function scanProgram(programId) {
+    if (programId) return owned(state.programs, programId);
+    const programs = state.programs.filter(program => program.workspaceId === state.activeWorkspaceId).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    if (!programs.length) throw new Error('Save a research program with sources first. A quick scan picks from its accounts and communities.');
+    return programs[0];
+  }
+  // One derivation shared by the cost check, the start and the model check, so all three describe the same run.
+  function quickScanPlan({ programId, scan } = {}, { rank = true } = {}) {
+    const lib = quickScans(); const asked = scan && typeof scan === 'object' && !Array.isArray(scan) ? scan : {};
+    const normalized = lib.normalizeScan({ ...asked, programId: typeof programId === 'string' && programId ? programId : asked.programId ?? '' });
+    const saved = scanProgram(normalized.programId);
+    const ranking = rank ? rankFor(saved, normalized.topic) : [];
+    const derived = lib.deriveQuickScanProgram(saved, normalized, { ranking, now: clock() });
+    return { scan: { ...normalized, programId: saved.id }, saved, derived, selection: lib.selectQuickScanTargets(saved, normalized, ranking), fingerprint: lib.scanFingerprint(derived) };
+  }
+  const activeQuickScan = (workspaceId, exceptId = '') => state.researchRuns.find(run => run.id !== exceptId && run.workspaceId === workspaceId && run.origin === 'quick-scan' && (active.has(run.id) || ['queued', 'running'].includes(run.status)));
+  const quickScanBusy = busy => Object.assign(new Error(`${busy.createdBy?.name || 'Someone'} started a quick scan at ${when(busy.createdAt)} that is still running. One quick scan runs at a time in a workspace; wait for it or stop it first.`), { status: 409, code: 'quickScanRunning' });
+  // What a start refuses before anything is spent: no collection here, a plan that changed since the cost check, or a
+  // second quick scan while one is still running in this workspace.
+  function guardQuickScan(payload, fingerprint) {
+    if (!collect) throw new Error('Source collection is unavailable on this host, so quick scans can’t run here.');
+    if (typeof payload?.fingerprint !== 'string' || payload.fingerprint !== fingerprint) throw Object.assign(new Error('The plan changed; check the cost again.'), { status: 409, code: 'quickScanChanged' });
+    const busy = activeQuickScan(state.activeWorkspaceId);
+    if (busy) throw quickScanBusy(busy);
+  }
+  // A quick scan stops after synthesis, so only discovery and synthesis are priced.
+  function quickScanAiEstimate(program) {
+    const estimate = research.estimateResearchCost(program); const stages = { discovery: estimate.stages.discovery, synthesis: estimate.stages.synthesis };
+    return { totalUsd: Math.round((stages.discovery + stages.synthesis) * 100) / 100, stages, capUsd: program.budgets.aiUsd, posts: estimate.posts, models: { discovery: program.ai.models.discovery, synthesis: program.ai.models.synthesis }, effort: { discovery: program.ai.effort.discovery, synthesis: program.ai.effort.synthesis }, basis: estimate.basis };
+  }
+  // The AI route the next call takes. The host resolves "auto" (getAiProvider); without it the saved setting decides.
+  async function aiRouteNow() {
+    if (typeof getAiProvider === 'function') { try { const route = await getAiProvider(); if (['claude', 'claude-api', 'codex'].includes(route)) return route; } catch (_) { /* fall back to the setting */ } }
+    const setting = capabilities().aiProvider;
+    return setting === 'codex' || setting === 'claude-api' ? setting : 'claude';
+  }
+  // ---------- Prompt Library: retries that take newer prompts, "Latest run" samples and the API (prompt-lab.js) ----------
+  // A retry with refreshPrompts takes the prompts saved since the run started, only for what it hasn't finished: finished
+  // stages are cached and keep their copy, and so does a picture set with saved pictures, whose resumes check each
+  // picture's exact prompt (promptHash). Unfinished report runs of a research run follow it.
+  function refreshRunPrompts(run) {
+    const w = workspace(run.workspaceId, false); const target = file(run.id, 'input.json'); const input = read(target);
+    let ids;
+    if (run.type === 'research') {
+      const quick = run.origin === 'quick-scan';
+      ids = [...(run.approvedAt ? [] : ['research.discovery', 'research.synthesis', ...(quick ? [] : ['research.matching'])]), ...(quick || fs.existsSync(runPath(run.id, 'assignments.json')) ? [] : ['research.tagging']), ...(quick ? [] : ['reports.trends-report', 'reports.editorial-toolkit']), 'system.repair'];
+      for (const entry of run.reportRunIds || []) { const child = state.contentRuns.find(row => row.id === entry.runId); if (child && child.status !== 'succeeded' && !active.has(child.id)) refreshRunPrompts(child); }
+    } else {
+      const open = (run.jobs || []).filter(job => job.status !== 'succeeded'); const text = open.filter(job => job.kind !== 'image');
+      const picturesStarted = (run.jobs || []).some(job => job.kind === 'image' && (job.assetIds?.length || job.imageCalls?.length));
+      const pictureIds = run.kit ? ['pictures.direction', 'pictures.variations', 'pictures.kit-brief', 'pictures.kit-image'] : ['pictures.direction', 'pictures.variations', 'pictures.content-image'];
+      // Create content pictures carry the shared rules in their prompt, so those freeze with the pictures; kit pictures don't.
+      const sharedOpen = run.kit ? text.length > 0 : open.length > 0 && !picturesStarted;
+      if (input.research) ids = [...text.map(job => (job.id === 'evidence-report' ? 'reports.trends-report' : 'reports.editorial-toolkit')), 'system.repair'];
+      else ids = [...text.map(job => `assets.${job.id}`), ...(sharedOpen ? ['assets.shared'] : []), ...(open.length > text.length && !picturesStarted ? pictureIds : []), ...(run.kit ? ['system.repair'] : [])];
+    }
+    ids = ids.filter(promptId => PROMPT_IDS.has(promptId));
+    if (!ids.length) return;
+    const fresh = promptSnapshot(w, ids);
+    write(target, { ...input, prompts: { ...(input.prompts || {}), ...fresh } });
+    run.prompts = { ...(run.prompts || promptRecord(input.prompts)), ...promptRecord(fresh) }; save();
+  }
+  // "Latest run" samples for the Prompt Library preview and test: this workspace's newest saved data that the prompt reads,
+  // in the shape of prompt-samples.json (parts a run doesn't have come from it). null when no run has it yet.
+  async function latestPromptSample(promptId) {
+    const w = state.workspaces.find(row => row.id === state.activeWorkspaceId); if (!w) return null;
+    const base = require('../shared/prompt-samples.json');
+    const newest = rows => [...rows].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    const day = run => String(run.createdAt || '').slice(0, 10);
+    const found = (overrides, label) => ({ sample: { ...base, ...overrides, label }, label });
+    const count = (n, one, many) => `${n} ${n === 1 ? one : many}`; const PLATFORM = { x: 'X', linkedin: 'LinkedIn', reddit: 'Reddit' };
+    const readSafe = target => { try { return read(target); } catch (_) { return null; } };
+    const researchRuns = newest(state.researchRuns.filter(run => run.workspaceId === w.id && /^[a-zA-Z0-9_-]{1,180}$/.test(run.id || '') && fs.existsSync(runPath(run.id, 'evidence.json'))));
+    if (promptId === 'research.discovery' || promptId === 'research.tagging') {
+      const stage = promptId === 'research.discovery' ? 'discovery' : 'tagging';
+      const run = stage === 'tagging' ? researchRuns.find(row => (row.themes || []).length || (row.discoveredThemes || []).length) : researchRuns[0];
+      if (!run) return null;
+      const items = (readSafe(runPath(run.id, 'evidence.json'))?.items || []).filter(item => item?.eligible?.[stage] !== false && item.text);
+      const platform = ['x', 'linkedin', 'reddit'].map(p => [p, items.filter(item => item.platform === p).length]).sort((a, b) => b[1] - a[1])[0][0];
+      const posts = items.filter(item => item.platform === platform).sort((a, b) => (b.engagement?.value || 0) - (a.engagement?.value || 0)).slice(0, stage === 'discovery' ? 40 : 20);
+      if (!posts.length) return null;
+      const themes = (run.themes || []).length ? run.themes : run.discoveredThemes || [];
+      return found({ runId: run.id, posts, query: readSafe(runPath(run.id, 'input.json'))?.program?.query || '', ...(themes.length ? { themes: copy(themes).slice(0, 6) } : {}) }, `${count(posts.length, `${PLATFORM[platform]} post`, `${PLATFORM[platform]} posts`)} from “${run.title}” (${day(run)})`);
+    }
+    if (promptId === 'research.synthesis') {
+      for (const run of researchRuns) {
+        const input = readSafe(runPath(run.id, 'input.json')); if (!input?.program) continue;
+        try {
+          const program = runProgram(input); const evidence = readSafe(runPath(run.id, 'evidence.json'))?.items || [];
+          const { batches } = research.buildDiscoveryBatches({ runId: run.id, items: evidence, batchSize: program.discoveryBatchSize });
+          const candidates = batches.flatMap(batch => readSafe(runPath(run.id, `${batch.id}.validated.json`))?.candidates || []);
+          if (!candidates.length) continue;
+          const merged = research.mergeCandidates(candidates).slice(0, 60);
+          return found({ runId: run.id, posts: evidence, candidates: merged, maxThemes: program.maxThemes, taxonomy: w.taxonomy || null, query: program.query || '' }, `${count(merged.length, 'candidate trend', 'candidate trends')} from “${run.title}” (${day(run)})`);
+        } catch (_) { continue; }
+      }
+      return null;
+    }
+    if (promptId === 'research.matching') {
+      const run = newest(state.researchRuns.filter(row => row.workspaceId === w.id && row.origin !== 'quick-scan' && (row.discoveredThemes || row.themes || []).length))[0];
+      if (!run) return null;
+      const themes = copy(run.discoveredThemes || run.themes).slice(0, 6); const ids = new Set(themes.map(theme => theme.id));
+      const existing = activeRepository(w.id).filter(theme => !ids.has(theme.id));
+      return found({ themes, existingThemes: existing }, `${count(themes.length, 'trend', 'trends')} from “${run.title}” (${day(run)}), compared with ${count(existing.length, 'trend', 'trends')} you track`);
+    }
+    if (promptId === 'reports.trends-report' || promptId === 'reports.editorial-toolkit') {
+      for (const run of newest(state.contentRuns.filter(row => row.workspaceId === w.id && row.researchRunId && !row.kit && /^[a-zA-Z0-9_-]{1,180}$/.test(row.id || '')))) {
+        const input = readSafe(runPath(run.id, 'input.json')); const payload = input?.source?.research;
+        if (!payload?.selection?.posts?.length || !payload.theme) continue;
+        if (promptId === 'reports.trends-report') return found({ reportPayload: payload }, `The ${count(payload.selection.posts.length, 'post', 'posts')} behind “${payload.theme.name || run.title}” (${day(run)})`);
+        const job = (run.jobs || []).find(entry => entry.id === 'evidence-report' && entry.status === 'succeeded' && entry.assetId);
+        const trendReport = job ? readSafe(runPath(run.id, `${job.assetId}.json`)) : null; if (!trendReport) continue;
+        const registryDoc = (input.referenceDocs || []).find(doc => doc.kind === 'registry');
+        return found({ reportPayload: payload, themes: [payload.theme], trendReport, selection: payload.selection, registryText: registryDoc?.text || '', products: input.productRegistry || [], referenceDocs: input.referenceDocs || [], enterpriseProducts: input.enterpriseProducts || [] }, `The trends report for “${payload.theme.name || run.title}” (${day(run)})`);
+      }
+      return null;
+    }
+    if (promptId.startsWith('assets.') || promptId.startsWith('pictures.')) {
+      const needsBrief = ['pictures.kit-image', 'pictures.variations', 'pictures.direction'].includes(promptId);
+      for (const run of newest(state.contentRuns.filter(row => row.workspaceId === w.id && !row.researchRunId && /^[a-zA-Z0-9_-]{1,180}$/.test(row.id || '')))) {
+        const input = readSafe(runPath(run.id, 'input.json')); if (!input?.source || input.research) continue;
+        let brief = null;
+        if (needsBrief) { const job = (run.jobs || []).find(entry => entry.kind === 'image' && /^[a-zA-Z0-9_-]{1,180}$/.test(entry.id || '') && fs.existsSync(runPath(run.id, `${entry.id}.brief.json`))); brief = job ? readSafe(runPath(run.id, `${job.id}.brief.json`)) : null; if (!brief) continue; }
+        return found({ source: input.source, brandKnowledge: input.brandKnowledge || base.brandKnowledge, products: input.productRegistry || [], ...(brief ? { brief } : {}) }, `${brief ? 'The picture brief and source' : 'The source'} of “${run.title}” (${day(run)})`);
+      }
+      return null;
+    }
+    if ((promptId === 'assistant.ask-datasets' || promptId.startsWith('data.')) && typeof readDataset === 'function') {
+      const datasets = newest(getDatasets().filter(d => (state.datasetOwners[d.id] || d.workspaceId || 'general') === w.id));
+      for (const dataset of datasets.slice(0, 3)) {
+        let payload; try { payload = await readDataset(dataset.id); } catch (_) { continue; }
+        const items = (payload?.items || []).filter(item => item && typeof item.id === 'string' && typeof item.text === 'string' && item.text.trim()).slice(0, 40);
+        if (items.length) return found({ dataset: copy({ ...dataset, items: undefined }), datasetItems: items }, `${count(items.length, 'item', 'items')} from “${dataset.name || 'a dataset'}”`);
+      }
+    }
+    return null;
+  }
+  let lab = null;
+  const promptLab = () => (lab ||= promptLabModule().createPromptLab({
+    store: prompts, workspace: () => state.workspaces.find(w => w.id === state.activeWorkspaceId) || null, who, callerRole, callerCaps,
+    programs: () => state.programs.filter(program => program.workspaceId === state.activeWorkspaceId), kitAi: () => kit().kitAi(state.programs.filter(program => program.workspaceId === state.activeWorkspaceId)),
+    settingsModel: () => capabilities().textModel || 'claude-opus-5-5', aiRoute: aiRouteNow, runAI, generateImage, imagesReady: picturesReady, trackJob, latestSample: latestPromptSample,
+    testsRoot: path.join(root, 'prompt-tests'), emit: () => emit(),
+  }));
+  // The latest prompt saves in this workspace (newest first) for the Inbox. Never fails the state.
+  function recentPromptChanges() { try { return promptLab().recentChanges(20); } catch (_) { return []; } }
   function checkDueResearchSchedules() {
     const now = stamp(); const results = [];
     for (const program of state.programs) {
@@ -835,7 +1075,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         // rolling window. Older missed occurrences are not replayed.
         const scheduledFor = latestResearchScheduleAt(validated.schedule, { at: now });
         const nextRunAt = nextResearchScheduleAt(validated.schedule, { from: now });
-        const pending = state.researchRuns.find(run => run.programId === program.id && run.workspaceId === program.workspaceId && (active.has(run.id) || ['queued', 'running', 'awaiting-review'].includes(run.status)));
+        // Quick scans read the program's accounts but are not its runs; they never hold a scheduled run back.
+        const pending = state.researchRuns.find(run => run.programId === program.id && run.workspaceId === program.workspaceId && run.origin !== 'quick-scan' && (active.has(run.id) || ['queued', 'running', 'awaiting-review'].includes(run.status)));
         if (pending) {
           Object.assign(schedule, { nextRunAt, skippedAt: now, skippedReason: pending.status === 'awaiting-review' ? 'The previous run is waiting for theme review.' : 'The previous run is still active.' });
           save(); results.push({ programId: program.id, status: 'skipped', runId: pending.id }); continue;
@@ -1019,11 +1260,49 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       api.checkResearchIdle({ programId, again });
       return startResearchRun(program, datasetIds, '', by);
     },
-    // The duplicate check alone, so the host can run it before its model check.
+    // Quick scan cost check (the chat's scan-plan card): the accounts it would read and why, the AI estimate against its cap
+    // and the collection worst case against its cap, for the same derived run startQuickScan would start. Reads only.
+    async estimateQuickScan(payload = {}) {
+      const { scan, saved, derived, selection, fingerprint } = quickScanPlan(payload);
+      const route = await aiRouteNow(); const uncapped = route === 'codex';
+      const ai = quickScanAiEstimate(derived); const warnings = [...selection.warnings]; let blocked = false;
+      let collection;
+      try {
+        const receipt = require('../shared/research-collection').buildCollectionPlan(derived, { now: clock() }).receipt;
+        collection = { worstCaseUsd: receipt.worstCaseUsd, totalBudgetUsd: receipt.totalBudgetUsd, jobCount: receipt.jobCount, platforms: receipt.platforms, warnings: receipt.warnings.filter(warning => !/^Planned counts/.test(warning)) };
+        if (receipt.worstCaseUsd > derived.budgets.collectionUsd) warnings.push(`Collection could cost up to $${receipt.worstCaseUsd.toFixed(2)} in the worst case, above the $${derived.budgets.collectionUsd.toFixed(2)} cap. Each source stops when its share runs out.`);
+        warnings.push(...collection.warnings.filter(warning => /only filters by day/.test(warning)));
+      } catch (error) { collection = { worstCaseUsd: 0, totalBudgetUsd: 0, jobCount: 0, platforms: {}, warnings: [], error: safeError(error) }; warnings.push(collection.error); blocked = true; }
+      if (!collect) { warnings.push('Source collection is unavailable on this host, so quick scans can’t run here.'); blocked = true; }
+      // The same refusal startResearchRun applies, so the card never offers a start the server turns down.
+      if (ai.totalUsd > 0 && derived.budgets.aiUsd < ai.totalUsd * 0.5) { warnings.push(`The $${derived.budgets.aiUsd.toFixed(2)} AI cap is far below the estimate of about $${ai.totalUsd.toFixed(2)}. Raise the AI cap.`); blocked = true; }
+      else if (!uncapped && derived.budgets.aiUsd < ai.totalUsd) warnings.push(`The AI estimate (about $${ai.totalUsd.toFixed(2)}) is above the $${derived.budgets.aiUsd.toFixed(2)} cap; the scan stops when the cap is used up and can resume with a higher one.`);
+      const busy = activeQuickScan(state.activeWorkspaceId);
+      if (busy) { warnings.push(`A quick scan (“${busy.title}”) is still running. One quick scan runs at a time in a workspace.`); blocked = true; }
+      const plan = { platforms: selection.platforms, targets: selection.targets.map(({ platform, sourceId, target, score, reasons }) => ({ platform, sourceId, target, score, reasons })), available: selection.available, window: { startAt: derived.window.startAt, hours: scan.lookbackHours }, itemsPerPlatform: scan.itemsPerPlatform, commentsPerPost: scan.commentsPerPost };
+      return { scan, programId: saved.id, programName: saved.name, plan, ai, collection, route, uncapped, warnings: [...new Set(warnings)], lines: quickScans().describeScan(scan, { ...plan, ai, collection, uncapped }), fingerprint, ready: !blocked };
+    },
+    // Starts the scan the card priced. The plan is derived again and must match what the person saw (fingerprint);
+    // startResearchRun checks the collection plan before the run exists. The saved program, its schedule and nextRunAt
+    // are never touched: the derived program goes only into the run's input.json.
+    startQuickScan(payload = {}) {
+      const by = who(); const { scan, saved, derived, selection, fingerprint } = quickScanPlan(payload);
+      guardQuickScan(payload, fingerprint);
+      const quickScan = { topic: scan.topic, depth: scan.depth, platforms: selection.platforms, lookbackHours: scan.lookbackHours, targets: selection.targets.map(({ platform, target }) => ({ platform, target })), itemsPerPlatform: scan.itemsPerPlatform, commentsPerPost: scan.commentsPerPost, fingerprint };
+      return startResearchRun({ ...derived, workspaceId: saved.workspaceId }, [], '', by, { origin: 'quick-scan', quickScan });
+    },
+    // The `ai` block a quick scan will use, for the host's model check before startQuickScan. Given the start payload
+    // (with its fingerprint) it also refuses a changed plan or a second scan first, so neither pays for that check.
+    quickScanAi(payload = {}) {
+      if (payload?.fingerprint === undefined) return copy(quickScanPlan(payload, { rank: false }).derived.ai);
+      const { derived, fingerprint } = quickScanPlan(payload); guardQuickScan(payload, fingerprint);
+      return copy(derived.ai);
+    },
+    // The duplicate check alone, so the host can run it before its model check. Quick scans aren't the program's runs.
     checkResearchIdle({ programId, again = false } = {}) {
       if (again === true) return;
       const program = owned(state.programs, programId);
-      const pending = state.researchRuns.find(run => run.programId === program.id && run.workspaceId === program.workspaceId && (active.has(run.id) || ['queued', 'running', 'awaiting-review'].includes(run.status)));
+      const pending = state.researchRuns.find(run => run.programId === program.id && run.workspaceId === program.workspaceId && run.origin !== 'quick-scan' && (active.has(run.id) || ['queued', 'running', 'awaiting-review'].includes(run.status)));
       if (pending) throw refusal('researchRunning', { name: pending.createdBy?.name || 'Someone', time: when(pending.createdAt) }, 409);
     },
     approveResearchThemes({ runId, themes }) {
@@ -1040,24 +1319,32 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       for (const theme of selected) { const repo = state.themes.find(row => row.workspaceId === run.workspaceId && row.id === theme.id); const original = discovered.find(row => row.id === theme.id); if (repo && original && (original.name !== theme.name || original.description !== theme.description)) Object.assign(repo, { name: theme.name, description: theme.description, aliases: [...new Set([...(repo.aliases || []), ...(original.name !== theme.name ? [original.name] : [])])].slice(-50), updatedAt: stamp() }); }
       run.themes = selected; run.approvedAt = stamp(); save(); return copy(run);
     },
-    // Trend board: OK or pass one discovered theme at a time. Nothing is spent until the run continues.
-    decideResearchTheme({ runId, themeId, decision }) {
+    // Trend board: OK or pass one discovered theme at a time. Nothing is spent until the run continues. A yes can carry a
+    // note for the channels and the channels it is for (kit folder ids; none, or every one, means all channels), which
+    // channel owners read on the trend's card and analytics use to decide which channels it was offered to.
+    decideResearchTheme({ runId, themeId, decision, note, channels }) {
       const by = who(); const run = runRecord(runId); if (run.type !== 'research' || run.status !== 'awaiting-review') throw new Error('This trend is no longer waiting for a decision.');
       if (!['approved', 'passed', 'pending'].includes(decision)) throw new Error('Choose approve, pass, or undo.');
       if (!(run.discoveredThemes || run.themes).some(t => t.id === themeId)) throw new Error('Only discovered trends can be decided.');
+      const words = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+      if (words.length > 280) throw new Error('Keep the note for the channels under 280 characters.');
+      const known = kit().kitFolders(state.workspaces.find(w => w.id === run.workspaceId)?.editionId || 'general').map(folder => folder.id);
+      const routed = decision === 'approved' && Array.isArray(channels) ? [...new Set(channels.filter(value => typeof value === 'string'))] : [];
+      if (routed.some(value => !known.includes(value))) throw new Error('Choose channels from this workspace.');
       run.decisions = { ...(run.decisions || {}) }; run.decisionsBy = { ...(run.decisionsBy || {}) }; run.decidedAt = stamp();
       // Undo forgets who decided, so analytics show the trend as waiting again.
-      if (decision === 'pending') { delete run.decisions[themeId]; delete run.decisionsBy[themeId]; } else { run.decisions[themeId] = decision; run.decisionsBy[themeId] = { ...by, at: run.decidedAt }; }
+      if (decision === 'pending') { delete run.decisions[themeId]; delete run.decisionsBy[themeId]; }
+      else { run.decisions[themeId] = decision; run.decisionsBy[themeId] = { ...by, at: run.decidedAt, ...(words ? { note: words } : {}), ...(routed.length && routed.length < known.length ? { channels: routed } : {}) }; }
       save(); return publicRun(run);
     },
     continueResearchRun({ runId }) { const run = runRecord(runId); if (!run.approvedAt || run.type !== 'research') throw new Error('Approve the research themes first.'); return launch(run, () => performClassification(run)); },
     createContentRun(payload) { const by = who(); const run = newContentRun(payload, null, by); return launch(run, () => performContent(run)); },
     // Asset kits: what a kit from this source would make and cost, before anything is spent.
     planAssetKit(payload = {}) {
-      const { w, picked, input, plan, ai, imagesReady, offered, references, estimate } = kitPlan(payload);
+      const { w, picked, input, plan, ai, imagesReady, offered, references, estimate, promptsAll } = kitPlan(payload);
       const chosen = new Set(plan.deliverables.map(d => d.id));
       // Every offered asset is priced, so ticking one back on shows what it adds.
-      const priced = new Map(kit().estimateKit({ plan: content.buildContentPlan({ ...input, deliverableIds: offered.filter(id => imagesReady || content.CONTENT_DELIVERABLES.find(d => d.id === id).kind !== 'image') }), ai, references }).items.map(item => [item.id, item.usd]));
+      const priced = new Map(kit().estimateKit({ plan: content.buildContentPlan({ ...input, prompts: promptsAll, deliverableIds: offered.filter(id => imagesReady || content.CONTENT_DELIVERABLES.find(d => d.id === id).kind !== 'image') }), ai, references }).items.map(item => [item.id, item.usd]));
       const text = plan.deliverables.filter(d => d.kind !== 'image').length; const sets = plan.deliverables.length - text;
       // What each picture set would send the image model now: { style, logo } from Settings → Brand reference images.
       const referencesFor = id => { const family = brandImages().familyForDeliverable(id); return brandImages().referenceSummary((w.brandImages || []).filter(image => image.family === family?.id)); };
@@ -1083,7 +1370,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       }
       const run = { id: id('content'), workspaceId: w.id, type: 'content', title: picked.source.title, ...(picked.reportAssetId ? { sourceAssetId: picked.reportAssetId } : {}), createdBy: by,
         kit: { version: 1, sourceKey: picked.key, sourceKind: picked.kind, sourceTitle: picked.source.title, folderName: kit().kitRunFolderName({ title: picked.source.title, editionId: w.editionId, createdAt }), concurrency: ai.concurrency, estimateUsd: estimate.totalUsd, ...(picked.reportAssetId ? { reportAssetId: picked.reportAssetId } : {}), ...(picked.themeId ? { themeId: picked.themeId } : {}), ...(picked.url ? { sourceUrl: picked.url } : {}) },
-        ai: { model: ai.model, effort: ai.effort, ...(capabilities().aiProvider === 'codex' ? { route: 'codex' } : {}) }, status: 'queued', stage: 'content', createdAt, maxBudgetUsd: budget(payload.maxBudgetUsd ?? estimate.capUsd), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, progress: { completed: 0, total: plan.deliverables.length },
+        ai: { model: ai.model, effort: ai.effort, ...(capabilities().aiProvider === 'codex' ? { route: 'codex' } : {}) }, prompts: promptRecord(input.prompts), status: 'queued', stage: 'content', createdAt, maxBudgetUsd: budget(payload.maxBudgetUsd ?? estimate.capUsd), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, progress: { completed: 0, total: plan.deliverables.length },
         jobs: plan.deliverables.map(d => ({ id: d.id, label: kit().kitFileLabel(d.id, w.editionId), kind: d.kind, folder: kit().kitFolderFor(d.id, w.editionId).name, status: 'queued' })) };
       try { const references = snapshotKitReferences(run, w, plan.deliverables); if (Object.keys(references).length) run.kit.references = references; }
       catch (error) { fs.rmSync(path.join(root, 'runs', run.id), { recursive: true, force: true }); throw error; }
@@ -1121,9 +1408,14 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     },
     assetKitAi: () => kit().kitAi(state.programs.filter(program => program.workspaceId === state.activeWorkspaceId)),
     async cancelStudioRun({ runId }) { const run = runRecord(runId); if (!active.has(run.id) && run.status !== 'awaiting-review') return copy(run); stopped.add(run.id); await cancelProvider(run.id); for (const child of run.reportRunIds || []) { stopped.add(child.runId); await cancelProvider(child.runId); } run.status = 'cancelled'; run.message = 'Cancelled. Completed outputs are retained.'; updateScheduledRun(run); save(); return copy(run); },
-    retryStudioRun({ runId, maxBudgetUsd }) {
+    // refreshPrompts: true takes the prompts saved since the run started, for the stages it hasn't finished (see
+    // refreshRunPrompts); otherwise a retry writes with the run's own copy.
+    retryStudioRun({ runId, maxBudgetUsd, refreshPrompts }) {
       const run = runRecord(runId); if (active.has(run.id)) throw new Error('This run is still active.'); if (run.status === 'succeeded') return copy(run);
+      // One quick scan at a time in a workspace, for a retry as for a start; refused before anything about the run changes.
+      if (run.type === 'research' && run.origin === 'quick-scan') { const busy = activeQuickScan(run.workspaceId, run.id); if (busy) throw quickScanBusy(busy); }
       if (maxBudgetUsd != null) { const next = budget(maxBudgetUsd); if (next < run.reservedUsd) throw new Error('Budget cannot be below already reserved spend.'); run.maxBudgetUsd = next; }
+      if (refreshPrompts === true) refreshRunPrompts(run);
       // The files about to be tried again wait as queued (files already made stay), so no screen reads them as failed while
       // the retry runs; a channel whose own files are settled in a shared set is told it's finished (channel-view.js).
       if (run.type === 'content') for (const job of run.jobs || []) if (job.status !== 'succeeded') { job.status = 'queued'; delete job.error; }
@@ -1147,6 +1439,27 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       writeBytes(editedFile(asset, 'html'), content.wrapHtml(title || asset.title, markdownToHtml(body), editionId));
       asset.edited = { at: stamp(), by }; delete asset.restored; save();
       return { asset: copy(asset) };
+    },
+    // Where a report, draft or picture is in the team's pipeline: Draft → In review → Approved → Scheduled → Published.
+    // reviewStatus holds it (assets saved before this say 'draft'); `review` says who moved it and when, and Published
+    // keeps the live link. The channel's "Using" answer lives in the team store, so a published channel asset made from
+    // a trend comes back with adoptionSuggested and the screen records the answer with that link.
+    setAssetStatus({ assetId, status, link } = {}) {
+      const by = who(); const asset = owned(state.assets, assetId);
+      if (!['draft', 'in-review', 'approved', 'scheduled', 'published'].includes(status)) throw new Error('Choose Draft, In review, Approved, Scheduled or Published.');
+      const raw = typeof link === 'string' ? link.trim() : '';
+      let live = '';
+      if (status === 'published' && raw) {
+        try { const url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw.replace(/^\/+/, '')}`); if (['http:', 'https:'].includes(url.protocol) && url.hostname.includes('.') && !url.username && !url.password && !/\s/.test(raw) && url.href.length <= 2048) live = url.href; } catch (_) { live = ''; }
+        if (!live) throw new Error('That doesn’t look like a web link.');
+      }
+      // Published again without a link keeps the link it already had.
+      const kept = status === 'published' ? live || (asset.review?.status === 'published' ? asset.review.link || '' : '') : '';
+      asset.reviewStatus = status; asset.review = { status, by, at: stamp(), ...(kept ? { link: kept } : {}) }; save();
+      const run = state.contentRuns.find(row => row.id === asset.runId);
+      const editionId = state.workspaces.find(w => w.id === asset.workspaceId)?.editionId || 'general';
+      const themeId = run?.kit?.themeId || ''; const channelId = themeId ? kit().kitFolderFor(asset.deliverableId, editionId)?.id || '' : '';
+      return { asset: copy(asset), ...(status === 'published' && themeId && channelId ? { adoptionSuggested: true, themeId, channelId, link: kept } : {}) };
     },
     // Back to the generated text. Drafts already made from the edit keep it.
     restoreStudioAsset({ assetId } = {}) {
@@ -1232,8 +1545,63 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const workspaceRuns = state.researchRuns.filter(row => row.workspaceId === run.workspaceId).map(row => ({ id: row.id, title: row.title, createdAt: row.createdAt }));
       const w = state.workspaces.find(row => row.id === run.workspaceId) || {};
       // Report links for every theme in the repository (Trend Velocity shows the latest docs per theme).
-      const repositoryReports = {}; for (const researchRun of state.researchRuns.filter(row => row.workspaceId === run.workspaceId)) for (const entry of researchRun.reportRunIds || []) { const docs = (state.assets || []).filter(asset => asset.runId === entry.runId).map(asset => ({ deliverableId: asset.deliverableId, createdAt: asset.createdAt, url: deliveredDoc(researchRun.googleDelivery, asset) })); if (docs.length && (!repositoryReports[entry.themeId] || String(docs[0].createdAt) > String(repositoryReports[entry.themeId][0].createdAt))) repositoryReports[entry.themeId] = docs; }
-      return { run: publicRun(run), program, evidence, raw, assignments, batches, themes: copy((state.themes || []).filter(t => t.workspaceId === run.workspaceId)), history: copy((state.history || []).filter(h => h.workspaceId === run.workspaceId)), detections: copy((state.detections || []).filter(d => d.workspaceId === run.workspaceId)), taxonomy: copy(w.taxonomy || null), repositoryReports, reports, runs: workspaceRuns, version: researchWorkbookVersion(run) };
+      const repositoryReports = {}; for (const researchRun of state.researchRuns.filter(row => row.workspaceId === run.workspaceId)) for (const entry of researchRun.reportRunIds || []) { const docs = (state.assets || []).filter(asset => asset.runId === entry.runId).map(asset => ({ deliverableId: asset.deliverableId, title: asset.title || '', createdAt: asset.createdAt, url: deliveredDoc(researchRun.googleDelivery, asset) })); if (docs.length && (!repositoryReports[entry.themeId] || String(docs[0].createdAt) > String(repositoryReports[entry.themeId][0].createdAt))) repositoryReports[entry.themeId] = docs; }
+      // Trend Velocity counts runs per trend the way the Trend tracker links them, and names each trend's hero picture.
+      const { trackerCounts, trendRuns, visuals } = velocityExtras();
+      return { run: publicRun(run), program, evidence, raw, assignments, batches, themes: copy((state.themes || []).filter(t => t.workspaceId === run.workspaceId)), history: copy((state.history || []).filter(h => h.workspaceId === run.workspaceId)), detections: copy((state.detections || []).filter(d => d.workspaceId === run.workspaceId)), taxonomy: copy(w.taxonomy || null), repositoryReports, reports, runs: workspaceRuns, trackerCounts, trendRuns, visuals, version: researchWorkbookVersion(run) };
+    },
+    // Trend tracking over time: the Trend tracker workbook, Home's "What changed", Ask AI's trend memory and its `trend`
+    // and `posts` lookups. Every read is scoped to the active workspace and rebuilt only when its runs change.
+    listTrendHistorySources() {
+      const observed = trendRunList().filter(trendObserved);
+      const blank = { rising: 0, new: 0, steady: 0, fading: 0 };
+      if (!observed.length) return { version: trendVersion(), runCount: 0, runsWithThemes: 0, quickScanCount: 0, trendCount: 0, counts: blank, sinceRun: null, createdAt: '', updatedAt: '', runs: [] };
+      const { version, history, changes } = trendHistory();
+      const research = history.trends.filter(trend => trend.origin === 'research'); const counts = { ...blank }; for (const trend of research) counts[trend.momentum]++;
+      return { version, runCount: history.runCount, runsWithThemes: history.runsWithThemes, quickScanCount: history.quickScanCount, trendCount: history.trends.length, counts, sinceRun: changes.sinceRun,
+        createdAt: observed.map(run => String(run.createdAt || '')).sort()[0] || '', updatedAt: observed.map(run => String(run.updatedAt || run.createdAt || '')).sort().at(-1) || '',
+        runs: observed.map(run => ({ runId: run.id, programId: run.programId || '', title: run.title, origin: run.origin === 'quick-scan' ? 'quick-scan' : 'research', status: run.status, stage: run.stage, createdAt: run.createdAt, updatedAt: run.updatedAt || run.createdAt, themeCount: trendModule().runThemes(run).length })) };
+    },
+    readTrendHistorySource() { return trendHistorySource(trendVersion()); },
+    // Ask AI's live context: what is rising, new and fading across every run, in at most 3,000 characters.
+    trendMemory() { try { return copy(trendHistory().digest); } catch (_) { return null; } },
+    readTrendHistory(payload = {}) {
+      const { history, changes, digest } = trendHistory(); const limit = Math.round(Number(payload?.limit));
+      const trends = history.trends.slice(0, Math.min(500, Math.max(1, Number.isFinite(limit) && limit > 0 ? limit : 200))).map(trendModule().compactTrend);
+      return copy({ asOf: history.asOf, runCount: history.runCount, runsWithThemes: history.runsWithThemes, quickScanCount: history.quickScanCount, span: history.span, trends, categories: history.categories.map(({ weekly: _weekly, ...entry }) => entry), changes, digest });
+    },
+    readTrendRecord(payload = {}) {
+      const record = trendModule().findTrend(trendHistory().history, { trendId: String(payload?.trendId || '').slice(0, 200), name: String(payload?.name || '').slice(0, 300) });
+      return record ? copy(record) : null;
+    },
+    // Real posts behind "what are people saying about X": this workspace's research runs and quick scans from the last
+    // `days`, ranked by how many query terms a post mentions, then engagement.
+    searchRunPosts(payload = {}) {
+      const query = String(payload?.query || '').slice(0, 300); if (!query.trim()) return [];
+      const limit = Math.min(50, Math.max(1, Math.round(Number(payload?.limit)) || 12)); const days = Math.min(365, Math.max(1, Number(payload?.days) || 30));
+      const since = new Date(clock()).getTime() - days * 86400000;
+      const runs = trendRunList().filter(run => Date.parse(run.createdAt || '') >= since).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, 20);
+      return copy(trendModule().rankPosts(runs.flatMap(runPosts), query, { limit }));
+    },
+    // ---------- Prompt Library (SPEC-2 §A; the logic is in prompt-lab.js). Prompts are per workspace: the active one. ----------
+    listPrompts: payload => promptLab().listPrompts(payload),
+    readPrompt: payload => promptLab().readPrompt(payload),
+    // Free: builds the real prompt from a recent run or the bundled sample, with the editable spans marked.
+    previewPrompt: payload => promptLab().previewPrompt(payload),
+    diffPromptVersions: payload => promptLab().diffPromptVersions(payload),
+    // Saves and restores are checked, versioned and credited to the caller (who() plus getCallerRole).
+    savePromptVersion: payload => promptLab().savePromptVersion(payload),
+    revertPrompt: payload => promptLab().revertPrompt(payload),
+    setPromptLock: payload => promptLab().setPromptLock(payload),
+    estimatePromptTest: payload => promptLab().estimatePromptTest(payload),
+    // Paid: refuses a fingerprint that no longer matches the estimate the person confirmed.
+    testPrompt: payload => promptLab().testPrompt(payload),
+    // For the host: the Claude models a test run needs (model preflight), and a prompt's saved text for the callers that
+    // build their prompts live (Ask AI, Ask your datasets, dataset analysis, the Workflows asset pack). blocks null = defaults.
+    promptTestModels: payload => promptLab().testModels(payload),
+    promptEffective(promptId) {
+      const w = state.workspaces.find(row => row.id === state.activeWorkspaceId);
+      try { return w ? prompts.effective(w.id, w.editionId, promptId) : { version: 0, custom: false, blocks: null }; } catch (_) { return { version: 0, custom: false, blocks: null }; }
     },
     waitForIdle: async () => { while (active.size) await Promise.allSettled([...active.values()]); },
     // Runs working right now (any workspace), for the host's "quit anyway?" check.
@@ -1243,6 +1611,111 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const stamp = name => { try { return fs.statSync(path.join(root, 'runs', run.id, name)).mtimeMs; } catch (_) { return 0; } };
     let cached = 0; try { cached = fs.readdirSync(path.join(root, 'runs', run.id)).filter(name => name.endsWith('.validated.json')).length; } catch (_) { /* No run folder yet. */ }
     return [run.updatedAt || run.createdAt, run.status, run.stage, stamp('evidence.json'), stamp('assignments.json'), cached, (run.themes || []).length, JSON.stringify(run.decisions || {}).length].join('|');
+  }
+  // ── Trend tracking over time (pure logic in shared/trend-history.js, loaded on use so older hosts keep starting) ──
+  const trendModule = () => require('../shared/trend-history');
+  // Existence checks and stats never go through file(), which creates the run folder.
+  const runPath = (runId, name) => path.join(root, 'runs', runId, name);
+  const mtime = target => { try { return fs.statSync(target).mtimeMs; } catch (_) { return 0; } };
+  const trendRunList = () => state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId);
+  const trendObserved = run => Array.isArray(run.discoveredThemes) || (run.themes || []).length > 0;
+  const themeStatsCache = new Map(); const postCache = new Map(); let trendCache = null;
+  function trendRunVersion(run) {
+    return [run.id, run.updatedAt || run.createdAt, run.status, run.stage, (run.discoveredThemes || []).length, (run.themes || []).map(theme => theme?.name || '').join('|').length, JSON.stringify(run.decisions || {}).length, (run.reportRunIds || []).length, (run.googleDelivery?.assets || []).length, mtime(runPath(run.id, 'assignments.json'))].join(':');
+  }
+  function trendVersion() {
+    const runs = trendRunList(); const w = state.workspaces.find(row => row.id === state.activeWorkspaceId);
+    const children = new Set(runs.flatMap(run => (run.reportRunIds || []).map(entry => entry.runId)));
+    const reports = state.assets.filter(asset => children.has(asset.runId) && REPORT_DELIVERABLES.includes(asset.deliverableId));
+    const parts = [state.activeWorkspaceId, (w?.taxonomy?.categories || []).length, reports.length, reports.map(asset => String(asset.createdAt || '')).sort().at(-1) || '', state.history.filter(row => row.workspaceId === state.activeWorkspaceId).length, ...runs.map(trendRunVersion)];
+    return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 32);
+  }
+  // Per-run theme numbers, cached as runs/<id>/theme-stats.json: written when classification finishes, counted here for
+  // older runs (and again whenever the run's tags or themes change).
+  function themeStatsFor(run, preload = null) {
+    const evidencePath = runPath(run.id, 'evidence.json'); const assignmentsPath = runPath(run.id, 'assignments.json');
+    if (!preload && !fs.existsSync(evidencePath)) return null;
+    const ids = [...(run.discoveredThemes || []), ...(run.themes || [])].map(theme => theme?.id).filter(Boolean).sort();
+    const key = createHash('sha256').update([mtime(evidencePath), mtime(assignmentsPath), ...ids].join('|')).digest('hex').slice(0, 24);
+    const memo = themeStatsCache.get(run.id); if (!preload && memo?.key === key) return memo.stats;
+    const target = runPath(run.id, 'theme-stats.json'); let stats = null;
+    if (!preload) { try { const saved = read(target); if (saved?.version === 1 && saved.key === key) stats = saved; } catch (_) { /* Not written yet, or unreadable: count again below. */ } }
+    if (!stats) {
+      const evidence = preload ? preload.evidence : read(evidencePath).items || [];
+      const assignments = preload ? preload.assignments : fs.existsSync(assignmentsPath) ? read(assignmentsPath) : [];
+      stats = { ...trendModule().computeThemeStats({ run, evidence, assignments }), key, computedAt: stamp() };
+      try { write(target, stats); } catch (_) { /* The cache is a convenience; these counts still serve this read. */ }
+    }
+    themeStatsCache.set(run.id, { key, stats });
+    return stats;
+  }
+  function writeThemeStats(run, evidence, assignments) { try { themeStatsFor(run, { evidence, assignments }); } catch (_) { /* Counted again on the first read instead. */ } }
+  function trendHistorySource(version) {
+    const workspaceId = state.activeWorkspaceId; const runs = trendRunList(); const themeStats = {};
+    for (const run of runs) {
+      if (!trendObserved(run)) continue;
+      let stats = null; try { stats = themeStatsFor(run); } catch (_) { stats = null; } // a damaged file leaves this run on discovery counts
+      if (stats) themeStats[run.id] = { retained: stats.retained, discoveryEligible: stats.discoveryEligible, tagged: stats.tagged || {}, discovery: stats.discovery || {} };
+    }
+    const reportAssets = new Map(); for (const asset of state.assets) if (asset.workspaceId === workspaceId && REPORT_DELIVERABLES.includes(asset.deliverableId)) { if (!reportAssets.has(asset.runId)) reportAssets.set(asset.runId, []); reportAssets.get(asset.runId).push(asset); }
+    const reports = [];
+    for (const run of runs) for (const entry of run.reportRunIds || []) for (const asset of reportAssets.get(entry.runId) || []) reports.push({ researchRunId: run.id, themeId: entry.themeId, contentRunId: entry.runId, assetId: asset.id, deliverableId: asset.deliverableId, title: asset.title || '', createdAt: asset.createdAt || '', url: run.googleDelivery ? deliveredDoc(run.googleDelivery, asset) : '' });
+    const w = state.workspaces.find(row => row.id === workspaceId) || {};
+    return { workspaceId, runs: runs.map(run => ({ id: run.id, programId: run.programId || '', title: run.title || '', origin: run.origin === 'quick-scan' ? 'quick-scan' : 'research', status: run.status, stage: run.stage, createdAt: run.createdAt, updatedAt: run.updatedAt || run.createdAt, window: run.window || null, counts: run.counts || null, approvedAt: run.approvedAt || '', decisions: run.decisions || {}, discoveredThemes: run.discoveredThemes, themes: run.themes || [], quickScan: run.quickScan || null })),
+      repository: state.themes.filter(theme => theme.workspaceId === workspaceId), history: state.history.filter(row => row.workspaceId === workspaceId), reports, themeStats, taxonomy: w.taxonomy || null, version };
+  }
+  function trendHistory() {
+    const version = trendVersion();
+    if (trendCache?.version === version) return trendCache;
+    const trends = trendModule(); const history = trends.buildTrendHistory(trendHistorySource(version), { now: clock() });
+    trendCache = { version, history, changes: trends.trendChanges(history), digest: trends.trendMemoryDigest(history, { limit: 12, maxChars: 3000 }) };
+    return trendCache;
+  }
+  // Trend Velocity extras: runs-seen and momentum per theme id (every id a linked trend has used), how many runs have
+  // found trends, and each trend's newest channel-asset hero picture.
+  function velocityExtras() {
+    let history = null; try { history = trendHistory().history; } catch (_) { history = null; }
+    const trackerCounts = {};
+    for (const trend of history?.trends || []) {
+      if (trend.origin !== 'research') continue;
+      const report = trend.reports.find(entry => entry.deliverableId === 'evidence-report');
+      for (const themeId of trend.themeIds) trackerCounts[themeId] = { trendId: trend.trendId, runsSeen: trend.runsSeen, momentum: trend.momentum, reportTitle: report?.title || '', reportUrl: report?.url || '' };
+    }
+    const workspaceId = state.activeWorkspaceId; const reportTheme = new Map(); const assetTheme = new Map(); const images = new Map(); const visuals = {};
+    for (const run of state.researchRuns) if (run.workspaceId === workspaceId) for (const entry of run.reportRunIds || []) reportTheme.set(entry.runId, entry.themeId);
+    for (const asset of state.assets) {
+      if (asset.workspaceId !== workspaceId) continue;
+      if (reportTheme.has(asset.runId)) assetTheme.set(asset.id, reportTheme.get(asset.runId));
+      if (asset.kind === 'image') { if (!images.has(asset.runId)) images.set(asset.runId, []); images.get(asset.runId).push(asset); }
+    }
+    const HERO = ['brand-image', 'sel-image', 'sel-social-image']; const rank = asset => (HERO.includes(asset.deliverableId) ? HERO.indexOf(asset.deliverableId) : HERO.length) * 10 + (Number(asset.variantIndex) || 0);
+    for (const kitRun of state.contentRuns.filter(run => run.workspaceId === workspaceId && run.kit).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))) {
+      const themeId = kitRun.kit.themeId || assetTheme.get(kitRun.kit.reportAssetId || kitRun.sourceAssetId); if (!themeId || visuals[themeId]) continue;
+      const hero = [...(images.get(kitRun.id) || [])].sort((a, b) => rank(a) - rank(b))[0]; if (!hero) continue;
+      const url = (kitRun.googleDelivery?.assets || []).find(row => row.assetId === hero.id)?.files?.find(entry => /^https:\/\//.test(entry?.url || ''))?.url || '';
+      visuals[themeId] = { title: hero.title || 'Hero picture', url, createdAt: kitRun.createdAt || '' };
+    }
+    // A recurring trend shows its newest hero picture under every theme id it has used.
+    for (const trend of history?.trends || []) {
+      const newest = trend.themeIds.map(themeId => visuals[themeId]).filter(Boolean).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+      if (newest) for (const themeId of trend.themeIds) visuals[themeId] = newest;
+    }
+    return { trackerCounts, trendRuns: history?.runsWithThemes || 0, visuals };
+  }
+  function runPosts(run) {
+    const target = runPath(run.id, 'evidence.json'); const key = mtime(target); if (!key) return [];
+    const memo = postCache.get(run.id); if (memo?.key === key) return memo.posts;
+    let items = []; try { items = read(target).items || []; } catch (_) { return []; }
+    const { normalizeText } = trendModule(); const origin = run.origin === 'quick-scan' ? 'quick-scan' : 'research';
+    const posts = items.filter(item => item && (item.text || item.title)).map(item => {
+      const body = String(item.text || '').replace(/\s+/g, ' ').trim(); const title = String(item.title || '').replace(/\s+/g, ' ').trim();
+      const text = title && !body.startsWith(title) ? `${title} — ${body}` : body || title;
+      return { runId: run.id, runTitle: run.title || '', origin, platform: item.platform || '', author: String(item.author || ''), authorName: String(item.authorName || ''), community: String(item.community || ''), text: text.length > 400 ? `${text.slice(0, 399).trimEnd()}…` : text,
+        url: /^https?:\/\//.test(item.url || '') ? item.url : '', publishedAt: item.publishedAt || '', engagement: typeof item.engagement?.value === 'number' && Number.isFinite(item.engagement.value) ? Math.round(item.engagement.value * 100) / 100 : 0,
+        haystack: normalizeText(`${text} ${item.author || ''} ${item.authorName || ''} ${item.community || ''}`).slice(0, 2400) };
+    });
+    postCache.delete(run.id); postCache.set(run.id, { key, posts }); while (postCache.size > 8) postCache.delete(postCache.keys().next().value);
+    return posts;
   }
   // Persist before exposing the service; startup does not emit events or run providers.
   if (migrateSemrushBrandDefaults()) write(stateFile, state);

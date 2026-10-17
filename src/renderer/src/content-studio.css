@@ -276,13 +276,82 @@
 .cs-asset-preview .cs-asset-head > .cs-panel-title { margin-bottom: 12px; }
 .cs-asset-preview h3 { font-size: 21px; line-height: 1.35; }
 .cs-asset-tools { display: flex; flex-wrap: wrap; gap: 18px; border-bottom: 1px solid var(--cs-border); padding-bottom: 20px; margin-bottom: 23px; }
-/* Reading a long asset: the list stays in view and scrolls on its own, and the open asset's title and
+/* Library as folders: search, filters and the folder tree on the left; the open folder (breadcrumb, folder cards,
+   file rows) and the preview stacked on the right. */
+.cs-library-selects { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.cs-library-selects > select { min-height: 34px; font-size: 10px; padding: 8px 10px; }
+.content-studio .cs-search-clear { display: grid; place-items: center; flex: none; width: 22px; height: 22px; min-height: 22px; padding: 0; border: 0; border-radius: 50%; color: var(--cs-muted); background: var(--cs-soft); }
+.content-studio .cs-search-clear:hover:not(:disabled) { color: var(--cs-ink); background: var(--cs-soft); }
+.cs-tree, .cs-tree ul { list-style: none; margin: 0; padding: 0; }
+.cs-tree { display: grid; gap: 1px; }
+.cs-tree [role="treeitem"] { outline: none; }
+.cs-tree-row { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 5px 8px 5px calc(6px + var(--depth, 0) * 14px); border-radius: 7px; color: var(--cs-ink); font-size: 11px; line-height: 1.4; cursor: pointer; user-select: none; }
+.cs-tree-row > svg { flex: none; color: var(--cs-muted); }
+.cs-tree-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-tree-row > small { flex: none; font-size: 9px; color: var(--cs-muted); font-variant-numeric: tabular-nums; }
+.cs-tree-toggle { display: grid; place-items: center; flex: none; width: 16px; height: 16px; color: var(--cs-muted); border-radius: 4px; }
+.cs-tree-toggle > svg { transition: transform 140ms ease; }
+.cs-tree [aria-expanded="true"] > .cs-tree-row .cs-tree-toggle > svg { transform: rotate(90deg); }
+.cs-tree-row:hover { background: var(--cs-soft); }
+.cs-tree [aria-selected="true"] > .cs-tree-row { background: var(--cs-soft); box-shadow: inset 0 0 0 1px var(--cs-border-accent); font-weight: 600; }
+.cs-tree [aria-selected="true"] > .cs-tree-row > svg { color: var(--cs-accent); }
+.cs-tree [role="treeitem"]:focus-visible > .cs-tree-row { outline: 2px solid var(--cs-accent); outline-offset: -2px; }
+.cs-tree .is-dim > .cs-tree-row { opacity: .5; }
+.cs-library-main { display: grid; gap: 19px; min-width: 0; align-content: start; }
+.cs-library-folder { padding: 20px 22px; }
+.cs-crumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; list-style: none; margin: 0 0 12px; padding: 0; font-size: 10px; color: var(--cs-muted); }
+.cs-crumbs li { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.cs-crumbs li + li::before { content: '›'; color: var(--cs-muted); }
+.content-studio .cs-crumbs button { min-height: 0; padding: 2px 4px; border: 0; border-radius: 4px; color: var(--cs-accent); background: transparent; font-size: 10px; font-weight: 550; }
+.content-studio .cs-crumbs button:hover:not(:disabled) { color: var(--cs-accent); background: var(--cs-soft); }
+.cs-crumbs [aria-current="page"] { color: var(--cs-ink); font-weight: 600; }
+.cs-folder-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+.cs-folder-head h2 { font-size: 18px; letter-spacing: -.3px; line-height: 1.3; font-weight: 600; }
+.cs-folder-head p { margin: 4px 0 0; font-size: 11px; line-height: 1.6; }
+.cs-used-by { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--cs-accent); }
+.cs-folder-live, .cs-library-pending { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; padding: 10px 12px; font-size: 11px; line-height: 1.5; color: var(--cs-ink); background: var(--cs-soft); border-radius: 8px; }
+.cs-library-pending > span { flex: 1; min-width: 200px; }
+.cs-folder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.content-studio .cs-folder-card { display: grid; grid-template-rows: auto 1fr; padding: 0; overflow: hidden; text-align: left; color: var(--cs-ink); background: var(--cs-paper); border: 1px solid var(--cs-border); border-radius: 10px; transition: border-color .16s, transform .16s, box-shadow .16s; }
+.content-studio .cs-folder-card:hover:not(:disabled) { color: var(--cs-ink); background: var(--cs-paper); border-color: var(--cs-border-accent); transform: translateY(-1px); box-shadow: 0 6px 18px color-mix(in srgb, var(--cs-ink), transparent 93%); }
+.content-studio .cs-folder-card.is-live { border-color: var(--cs-border-accent); }
+.cs-folder-cover { display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; aspect-ratio: 16 / 7; overflow: hidden; background: var(--cs-soft); }
+.cs-folder-cover > * { width: 100%; height: 100%; object-fit: cover; }
+.cs-folder-cover > :first-child { grid-row: 1 / span 2; }
+.cs-folder-cover > :only-child { grid-column: 1 / -1; }
+.cs-folder-glyph { display: grid; place-items: center; color: var(--cs-accent); }
+.cs-thumb-wait { background: linear-gradient(90deg, var(--cs-soft), var(--cs-paper), var(--cs-soft)); background-size: 200% 100%; animation: cs-thumb 1.4s ease-in-out infinite; }
+@keyframes cs-thumb { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.cs-folder-copy { display: grid; align-content: start; gap: 3px; min-width: 0; padding: 11px 12px 12px; }
+.cs-folder-copy strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; font-weight: 600; line-height: 1.4; }
+.cs-folder-copy small { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; line-height: 1.5; color: var(--cs-muted); }
+.cs-file-list { display: grid; gap: 6px; }
+.content-studio .cs-file-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; text-align: left; color: var(--cs-ink); background: var(--cs-paper); border: 1px solid var(--cs-border); border-radius: 8px; }
+.content-studio .cs-file-row:hover:not(:disabled):not(.selected) { color: var(--cs-ink); background: var(--cs-soft); border-color: var(--cs-border); }
+.content-studio .cs-file-row.selected { background: var(--cs-soft); border-color: var(--cs-border-accent); }
+.cs-file-row > span:nth-child(2) { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.cs-file-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 550; line-height: 1.5; }
+.cs-file-row small { font-size: 9px; line-height: 1.6; color: var(--cs-muted); }
+.cs-file-row .cs-file-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-file-row > svg { flex: none; color: var(--cs-muted); }
+.cs-file-row .cs-mini-icon { overflow: hidden; }
+.cs-file-row .cs-mini-icon img { width: 100%; height: 100%; object-fit: cover; }
+.cs-asset-where { display: block; margin-top: 6px; font-size: 10px; line-height: 1.5; color: var(--cs-muted); }
+.cs-history-quick { display: grid; gap: 2px; min-width: 0; text-align: left; }
+.cs-history-quick strong { display: inline-flex; align-items: center; gap: 5px; color: var(--cs-ink); font-weight: 600; }
+.cs-history-quick small { font-size: 10px; }
+/* Every Advanced page leads with its own title now that the campaign hero is on Overview only. */
+.cs-page-heading h1 { font-size: 26px; letter-spacing: -.7px; line-height: 1.25; font-weight: 650; }
+@media (prefers-reduced-motion: reduce) { .cs-thumb-wait { animation: none; } .cs-tree-toggle > svg, .content-studio .cs-folder-card { transition: none; } }
+@media (max-width: 940px) { .cs-tree { max-height: 320px; overflow-y: auto; } }
+@media (max-width: 700px) { .cs-library-selects { grid-template-columns: minmax(0,1fr); } .cs-folder-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } .cs-folder-head { flex-direction: column; gap: 8px; } .cs-library-folder { padding: 17px; } }
+/* Reading a long asset: the tree stays in view and scrolls on its own, and the open asset's title and
    actions stay pinned while the page scrolls through it. Single-column layouts keep normal flow. */
 @media (min-width: 941px) {
   /* Sticky offsets start inside .content's padding; 112px = top bar + that padding above and below. */
   .cs-library-list { position: sticky; top: 0; display: flex; flex-direction: column; max-height: calc(100dvh - 112px); }
   .cs-library-list > .cs-library-filters { flex: none; }
-  .cs-library-list > .cs-asset-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; grid-auto-rows: max-content; align-content: start; }
+  .cs-library-list > .cs-asset-list, .cs-library-list > .cs-tree { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; grid-auto-rows: max-content; align-content: start; }
   .cs-asset-head { position: sticky; top: -26px; z-index: 2; margin: -24px -24px 23px; padding: 24px 24px 0; background: var(--cs-paper); border-top-left-radius: inherit; border-top-right-radius: inherit; }
   .cs-asset-head > .cs-asset-tools { margin-bottom: 0; }
 }
@@ -707,3 +776,27 @@
 .cs-tier.tier-strong { background: #eaf2ff; color: #23498a; }
 .cs-tier.tier-monitor { background: #fff4dc; color: #7a5410; }
 .cs-tier.tier-low { background: var(--cs-soft); color: var(--cs-muted); }
+/* Library folders: the Semrush edition's larger type and rounder controls, and the filter row on narrow layouts
+   (after the page-wide breakpoints above, which set a single 160px filter column). */
+.content-studio[data-edition="semrush"] .cs-library-selects > select { font-size: 11px; border-radius: 10px; }
+.content-studio[data-edition="semrush"] .cs-tree-row { font-size: 12px; border-radius: 9px; }
+.content-studio[data-edition="semrush"] .cs-file-row { padding: 12px; border-radius: 11px; }
+.content-studio[data-edition="semrush"] .cs-file-row strong { font-size: 12px; }
+.content-studio[data-edition="semrush"] .cs-file-row small { font-size: 10px; }
+.content-studio[data-edition="semrush"] .cs-folder-card { border-radius: 14px; }
+@media (max-width: 940px) { .cs-library-filters { grid-template-columns: minmax(0,1fr) minmax(0,300px); } }
+@media (max-width: 700px) { .cs-library-filters { grid-template-columns: minmax(0,1fr); } }
+/* The earlier content board's list opens as a Library folder, so it drops its own card frame there. */
+.cs-library-folder .ws-legacy { margin-top: 0; }
+.cs-library-folder .ws-legacy .ws-card { padding: 0; border: 0; box-shadow: none; background: transparent; }
+
+/* Program cards: what the last run cost (only where the role sees costs). */
+.cs-program-choice small.cs-program-cost { margin-top: 2px; color: var(--cs-ink); font-weight: 600; }
+/* The weekly briefing is Overview's page: its cards keep the frame's own type sizes inside Content Studio. */
+.content-studio .wb-page p { line-height: 1.5; }
+.content-studio .wb-page h2 { font-size: 16px; }
+.content-studio .wb-page .tp-card h3 { font-size: 16px; }
+/* Library rows: the file, then its status chip (Draft · In review · Approved · Scheduled · Published). */
+.cs-file-row-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+.cs-file-row-wrap > .studio-status-wrap { flex-direction: row; }
+.content-studio .cs-asset-head .studio-status-wrap { flex-direction: row; }

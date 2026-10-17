@@ -65,6 +65,12 @@ describe('PreviewBanner', () => {
     render(<PreviewBanner viewer={{ role: 'editor', realRole: 'admin', preview: true }} onBack={() => {}} />);
     expect(screen.getByText('Previewing what an editor sees. Buttons that change things are off.')).toBeInTheDocument();
   });
+
+  it('names one person and their own changes when People & access previews them', () => {
+    const viewer = { role: 'editor', base: 'editor', roleId: 'editor', roleLabel: 'Editor', realRole: 'admin', preview: true, previewName: 'Riley Jones', previewChanges: 2, viewAs: { memberId: 'member-riley' } };
+    render(<PreviewBanner viewer={viewer} onBack={() => {}} />);
+    expect(screen.getByText('Previewing what Riley Jones (Editor, 2 changes) sees. Buttons that change things are off.')).toBeInTheDocument();
+  });
 });
 
 describe('Dialog and MoreMenu', () => {

@@ -12,7 +12,8 @@ behaviour are in `docs/roles-and-access.md`.
   `STUDIO_DATA_DIR=… STUDIO_SECRETS_FD=0 npm run start:web < secrets`. Confirm the startup lines name the sign-in mode
   and print **no** warning about secrets in the environment. Use a copy of the Mac data folder.
 - People: one admin (you), one editor (Riley), one Semrush Blog channel owner (Alex), one person with no role.
-  Make sign-in links for Riley and Alex in **People & roles** and open each in its own browser profile.
+  Invite Riley and Alex in **People & access** (password mode makes their links in the same step) and open each in its
+  own browser profile.
 - Repeat the AI steps on each route, set in Settings → Writing & research: **Claude (signed-in app)**, **Claude API key**
   and **Codex**. Use small, cheap runs; confirm each paid step before it starts.
 
@@ -22,7 +23,7 @@ Record the date, build, route and browser next to each section, and a screenshot
 
 Mac and web.
 
-- [ ] The left sidebar shows the brand, the workspace card, the **View as** card, the **Simple | Advanced** switch, the Main nav, the **Admin** nav (Analytics, People & roles), Settings and the footer. Switching layout keeps focus on the radio and the sidebar doesn't flash.
+- [ ] The left sidebar shows the brand, the workspace card, the **View as** card, the **Simple | Advanced** switch, the Main nav, the **Studio** group (Prompts, Analytics, People & access, Settings) and the footer. Switching layout keeps focus on the radio and the sidebar doesn't flash.
 - [ ] Simple has no top tab bar. On the Mac, the window drags from the top of the main column and from the top of the sidebar; buttons there still click.
 - [ ] Below 860px: a top bar with **Menu**; the drawer opens with focus on the current item, the page behind is inert, **Esc** and the scrim close it, and focus returns to **Menu** (check in Safari, where clicking doesn't focus buttons). In Advanced, **More tools** inside the drawer opens more tools without closing it; choosing a page closes it.
 - [ ] **View as → Editor**: a banner "Previewing what an editor sees. Buttons that change things are off." takes focus. The editor's buttons (Yes, use it, Skip, Find new trends, Write the reports, Edit, Make channel assets, Ask AI about this, the Ask box) are visible and turned off, with the reason on hover. Settings, Analytics and People are gone. **Back to Admin** ends it.
@@ -32,7 +33,14 @@ Mac and web.
 - [ ] **Restore the original** asks first, then shows the generated text.
 - [ ] With Google publishing connected: **Save to Google Drive** on a delivered run, edit its report, save to Drive again: it succeeds and Drive gets a new Doc ending in "(edited)" next to the untouched original. An edit with an `http://` link still saves to Drive (the link shows as text).
 - [ ] **Save folder** on a kit made from pasted text includes "Source — <title>.md".
-- [ ] **People & roles** (web): add, edit, disable, enable and remove people; make a link (and a new one, which signs the old browser out at once); turn a link off. You can't demote yourself or remove the last admin. On the Mac: no Add a person; Preview buttons per channel and Preview as an editor.
+- [ ] **People & access › People** (web): the coverage strip says "All 10 channels have an owner" or names the open ones with **Assign** (which opens Invite set to that channel). Search (press **/**), the Role, Status, Channel and Sort filters and the live count work; "No one matches" offers **Clear filters**. Below 860px the rows are cards. The tab you were on is still open after a reload.
+- [ ] **Invite people**: paste three addresses at once (one invalid, one already in the studio, one listed twice): each is flagged and skipped; names are optional and default from the email. Invite as a Channel owner asks for the channel. In password mode the result lists each person with **Copy link** / **Copy message** and **Copy all links**; with company sign-in it says where they sign in and offers **Copy invite message**.
+- [ ] **Person sheet**: Details (name, email, role cards with Can/Can’t, channel for a channel role), Access (Role default · On · Off per capability; locked rows say why; turning on Start research for someone without See research and evidence turns that on too, with a note; the summary reads "Riley can do N of 22 things · 1 change from Editor"), Sign-in (make or turn off the link) and Activity (the access log about them, **Load older**). Save sends only what changed. You can't change your own role or access, or the last admin's role. Disable, enable and remove ask first in the studio's own dialog.
+- [ ] **People & access › Roles**: the matrix shows Admin locked ("Everything. Can’t be changed."), Editor, Channel owner and any custom roles, grouped, with **Costs money** tags. Turning off **See research and evidence** for Editor turns off what needs it, with a note; the dirty bar reads "N changes · affects M people"; **Review and save** lists each role's changes and who's affected, then saves once. Saving from a second admin window that opened earlier says who changed roles and when, with **Reload**. Settings and People and access can't be turned on for anyone. Below 860px, **Show** picks one role at a time and the page never scrolls sideways.
+- [ ] **New role** from Viewer: the new column starts with reads only. Give it to a person: they see no costs anywhere (state, report reader, run cards) and no Ask AI, Sheets or Data tools. **Rename** and **Delete** (which asks where to move its people) work; a role in use can't be deleted without moving them.
+- [ ] **Preview as…**: a role, a custom channel role (asks which channel) and one person ("Previewing what Riley Jones (Editor, 1 change) sees."). The preview matches what that person sees; every write is refused; **Back to Admin** ends it.
+- [ ] **People & access › Access log**: each change above is a sentence ("Alex turned off Edit AI prompts for Editor · affects 4 people · Oct 17, 10:42") that opens to show its changes; the Person, Role and What filters, **Load older** and **Download CSV** work. Turning off a sign-in link is logged.
+- [ ] On the Mac: People shows the Mac note with Preview buttons per channel and Preview as an editor; Roles and Access log work, and a role change shows in View as at once.
 - [ ] **Analytics**: the range chips, funnel, Channels table (**Copy reminder**), Trends × channels matrix (cell details, **Change answer**), **Show passed and pending**, Recent activity and **Download CSV**.
 - [ ] Web, workspace switch: the picker asks first ("Everyone using the studio … switches"). An editor with an unsaved report edit keeps the editor open with a note and **Copy my text**.
 
@@ -40,7 +48,8 @@ Mac and web.
 
 Web (and Mac View as for the visible parts).
 
-- [ ] The sidebar shows the workspace and "Editor" as text, not pickers. No View as, Settings, Brand knowledge, Analytics or People. ⌘, does nothing.
+- [ ] The sidebar shows the workspace and "Editor" as text, not pickers. The **Studio** group has only Prompts. No View as, Settings, Brand knowledge, Analytics or People & access. ⌘, does nothing.
+- [ ] With **Start research** turned off for Editor (Roles tab), **Find new trends** is gone, and a call by hand is refused with "Your access doesn’t include “Start research”. Ask <admin> if you need it." Turned back on for this one person (their Access tab), it works again for them only.
 - [ ] Trends: decide trends, **Write the reports**, **Find new trends** (a second search with the same program asks first and names who started the first).
 - [ ] Reports: edit and save; make channel assets for any channel.
 - [ ] Ask AI answers without offering Settings; "Show me" never points at admin-only places.
@@ -52,7 +61,8 @@ Web (and Mac View as for the visible parts).
 
 Web, on a desktop browser and a phone; then Mac View as.
 
-- [ ] Only **Trends** (with a new count) and **My assets**. No layout switch, no Ask AI, no Settings. On a phone, a bottom nav, and Sign out under "…".
+- [ ] Only **Trends** (with a new count), **My assets**, **My plan** and **Inbox**. No layout switch, no Ask AI, no Settings. On a phone, a bottom nav, and Sign out under "…".
+- [ ] A custom role built on Channel owner (for example Channel reviewer) gets the same channel screens, without **Generate for my channel** when it can’t make assets.
 - [ ] The welcome card shows once; **Got it** hides it for good.
 - [ ] Filters New · Using · Not for us · All; **Earlier** holds trends from before joining. Answering an Earlier trend under **All** moves it into the list with focus on it.
 - [ ] **Read the brief** shows the edited brief and who edited it.

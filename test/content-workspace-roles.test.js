@@ -280,3 +280,44 @@ describe('channel sets', () => {
     expect(h.api.trendSource()).toMatchObject({ activeWorkspaceId: 'general', researchRuns: [], contentRuns: [], assets: [] });
   });
 });
+
+// ---------- Notes and routing on a yes; the content status pipeline ----------
+describe('a yes with a note for chosen channels', () => {
+  it('stores the note and channels with who decided; every channel or none means all', async () => {
+    const h = researchHarness(); h.api.saveResearchProgram(program());
+    const started = h.api.startResearchRun({ programId: 'program-a', datasetIds: ['dataset-a'] }); await h.api.waitForIdle();
+    const run = h.api.readStudioRun({ runId: started.id }); const [theme] = run.discoveredThemes;
+    h.api.decideResearchTheme({ runId: run.id, themeId: theme.id, decision: 'approved', note: '  Lead with the CTR data.\n Don’t name competitors. ', channels: ['social', 'blog', 'social'] });
+    expect(h.api.readStudioRun({ runId: run.id }).decisionsBy[theme.id]).toEqual({ ...RILEY, at: expect.any(String), note: 'Lead with the CTR data. Don’t name competitors.', channels: ['social', 'blog'] });
+    h.api.decideResearchTheme({ runId: run.id, themeId: theme.id, decision: 'approved', note: '', channels: [] });
+    expect(h.api.readStudioRun({ runId: run.id }).decisionsBy[theme.id]).toEqual({ ...RILEY, at: expect.any(String) });
+    expect(() => h.api.decideResearchTheme({ runId: run.id, themeId: theme.id, decision: 'approved', note: 'x'.repeat(281) })).toThrow('under 280 characters');
+    expect(() => h.api.decideResearchTheme({ runId: run.id, themeId: theme.id, decision: 'approved', channels: ['nowhere'] })).toThrow('Choose channels from this workspace.');
+    // A skip keeps its note but never routes.
+    h.api.decideResearchTheme({ runId: run.id, themeId: theme.id, decision: 'passed', note: 'Covered last month.', channels: ['social'] });
+    expect(h.api.readStudioRun({ runId: run.id }).decisionsBy[theme.id]).toEqual({ ...RILEY, at: expect.any(String), note: 'Covered last month.' });
+  });
+});
+
+describe('asset status', () => {
+  it('moves an asset through the pipeline with who and when, and keeps the live link once published', () => {
+    const h = kitHarness();
+    expect(h.api.readStudioAsset({ assetId: 'asset-report' }).asset.reviewStatus).toBe('draft');
+    const review = h.api.setAssetStatus({ assetId: 'asset-report', status: 'in-review' });
+    expect(review).toEqual({ asset: expect.objectContaining({ id: 'asset-report', reviewStatus: 'in-review', review: { status: 'in-review', by: RILEY, at: expect.any(String) } }) });
+    // A report isn't a channel asset, so nothing suggests a channel answer.
+    expect(h.api.setAssetStatus({ assetId: 'asset-report', status: 'published', link: 'semrush.com/blog/ai-citations' })).not.toHaveProperty('adoptionSuggested');
+    expect(() => h.api.setAssetStatus({ assetId: 'asset-report', status: 'shipped' })).toThrow('Choose Draft, In review, Approved, Scheduled or Published.');
+    expect(() => h.api.setAssetStatus({ assetId: 'asset-report', status: 'published', link: 'javascript:alert(1)' })).toThrow('That doesn’t look like a web link.');
+  });
+
+  it('suggests the channel’s Using answer when a channel asset made from a trend is published', () => {
+    const h = kitHarness(); h.person.current = CHRIS;
+    const published = h.api.setAssetStatus({ assetId: 'asset-kit-social', status: 'published', link: 'https://www.linkedin.com/posts/semrush-ai-citations' });
+    expect(published).toMatchObject({ adoptionSuggested: true, themeId: 'theme-citations', channelId: 'social', link: 'https://www.linkedin.com/posts/semrush-ai-citations', asset: { reviewStatus: 'published', review: { status: 'published', by: CHRIS, link: 'https://www.linkedin.com/posts/semrush-ai-citations' } } });
+    // Published again without a link keeps the one it had; any other status drops it.
+    expect(h.api.setAssetStatus({ assetId: 'asset-kit-social', status: 'published' }).asset.review.link).toBe('https://www.linkedin.com/posts/semrush-ai-citations');
+    expect(h.api.setAssetStatus({ assetId: 'asset-kit-social', status: 'scheduled' }).asset.review).not.toHaveProperty('link');
+    expect(h.api.publicState().assets.find((asset) => asset.id === 'asset-kit-social').reviewStatus).toBe('scheduled');
+  });
+});

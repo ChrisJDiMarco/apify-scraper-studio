@@ -40,7 +40,7 @@ describe('AnalyticsView', () => {
     expect(services.getTrendAnalytics).toHaveBeenCalledWith({ days: 90, includeAll: false });
     const tiles = within(funnel).getAllByRole('listitem').map((tile) => tile.textContent);
     expect(tiles[0]).toMatch(/^20Trends found/);
-    expect(tiles[1]).toMatch(/14Approved4 passed · 2 not decided/);
+    expect(tiles[1]).toMatch(/14Approved4 skipped · 2 need your OK/);
     expect(tiles[2]).toMatch(/14Briefs ready/);
     expect(tiles[3]).toMatch(/6 of 14In use by a channel43% of ready briefs/);
     expect(tiles[4]).toMatch(/4Links added/);
@@ -112,10 +112,10 @@ describe('AnalyticsView', () => {
     expect(cell).toHaveFocus();
   });
 
-  it('refetches with passed and pending trends when asked', async () => {
+  it('refetches with skipped and waiting trends when asked', async () => {
     const services = api();
     render(<AnalyticsView api={services} viewer={admin} />);
-    const chip = await screen.findByRole('button', { name: 'Show passed and pending' });
+    const chip = await screen.findByRole('button', { name: 'Show skipped and waiting' });
     expect(chip).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(chip);
     await waitFor(() => expect(services.getTrendAnalytics).toHaveBeenLastCalledWith({ days: 90, includeAll: true }));
@@ -125,7 +125,8 @@ describe('AnalyticsView', () => {
   it('says so when the range is empty, and offers a retry when loading fails', async () => {
     const empty = api({ getTrendAnalytics: vi.fn(async () => data({ trends: [] })) });
     render(<AnalyticsView api={empty} viewer={admin} />);
-    expect(await screen.findByText('No trends in this range yet.')).toBeInTheDocument();
+    expect(await screen.findByText(/^No briefs were ready in the last 90 days\./)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Show the last 365 days/ })).toBeInTheDocument();
     cleanup();
     const failing = api({ getTrendAnalytics: vi.fn().mockRejectedValueOnce(new Error('Only an admin can do that.')).mockResolvedValue(data()) });
     render(<AnalyticsView api={failing} viewer={admin} />);
@@ -171,5 +172,26 @@ describe('analytics helpers', () => {
     expect(cellLabel(channels[1], { status: 'none', offered: false })).toBe('Semrush Social Team: no owner yet');
     expect(reminderText(data(), channels[0])).toBe('1 trend is waiting for Semrush Blog: “=SUM(Zero-click)”.');
     expect(reminderText(data(), channels[1])).toBe('');
+  });
+});
+
+describe('analytics extras', () => {
+  it('shows what an admin spent this month, AI and Apify, with the Codex note when it applies', async () => {
+    const start = new Date(); const created = new Date(start.getFullYear(), start.getMonth(), 1, 12).toISOString();
+    const state = { contentStudio: { activeWorkspaceId: 'semrush', researchRuns: [{ id: 'r1', workspaceId: 'semrush', createdAt: created, costUsd: 30, ownCostUsd: 12, collectionReceipt: { costUsd: 4 } }], contentRuns: [{ id: 'c1', workspaceId: 'semrush', createdAt: created, costUsd: 18, kit: { sourceKey: 'theme:a' }, ai: { route: 'codex' } }, { id: 'old', workspaceId: 'semrush', createdAt: '2020-01-01T00:00:00.000Z', costUsd: 99 }] } };
+    render(<AnalyticsView api={api()} viewer={{ ...admin, base: 'admin', capabilities: ['seeCosts'] }} state={state} />);
+    const tile = await screen.findByRole('region', { name: 'Spent this month' });
+    expect(tile).toHaveTextContent('$34.00');
+    expect(tile).toHaveTextContent('AI $30.00 · Apify $4.00 · 1 research run · 1 asset set');
+    expect(tile).toHaveTextContent('AI spend isn’t reported on Codex.');
+    cleanup();
+    render(<AnalyticsView api={api()} viewer={{ ...admin, base: 'admin', capabilities: [] }} state={state} />);
+    await screen.findByRole('list', { name: 'From trend to use' });
+    expect(screen.queryByRole('region', { name: 'Spent this month' })).not.toBeInTheDocument();
+  });
+
+  it('names a channel a trend wasn’t sent to', () => {
+    expect(cellLabel(channels[0], { status: 'none', offered: false }, { routedTo: ['social'] })).toBe('Semrush Blog: sent to other channels');
+    expect(cellLabel(channels[0], { status: 'none', offered: false }, { routedTo: [] })).toBe('Semrush Blog: from before the owner joined');
   });
 });

@@ -1,5 +1,6 @@
-/* People & roles: channel coverage first, then everyone with their role, channel and sign-in link. */
-.people-page { max-width: 980px; }
+/* People & access: three tabs (People, Roles, Access log). People is channel coverage in one line, then a searchable
+   table of everyone; a sheet per person; Invite people. Tokens only, so the frame's dark values apply here too. */
+.people-page { max-width: 1120px; }
 .people-section { display: grid; gap: 12px; }
 .people-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .studio-frame .people-section-note { font-size: 13px; color: var(--s-muted); }
@@ -25,27 +26,17 @@
 .people-coverage li.is-open .people-coverage-name small { color: var(--s-warn-ink); }
 .people-coverage-actions { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 
-/* People list. */
-.people-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.people-row { background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-row); }
-.people-row.is-disabled { background: color-mix(in srgb, var(--s-bg) 55%, var(--s-card)); }
-/* Fixed outer columns, so roles and statuses line up from row to row. */
-.people-row-main { display: grid; grid-template-columns: 38px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.5fr) 136px; align-items: center; gap: 14px; min-height: 68px; padding: 12px 12px 12px 16px; }
+/* A person: avatar, name and email; their role chip. */
 .people-avatar { display: grid; place-items: center; width: 38px; height: 38px; font-size: 13px; font-weight: 700; color: var(--s-ink); background: var(--s-bg); border-radius: 50%; }
-.people-avatar.role-admin { color: #fff; background: var(--s-ink); }
+.people-avatar.role-admin { color: var(--s-card); background: var(--s-ink); }
 .people-avatar.role-editor { color: var(--s-soft-ink); background: var(--s-soft); }
 .people-avatar.role-channel { color: var(--s-mint-ink); background: var(--s-mint); }
 .people-who { display: grid; gap: 2px; min-width: 0; }
 .people-who strong { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .studio-frame .people-who small { font-size: 12.5px; color: var(--s-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .people-role { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-.people-channel { font-size: 13px; font-weight: 550; color: var(--s-ink); }
-.people-status { display: grid; gap: 2px; min-width: 0; }
-.studio-frame .people-status small { font-size: 12.5px; line-height: 1.4; color: var(--s-muted); }
-.people-row-actions { display: flex; justify-content: flex-end; }
+.people-row-actions .studio-menu-wrap { justify-content: flex-end; }
 .people-server { padding: 4px 10px; font-size: 12px; font-weight: 600; color: var(--s-muted); background: var(--s-bg); border-radius: 999px; white-space: nowrap; }
-.people-added { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; font-size: 14px; color: var(--s-mint-ink); background: var(--s-mint); border-radius: var(--s-radius-row); }
-.people-added > span { flex: 1; min-width: 200px; color: var(--s-ink); }
 
 /* The new sign-in link, ready to copy and paste. */
 .people-link-panel { display: grid; gap: 10px; margin: 0 12px 12px; padding: 16px; background: var(--s-soft); border: 1px solid color-mix(in srgb, var(--s-accent) 45%, var(--s-line)); border-radius: 14px; }
@@ -56,7 +47,7 @@
 .studio-frame .people-link-message { margin: 0; padding: 12px 14px; font-size: 14px; line-height: 1.55; color: var(--s-ink); background: var(--s-card); border-radius: 10px; overflow-wrap: anywhere; }
 .people-link-actions { display: flex; align-items: center; gap: 10px; }
 
-/* Add or edit a person. */
+/* Role cards, in the person sheet and Invite. */
 .people-sheet-form { display: contents; }
 .people-roles { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
 .studio-frame .people-roles legend { margin-bottom: 6px; padding: 0; font-size: 13px; font-weight: 650; color: var(--s-ink); }
@@ -72,11 +63,152 @@
 .studio-frame .people-role-card small { font-size: 13px; line-height: 1.45; color: var(--s-muted); }
 .studio-frame .people-sheet .studio-field em { font-style: normal; font-weight: 500; color: var(--s-muted); }
 
+/* ── Tabs ─────────────────────────────────────────────────────────────── */
+.people-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--s-line); scrollbar-width: none; }
+.people-tabs::-webkit-scrollbar { display: none; }
+.studio-frame .people-tabs [role="tab"], .studio-frame .people-sheet-tabs [role="tab"] { position: relative; display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 14px; font: inherit; font-size: 14px; font-weight: 600; color: var(--s-muted); white-space: nowrap; background: transparent; border: 0; border-radius: 10px 10px 0 0; box-shadow: none; cursor: pointer; }
+.studio-frame .people-tabs [role="tab"]:hover, .studio-frame .people-sheet-tabs [role="tab"]:hover { color: var(--s-ink); background: color-mix(in srgb, var(--s-bg) 70%, transparent); }
+.studio-frame .people-tabs [role="tab"][aria-selected="true"], .studio-frame .people-sheet-tabs [role="tab"][aria-selected="true"] { color: var(--s-ink); }
+.people-tabs [role="tab"][aria-selected="true"]::after, .people-sheet-tabs [role="tab"][aria-selected="true"]::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 3px; background: var(--s-accent-strong); border-radius: 3px 3px 0 0; }
+.studio-frame .people-tabs [role="tab"]:focus-visible, .studio-frame .people-sheet-tabs [role="tab"]:focus-visible { outline: 2px solid var(--s-focus); outline-offset: -2px; }
+.people-panel { display: grid; gap: 18px; min-width: 0; }
+.people-tab, .roles-tab, .access-log-tab { display: grid; gap: 16px; min-width: 0; }
+
+/* ── Channel coverage, in one strip ───────────────────────────────────── */
+.people-coverage-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 16px; font-size: 14px; color: var(--s-mint-ink); background: var(--s-mint); border-radius: var(--s-radius-row); }
+.people-coverage-strip.has-open { color: var(--s-warn-ink); background: var(--s-warn); }
+.studio-frame .people-coverage-strip p { margin: 0; }
+.people-coverage-strip ul { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; list-style: none; }
+.people-coverage-strip li { display: inline-flex; align-items: center; gap: 6px; font-weight: 550; color: var(--s-ink); }
+.studio-frame .people-coverage-strip .studio-link { min-height: 32px; font-size: 13px; }
+
+/* ── Toolbar ──────────────────────────────────────────────────────────── */
+.people-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px; }
+.people-search { position: relative; display: flex; align-items: center; flex: 1 1 240px; min-width: 200px; }
+.people-search > svg { position: absolute; left: 12px; color: var(--s-muted); pointer-events: none; }
+.studio-frame .people-search input { width: 100%; min-height: 40px; padding: 0 36px 0 38px; font: inherit; font-size: 14px; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line-strong); border-radius: var(--s-radius-control); }
+.studio-frame .people-search input:focus { outline: none; border-color: var(--s-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 35%, transparent); }
+.people-search kbd { position: absolute; right: 10px; padding: 1px 6px; font: 600 11.5px/1.4 inherit; color: var(--s-muted); background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 6px; }
+.people-filter { display: grid; gap: 4px; }
+.studio-frame .people-filter > span { font-size: 12px; font-weight: 650; color: var(--s-muted); }
+.studio-frame .people-filter select { min-height: 40px; padding: 0 30px 0 12px; font: inherit; font-size: 13.5px; color: var(--s-ink); background-color: var(--s-card); border: 1px solid var(--s-line-strong); border-radius: var(--s-radius-control); }
+.studio-frame .people-filter select:focus-visible { outline: 2px solid var(--s-focus); outline-offset: 1px; }
+.studio-frame .people-count { margin: 0 0 10px auto; font-size: 13px; font-weight: 550; color: var(--s-muted); font-variant-numeric: tabular-nums; }
+
+/* ── The people table ─────────────────────────────────────────────────── */
+.people-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-row); overflow: hidden; }
+.studio-frame .people-table :is(th, td) { text-transform: none; padding: 12px 14px; font-size: 13.5px; font-weight: 500; text-align: left; vertical-align: middle; color: var(--s-ink); border-bottom: 1px solid var(--s-line); }
+.studio-frame .people-table thead th { padding-block: 10px; font-size: 12px; font-weight: 650; letter-spacing: .02em; color: var(--s-muted); background: color-mix(in srgb, var(--s-bg) 60%, var(--s-card)); }
+.people-table tbody tr:last-child > :is(th, td) { border-bottom: 0; }
+.people-table tbody tr.is-disabled > :is(th, td) { background: color-mix(in srgb, var(--s-bg) 55%, var(--s-card)); }
+.people-table tbody tr:not(.people-panel-row):hover > :is(th, td) { background: color-mix(in srgb, var(--s-bg) 40%, var(--s-card)); }
+.studio-frame .people-table .people-row-actions { width: 1%; text-align: right; white-space: nowrap; }
+.people-table .people-signin-cell { max-width: 260px; color: var(--s-muted); }
+.people-panel-row > td { padding-top: 0; }
+.people-person { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.people-none { color: var(--s-faint); }
+.people-custom-chip { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 10px; font: inherit; font-size: 12px; font-weight: 650; color: var(--s-soft-ink); background: var(--s-card); border: 1px dashed color-mix(in srgb, var(--s-soft-ink) 55%, var(--s-line)); border-radius: 999px; cursor: pointer; }
+.studio-frame .people-custom-chip:hover { color: var(--s-soft-ink); background: var(--s-soft); }
+.people-custom-chip:focus-visible { outline: 2px solid var(--s-focus); outline-offset: 2px; }
+.studio-chip.role-none { color: var(--s-muted); background: var(--s-bg); }
+.people-avatar.role-none { color: var(--s-muted); background: var(--s-bg); }
+.people-custom-tag { margin-left: 6px; padding: 1px 7px; font-size: 11px; font-style: normal; font-weight: 650; color: var(--s-soft-ink); background: var(--s-soft); border-radius: 999px; vertical-align: 1px; }
+.studio-frame .people-role-summary { font-size: 12.5px; color: var(--s-faint); }
+
+/* Cards below 860px. */
+.people-cards { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.people-cards > li { display: grid; gap: 10px; padding: 14px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-row); }
+.people-cards > li.is-disabled { background: color-mix(in srgb, var(--s-bg) 55%, var(--s-card)); }
+.people-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.people-card-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 13px; }
+.studio-frame .people-card-facts dt { color: var(--s-muted); font-weight: 600; }
+.studio-frame .people-card-facts dd { margin: 0; color: var(--s-ink); overflow-wrap: anywhere; }
+
+/* ── Person sheet ─────────────────────────────────────────────────────── */
+.people-sheet-tabs { display: flex; gap: 2px; overflow-x: auto; padding: 0 20px; border-bottom: 1px solid var(--s-line); scrollbar-width: none; }
+.people-person-sheet .studio-dialog-body, .people-invite .studio-dialog-body { display: grid; align-content: start; gap: 16px; }
+.studio-frame .people-access-summary { margin: 0; padding: 10px 14px; font-size: 14px; font-weight: 600; color: var(--s-soft-ink); background: var(--s-soft); border-radius: 12px; }
+.studio-frame .people-access-note { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; color: var(--s-muted); }
+.people-access-list { display: grid; gap: 18px; }
+.people-access-group { display: grid; gap: 6px; }
+.studio-frame .people-access-group h3 { margin: 0 0 2px; font-size: 12px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted); }
+.people-access-row { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; padding: 10px 12px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 12px; }
+.people-access-row.is-on { border-color: color-mix(in srgb, var(--s-accent) 40%, var(--s-line)); }
+.people-access-copy { display: grid; gap: 2px; flex: 1 1 260px; min-width: 0; }
+.studio-frame .people-access-copy strong { font-size: 14px; font-weight: 650; color: var(--s-ink); }
+.studio-frame .people-access-copy small { font-size: 12.5px; line-height: 1.45; color: var(--s-muted); }
+.studio-frame .people-access-cascade { color: var(--s-soft-ink); font-weight: 600; }
+.people-cost-tag { margin-left: 8px; padding: 1px 7px; font-size: 11px; font-weight: 650; color: var(--s-warn-ink); background: var(--s-warn); border-radius: 999px; vertical-align: 1px; }
+.studio-frame .people-three-way :is(label) { min-height: 30px; padding: 0 11px; font-size: 12.5px; }
+.people-access-fixed { display: inline-flex; align-items: center; gap: 6px; max-width: 320px; font-size: 12.5px; color: var(--s-muted); }
+.people-access-fixed svg { flex: none; }
+.people-access-row.is-always .people-access-fixed svg { color: var(--s-mint-ink); }
+.people-signin { display: grid; gap: 12px; }
+.studio-frame .people-signin-status { display: grid; gap: 2px; margin: 0; font-size: 14px; }
+.studio-frame .people-signin-status span { font-size: 13px; color: var(--s-muted); }
+.people-activity { display: grid; gap: 10px; }
+.people-activity-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.people-activity-list li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; font-size: 13.5px; background: var(--s-bg); border-radius: 10px; }
+.studio-frame .people-activity-list time { flex: none; font-size: 12.5px; color: var(--s-muted); }
+
+/* ── Invite ───────────────────────────────────────────────────────────── */
+.studio-frame .people-invite-paste { min-height: 64px; resize: vertical; }
+.people-invite-list { display: grid; gap: 6px; max-height: 260px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.people-invite-list li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; background: var(--s-bg); border-radius: 10px; }
+.people-invite-list li.is-invalid { grid-template-columns: minmax(0, 1fr) auto; background: var(--s-danger-soft); }
+.people-invite-email { display: grid; min-width: 0; }
+.studio-frame .people-invite-email strong { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-frame .people-invite-email small { font-size: 12px; font-weight: 600; color: var(--s-danger); }
+.studio-frame .people-invite-list input { min-width: 0; min-height: 34px; padding: 0 10px; font: inherit; font-size: 13px; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line-strong); border-radius: 8px; }
+.people-invite-adjust { display: grid; gap: 10px; }
+.people-invite-adjust .studio-link svg, .access-log-row .studio-icon-button svg { transition: transform 160ms var(--s-ease); }
+.people-invite-adjust .studio-link svg.is-open, .access-log-row svg.is-open { transform: rotate(180deg); }
+.people-invite-links { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.people-invite-links li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; background: var(--s-bg); border-radius: 12px; }
+.people-invite-links li > span:first-child { display: grid; min-width: 0; }
+.studio-frame .people-invite-links small { font-size: 12.5px; color: var(--s-muted); }
+.people-invite-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.people-invite-sso { display: grid; gap: 10px; justify-items: start; padding: 14px 16px; background: var(--s-soft); border-radius: 12px; }
+.studio-frame .people-invite-sso p { margin: 0; font-size: 14px; }
+.people-invite-skipped { display: grid; gap: 6px; }
+.studio-frame .people-invite-skipped h3 { margin: 0; font-size: 13px; font-weight: 650; }
+.people-invite-skipped ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.people-invite-skipped li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.studio-frame .people-invite-skipped small { color: var(--s-muted); }
+
+/* ── Access log ───────────────────────────────────────────────────────── */
+.access-log-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.access-log-row { padding: 10px 10px 10px 14px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 12px; }
+.access-log-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.studio-frame .access-log-line p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--s-ink); }
+.studio-frame .access-log-line small { font-size: 13px; color: var(--s-muted); }
+.access-log-changes { display: grid; gap: 2px; margin: 8px 0 2px; padding: 8px 12px 8px 28px; font-size: 13px; color: var(--s-ink); background: var(--s-bg); border-radius: 10px; }
+.access-log-more { justify-self: start; }
+
+/* ── The "…" menu's radio items, groups and upward placement (role-screens.jsx MoreMenu, used across the app) ── */
+.studio-menu.placement-top { top: auto; bottom: calc(100% + 6px); }
+.studio-frame .studio-menu [role="menuitemradio"] { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-height: 38px; padding: 0 12px; font: inherit; font-size: 14px; font-weight: 550; text-align: left; color: var(--s-ink); background: transparent; border: 0; border-radius: 10px; box-shadow: none; white-space: nowrap; cursor: pointer; }
+.studio-frame .studio-menu [role="menuitemradio"]:is(:hover, :focus-visible):not(:disabled) { color: var(--s-ink); background: var(--s-bg); outline: none; }
+.studio-frame .studio-menu [role="menuitemradio"].checked { font-weight: 650; }
+.studio-menu-check { flex: none; color: var(--s-soft-ink); }
+.studio-menu-group { display: grid; gap: 2px; }
+.studio-menu-group + .studio-menu-group, .studio-menu-separator { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--s-line); }
+.studio-menu-heading { padding: 6px 12px 2px; font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted); }
+
+@media (pointer: coarse) {
+  .studio-frame .studio-menu [role="menuitemradio"], .studio-frame .people-three-way label, .studio-frame .people-filter select, .studio-frame .people-search input { min-height: 44px; }
+}
 @media (max-width: 860px) {
   .people-coverage { grid-template-columns: 1fr; }
-  .people-row-main { grid-template-columns: 38px minmax(0, 1fr) auto; }
-  .people-role, .people-status { grid-column: 2 / -1; }
-  .people-row-actions { grid-column: 3; grid-row: 1; }
   .people-first-run, .people-mac-note { flex-direction: column; align-items: flex-start; }
+  .people-toolbar { gap: 8px; }
+  .people-filter { flex: 1 1 140px; }
+  .studio-frame .people-filter select { width: 100%; }
+  .studio-frame .people-count { margin: 0; width: 100%; }
+  .people-access-row { align-items: flex-start; }
+  .people-three-way { width: 100%; }
+  .people-invite-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .people-invite-list li input { grid-column: 1 / -1; grid-row: 2; }
+  .people-sheet-tabs { padding: 0 12px; }
 }
-@media (prefers-reduced-motion: reduce) { .people-role-card { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .people-role-card, .people-invite-adjust .studio-link svg, .access-log-row .studio-icon-button svg { transition: none; } }

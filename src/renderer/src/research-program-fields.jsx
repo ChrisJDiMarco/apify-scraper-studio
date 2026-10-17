@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, CircleAlert, Gauge } from 'lucide-react';
+import { Bot, CircleAlert, Gauge, LoaderCircle } from 'lucide-react';
 import { number } from './ui.jsx';
 
 // Program form sections for n8n parity: the date window (n8n defaults to the last 7 days),
@@ -43,27 +43,38 @@ export function ProgramAutomationFields({ draft, setDraft, capabilities = {} }) 
   </div>;
 }
 
+const splitTargets = (value) => (Array.isArray(value) ? value : String(value || '').split(/[,\r\n]+/).map((entry) => entry.trim()).filter(Boolean));
+// Something to price: an enabled source group with targets, or LinkedIn keyword search with a research focus.
+export const hasProgramSources = (draft = {}) => (Array.isArray(draft.sourceGroups) ? draft.sourceGroups : []).some((group) => group?.enabled && (splitTargets(group.targets).length > 0 || (group.sourceId === 'linkedin-search' && Boolean(String(draft.query || '').trim()))));
+
+// Three states: no sources (nothing to price), estimating (the first answer is on its way; later ones keep the last
+// numbers on screen, dimmed), and ready. Each request is tied to the draft it priced, so a slow answer for an older
+// draft never replaces a newer one.
 export function ProgramEstimate({ draft, api }) {
-  const [estimate, setEstimate] = useState(null); const [error, setError] = useState('');
+  const [estimate, setEstimate] = useState(null); const [error, setError] = useState(''); const [status, setStatus] = useState('idle');
   const timer = useRef(); const version = JSON.stringify({ sourceGroups: draft.sourceGroups, ai: draft.ai, targetPerPlatform: draft.targetPerPlatform, perAuthorCap: draft.perAuthorCap, maxThemes: draft.maxThemes, collection: draft.collection, taggingBatchSizes: draft.taggingBatchSizes, discoveryBatchSize: draft.discoveryBatchSize, budgets: draft.budgets, window: draft.window, lookbackDays: draft.lookbackDays, query: draft.query, topicFiltersTargets: draft.topicFiltersTargets });
+  const hasSources = hasProgramSources(draft);
   useEffect(() => {
     if (!api.estimateResearchProgram) return undefined;
     clearTimeout(timer.current);
+    if (!hasSources) { setEstimate(null); setError(''); setStatus('idle'); return undefined; }
+    let stale = false;
+    setStatus('loading');
     timer.current = setTimeout(() => {
-      const split = (value) => (Array.isArray(value) ? value : String(value || '').split(/[,\r\n]+/).map((entry) => entry.trim()).filter(Boolean));
-      const payload = { ...draft, name: draft.name || 'Draft program', sourceGroups: draft.sourceGroups.map((group) => ({ ...group, targets: split(group.targets) })) };
-      Promise.resolve(api.estimateResearchProgram(payload)).then((result) => { setEstimate(result); setError(''); }).catch((failure) => { setEstimate(null); setError(String(failure?.message || failure).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); });
+      const payload = { ...draft, name: draft.name || 'Draft program', sourceGroups: draft.sourceGroups.map((group) => ({ ...group, targets: splitTargets(group.targets) })) };
+      Promise.resolve().then(() => api.estimateResearchProgram(payload)).then((result) => { if (stale) return; setEstimate(result || null); setError(result ? '' : 'No estimate came back. Change a field to try again.'); setStatus('ready'); }).catch((failure) => { if (stale) return; setEstimate(null); setError(String(failure?.message || failure).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); setStatus('ready'); });
     }, 450);
-    return () => clearTimeout(timer.current);
-  }, [version]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { stale = true; clearTimeout(timer.current); };
+  }, [version, hasSources]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!api.estimateResearchProgram) return null;
+  const loading = status === 'loading';
   const ai = estimate?.ai; const collection = estimate?.collection;
   const aiShort = ai && Number(draft.budgets?.aiUsd) < ai.totalUsd; const collectionShort = collection?.worstCaseUsd && Number(draft.budgets?.collectionUsd) < collection.worstCaseUsd;
   // Mirrors the start check in content-workspace.js: a collecting run is refused below half of what it needs before review (or of the whole run when themes are auto-approved).
   const required = ai ? (draft.autoApproveThemes ? ai.totalUsd : Number(ai.stages?.discovery || 0) + Number(ai.stages?.synthesis || 0) + Number(ai.stages?.matching || 0)) : 0;
   const aiBlocked = required > 0 && Number(draft.budgets?.aiUsd) < required * 0.5;
-  return <div className="cs-estimate" aria-live="polite"><div className="cs-estimate-head"><Gauge size={16} aria-hidden="true" /><strong>Estimated cost per run</strong></div>
-    {error ? <p className="cs-estimate-note">{error}</p> : !estimate ? <p className="cs-estimate-note">Add sources to see an estimate.</p> : <>
+  return <div className={`cs-estimate${loading && estimate ? ' is-updating' : ''}`} aria-live="polite" aria-busy={(loading && Boolean(estimate)) || undefined}><div className="cs-estimate-head"><Gauge size={16} aria-hidden="true" /><strong>Estimated cost per run</strong>{loading && estimate && <span className="cs-estimate-updating"><LoaderCircle className="spin" size={13} aria-hidden="true" />Updating…</span>}</div>
+    {!hasSources ? <p className="cs-estimate-note">Add sources to see an estimate.</p> : error && !loading ? <p className="cs-estimate-note">{error}</p> : !estimate ? <p className="cs-estimate-note cs-estimate-loading"><LoaderCircle className="spin" size={14} aria-hidden="true" />Estimating…</p> : <>
       <dl className="cs-estimate-grid">
         <div><dt>Apify collection</dt><dd>up to {money(collection?.worstCaseUsd)}</dd><small>{collection?.jobCount ? `${number(collection.jobCount)} Actor jobs, all platforms at once` : collection?.error || ''}</small></div>
         <div><dt>AI (all stages)</dt><dd>about {money(ai?.totalUsd)}</dd><small>{number(ai?.posts?.total || 0)} posts · {number(ai?.batches?.discovery || 0)} discovery and {number(ai?.batches?.tagging || 0)} tagging batches</small></div>

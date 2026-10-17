@@ -150,10 +150,13 @@ function withNotes(schema, { description, title }, hints = {}) {
 
 // ── Requests, spend and receipts ─────────────────────────────────────────────────────────────────────────────────
 // `schema` is API-ready (toApiSchema). Effort and the JSON format share output_config; adaptive thinking is compatible
-// with structured outputs and is the only thinking mode the current models accept.
-function buildMessageParams({ model, prompt, schema, maxTokens, effort = '', adaptiveThinking = true }) {
+// with structured outputs and is the only thinking mode the current models accept. `cachePrefix` is text that stays the
+// same from call to call (instructions, a guide): it goes in its own cached system block after the system prompt, and the
+// request-specific rest stays in the user message, so repeat calls read the prefix from the cache.
+function buildMessageParams({ model, prompt, schema, maxTokens, effort = '', adaptiveThinking = true, cachePrefix = '' }) {
   return {
-    model, max_tokens: maxTokens, system: CLAUDE_SYSTEM_PROMPT,
+    model, max_tokens: maxTokens,
+    system: cachePrefix ? [{ type: 'text', text: CLAUDE_SYSTEM_PROMPT }, { type: 'text', text: cachePrefix, cache_control: { type: 'ephemeral' } }] : CLAUDE_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
     ...(adaptiveThinking ? { thinking: { type: 'adaptive' } } : {}),
     output_config: { ...(effort ? { effort } : {}), format: { type: 'json_schema', schema } },
@@ -175,8 +178,8 @@ function planBudget({ model, maxBudgetUsd, inputCharacters }) {
 
 // Cache reads bill at 0.1× input, but 0.05× on Opus 5.5 and 0.025× on Fable 5.1 / Mythos 5.1 (prompt-caching docs).
 const cacheReadRate = (model) => /^claude-(fable|mythos)-5-1(-|$)/.test(model) ? 0.025 : /^claude-opus-5-5(-|$)/.test(model) ? 0.05 : 0.1;
-// List-price USD for a reply's usage. output_tokens already includes thinking. This route never asks for caching, so
-// cache counts are normally zero; writes (1.25× for 5 minutes, 2× for 1 hour) and reads are priced in case any appear.
+// List-price USD for a reply's usage. output_tokens already includes thinking. Only calls with a cachePrefix ask for
+// caching (a 5-minute entry); writes (1.25× for 5 minutes, 2× for 1 hour) and reads are priced whenever they appear.
 function usageCost(model, usage) {
   if (!isObject(usage)) return null;
   const count = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
@@ -223,15 +226,16 @@ function describeApiError(error, { model = 'this model', costUsd = 0 } = {}) {
 // Failures worth riding out with the docs' table instead of the live model profile.
 const transientError = (error) => error instanceof Anthropic.APIConnectionError || [408, 409, 429].includes(error?.status) || error?.status >= 500;
 
-function validateRequest({ schema, prompt, model, effort, maxBudgetUsd }) {
+function validateRequest({ schema, prompt, model, effort, maxBudgetUsd, cachePrefix = '' }) {
   if (typeof model !== 'string' || !MODEL_ID.test(model)) throw new Error('Choose a valid Claude model ID.');
   if (!isObject(schema)) throw new Error('Claude structured output requires a JSON schema object.');
   const budget = Number(maxBudgetUsd);
   if (typeof maxBudgetUsd === 'boolean' || !Number.isFinite(budget) || budget < 0.01 || budget > 100) throw new Error('Claude run budget must be between $0.01 and $100.');
   if (typeof prompt !== 'string') throw new Error('Claude input must be text.');
   if (!prompt.trim()) throw new Error('Claude input is empty.');
+  if (typeof cachePrefix !== 'string') throw new Error('Claude input must be text.');
   if (effort !== undefined && effort !== '' && !CLAUDE_EFFORT_LEVELS.includes(effort)) throw new Error(`Choose a Claude effort level: ${CLAUDE_EFFORT_LEVELS.join(', ')}.`);
-  if (Buffer.byteLength(prompt, 'utf8') > MAX_PROMPT_BYTES) throw new Error('This research context is too large for Claude. Use a smaller dataset or fewer sources.');
+  if (Buffer.byteLength(prompt, 'utf8') + Buffer.byteLength(cachePrefix, 'utf8') > MAX_PROMPT_BYTES) throw new Error('This research context is too large for Claude. Use a smaller dataset or fewer sources.');
   let schemaText; try { schemaText = JSON.stringify(schema); } catch (_) { throw new Error('Claude structured output requires a JSON schema object.'); }
   return { budget, schemaText };
 }
@@ -289,10 +293,11 @@ function createAnthropicRunner({ apiKey, Client = Anthropic, clock = Date.now, m
     }
   }
 
-  async function run({ schema, prompt, model = DEFAULT_CLAUDE_MODEL, effort, maxBudgetUsd = DEFAULT_AI_MAX_BUDGET_USD, timeoutMs, signal } = {}) {
-    const { budget, schemaText } = validateRequest({ schema, prompt, model, effort, maxBudgetUsd });
+  async function run({ schema, prompt, cachePrefix = '', model = DEFAULT_CLAUDE_MODEL, effort, maxBudgetUsd = DEFAULT_AI_MAX_BUDGET_USD, timeoutMs, signal } = {}) {
+    const { budget, schemaText } = validateRequest({ schema, prompt, model, effort, maxBudgetUsd, cachePrefix });
     const apiSchema = toApiSchema(schema);
-    const { budgetTokens } = planBudget({ model, maxBudgetUsd: budget, inputCharacters: CLAUDE_SYSTEM_PROMPT.length + prompt.length + schemaText.length });
+    // The guard prices a cached prefix at the full input rate: a cold cache costs that much (more, with the write).
+    const { budgetTokens } = planBudget({ model, maxBudgetUsd: budget, inputCharacters: CLAUDE_SYSTEM_PROMPT.length + cachePrefix.length + prompt.length + schemaText.length });
     if (signal?.aborted) throw runnerError('Job cancelled.', 'CANCELLED', { costUsd: 0 });
     // setTimeout fires at once past 2^31-1 ms, so clamp rather than time out immediately.
     const limitMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.min(timeoutMs, 2 ** 31 - 1) : DEFAULT_TIMEOUT_MS;
@@ -314,7 +319,7 @@ function createAnthropicRunner({ apiKey, Client = Anthropic, clock = Date.now, m
       if (!profile.structuredOutputs) throw runnerError(`${model} can't return structured output through the Anthropic API. Choose another model.`, 'ANTHROPIC_MODEL_UNAVAILABLE', { costUsd: 0 });
       const chosen = resolveEffort(effort, profile.efforts, model);
       const maxTokens = Math.min(profile.maxOutputTokens, budgetTokens);
-      const params = buildMessageParams({ model, prompt, schema: apiSchema, maxTokens, effort: chosen.effort, adaptiveThinking: profile.adaptiveThinking });
+      const params = buildMessageParams({ model, prompt, schema: apiSchema, maxTokens, effort: chosen.effort, adaptiveThinking: profile.adaptiveThinking, cachePrefix });
       let message;
       // Streamed so long thinking-plus-answer calls never hit HTTP idle timeouts; finalMessage() gathers the reply.
       try { stream = client.messages.stream(params, { signal: controller.signal }); message = await stream.finalMessage(); } catch (error) { throw failure(error); }

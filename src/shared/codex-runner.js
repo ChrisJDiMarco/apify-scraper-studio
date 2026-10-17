@@ -172,6 +172,8 @@ function buildCodexCommand({ workspaceDir, schemaPath, outputPath, prompt }) {
       '--cd',
       workspaceDir,
       'exec',
+      // Prompt tests, Ask AI and research runs work in folders that aren't git repos; Codex refuses those without it.
+      '--skip-git-repo-check',
       '--sandbox',
       'workspace-write',
       '--json',

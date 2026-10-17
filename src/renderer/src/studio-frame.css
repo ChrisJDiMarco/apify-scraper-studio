@@ -11,11 +11,19 @@
   --s-focus: var(--s-ink);
   --s-nav-active: var(--s-accent);
   --s-sidebar-bg: linear-gradient(180deg, #edf5f2 0%, #f3f6f6 80%);
-  --s-sidebar-width: 256px;
+  --s-sidebar-width: 248px; --s-on-accent: #181e15; /* ink on the accent, in light and dark */
   --s-ease: cubic-bezier(.2, .8, .2, 1);
-  --nav-indicator: var(--s-nav-active);
 }
 .studio-frame[data-edition="general"] { --s-accent: #c9ff35; --s-accent-strong: #b5ea1f; --s-soft: #f2fbdc; --s-soft-ink: #3d5a07; --s-sidebar-bg: #ffffff; }
+/* Dark values for the frame tokens. Nothing turns them on yet: an app-wide pass sets data-theme="dark" on the root or
+   the frame once every page reads these tokens (help-assistant.css and chat-cards.css switch the same way). */
+:root[data-theme="dark"] .studio-frame, .studio-frame[data-theme="dark"] {
+  --s-ink: #eef2ee; --s-muted: #a3aaa1; --s-faint: #7d857b; --s-line: #2b322b; --s-line-strong: #3a423a; --s-bg: #121611; --s-card: #1a1f19;
+  --s-soft: #2a2140; --s-soft-ink: #d9c6ff; --s-mint: #16302a; --s-mint-ink: #8fe0c8; --s-warn: #3a2f12; --s-warn-ink: #f0d58a; --s-danger: #f0a08e; --s-danger-soft: #3b1d16;
+  --s-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 12px 32px rgba(0, 0, 0, .35); --s-shadow-pop: 0 30px 80px rgba(0, 0, 0, .6);
+  --s-sidebar-bg: #151a14; --s-nav-active: var(--s-soft);
+}
+:root[data-theme="dark"] .studio-frame[data-edition="general"], .studio-frame[data-edition="general"][data-theme="dark"] { --s-soft: #26301a; --s-soft-ink: #d4f48a; --s-sidebar-bg: #151a14; }
 
 /* ── Frame ───────────────────────────────────────────────────────────────── */
 .app-shell.studio-frame[data-edition] { display: grid; grid-template-columns: var(--s-sidebar-width) minmax(0, 1fr); width: 100%; height: 100dvh; overflow: hidden; color: var(--s-ink); background: var(--s-bg); font-family: Lazzer, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Arial, sans-serif; }
@@ -27,107 +35,15 @@
 .app-shell.studio-frame .simple-toast { left: calc(50% + var(--s-sidebar-width) / 2); }
 .studio-frame .simple-count { font-size: 11.5px; }
 
-/* ── Sidebar ─────────────────────────────────────────────────────────────── */
-.app-shell.studio-frame[data-edition] .studio-sidebar { position: relative; display: flex; flex-direction: column; gap: 0; min-width: 0; min-height: 0; padding: 20px 14px 0; color: var(--s-ink); background: var(--s-sidebar-bg); border-right: 1px solid var(--s-line); box-shadow: none; }
-.app-shell.studio-frame[data-edition] .studio-sidebar::before { display: none; }
-/* The Mac's traffic lights sit in the top-left corner; that strip drags the window. */
-.app-shell.studio-frame.is-desktop[data-edition] .studio-sidebar { padding-top: 45px; }
-.app-shell.studio-frame.is-desktop[data-edition] .studio-sidebar::before { content: ''; display: block; position: absolute; top: 0; left: 0; width: 100%; height: 38px; border-radius: 0; background: transparent; box-shadow: none; -webkit-app-region: drag; }
-.app-shell.studio-frame .studio-sidebar :is(button, select, input, a, label) { -webkit-app-region: no-drag; }
+/* ── Main column drag strip and the small-screen working pill ───────────── */
+/* The left sidebar lives in studio-sidebar.css (studio-sidebar.jsx). */
 /* The Mac window (hiddenInset title bar) also drags from the top of the main column in Simple and the channel screens,
    which have no top bar of their own (Advanced keeps its .topbar). Controls there stay clickable through the global
    no-drag rule for buttons, inputs and navs; pointer-events: none keeps the strip out of the page's own clicks. */
 .app-shell.studio-frame.is-desktop:is([data-mode="simple"], [data-mode="channel"]) .studio-main::before { content: ''; position: absolute; z-index: 1; inset: 0 0 auto 0; height: 28px; pointer-events: none; -webkit-app-region: drag; }
-.app-shell.studio-frame[data-edition] .studio-brand { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; margin: 0; padding: 0 8px 18px; }
-.app-shell.studio-frame[data-edition] .studio-brand .semrush-brand { display: grid; gap: 7px; padding-top: 2px; }
-.app-shell.studio-frame[data-edition] .studio-brand .semrush-wordmark { display: block; width: 150px; max-width: 100%; height: auto; }
-.app-shell.studio-frame[data-edition] .studio-brand .semrush-brand > span { font-size: 11.5px; font-weight: 500; letter-spacing: .01em; text-transform: none; color: var(--s-muted); }
-.app-shell.studio-frame[data-edition] .studio-brand > .brand-mark { display: grid; place-items: center; width: 34px; height: 36px; color: #217a58; background: #e8f3ed; border-radius: 10px; box-shadow: none; }
-.app-shell.studio-frame[data-edition] .studio-brand strong { display: block; font-size: 17px; font-weight: 700; letter-spacing: -.6px; color: var(--s-ink); line-height: 1.1; }
-.app-shell.studio-frame[data-edition] .studio-brand strong span { font-weight: 400; color: var(--s-muted); }
-.app-shell.studio-frame[data-edition] .studio-brand small { display: block; margin-top: 3px; font-size: 11.5px; letter-spacing: 0; color: var(--s-muted); }
-.app-shell.studio-frame .studio-sidebar-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; padding: 2px 2px 12px; margin: 0 -2px; }
-/* The body scrolls; its navs keep their full height (a long Advanced nav would otherwise shrink under the Admin nav). */
-.app-shell.studio-frame .studio-sidebar-body > * { flex-shrink: 0; }
-.app-shell.studio-frame .studio-sidebar-bottom { display: grid; gap: 8px; padding: 8px 0 0; border: 0; }
-
-/* Who you are: workspace and role cards in the workspace picker's frame, two lines each. */
-.app-shell.studio-frame .studio-identity { display: grid; gap: 8px; margin: 0 0 14px; }
-.app-shell.studio-frame .studio-identity .shell-workspace-control { margin: 0; }
-.app-shell.studio-frame[data-edition] .studio-picker { position: relative; display: flex; align-items: center; gap: 10px; min-height: 54px; padding: 8px 34px 8px 10px; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-control); box-shadow: 0 1px 2px rgba(24, 30, 21, .04); transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease; }
-.app-shell.studio-frame[data-edition] .studio-picker.is-static { padding-right: 12px; }
-.app-shell.studio-frame[data-edition] .studio-picker:not(.is-static):hover { border-color: var(--s-line-strong); box-shadow: 0 2px 8px rgba(24, 30, 21, .06); }
-.app-shell.studio-frame[data-edition] .studio-picker .workspace-avatar { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; color: var(--s-ink); background: var(--s-bg); border: 0; border-radius: 50%; font-family: inherit; font-size: 13px; }
-.app-shell.studio-frame[data-edition] .studio-picker.role-admin .workspace-avatar { color: var(--s-ink); background: var(--s-card); box-shadow: inset 0 0 0 1.5px var(--s-ink); }
-.app-shell.studio-frame[data-edition] .studio-picker.role-editor .workspace-avatar { color: var(--s-soft-ink); background: var(--s-soft); }
-.app-shell.studio-frame[data-edition] .studio-picker.role-channel .workspace-avatar { color: var(--s-mint-ink); background: var(--s-mint); }
-.studio-picker-copy { display: grid; flex: 1; min-width: 0; gap: 1px; text-align: left; }
-.app-shell.studio-frame .studio-picker-copy small { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11.5px; font-weight: 500; line-height: 1.35; color: var(--s-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.app-shell.studio-frame .studio-picker-copy strong { font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--s-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.studio-picker-chevron { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); color: var(--s-muted); pointer-events: none; }
-/* The native select covers the card, so keyboard and VoiceOver behave natively while the card does the showing. */
-.app-shell.studio-frame[data-edition] .studio-picker select { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 0; font-size: 16px; color: var(--s-ink); background: transparent; border: 0; border-radius: inherit; opacity: 0; cursor: pointer; appearance: none; }
-.app-shell.studio-frame[data-edition] .studio-picker select:disabled { cursor: not-allowed; }
-.app-shell.studio-frame[data-edition] .studio-picker:has(select:disabled) { opacity: .7; }
-.app-shell.studio-frame[data-edition] .studio-picker[data-preview] { background: var(--s-soft); border-color: var(--s-accent); }
-.studio-preview-tag { flex: none; padding: 1px 7px; font-size: 11.5px; font-style: normal; font-weight: 650; color: var(--s-soft-ink); background: var(--s-card); border-radius: 999px; }
-.studio-frame .shell-workspace-picker:focus-within { outline: 2px solid var(--s-ink); outline-offset: 2px; }
-.app-shell.studio-frame[data-edition] .studio-identity button.shell-new-workspace { display: block; margin: 4px 4px 0 auto; min-height: 24px; padding: 2px 4px; font-size: 12px; font-weight: 550; color: var(--s-muted); background: transparent; border: 0; border-radius: 6px; }
-.app-shell.studio-frame[data-edition] .studio-identity button.shell-new-workspace:hover:not(:disabled) { color: var(--s-ink); background: transparent; }
-
-/* Layout: Simple | Advanced as native radios, so arrow keys move between them. */
-.app-shell.studio-frame .studio-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin: 0 0 16px; padding: 3px; background: rgba(24, 30, 21, .05); border: 1px solid var(--s-line); border-radius: 999px; }
-.app-shell.studio-frame[data-edition="general"] .studio-layout { background: var(--s-bg); }
-.app-shell.studio-frame .studio-layout label { position: relative; display: grid; place-items: center; min-height: 32px; padding: 0 10px; font-size: 12.5px; font-weight: 600; line-height: 1; color: var(--s-muted); border-radius: 999px; cursor: pointer; transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease; }
-.app-shell.studio-frame .studio-layout label:hover { color: var(--s-ink); }
-.app-shell.studio-frame .studio-layout label.checked, .app-shell.studio-frame .studio-layout label:has(input:checked) { color: var(--s-ink); background: var(--s-card); box-shadow: 0 1px 3px rgba(24, 30, 21, .12), 0 0 0 1px var(--s-line); }
-.app-shell.studio-frame .studio-layout input { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; margin: 0; opacity: 0; cursor: pointer; }
-.app-shell.studio-frame .studio-layout label:has(input:focus-visible) { outline: 2px solid var(--s-focus); outline-offset: 1px; }
-
-/* Navigation: one pill slides under the current item in each nav. */
-.app-shell.studio-frame .studio-sidebar .studio-nav { position: relative; display: grid; gap: 2px; min-height: 0; margin: 0 0 10px; padding: 0; overflow: visible; }
-.studio-nav-label { display: block; padding: 12px 14px 6px; font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted); }
-.studio-nav-indicator { position: absolute; top: 0; left: 0; z-index: 0; border-radius: 999px; background: var(--s-nav-active); pointer-events: none; }
-.studio-nav-indicator.settled { transition: transform 300ms var(--spring-settle, var(--s-ease)), width 300ms var(--spring-settle, var(--s-ease)), height 300ms var(--spring-settle, var(--s-ease)); }
-.app-shell.studio-frame[data-edition] .studio-sidebar .studio-nav .studio-nav-item { position: relative; z-index: 1; display: flex; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; min-height: 42px; padding: 0 12px 0 14px; font-size: 14px; font-weight: 550; line-height: 1.2; text-align: left; color: var(--s-ink); background: transparent; border: 0; border-radius: 999px; box-shadow: none; transition: background-color 150ms ease, color 150ms ease; }
-.app-shell.studio-frame[data-edition] .studio-sidebar .studio-nav .studio-nav-item::before { display: none; }
-.app-shell.studio-frame[data-edition] .studio-sidebar .studio-nav .studio-nav-item svg { flex: none; color: var(--s-muted); stroke-width: 1.7; }
-.app-shell.studio-frame[data-edition] .studio-sidebar .studio-nav .studio-nav-item:hover:not(:disabled) { color: var(--s-ink); background: rgba(24, 30, 21, .05); transform: none; box-shadow: none; }
-.app-shell.studio-frame[data-edition] .studio-sidebar .studio-nav .studio-nav-item.active { font-weight: 650; background: var(--s-nav-active); }
-.app-shell.studio-frame[data-edition] .studio-sidebar .studio-nav:has(> .studio-nav-indicator) .studio-nav-item.active,
-.app-shell.studio-frame[data-edition] .studio-sidebar .studio-nav:has(> .studio-nav-indicator) .studio-nav-item.active:hover:not(:disabled) { background: transparent; }
-.app-shell.studio-frame[data-edition] .studio-sidebar .studio-nav .studio-nav-item.active svg { color: var(--s-ink); }
-.studio-nav-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.app-shell.studio-frame .studio-sidebar .studio-nav .simple-count { flex: none; margin-left: auto; }
-.app-shell.studio-frame .studio-sidebar .studio-nav .studio-nav-item.active .simple-count { color: var(--s-ink); background: var(--s-card); }
-.app-shell.studio-frame .studio-sidebar .studio-prefs { margin: 0; padding-top: 8px; border-top: 1px solid var(--s-line); }
-
-/* The classic Primary nav keeps its markup; here it takes the frame's size and accent. */
-.app-shell.studio-frame[data-edition] .studio-sidebar nav[aria-label="Primary"] { min-height: 0; overflow: visible; padding: 0; }
-.app-shell.studio-frame[data-edition] .studio-sidebar nav[aria-label="Primary"] button { min-height: 40px; padding: 0 14px; gap: 12px; font-size: 13.5px; font-weight: 550; color: var(--s-ink); border-radius: 999px; }
-.app-shell.studio-frame[data-edition] .studio-sidebar nav[aria-label="Primary"] button svg { color: var(--s-muted); }
-.app-shell.studio-frame[data-edition] .studio-sidebar nav[aria-label="Primary"] button.active { color: var(--s-ink); font-weight: 650; }
-.app-shell.studio-frame[data-edition] .studio-sidebar nav[aria-label="Primary"] button.active svg { color: var(--s-ink); }
-.app-shell.studio-frame[data-edition] .studio-sidebar nav[aria-label="Primary"] button:hover:not(:disabled):not(.active) { color: var(--s-ink); background: rgba(24, 30, 21, .05); }
-.app-shell.studio-frame[data-edition] .studio-sidebar nav[aria-label="Primary"] .nav-indicator { border-radius: 999px; background: var(--s-nav-active); }
-.app-shell.studio-frame[data-edition] .studio-sidebar nav[aria-label="Primary"] .nav-group > small { padding: 4px 14px 6px; font-size: 11.5px; letter-spacing: .06em; color: var(--s-muted); }
-.app-shell.studio-frame[data-edition] .studio-sidebar .more-nav { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--s-line); }
-.app-shell.studio-frame[data-edition] .studio-sidebar .more-nav > button:not(.more-toggle) { min-height: 36px; font-size: 12.5px; }
-.app-shell.studio-frame[data-edition] .studio-sidebar .more-toggle { font-size: 12.5px; color: var(--s-muted); }
-.app-shell.studio-frame[data-edition] .studio-sidebar .nav-count { font-size: 11.5px; color: var(--s-ink); background: var(--s-mint); border-radius: 999px; padding: 1px 7px; }
-.app-shell.studio-frame[data-edition] .studio-sidebar .sidebar-setup { margin: 18px 2px 12px; }
-.app-shell.studio-frame[data-edition] .studio-sidebar .sidebar-setup :is(p, button) { font-size: 12px; }
-
-/* Bottom: the working indicator and the footer (initials, name, version, Sign out on the web). */
+/* The top bar's working pill under 860px (StudioTopBar). */
 .studio-working { display: inline-flex; align-items: center; gap: 7px; justify-self: start; max-width: 100%; padding: 6px 12px; font-size: 12.5px; font-weight: 600; line-height: 1.3; color: var(--s-mint-ink); background: var(--s-mint); border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .studio-working svg { flex: none; }
-.app-shell.studio-frame .studio-foot { display: flex; align-items: center; gap: 10px; margin: 0 -14px; padding: 12px 14px 14px; border-top: 1px solid var(--s-line); }
-.studio-foot-avatar { display: grid; place-items: center; flex: none; width: 32px; height: 32px; font-size: 12px; font-weight: 700; letter-spacing: .02em; color: #fff; background: var(--s-ink); border-radius: 50%; }
-.studio-foot-copy { display: grid; flex: 1; min-width: 0; gap: 1px; }
-.app-shell.studio-frame .studio-foot-copy strong { font-size: 13px; font-weight: 600; color: var(--s-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.app-shell.studio-frame .studio-foot-copy small { font-size: 11.5px; color: var(--s-muted); font-variant-numeric: tabular-nums; }
-.app-shell.studio-frame[data-edition] .studio-foot .studio-signout { display: inline-flex; align-items: center; gap: 5px; flex: none; min-height: 32px; padding: 0 10px; font-size: 12px; font-weight: 600; color: var(--s-muted); background: transparent; border: 1px solid var(--s-line); border-radius: 999px; }
-.app-shell.studio-frame[data-edition] .studio-foot .studio-signout:hover:not(:disabled) { color: var(--s-ink); background: var(--s-card); border-color: var(--s-line-strong); }
 
 /* ── Preview banner ──────────────────────────────────────────────────────── */
 .studio-preview-banner { display: flex; align-items: center; gap: 10px; flex: none; min-height: 40px; padding: 5px 12px 5px 20px; color: var(--s-ink); background: var(--s-soft); border-bottom: 1px solid var(--s-accent); }
@@ -137,6 +53,15 @@
 .studio-preview-banner:focus-visible { outline: 2px solid var(--s-focus); outline-offset: -3px; }
 .app-shell.studio-frame[data-edition] .studio-preview-banner .studio-preview-back { flex: none; min-height: 30px; padding: 0 14px; font-size: 12.5px; font-weight: 650; color: #fff; background: var(--s-ink); border: 0; border-radius: 999px; }
 .app-shell.studio-frame[data-edition] .studio-preview-banner .studio-preview-back:hover:not(:disabled) { color: #fff; background: #2d362a; }
+
+/* ── Peek: an Advanced page opened from Simple, with the way back ────────── */
+.studio-peek-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; flex: none; min-height: 40px; padding: 5px 12px 5px 20px; color: var(--s-ink); background: var(--s-mint); border-bottom: 1px solid color-mix(in srgb, var(--s-mint-ink) 22%, var(--s-mint)); }
+.studio-peek-bar p { flex: 1 1 220px; min-width: 0; margin: 0; font-size: 13px; font-weight: 550; line-height: 1.35; color: var(--s-ink); }
+.app-shell.studio-frame[data-edition] .studio-peek-bar button { display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 30px; padding: 0 14px; font-size: 12.5px; font-weight: 650; border-radius: 999px; box-shadow: none; transform: none; }
+.app-shell.studio-frame[data-edition] .studio-peek-bar .studio-peek-back { color: #fff; background: var(--s-ink); border: 0; }
+.app-shell.studio-frame[data-edition] .studio-peek-bar .studio-peek-back:hover:not(:disabled) { color: #fff; background: #2d362a; }
+.app-shell.studio-frame[data-edition] .studio-peek-bar .studio-peek-keep { color: var(--s-ink); background: transparent; border: 1px solid color-mix(in srgb, var(--s-mint-ink) 30%, var(--s-mint)); }
+.app-shell.studio-frame[data-edition] .studio-peek-bar .studio-peek-keep:hover:not(:disabled) { color: var(--s-ink); background: color-mix(in srgb, var(--s-card) 55%, var(--s-mint)); }
 
 /* ── Top bar and drawer (under 860px), and the channel owner's bottom nav ─── */
 .studio-topbar { position: relative; z-index: 5; display: flex; align-items: center; gap: 8px; flex: none; min-height: 56px; padding: 0 12px 0 8px; background: var(--s-card); border-bottom: 1px solid var(--s-line); }
@@ -154,17 +79,11 @@
 .studio-bottom-icon { position: relative; display: grid; place-items: center; width: 56px; height: 28px; border-radius: 999px; transition: background-color 180ms ease; }
 .studio-bottom-nav button.active .studio-bottom-icon { background: var(--s-nav-active); }
 .studio-bottom-icon .simple-count { position: absolute; top: -4px; right: 2px; min-width: 18px; height: 18px; font-size: 11.5px; }
-.app-shell.studio-frame .studio-drawer-close { position: absolute; top: -6px; right: 0; }
 
-@media (max-width: 1100px) { .studio-frame { --s-sidebar-width: 232px; } }
+@media (max-width: 1279px) { .studio-frame { --s-sidebar-width: 232px; } }
 @media (max-width: 860px) {
   .app-shell.studio-frame[data-edition] { grid-template-columns: minmax(0, 1fr); }
   .app-shell.studio-frame .simple-toast { left: 50%; }
-  .app-shell.studio-frame[data-edition] .studio-sidebar { position: fixed; z-index: 90; top: 0; bottom: 0; left: 0; display: flex; width: min(320px, 86vw); padding-top: 20px; background: var(--s-card); border-right: 0; transform: translateX(-104%); visibility: hidden; transition: transform 260ms var(--spring-settle, var(--s-ease)), visibility 0s linear 260ms; }
-  .app-shell.studio-frame.is-desktop[data-edition] .studio-sidebar { padding-top: 45px; }
-  .app-shell.studio-frame[data-edition] .studio-sidebar.is-open { transform: none; visibility: visible; box-shadow: var(--s-shadow-pop); transition: transform 260ms var(--spring-settle, var(--s-ease)), visibility 0s; }
-  .app-shell.studio-frame[data-edition] .studio-sidebar.is-open:focus { outline: none; }
-  .app-shell.studio-frame[data-edition][data-mode="channel"] .studio-sidebar { display: none; }
   .studio-frame[data-mode="channel"] .studio-main > main { padding: 22px 16px calc(56px + env(safe-area-inset-bottom) + 32px); }
   .studio-frame[data-mode="channel"] .studio-toast { bottom: calc(56px + env(safe-area-inset-bottom) + 14px); }
 }
@@ -172,9 +91,7 @@
 
 /* Touch: every control a thumb uses is at least 44px tall. */
 @media (pointer: coarse) {
-  .app-shell.studio-frame[data-edition] .studio-picker { min-height: 56px; }
-  .app-shell.studio-frame .studio-layout label { min-height: 44px; }
-  .app-shell.studio-frame[data-edition] .studio-sidebar .studio-nav .studio-nav-item, .app-shell.studio-frame[data-edition] .studio-sidebar nav[aria-label="Primary"] button { min-height: 44px; }
+  .app-shell.studio-frame[data-edition] .studio-peek-bar button { min-height: 44px; }
   .studio-frame :is(.studio-primary, .studio-quiet, .studio-danger, .studio-filters button, .channel-answer-buttons button, .studio-menu [role="menuitem"], .studio-segment button) { min-height: 44px; }
   .studio-frame .studio-icon-button { min-width: 44px; min-height: 44px; }
   .studio-frame .studio-link { min-height: 44px; }
@@ -330,6 +247,5 @@
 @media (prefers-reduced-motion: reduce) {
   .studio-page, .studio-dialog, .studio-dialog-backdrop, .studio-menu, .studio-toast, .studio-scrim { animation: none; }
   .studio-skeleton span, .studio-shimmer { animation: none; }
-  .studio-nav-indicator.settled, .app-shell.studio-frame[data-edition] .studio-sidebar { transition: none; }
 }
 @media (prefers-contrast: more) { .studio-frame { --s-line: #b8c4bd; --s-muted: #4d534a; } }

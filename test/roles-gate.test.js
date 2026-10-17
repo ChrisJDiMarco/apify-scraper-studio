@@ -184,6 +184,56 @@ describe('the gate on the browser studio', () => {
     expect(recent).toEqual(expect.arrayContaining(['Chris added Dana as a channel owner for Semrush PR', 'Chris made a new sign-in link for Dana', 'Chris removed Dana']));
   });
 
+  it('changes what a role can do, one person’s access, custom roles and previews, all enforced by the server', async () => {
+    const team = await chris('team:list');
+    expect(team.access).toMatchObject({ rev: expect.any(Number), groups: expect.any(Array), roles: expect.arrayContaining([expect.objectContaining({ id: 'editor', builtIn: true })]) });
+    expect(team.members.find((member) => member.id === 'member-riley')).toMatchObject({ role: 'editor', roleLabel: 'Editor', base: 'editor', grants: [], denies: [], capabilities: expect.arrayContaining(['startResearch', 'viewPrompts']) });
+    // Turn off Start research for Editor: Riley is refused, naming it, and her state no longer lists it.
+    const saved = await chris('team:role-policy', { rev: team.access.rev, builtIn: { editor: { grant: [], deny: ['startResearch'] } } });
+    expect(saved).toMatchObject({ affected: expect.any(Number), access: { rev: team.access.rev + 1 } });
+    expect(saved).not.toHaveProperty('audit');
+    await expect(riley('studio:startResearchRun', { programId: 'program-pulse' })).rejects.toMatchObject({ status: 403, code: 'capabilityOff', message: expect.stringContaining('“Start research”') });
+    expect((await riley('state')).viewer.capabilities).not.toContain('startResearch');
+    await expect(chris('team:role-policy', { rev: team.access.rev, builtIn: { editor: { grant: [], deny: [] } } })).rejects.toMatchObject({ status: 409, code: 'policyConflict' });
+    // Her own grant gives it back to her alone.
+    const { member } = await chris('team:member-access', { id: 'member-riley', grants: ['startResearch'], denies: [] });
+    expect(member).toMatchObject({ grants: ['startResearch'], capabilities: expect.arrayContaining(['startResearch']) });
+    expect((await riley('state')).viewer.capabilities).toContain('startResearch');
+    // Preview exactly what she sees, then a custom role.
+    const asRiley = (await chris('team:view-as', { memberId: 'member-riley' })).viewer;
+    expect(asRiley).toMatchObject({ preview: true, role: 'editor', previewName: 'Riley', previewChanges: 1, viewAs: { memberId: 'member-riley' } });
+    await expect(chris('studio:startResearchRun', { programId: 'program-pulse' })).rejects.toMatchObject({ status: 403, code: 'preview' });
+    const access = (await chris('team:list')).access;
+    await expect(chris('team:save-role', { label: 'Viewer', base: 'editor', template: 'viewer', rev: access.rev })).rejects.toMatchObject({ status: 403, code: 'preview' }); // still previewing
+    await chris('team:view-as', { role: 'admin' });
+    const { role } = await chris('team:save-role', { label: 'Viewer', base: 'editor', template: 'viewer', rev: access.rev });
+    expect(role).toMatchObject({ label: 'Viewer', base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'] });
+    expect((await chris('team:view-as', { role: role.id })).viewer).toMatchObject({ preview: true, role: 'editor', roleId: role.id, roleLabel: 'Viewer' });
+    const viewerState = await chris('state');
+    expect(JSON.stringify(viewerState.contentStudio)).not.toMatch(/"costUsd"|"maxBudgetUsd"|"receipts"/); // no See costs, no money
+    await chris('team:view-as', { role: 'admin' });
+    await expect(riley('team:preview-access', { role: 'editor' })).rejects.toMatchObject({ status: 403, message: 'Only an admin can do that.' });
+    expect(await chris('team:preview-access', { role: role.id })).toMatchObject({ base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'], can: ['See research and evidence', 'Read reports and assets'] });
+    // The access log says what happened, newest first.
+    const log = await chris('team:access-log', { limit: 10 });
+    expect(log.rows.map((row) => row.text)).toEqual(expect.arrayContaining(['Chris made the Viewer role, built on Editor', 'Chris turned on Start research for Riley', 'Chris turned off Start research for Editor']));
+    // Put things back for the tests after this one.
+    const latest = (await chris('team:list')).access;
+    await chris('team:delete-role', { id: role.id, rev: latest.rev });
+    await chris('team:role-policy', { rev: latest.rev + 1, builtIn: { editor: { grant: [], deny: [] } } });
+    await chris('team:member-access', { id: 'member-riley', grants: [], denies: [] });
+  });
+
+  it('invites people in one go, with a sign-in link each', async () => {
+    const result = await chris('team:invite', { people: [{ email: 'Jordan@Semrush.com' }, { email: 'riley@semrush.com' }], role: 'channel', channelId: 'pr' });
+    expect(result.members).toEqual([expect.objectContaining({ name: 'Jordan', email: 'jordan@semrush.com', role: 'channel', base: 'channel', channelId: 'pr' })]);
+    expect(result.links).toEqual([{ id: result.members[0].id, url: expect.stringMatching(/^https:\/\/studio\.example\.com\/#signin=[0-9a-f]{64}$/), expiresAt: expect.any(String) }]);
+    expect(result.skipped).toEqual([{ email: 'riley@semrush.com', reason: 'Already in the studio' }]);
+    expect(result).not.toHaveProperty('audit'); expect(result).not.toHaveProperty('activity');
+    expect((await chris('team:analytics', {})).recent.map((row) => row.text)).toContain('Chris added Jordan as a channel owner for Semrush PR');
+    expect(await chris('team:remove-member', { id: result.members[0].id })).toEqual({ ok: true });
+  });
+
   it('tells an editor who is already searching with a program before anything is spent', async () => {
     const before = cli.calls.length;
     await expect(chris('studio:startResearchRun', { programId: 'program-weekly' })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^Riley started a search with this program at Oct 15, .+\. It’s still running\.$/) });

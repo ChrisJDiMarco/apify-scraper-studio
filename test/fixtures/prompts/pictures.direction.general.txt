@@ -1,0 +1,5 @@
+===== brand =====
+Use the supplied brand direction; otherwise restrained editorial design with dark green, warm white, clear typography and generous space.
+
+===== search-engine-land =====
+Search Engine Land editorial design: blue #0093FF, green #00C177, near-black #111111 and white/off-white; condensed display headline, readable narrow supporting type. No vendor or product pitches. Style references are inspiration, never layouts to copy.

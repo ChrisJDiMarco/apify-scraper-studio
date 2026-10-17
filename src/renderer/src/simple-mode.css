@@ -1,13 +1,17 @@
-/* Simple mode: one calm surface, five tabs in the sidebar, big targets, plain words. Semrush palette by default.
+/* Simple mode: one calm surface, a few pages in the sidebar, big targets, plain words. Semrush palette by default.
    The sidebar, its tabs and the working indicator live in studio-frame.css; this is the main column. */
-.simple-shell {
+/* The tokens come from the frame (studio-frame.css, light and dark). A Simple column drawn on its own, outside the
+   frame (a test, an older shell), defines the light ones itself, so the frame's dark values are never overridden. */
+.simple-shell:not(.studio-frame *) {
   --s-ink: #181e15; --s-muted: #62685e; --s-faint: #8a9088; --s-line: #e3e8e4; --s-bg: #f4f6f5; --s-card: #ffffff;
   --s-accent: #c190ff; --s-accent-strong: #a873f2; --s-soft: #f1eaff; --s-mint: #dceeeb; --s-mint-ink: #1f5a4c; --s-warn: #fff4dc;
   --s-radius: 20px; --s-shadow: 0 1px 2px rgba(24, 30, 21, .04), 0 12px 32px rgba(24, 30, 21, .06);
+}
+.simple-shell[data-edition="general"]:not(.studio-frame *) { --s-accent: #c9ff35; --s-accent-strong: #b5ea1f; --s-soft: #f2fbdc; }
+.simple-shell {
   display: flex; flex-direction: column; height: 100%; color: var(--s-ink); background: var(--s-bg);
   font-family: Lazzer, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Arial, sans-serif;
 }
-.simple-shell[data-edition="general"] { --s-accent: #c9ff35; --s-accent-strong: #b5ea1f; --s-soft: #f2fbdc; }
 .simple-shell button { font-family: inherit; }
 .simple-shell button:hover { transform: none; box-shadow: none; }
 
@@ -17,6 +21,7 @@
 .simple-toast { position: fixed; z-index: 70; left: 50%; bottom: 26px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; max-width: min(640px, calc(100vw - 32px)); padding: 12px 12px 12px 18px; font-size: 14px; color: #fff; background: var(--s-ink); border-radius: 14px; box-shadow: 0 16px 40px rgba(24, 30, 21, .25); animation: simple-rise 240ms cubic-bezier(.2, .8, .2, 1); }
 .simple-toast.error { background: #8a2f1c; }
 .simple-shell .simple-toast button { display: grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; color: inherit; background: rgba(255, 255, 255, .12); border: 0; border-radius: 8px; }
+.simple-shell .simple-toast button:hover { color: inherit; background: rgba(255, 255, 255, .22); }
 @keyframes simple-rise { from { opacity: 0; transform: translate(-50%, 10px); } }
 
 .simple-main { flex: 1; min-height: 0; overflow-y: auto; padding: 36px 28px 64px; }
@@ -51,8 +56,10 @@
 .simple-setup-dot { width: 10px; height: 10px; border-radius: 50%; background: #e3a21a; box-shadow: 0 0 0 4px #f7e4b5; }
 
 .simple-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.simple-shell .simple-tile { position: relative; display: grid; align-content: start; justify-items: start; gap: 6px; min-height: 210px; padding: 24px; text-align: left; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius); box-shadow: var(--s-shadow); font-weight: 400; transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease; }
+.simple-shell .simple-tile { position: relative; display: grid; align-content: start; justify-items: start; gap: 6px; min-height: 210px; padding: 24px; text-align: left; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius); box-shadow: var(--s-shadow); font-weight: 400; transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background-color 160ms ease; }
+/* Every hover here names its background, so no global button hover (a dark green) can show through under muted text. */
 .simple-shell button.simple-tile:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(24, 30, 21, .05), 0 18px 40px rgba(24, 30, 21, .09); border-color: #d3dad4; }
+.simple-shell button.simple-tile:not(.tone-ink):hover { background: var(--s-card); }
 .simple-tile-icon { display: grid; place-items: center; width: 46px; height: 46px; margin-bottom: 10px; border-radius: 14px; }
 .simple-tile.tone-purple .simple-tile-icon { color: #5a2fa0; background: var(--s-soft); }
 .simple-tile.tone-mint .simple-tile-icon { color: var(--s-mint-ink); background: var(--s-mint); }
@@ -127,6 +134,7 @@
 .simple-reader-bar { position: sticky; top: -36px; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0; background: linear-gradient(var(--s-bg) 80%, transparent); }
 .simple-reader-tools { display: flex; gap: 8px; flex-wrap: wrap; }
 .simple-shell .simple-reader-tools button:not(.simple-primary) { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 16px; font-size: 13.5px; font-weight: 600; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; }
+.simple-shell .simple-reader-tools button:not(.simple-primary):hover:not(:disabled) { background: var(--s-bg); }
 .simple-shell .simple-reader-tools .simple-primary { min-height: 40px; }
 .simple-doc { padding: clamp(24px, 5vw, 56px); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 24px; box-shadow: var(--s-shadow); }
 .simple-doc-meta { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: var(--s-muted); }
@@ -147,7 +155,7 @@
 .simple-trend-meta > .tier-fast-track { background: var(--s-accent); }
 .simple-trend-meta > .tier-strong { background: var(--s-mint); color: var(--s-mint-ink); }
 .simple-trend h3 { margin: 0; font-size: 18px; line-height: 1.3; letter-spacing: -.3px; }
-.simple-trend p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--s-muted); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.simple-trend > p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--s-muted); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .simple-trend-actions { display: flex; gap: 8px; margin-top: 6px; }
 .simple-shell .simple-yes { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 46px; font-size: 14.5px; font-weight: 650; color: var(--s-ink); background: var(--s-accent); border: 0; border-radius: 14px; }
 .simple-shell .simple-yes:hover:not(:disabled) { background: var(--s-accent-strong); }
@@ -174,20 +182,21 @@
 .simple-doc .markdown-content h1 { max-width: none; }
 
 /* ── Polish pass ─────────────────────────────────────────────────────────── */
-.simple-tile-latest { display: inline-block; max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+/* The newest report's name reads in full ink, so it holds up on any tile background. */
+.simple-tile-latest { display: inline-block; max-width: 44ch; overflow: hidden; font-weight: 600; color: var(--s-ink); text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .simple-tile.tone-purple:not(.has-news) .simple-tile-icon { color: var(--s-mint-ink); background: var(--s-mint); }
 .simple-tile .simple-tile-label.big { margin-bottom: 2px; }
 
 /* Search with a clear button. */
 .simple-shell .simple-search button { display: grid; place-items: center; width: 24px; height: 24px; min-height: 24px; padding: 0; color: var(--s-muted); background: var(--s-bg); border: 0; border-radius: 50%; }
-.simple-shell .simple-search button:hover { color: var(--s-ink); }
+.simple-shell .simple-search button:hover { color: var(--s-ink); background: var(--s-line); }
 
 /* Report type chips and date groups. */
 .simple-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: -14px; }
 .simple-shell .simple-filters button { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px; font-size: 13.5px; font-weight: 550; color: var(--s-muted); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; }
 .simple-shell .simple-filters button span { font-size: 12px; font-weight: 650; color: var(--s-faint); font-variant-numeric: tabular-nums; }
-.simple-shell .simple-filters button:hover { color: var(--s-ink); border-color: #cfd6d0; }
-.simple-shell .simple-filters button[aria-pressed="true"] { color: var(--s-ink); background: var(--s-soft); border-color: var(--s-accent); }
+.simple-shell .simple-filters button:hover { color: var(--s-ink); border-color: #cfd6d0; background: var(--s-card); }
+.simple-shell .simple-filters button[aria-pressed="true"], .simple-shell .simple-filters button[aria-pressed="true"]:hover { color: var(--s-ink); background: var(--s-soft); border-color: var(--s-accent); }
 .simple-shell .simple-filters button[aria-pressed="true"] span { color: #5a2fa0; }
 .simple-group { display: grid; gap: 10px; margin-top: -14px; }
 .simple-group + .simple-group { margin-top: 0; }
@@ -207,7 +216,7 @@
 .simple-pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .simple-shell .simple-pager button { display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 14px 18px; text-align: left; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 18px; font-weight: 400; }
 .simple-shell .simple-pager button.next { justify-content: flex-end; text-align: right; }
-.simple-shell .simple-pager button:hover { border-color: var(--s-accent); box-shadow: var(--s-shadow); }
+.simple-shell .simple-pager button:hover { border-color: var(--s-accent); box-shadow: var(--s-shadow); background: var(--s-card); }
 .simple-pager button span { display: grid; gap: 3px; min-width: 0; }
 .simple-pager small { font-size: 12px; font-weight: 600; color: var(--s-muted); }
 .simple-pager strong { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -273,7 +282,7 @@
 .simple-prompt { margin: 0; padding: 12px 14px; font-size: 13px; line-height: 1.6; color: var(--s-muted); background: var(--s-bg); border-radius: 12px; max-height: 260px; overflow-y: auto; }
 .simple-lightbox-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .simple-shell .simple-lightbox-close { position: absolute; top: 18px; right: 18px; display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; color: var(--s-muted); background: var(--s-bg); border: 0; border-radius: 50%; }
-.simple-shell .simple-lightbox-close:hover { color: var(--s-ink); }
+.simple-shell .simple-lightbox-close:hover { color: var(--s-ink); background: var(--s-line); }
 @media (max-width: 860px) { .simple-lightbox-card { grid-template-columns: 1fr; overflow-y: auto; } .simple-lightbox { padding: 16px; } }
 @media (prefers-reduced-motion: reduce) { .simple-lightbox, .simple-lightbox-card, .simple-asset-frame img { animation: none; } }
 
@@ -355,6 +364,7 @@
 .simple-kit-thumbs { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .simple-kit-thumbs > * { display: block; aspect-ratio: 3 / 2; overflow: hidden; background: #eef1ef; border-radius: 8px; }
 .simple-shell .simple-kit-thumbs button { min-height: 0; padding: 0; border: 0; }
+.simple-shell .simple-kit-thumbs button:hover { background: #eef1ef; }
 .simple-kit-thumbs img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 300ms ease; }
 .simple-shell .simple-kit-thumbs button:hover img { transform: scale(1.04); }
 
@@ -379,14 +389,14 @@
 .simple-sheet-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 22px; background: color-mix(in srgb, var(--s-bg) 60%, var(--s-card)); border-top: 1px solid var(--s-line); }
 .simple-segment { display: flex; flex-wrap: wrap; gap: 4px; justify-self: start; padding: 4px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 999px; }
 .simple-shell .simple-segment button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 14px; font-size: 13.5px; font-weight: 600; color: var(--s-muted); background: transparent; border: 0; border-radius: 999px; }
-.simple-shell .simple-segment button:hover { color: var(--s-ink); }
-.simple-shell .simple-segment button[aria-selected="true"] { color: var(--s-ink); background: var(--s-card); box-shadow: 0 1px 3px rgba(24, 30, 21, .1), 0 0 0 1px var(--s-line); }
+.simple-shell .simple-segment button:hover { color: var(--s-ink); background: transparent; }
+.simple-shell .simple-segment button[aria-selected="true"], .simple-shell .simple-segment button[aria-selected="true"]:hover { color: var(--s-ink); background: var(--s-card); box-shadow: 0 1px 3px rgba(24, 30, 21, .1), 0 0 0 1px var(--s-line); }
 .simple-source-pick { display: grid; gap: 10px; }
 .simple-search.wide { width: 100%; }
 .simple-source-list { display: grid; gap: 6px; max-height: 340px; overflow-y: auto; padding: 2px; }
 .simple-shell .simple-source-list button { display: flex; align-items: center; justify-content: flex-start; gap: 12px; min-height: 58px; padding: 10px 14px; text-align: left; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 14px; font-weight: 400; }
-.simple-shell .simple-source-list button:hover { border-color: #cfd6d0; }
-.simple-shell .simple-source-list button[aria-checked="true"] { background: var(--s-soft); border-color: var(--s-accent); }
+.simple-shell .simple-source-list button:hover { border-color: #cfd6d0; background: var(--s-card); }
+.simple-shell .simple-source-list button[aria-checked="true"], .simple-shell .simple-source-list button[aria-checked="true"]:hover { background: var(--s-soft); border-color: var(--s-accent); }
 .simple-source-list button > span:last-child { flex: 1; display: grid; gap: 2px; min-width: 0; }
 .simple-source-list strong { font-size: 14.5px; }
 .simple-source-list small { font-size: 12.5px; color: var(--s-muted); }
@@ -418,7 +428,8 @@
 .simple-kit-plan-name svg { flex: none; color: #5a2fa0; }
 .simple-kit-plan-items { display: flex; flex-wrap: wrap; gap: 6px; }
 .simple-shell .simple-check-chip { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 12px 0 8px; font-size: 13px; font-weight: 550; color: var(--s-muted); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; }
-.simple-shell .simple-check-chip[aria-checked="true"] { color: var(--s-ink); background: var(--s-soft); border-color: var(--s-accent); }
+.simple-shell .simple-check-chip:hover:not(:disabled) { color: var(--s-ink); background: var(--s-card); border-color: #cfd6d0; }
+.simple-shell .simple-check-chip[aria-checked="true"], .simple-shell .simple-check-chip[aria-checked="true"]:hover:not(:disabled) { color: var(--s-ink); background: var(--s-soft); border-color: var(--s-accent); }
 .simple-shell .simple-check-chip:disabled { opacity: .55; }
 .simple-check { display: grid; place-items: center; width: 16px; height: 16px; color: #fff; border: 1.5px solid #c9d0ca; border-radius: 5px; }
 [aria-checked="true"] > .simple-check { background: var(--s-accent-strong); border-color: var(--s-accent-strong); }
@@ -505,7 +516,30 @@
 .simple-shell .simple-kanban-buttons button { flex: 1; justify-content: center; min-height: 34px; padding: 0 10px; font-size: 13px; }
 .simple-kanban-status { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--s-muted); }
 .simple-kanban-status .simple-link { margin-left: auto; font-size: 12.5px; }
+.simple-shell .simple-kanban-read:hover:not(:disabled) { background: color-mix(in srgb, var(--s-mint) 80%, var(--s-mint-ink)); }
 .simple-shell .simple-kanban-read { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; padding: 0 12px; font-size: 12.5px; font-weight: 600; color: var(--s-ink); background: var(--s-mint); border: 0; border-radius: 12px; }
 .simple-shell .simple-kanban-read span { display: inline-flex; align-items: center; gap: 4px; }
 .simple-shell .simple-kanban-read:disabled { opacity: .55; }
 @media (max-width: 860px) { .simple-kanban { grid-auto-columns: minmax(240px, 82vw); } }
+
+/* Home's "What changed" card (trend-pulse.css draws it); here only its place in the page. */
+.simple-changes { display: grid; min-width: 0; }
+
+/* Trends: the research program picker beside Find new trends (the same choice as Home's tile). */
+.simple-shell .simple-program-pick { max-width: min(260px, 100%); min-height: 44px; padding: 0 36px 0 16px; font: inherit; font-size: 14px; font-weight: 600; color: var(--s-ink); background-color: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; text-overflow: ellipsis; }
+.simple-shell .simple-program-pick:hover { background-color: var(--s-bg); border-color: var(--s-line-strong); }
+.simple-shell .simple-program-pick:focus-visible { border-color: var(--s-accent-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 30%, transparent); }
+/* An empty page's next step when it is a person to ask rather than a button. */
+.simple-empty-note { margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--s-ink); }
+/* A momentum badge among a card's meta chips keeps its own tone, not the chips' grey. */
+.simple-trend-meta > .tp-badge { padding: 3px 9px 3px 7px; font-size: 12px; background: var(--tp-tone-bg, var(--s-bg)); }
+@media (max-width: 560px) { .simple-shell .simple-program-pick { flex: 1 1 100%; max-width: none; } }
+
+/* Trend cards: Yes with its caret (trend-decision-sheet.jsx) fills the row as Yes alone did, and the caret stays narrow;
+   who decided and why it matters sit under the description. */
+.simple-trend-actions .td-yes, .simple-kanban-buttons .td-yes { flex: 1; min-width: 0; }
+.simple-shell .td-yes > .simple-yes:first-child { flex: 1; min-width: 0; }
+.simple-shell .td-yes .td-caret.simple-yes { flex: none; width: auto; padding: 0 10px; }
+.simple-shell .simple-kanban-buttons .td-yes .td-caret { flex: none; padding: 0 8px; }
+.simple-trend .tp-why, .simple-trend .tp-decided { padding-top: 2px; }
+.simple-kanban-card .tp-why, .simple-kanban-card .tp-decided { font-size: 12px; }

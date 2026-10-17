@@ -1,0 +1,73 @@
+/* Library folders in Simple mode (Assets and Reports): where a page sits, what kind of folder a card is, runs still
+   working, and a trend's two documents in the reader. Tokens come from .simple-shell in simple-mode.css. */
+
+/* "Assets › Oct 14 · Weekly pulse › Trend" under a folder page's title; each step is a way back. */
+.simple-crumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--s-muted); }
+.simple-crumbs li { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.simple-crumbs li + li::before { content: '›'; color: var(--s-faint); }
+.simple-shell .simple-crumbs button { min-height: 28px; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--s-muted); background: transparent; border: 0; border-radius: 6px; }
+.simple-shell .simple-crumbs button:hover { color: var(--s-ink); background: var(--s-card); }
+.simple-crumbs [aria-current="page"] { color: var(--s-ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 36ch; }
+.simple-page-head .simple-crumbs + p { margin-top: 4px; }
+
+/* Folder cards say what they hold: a research run, a quick scan, a trend or a source. */
+.simple-folder-kind { font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--s-faint); }
+.simple-shell .simple-folder-used { color: var(--s-mint-ink); font-weight: 600; }
+.simple-folder-used svg { flex: none; }
+
+/* Research runs still collecting or waiting for review have no folder yet. */
+.simple-pending { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin: 0; padding: 12px 16px; font-size: 14px; line-height: 1.45; color: var(--s-ink); background: var(--s-card); border: 1px dashed var(--s-line); border-radius: 14px; }
+.simple-pending > span { flex: 1; min-width: 220px; }
+.simple-pending > svg { flex: none; color: var(--s-accent-strong); }
+
+/* The reader: where the document lives, the Trends report | Editorial toolkit switch and the channel assets link. */
+.simple-reader-context { display: grid; gap: 10px; margin-top: -18px; }
+.simple-crumbline { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 0; font-size: 13px; font-weight: 600; color: var(--s-muted); }
+.simple-crumbline > span[aria-hidden="true"] { color: var(--s-faint); }
+.simple-reader-switches { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.simple-reader-switches:empty { display: none; }
+.simple-shell .simple-assets-link { margin-left: auto; padding: 0 8px; border-radius: 999px; }
+.simple-shell .simple-assets-link:hover { background: var(--s-card); }
+
+/* Other reports and drafts: date labels inside the one group. */
+.simple-group-bucket { display: grid; gap: 8px; }
+.simple-group-bucket + .simple-group-bucket { margin-top: 8px; }
+.simple-group-sublabel { margin: 0; padding-left: 4px; font-size: 12.5px; font-weight: 600; color: var(--s-muted); }
+
+@media (max-width: 640px) {
+  .simple-crumbs [aria-current="page"] { max-width: 24ch; }
+  .simple-shell .simple-assets-link { margin-left: 0; }
+}
+
+/* Reader tools: Share and the Ask AI caret are menus; their items are rows, not the bar's pill buttons. */
+.simple-shell .simple-reader-tools .studio-menu-wrap > .studio-quiet { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 16px; font-size: 13.5px; font-weight: 600; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; }
+.simple-shell .simple-reader-tools .studio-menu button[role="menuitem"] { min-height: 38px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; font-weight: 550; }
+.simple-shell .simple-reader-tools .studio-menu button[role="menuitem"]:hover:not(:disabled) { background: var(--s-bg); }
+.simple-split { display: inline-flex; align-items: stretch; }
+.simple-shell .simple-split > .simple-primary { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.simple-shell .simple-split > .studio-menu-wrap > .studio-icon-button { min-height: 40px; height: 100%; padding: 0 10px; color: var(--s-ink); background: var(--s-accent); border: 0; border-left: 1px solid color-mix(in srgb, var(--s-ink) 18%, transparent); border-radius: 0 999px 999px 0; }
+.simple-shell .simple-split > .studio-menu-wrap > .studio-icon-button:hover:not(:disabled) { background: var(--s-accent-strong); }
+.simple-doc-metaline .studio-status-wrap { flex-direction: row; }
+
+/* Reports list: type chips on the left, the status filter on the right. */
+.simple-report-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.simple-status-filter select { min-height: 36px; padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 600; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; }
+
+/* "How this was made", the footer every report gets. */
+.how-made { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--s-line, #e3e8e4); }
+.how-made summary { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font-size: 13.5px; font-weight: 650; color: var(--s-muted, #62685e); cursor: pointer; list-style: none; }
+.how-made summary::-webkit-details-marker { display: none; }
+.how-made summary:hover { color: var(--s-ink, #181e15); }
+.how-made summary:focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 2px; border-radius: 6px; }
+.how-made-facts { display: grid; gap: 4px; margin: 8px 0 0; padding: 0 0 0 23px; font-size: 13.5px; line-height: 1.55; color: var(--s-muted, #62685e); }
+button.how-made-view { min-height: 0; margin-left: 6px; padding: 0; box-shadow: none; font-size: 13px; font-weight: 650; color: var(--s-soft-ink, #5a2fa0); background: none; border: 0; cursor: pointer; }
+button.how-made-view:hover:not(:disabled) { color: var(--s-soft-ink, #5a2fa0); text-decoration: underline; background: none; }
+
+/* Assets: a file row with its status chip; Your channels | All channels and the status filter above a set's folders. */
+.simple-kit-channel li.has-status { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+.simple-kit-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 4px 0 2px; }
+.simple-shell .simple-segment button[aria-pressed="true"], .simple-shell .simple-segment button[aria-pressed="true"]:hover { color: var(--s-ink); background: var(--s-card); box-shadow: 0 1px 3px rgba(24, 30, 21, .1), 0 0 0 1px var(--s-line); }
+.simple-kit-mine { margin-left: 4px; padding: 1px 8px; font-size: 11px; font-style: normal; font-weight: 650; color: var(--s-soft-ink); background: var(--s-soft); border-radius: 999px; }
+.simple-kit-channel.is-mine { box-shadow: inset 3px 0 0 var(--s-accent); }
+.simple-kit-viewer-bar > .studio-status-wrap { flex: none; flex-direction: row; }
+@media (max-width: 560px) { .simple-kit-channel li.has-status { grid-template-columns: minmax(0, 1fr); } .simple-kit-channel li.has-status > .studio-status-wrap { justify-self: start; } }

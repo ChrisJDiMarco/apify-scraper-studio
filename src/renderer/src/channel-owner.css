@@ -144,3 +144,27 @@
   .channel-set-head .studio-quiet { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .channel-card { animation: none; } .channel-disclosure svg, .channel-thumb img { transition: none; } }
+
+/* Routing and decisions on a trend's card: who approved it, and their note for the channels. */
+.studio-frame .channel-decided { margin: -4px 0 0; font-size: 12.5px; color: var(--s-muted); }
+.studio-frame .channel-suggestion { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 9px 12px; font-size: 13px; line-height: 1.45; color: var(--s-ink); background: var(--s-bg); border-radius: 10px; }
+.studio-frame .channel-suggestion svg { flex: none; margin-top: 2px; color: var(--s-muted); }
+.studio-frame .channel-suggestion strong { font-weight: 650; }
+.studio-frame .channel-suggestion.is-for-us { color: var(--s-soft-ink); background: var(--s-soft); }
+.studio-frame .channel-suggestion.is-for-us svg { color: var(--s-soft-ink); }
+.studio-frame .channel-suggestion.is-elsewhere { color: var(--s-muted); background: transparent; padding: 0; }
+.channel-card.is-elsewhere { opacity: .86; }
+.channel-brief-notes { display: grid; gap: 6px; padding: 0 24px 12px; }
+.studio-frame .channel-brief-status { margin: 0; font-size: 12.5px; color: var(--s-mint-ink); }
+.channel-brief-status:empty { display: none; }
+
+/* "Planned for <date>" after Yes, I'm using this trend. */
+.studio-frame .channel-planned { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; font-size: 13px; color: var(--s-ink); }
+.channel-planned svg { flex: none; color: var(--s-muted); }
+.channel-planned em { font-style: normal; color: var(--s-muted); font-weight: 500; }
+.channel-planned-form { display: grid; gap: 8px; }
+.channel-planned-form input[type="date"] { max-width: 220px; }
+
+/* My assets: a file row with its status chip. */
+.channel-files li.has-status { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+@media (max-width: 560px) { .channel-files li.has-status { grid-template-columns: minmax(0, 1fr); } .channel-files li.has-status > .studio-status-wrap { justify-self: start; } }

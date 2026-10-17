@@ -1,0 +1,44 @@
+/* Calendar and My plan (calendar-view.jsx): weeks × channels on wide screens, a list by week on narrow ones and for a
+   single channel. Tokens only. */
+.cal-page { display: grid; gap: 14px; }
+.cal-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.cal-nav { display: inline-flex; align-items: center; gap: 4px; }
+.cal-range { margin: 0; font-size: 14px; font-weight: 650; color: var(--s-ink, #181e15); font-variant-numeric: tabular-nums; }
+.cal-note { margin: -4px 0 0; font-size: 13px; color: var(--s-mint-ink, #1f5a4c); }
+.cal-note:empty { display: none; }
+.cal-grid-scroll { overflow-x: auto; background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius, 20px); }
+.cal-grid-scroll:focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 2px; }
+.cal-grid { width: 100%; min-width: 760px; border-collapse: collapse; table-layout: fixed; }
+.cal-grid th, .cal-grid td { padding: 10px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--s-line, #e3e8e4); }
+.cal-grid th { text-transform: none; letter-spacing: normal; }
+.cal-grid thead th { position: sticky; top: 0; font-size: 12px; font-weight: 650; color: var(--s-muted, #62685e); background: var(--s-bg, #f4f6f5); }
+.cal-grid thead th > span { margin-right: 6px; }
+.cal-grid thead th:first-child, .cal-grid tbody th { width: 170px; }
+.cal-grid tbody th { font-size: 13.5px; font-weight: 650; color: var(--s-ink, #181e15); }
+.cal-grid tbody tr:last-child > * { border-bottom: 0; }
+.cal-grid td + td, .cal-grid th + th, .cal-grid th + td { border-left: 1px solid var(--s-line, #e3e8e4); }
+.cal-copy { width: 26px; height: 26px; vertical-align: middle; }
+.cal-entries { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.cal-entry { display: grid; gap: 2px; padding: 8px 10px; background: var(--s-soft, #f1eaff); border-radius: 10px; min-width: 0; }
+.cal-entry strong { font-size: 13px; line-height: 1.35; color: var(--s-ink, #181e15); overflow-wrap: anywhere; }
+.cal-entry small { font-size: 12px; color: var(--s-muted, #62685e); }
+.cal-link { justify-self: start; display: inline-flex; align-items: center; gap: 4px; min-height: 0; padding: 0; box-shadow: none; font: inherit; font-size: 12px; font-weight: 600; color: var(--s-soft-ink, #5a2fa0); background: none; border: 0; cursor: pointer; text-decoration: none; }
+.cal-page .cal-link:hover:not(:disabled) { color: var(--s-soft-ink, #5a2fa0); text-decoration: underline; background: none; }
+.cal-channel-label { margin-top: 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--s-muted, #62685e); }
+.cal-weeks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.cal-week { display: grid; gap: 8px; align-content: start; padding: 14px; background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-row, 16px); }
+.cal-week header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cal-week h2 { margin: 0; font-size: 14px; }
+.cal-empty { margin: 0; font-size: 13px; color: var(--s-muted, #62685e); }
+.cal-undated { display: grid; gap: 8px; padding: 16px; background: var(--s-card, #fff); border: 1px dashed var(--s-line-strong, #cfd6d0); border-radius: var(--s-radius-row, 16px); }
+.cal-undated h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; }
+.cal-undated ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.cal-undated li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; padding: 10px 0; border-top: 1px solid var(--s-line, #e3e8e4); }
+.cal-undated li:first-child { border-top: 0; }
+.cal-undated-copy { display: grid; gap: 2px; min-width: 0; }
+.cal-undated-copy strong { font-size: 14px; }
+.cal-undated-copy small { font-size: 12.5px; color: var(--s-muted, #62685e); }
+.cal-plan { display: inline-flex; align-items: center; gap: 8px; }
+.cal-plan input { min-height: 36px; padding: 6px 10px; font: inherit; font-size: 13px; color: var(--s-ink, #181e15); background: var(--s-card, #fff); border: 1px solid var(--s-line-strong, #cfd6d0); border-radius: var(--s-radius-control, 12px); }
+.cal-hint { display: inline-flex; align-items: center; gap: 6px; }
+@media (pointer: coarse) { .cal-plan input { min-height: 44px; } }

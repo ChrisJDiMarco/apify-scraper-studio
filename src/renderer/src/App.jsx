@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ArrowUpRight, BarChart3, BookOpen, ChevronDown, ChevronRight, Database, FileText, FolderOpen, Globe2, Home, Images, Layers3, LayoutGrid, LoaderCircle, MessageSquare, RefreshCw, Search, Settings2, Sheet, SlidersHorizontal, Sparkles, SquareKanban, PlugZap, TrendingUp, Users, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronRight, Command, Globe2, Inbox, LoaderCircle, RefreshCw, Repeat2, ScrollText, Sparkles, Workflow, X } from 'lucide-react';
 import { AutomationView } from './automation-view.jsx';
 import { DatasetsView, ReportsView } from './dataset-report-views.jsx';
 import { CommandPalette, MissionCommandCenter } from './mission-command.jsx';
+import { PALETTE_GROUPS, paletteContent } from './palette-content.js';
+import { Spotlight, spotFor } from './spotlight.jsx';
 import { ThreadsView } from './ops-views.jsx';
 import { ActivityView } from './activity-view.jsx';
 import { DatasetHub } from './dataset-hub.jsx';
@@ -19,16 +21,23 @@ import { ContentStudioView } from './content-studio-view.jsx';
 import { HomeView } from './home-view.jsx';
 import { SettingsView } from './settings-view.jsx';
 import { HelpAssistant } from './help-assistant.jsx';
+import { useStudioActions } from './studio-actions.js';
+import { useConfirm } from './confirm-dialog.jsx';
 import { SheetsView } from './sheets-view.jsx';
-import { SIMPLE_TABS, SimpleMode } from './simple-mode.jsx';
-import { ChannelBottomNav, SidebarNav, StudioSidebar, StudioTopBar } from './studio-sidebar.jsx';
+import { SimpleMode } from './simple-mode.jsx';
+import { ChannelBottomNav, NAV_ICONS, StudioSidebar, StudioTopBar } from './studio-sidebar.jsx';
+import { DATA_TOOLS, DATA_TOOL_IDS, PAGE_LABELS, STUDIO_PAGES, buildNav, generalStudioTabs, isChannelViewer, isRealAdmin, navPages } from './nav-model.js';
+import { InboxView, inboxUnread } from './inbox-view.jsx';
+import { CalendarView } from './calendar-view.jsx';
+import { PromptLibrary } from './prompt-library.jsx';
+import { deepLinkTarget, shareOrigin, useDeepLink } from './deep-links.js';
 import { NoAccess, PreviewBanner, useNarrow } from './role-screens.jsx';
-import { ChannelAssets, ChannelTrends } from './channel-owner.jsx';
+import { ChannelAssets, ChannelPlan, ChannelTrends } from './channel-owner.jsx';
 import { AnalyticsView } from './analytics-view.jsx';
 import { PeopleView } from './people-view.jsx';
 import { UnsavedContext, createUnsavedGuard } from './asset-editor.jsx';
 import { LOCAL_ADMIN_FALLBACK, PREVIEW_TITLE, ViewerContext, adminNames, can as canCall, canRun as canRunCall, roleLabel } from './viewer.js';
-import { Badge, Button, StatusBanner, datasetLabel, number, short, statusTone, withViewTransition } from './ui.jsx';
+import { Button, StatusBanner, datasetLabel, number, withViewTransition } from './ui.jsx';
 import './studio-frame.css';
 
 // What disconnecting each credential stops, so the confirmation says what is at stake.
@@ -42,37 +51,44 @@ const KEY_CONSEQUENCE = {
 };
 const confirmCancel = () => window.confirm('Cancel this job? Anything it already finished is kept.');
 
-const NAV = [
-  { id: 'content-studio', label: 'Content studio', icon: Sparkles, group: 'Workspace' },
-  { id: 'dashboard', label: 'Overview', icon: Home, group: 'Workspace' },
-  { id: 'sheets', label: 'Sheets', icon: Sheet, group: 'Workspace' },
-  { id: 'templates', label: 'Playbooks', icon: LayoutGrid, group: 'Workspace' },
-  { id: 'search', label: 'Search platforms', icon: Search, group: 'Workspace' },
-  { id: 'chat', label: 'Chat with findings', icon: MessageSquare, group: 'Workspace' },
-  { id: 'automation', label: 'Scrapers', icon: Globe2, group: 'Workspace' },
-  { id: 'datasets', label: 'Datasets', icon: Database, group: 'Workspace' },
-  { id: 'reports', label: 'AI reports', icon: Sparkles, group: 'Workspace' },
-  { id: 'runs', label: 'Activity', icon: Activity, group: 'Workspace' },
-  { id: 'imports', label: 'Import research', icon: Database, group: 'More tools' },
-  { id: 'compare', label: 'Compare snapshots', icon: Layers3, group: 'More tools' },
-  { id: 'missions', label: 'Workflows', icon: SlidersHorizontal, group: 'More tools' },
-  { id: 'settings', label: 'Settings', icon: Settings2, group: 'Preferences' },
-];
+// The pages themselves (labels, icons, groups, ⌘ numbers) live in nav-model.js, which the sidebar, the palette and the
+// shortcuts all read. App keeps what routing needs: which ids are studio views, which are app pages, and the Studio
+// group's pages with the method each needs.
+const STUDIO_VIEWS = new Set(['overview', 'research', 'board', 'create', 'library', 'knowledge']);
+const APP_PAGES = new Set(['content-studio', 'dashboard', 'sheets', 'settings', 'inbox', 'calendar', ...DATA_TOOL_IDS]);
+const ADMIN_PAGES = Object.fromEntries(STUDIO_PAGES.map((page) => [page.id, page]));
+const DATA_TOOL_SPOTS = new Set(['nav.data-tools', ...DATA_TOOLS.flatMap((set) => set.items.map((item) => item.spot))]);
+// Whether Data tools is open, per person on this device. Storage can be missing or blocked (private windows, previews).
+const DATA_TOOLS_KEY = 'studio.nav.dataTools';
+function savedDataToolsOpen() {
+  try { const value = window.localStorage?.getItem(DATA_TOOLS_KEY); return value === '1' ? true : value === '0' ? false : null; } catch { return null; }
+}
+function saveDataToolsOpen(open) {
+  try { window.localStorage?.setItem(DATA_TOOLS_KEY, open ? '1' : '0'); } catch { /* the choice still holds for this session */ }
+}
+// The icon-only rail: the person's choice is saved in their prefs (navRail) and on this device, as a fallback for
+// older servers. With no choice, windows 861–1100px wide get the rail.
+const RAIL_KEY = 'studio.nav.rail';
+const RAIL_QUERY = '(min-width: 861px) and (max-width: 1100px)';
+function savedRail() {
+  try { const value = window.localStorage?.getItem(RAIL_KEY); return value === '1' ? true : value === '0' ? false : null; } catch { return null; }
+}
+function saveRail(on) {
+  try { window.localStorage?.setItem(RAIL_KEY, on ? '1' : '0'); } catch { /* the choice still holds for this session */ }
+}
 // Pages folded into a better home. Old links (palette, saved actions, other views) still land somewhere useful.
 const DATASET_TAB_FOR = { signals: 'signals', threads: 'conversations', clusters: 'topics', competitive: 'coverage' };
-const STUDIO_HOME_FOR = { kanban: 'board', calendar: 'board', assets: 'library', brands: 'knowledge' };
-const STUDIO_NAV = [
-  { id: 'overview', label: 'Overview', icon: Home },
-  { id: 'research', label: 'Research programs', icon: Search },
-  { id: 'sheets', label: 'Sheets', icon: Sheet, appView: 'sheets' },
-  { id: 'board', label: 'Trend board', icon: SquareKanban },
-  { id: 'create', label: 'Create content', icon: FileText },
-  { id: 'library', label: 'Library', icon: FolderOpen },
-  { id: 'knowledge', label: 'Brand knowledge', icon: BookOpen },
-];
-// Admin pages, in both layouts. Each shows only for an admin whose studio offers its method.
-const ADMIN_PAGES = { analytics: { label: 'Analytics', icon: BarChart3, method: 'getTrendAnalytics' }, people: { label: 'People & roles', icon: Users, method: 'getTeam' } };
-const CHANNEL_TABS = [{ id: 'trends', label: 'Trends', icon: TrendingUp }, { id: 'assets', label: 'My assets', icon: Images }];
+const STUDIO_HOME_FOR = { kanban: 'board', assets: 'library', brands: 'knowledge' };
+// Pages other modules draw, routed here in both layouts (and for channel owners, My plan and Inbox): renderSharedPage
+// mounts each one. A studio too old for a page's methods (an older main process) shows what it holds instead.
+const SHARED_PAGES = {
+  inbox: { title: 'Inbox', icon: Inbox, detail: 'Trends that need your OK, what the channels used, edits to reports and finished runs show up here.' },
+  calendar: { title: 'Calendar', icon: CalendarDays, detail: 'When a channel says it’s using a trend and adds a date, it shows up here, week by week.' },
+  plan: { title: 'My plan', icon: CalendarDays, detail: 'Trends your channel is using, by the date you planned them for.' },
+  prompts: { title: 'Prompts', icon: ScrollText, detail: 'The instructions behind research, reports and channel assets, with their versions. This version of the studio can’t open them yet.' },
+};
+// Show me steps on pages both layouts share (help-spots.json `tab`): Advanced opens the page first, as Simple does.
+const SHARED_SPOT_PAGES = new Set(['inbox', 'calendar', 'prompts', 'people', 'analytics']);
 const ACTIVE_RUN = new Set(['queued', 'running']);
 const list = (value) => (Array.isArray(value) ? value : []);
 const EMPTY_STATE = {
@@ -175,55 +191,25 @@ function AdvancedView(props) {
     <details className="ws-card mission-details"><summary>Scheduled workflows & advanced controls</summary><MissionCommandCenter {...props} /></details>
   </section>;
 }
-export function ActionQueue({ actions, busy, onRunAction, onNavigate }) {
-  if (!actions?.length) return null;
-  return (
-    <div className="action-queue">
-      <div>
-        <strong>Next best actions</strong>
-        <small>Ranked from setup, data quality, and Codex output state.</small>
-      </div>
-      {actions.slice(0, 4).map((item) => {
-        const runnable = item.action && item.action !== 'navigate';
-        return (
-          <button
-            type="button"
-            className="action-row"
-            disabled={busy}
-            key={item.id}
-            onClick={() => (runnable ? onRunAction(item) : onNavigate(item.view, item.args || {}))}
-          >
-            <span className="action-copy">
-              <span>{item.label}</span>
-              <small>{item.detail}</small>
-            </span>
-            <Badge tone={runnable ? 'running' : 'neutral'}>{runnable ? 'Run' : 'Open'}</Badge>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function JobTray({ jobs, busy, onCancelJob }) {
-  if (!jobs.length) return null;
-  return (
-    <div className="job-tray" aria-live="polite">
-      {jobs.map((job) => (
-        <div className="job-pill" key={job.id}>
-          <Badge tone={statusTone(job.status)}>{job.kind}</Badge>
-          <span>{short(job.title || job.id, 52)}</span>
-          {job.cancellable && <Button className="ghost danger" onClick={() => onCancelJob(job.id)}>Cancel</Button>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Header({ active, title, busy, background = [], state, onRefresh, onOpenPalette, onAskAi, askAiOpen = false }) {
-  const item = NAV.find((nav) => nav.id === active);
+// The Advanced top bar: the breadcrumb (workspace › page), quick work in progress, and Refresh. Search and Ask AI are in
+// the sidebar in every layout.
+function Header({ title, workspaceName = 'Workspace', busy, background = [], onRefresh }) {
   const working = busy || background.length > 0;
-  return <header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={14} aria-hidden="true" /><h1>{title || item?.label || 'Overview'}</h1></div><div className="topbar-right">{onAskAi && <Button className="ask-ai-button" aria-expanded={askAiOpen} aria-controls="help-drawer" title="Ask AI about this app (⌘J)" onClick={onAskAi}><Sparkles size={15} aria-hidden="true" /><span>Ask AI</span><kbd>⌘ J</kbd></Button>}<Button className="search-command ghost" onClick={onOpenPalette}><Search size={16} /><span>Search or jump to…</span><kbd>⌘ K</kbd></Button>{working && <span className="working-status" role="status" title={background.join('\n') || undefined}><LoaderCircle className="spin" size={14} aria-hidden="true" />{background.length === 1 && !busy ? `${background[0]}…` : background.length > 1 ? `${background.length} tasks running` : 'Working'}</span>}<Button className={`ghost icon-button ${busy ? 'is-working' : ''}`} aria-label="Refresh workspace" title="Refresh workspace" disabled={busy} onClick={onRefresh}><RefreshCw size={16} /></Button></div></header>;
+  return <header className="topbar"><div className="breadcrumb"><span className="breadcrumb-root" title={workspaceName}>{workspaceName}</span><ChevronRight size={14} aria-hidden="true" /><h1>{title || 'Overview'}</h1></div><div className="topbar-right">{working && <span className="working-status" role="status" title={background.join('\n') || undefined}><LoaderCircle className="spin" size={14} aria-hidden="true" />{background.length === 1 && !busy ? `${background[0]}…` : background.length > 1 ? `${background.length} tasks running` : 'Working'}</span>}<Button className={`ghost icon-button ${busy ? 'is-working' : ''}`} aria-label="Refresh workspace" title="Refresh workspace" disabled={busy} onClick={onRefresh}><RefreshCw size={16} /></Button></div></header>;
+}
+// A page whose component isn't mounted in this build yet: what it will hold, in plain words.
+function PagePlaceholder({ id }) {
+  const page = SHARED_PAGES[id] || { title: PAGE_LABELS[id] || 'This page', icon: Command, detail: '' };
+  const Icon = page.icon;
+  return <section className="studio-page" aria-labelledby={`page-${id}-title`}><div className="studio-empty big"><Icon size={26} aria-hidden="true" /><h2 id={`page-${id}-title`}>{page.title}</h2><p>{page.detail || 'This page isn’t available in this version of the studio yet.'}</p></div></section>;
+}
+// "Collecting posts…", "Starting soon": one line about where a live run is.
+const readable = (value) => String(value || '').replaceAll('-', ' ').replace(/^./, (letter) => letter.toUpperCase());
+function runLine(run) {
+  if (run.status === 'queued') return 'Starting soon';
+  if (run.message) return run.message;
+  if (run.stage) return `${readable(run.stage)}…`;
+  return 'Working…';
 }
 export default function App() {
   return <ErrorBoundary>{window.apifyStudio ? <StudioApp api={window.apifyStudio} /> : <ApiUnavailable />}</ErrorBoundary>;
@@ -242,11 +228,14 @@ function StudioApp({ api }) {
   const canRun = useCallback((method) => canRunCall(viewer, method), [viewer]); // taken by the server now
   const hiddenPages = useMemo(() => new Set(list(viewer.hiddenPages)), [viewer]);
   const role = viewer.role;
-  const realAdmin = (viewer.realRole || viewer.role) === 'admin';
+  // Custom roles carry a base (editor or channel); the built-in ids are their own base.
+  const channelBase = isChannelViewer(viewer);
+  const realAdmin = isRealAdmin(viewer);
   const settingsAllowed = can('saveSettings') && !hiddenPages.has('settings');
   const askAllowed = Boolean(api.askHelp) && can('askHelp');
   const askAdmin = adminNames(state, 'an admin');
   const guard = useMemo(() => createUnsavedGuard(), []); // unsaved report edits, asked about before any navigation
+  const confirm = useConfirm();
   const [active, setActive] = useState(api.contentCatalog ? 'content-studio' : 'dashboard');
   const [studioView, setStudioView] = useState('overview');
   const [createWorkspaceKey, setCreateWorkspaceKey] = useState(0);
@@ -260,7 +249,9 @@ function StudioApp({ api }) {
   const [pendingActions, setPendingActions] = useState(0);
   const busy = pendingActions > 0;
   const [loading, setLoading] = useState(true);
-  const [moreOpen, setMoreOpen] = useState(false);
+  // Data tools stays as the person left it (null: never chosen, so it opens only where there's no content studio).
+  const [dataToolsChoice, setDataToolsChoice] = useState(savedDataToolsOpen);
+  const dataToolsOpen = dataToolsChoice ?? !api.contentCatalog;
   const [datasetTab, setDatasetTab] = useState('explorer');
   const [knowledgeTab, setKnowledgeTab] = useState('workspace');
   const [creation, setCreation] = useState({ key: null, templateId: '' });
@@ -270,15 +261,30 @@ function StudioApp({ api }) {
   const [selectedDatasetId, setSelectedDatasetId] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [helpSeed, setHelpSeed] = useState(null); // a question for the Advanced Ask AI drawer to ask ({ text, key })
+  const [classicTour, setClassicTour] = useState(null); // an Ask AI "Show me" running in the Advanced layout
+  // Requests for pages that own their state: SimpleMode (open a report, ask Ask AI) and the Advanced Library (select an
+  // asset). Each carries a fresh key; a page acts on a key once.
+  const [shellRequest, setShellRequest] = useState(null); // { key, kind: 'report', assetId } | { key, kind: 'ask', text }
+  const [libraryRequest, setLibraryRequest] = useState(null); // { key, assetId } (a report) | { key, folderKey } (a channel-asset folder)
   // Simple is the default layout. "peek" opens one Advanced page from Simple for this session, without saving a preference.
   const [peek, setPeek] = useState(false);
   const [modeChoice, setModeChoice] = useState(''); // the layout just chosen, shown before the saved preference comes back
   const [simpleTab, setSimpleTab] = useState('home');
-  const [simpleCounts, setSimpleCounts] = useState({});
   const [channelTab, setChannelTab] = useState('trends');
   const [channelFocus, setChannelFocus] = useState('');
   const [channelCache, setChannelCache] = useState({});
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // The rail: this session's choice, else the person's saved one, else this device's, else the window width decides.
+  const [sessionRail, setSessionRail] = useState(null);
+  const [localRail] = useState(savedRail);
+  const midWidth = useNarrow(RAIL_QUERY);
+  const [newMenuKey, setNewMenuKey] = useState(0); // ⌥⌘N opens the sidebar's New menu
+  const [peopleRequest, setPeopleRequest] = useState(null); // { kind: 'invite', key }: People opens its invite sheet once
+  const [programRequest, setProgramRequest] = useState(null); // { kind: 'new', key }: Research programs opens a new program
+  const [promptRequest, setPromptRequest] = useState(null); // { key, promptId, tab? }: Prompts opens that prompt once
+  const [channelTrendFocus, setChannelTrendFocus] = useState(''); // a trend's brief to open on a channel owner's Trends (a share link, an Inbox row)
+  const [inboxSeen, setInboxSeen] = useState(0); // bumps after Mark all read, so the badge also reads this browser's copy
   const [roleEpoch, setRoleEpoch] = useState(0); // bumps when someone else changes this person's role, to close open sheets
   const narrow = useNarrow();
   const [payload, setPayload] = useState(null);
@@ -289,24 +295,46 @@ function StudioApp({ api }) {
   const backgroundRef = useRef({});
   const datasetKey = state.datasets.map((dataset) => `${dataset.id}:${dataset.itemCount}:${dataset.createdAt}`).join('|');
 
-  // What this role may open: the Simple tabs, the admin pages, and Advanced pages not hidden from it.
-  const navMain = Array.isArray(viewer.nav?.main) ? viewer.nav.main : null;
-  const simpleTabs = SIMPLE_TABS.filter((tab) => (!navMain || navMain.includes(tab.id)) && !hiddenPages.has(tab.id));
-  const navAdmin = Array.isArray(viewer.nav?.admin) ? viewer.nav.admin : Object.keys(ADMIN_PAGES);
-  const adminPages = Object.keys(ADMIN_PAGES).filter((id) => navAdmin.includes(id) && !hiddenPages.has(id) && typeof api[ADMIN_PAGES[id].method] === 'function' && can(ADMIN_PAGES[id].method));
-  const simpleAllowed = (id) => simpleTabs.some((tab) => tab.id === id) || (id === 'settings' && settingsAllowed) || adminPages.includes(id);
+  // What this role may open, from the same nav model the sidebar draws (nav-model.js): its Simple pages, the Studio
+  // pages, and Advanced pages not hidden from it. These shapes carry no counts; the sidebar's model (below, once the
+  // board is known) adds them. A Studio page needs its method in this studio too; Settings opens wherever it's allowed.
+  const navCan = (method) => can(method) && (method === 'saveSettings' || typeof api[method] === 'function');
+  const navBase = { viewer, state, edition: semrushShell ? 'semrush' : 'general', can: navCan, hasStudio: Boolean(api.contentCatalog), dataToolsOpen };
+  const simpleShape = buildNav({ ...navBase, layout: 'simple' });
+  const classicShape = buildNav({ ...navBase, layout: 'classic' });
+  const channelShape = buildNav({ ...navBase, layout: 'channel' });
+  const simplePages = navPages(simpleShape);
+  const simpleIds = new Set(simplePages.map((row) => row.id));
+  const classicIds = new Set(navPages(classicShape).map((row) => row.id));
+  const channelIds = navPages(channelShape).map((row) => row.id);
+  const askPage = Boolean(simpleShape.actions.ask);
+  // Simple's pages in nav order (⌘1–9), then Ask AI, for SimpleMode and the Ask AI buttons that open a tab.
+  const simpleTabs = [...simpleShape.order.map((row) => row.target), ...simplePages.filter((row) => row.kind !== 'settings' && !simpleShape.order.includes(row)).map((row) => row.target), ...(askPage ? ['ask'] : [])];
+  const adminPages = simplePages.filter((row) => row.kind === 'admin').map((row) => row.id);
+  const simpleAllowed = (id) => (id === 'ask' ? askPage : simpleIds.has(id) || (id === 'settings' && settingsAllowed));
   const studioAllowed = (view) => !hiddenPages.has(view);
   function pageAllowed(view) {
-    const studio = STUDIO_HOME_FOR[view] || (STUDIO_NAV.some((item) => item.id === view && !item.appView) ? view : '');
+    const studio = STUDIO_HOME_FOR[view] || (STUDIO_VIEWS.has(view) ? view : '');
     if (studio) return studioAllowed(studio);
+    if (view === 'inbox' || view === 'calendar') return classicIds.has(view);
     return !hiddenPages.has(view) && (view !== 'settings' || settingsAllowed) && (!ADMIN_PAGES[view] || adminPages.includes(view));
   }
+
+  // The sidebar's Inbox badge (inbox-view.jsx): rows derived from state, unread since prefs.inboxSeenAt or this browser's
+  // copy of it, whichever is later. A model that throws leaves the badge off rather than taking the frame down.
+  const inboxCount = useMemo(() => {
+    try { return Math.max(0, Number(inboxUnread(state, viewer)) || 0); } catch { return 0; }
+  }, [state, viewer, inboxSeen]);
+  // Share links point at the browser studio: this page's address there, the saved Studio web address on the Mac.
+  const linkOrigin = shareOrigin({ web, settings: state.settings });
 
   // The layout: channel owners have their own; otherwise this person's saved choice, or Advanced while peeking.
   const modes = list(viewer.modes).length ? viewer.modes : ['simple', 'classic'];
   const savedMode = viewer.prefs?.uiMode || state.settings?.uiMode || 'simple';
   const wantedMode = modeChoice || (peek ? 'classic' : savedMode);
-  const mode = role === 'channel' ? 'channel' : modes.includes(wantedMode) ? wantedMode : 'simple';
+  const mode = channelBase ? 'channel' : modes.includes(wantedMode) ? wantedMode : 'simple';
+  const prefRail = typeof viewer.prefs?.navRail === 'boolean' ? viewer.prefs.navRail : null;
+  const rail = !narrow && Boolean(sessionRail ?? prefRail ?? localRail ?? midWidth);
 
   async function refresh() {
     const [nextMeta, nextState] = await Promise.all([api.appMeta(), api.state()]);
@@ -319,19 +347,29 @@ function StudioApp({ api }) {
     return api.onStateChanged((next) => setState({ ...EMPTY_STATE, ...next }));
   }, []);
 
-  // ⌘K and ⌘J belong to the Advanced layout; ⌘, opens Settings for admins in either layout; channel owners get ⌘1–2.
+  // One keyboard handler for every layout (keysRef is filled in below, once the nav model is known): ⌘1–9 open pages in
+  // nav order, ⌘K search, ⌘J Ask AI (Simple's page, Advanced's drawer), ⌘, Settings, ⌘\ the rail, ⌥⌘N the New menu,
+  // and Esc closes the palette. Keys are matched by code too, since ⌥ changes event.key on the Mac (⌥N is a dead key).
   const keysRef = useRef({});
-  keysRef.current = { mode, settingsAllowed, askAllowed, openSettings, channelTabs: CHANNEL_TABS.map((tab) => tab.id), goChannel };
   useEffect(() => {
     function onKeyDown(event) {
       const keys = keysRef.current;
-      if (event.key === 'Escape') setPaletteOpen(false);
-      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
-      const key = event.key.toLowerCase();
-      if (key === 'k' && keys.mode === 'classic') { event.preventDefault(); setPaletteOpen((open) => !open); }
-      if (key === 'j' && keys.mode === 'classic' && keys.askAllowed) { event.preventDefault(); setPaletteOpen(false); setHelpOpen((open) => !open); }
-      if (event.key === ',' && keys.settingsAllowed && keys.mode !== 'channel') { event.preventDefault(); setPaletteOpen(false); keys.openSettings(); }
-      if (keys.mode === 'channel' && !event.shiftKey && /^[1-9]$/.test(event.key) && keys.channelTabs[Number(event.key) - 1]) { event.preventDefault(); keys.goChannel(keys.channelTabs[Number(event.key) - 1]); }
+      if (event.key === 'Escape') { setPaletteOpen(false); return; }
+      if (!(event.metaKey || event.ctrlKey) || event.isComposing || !keys.mode) return;
+      const code = event.code || '';
+      if (event.altKey) {
+        if ((code === 'KeyN' || String(event.key).toLowerCase() === 'n') && !event.shiftKey && keys.canCreate) { event.preventDefault(); setPaletteOpen(false); keys.openNew(); }
+        return;
+      }
+      if (event.shiftKey) return;
+      const key = String(event.key).toLowerCase();
+      if (key === 'k' && keys.mode !== 'channel') { event.preventDefault(); setPaletteOpen((open) => !open); return; }
+      if (key === 'j' && keys.canAsk) { event.preventDefault(); setPaletteOpen(false); keys.toggleAsk(); return; }
+      if ((event.key === ',' || code === 'Comma') && keys.settingsAllowed && keys.mode !== 'channel') { event.preventDefault(); setPaletteOpen(false); keys.openSettings(); return; }
+      if ((event.key === '\\' || code === 'Backslash') && keys.canRail) { event.preventDefault(); keys.toggleRail(); return; }
+      const digit = /^Digit([1-9])$/.exec(code)?.[1] || (/^[1-9]$/.test(event.key) ? event.key : '');
+      const row = digit ? keys.order?.[Number(digit) - 1] : null;
+      if (row) { event.preventDefault(); setPaletteOpen(false); keys.openNavItem(row); }
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -416,9 +454,14 @@ function StudioApp({ api }) {
   function navigate(view, args = {}) {
     withViewTransition(() => applyNavigation(view, args));
   }
+  // A note that should outlive the page change it comes with ("That report isn’t in this workspace"): navigation clears
+  // notices, and with view transitions it lands a frame later, so the note is carried across it for a moment.
+  const carriedNotice = useRef({ text: '', until: 0 });
+  function noticeAcross(text) { carriedNotice.current = { text, until: Date.now() + 2000 }; setNotice(text); }
 
   function applyNavigation(view, args = {}) {
-    setNotice('');
+    const carried = carriedNotice.current; carriedNotice.current = { text: '', until: 0 };
+    setNotice(carried.until > Date.now() ? carried.text : '');
     setError('');
     // Pages this role can't open (Settings for an editor, an old link to Brand knowledge) say so instead of opening.
     if (!pageAllowed(view)) { setNotice(view === 'settings' ? `Settings are for admins. Ask ${askAdmin} if something needs changing.` : 'Only an admin can open that page.'); return; }
@@ -432,17 +475,17 @@ function StudioApp({ api }) {
     }
     if (DATASET_TAB_FOR[view]) { setDatasetTab(DATASET_TAB_FOR[view]); view = 'datasets'; }
     else if (view === 'datasets' && args.tab) setDatasetTab(args.tab);
-    const nextView = (view === 'marketing-template' || ADMIN_PAGES[view] || NAV.some((item) => item.id === view)) ? view : 'dashboard';
+    const nextView = (view === 'marketing-template' || ADMIN_PAGES[view] || APP_PAGES.has(view)) ? view : 'dashboard';
     if (args.create || args.templateId || args.reportPresetId || args.analysisId) setCreation((current) => ({ key: (current.key || 0) + 1, templateId: args.templateId || '', reportPresetId: args.reportPresetId || '', analysisId: args.analysisId || '' }));
     else if (['reports', 'imports'].includes(nextView)) setCreation({ key: null, templateId: '', reportPresetId: '', analysisId: '' });
     else if (nextView === 'automation') setCreation({ key: null, templateId: '' });
-    if (NAV.find((item) => item.id === nextView)?.group === 'More tools' || (semrushShell && !['content-studio', 'settings', 'sheets', ...Object.keys(ADMIN_PAGES)].includes(nextView))) setMoreOpen(true);
+    // Data tools stays as the person left it; when it's closed, its toggle names the page that's open inside.
     setActive(nextView);
   }
 
   // Ask AI's "Open" buttons name a studio view (Research programs, Library…) or an app page (Sheets, Settings…).
   function openHelpPage(page) {
-    if (STUDIO_NAV.some((item) => item.id === page && !item.appView)) navigateStudio(page);
+    if (STUDIO_VIEWS.has(page)) navigateStudio(page);
     else navigate(page);
   }
 
@@ -454,15 +497,17 @@ function StudioApp({ api }) {
     });
   }
 
-  // From Simple: open one Advanced page (Full board, See why, research setup, Ask AI links) without saving a layout.
-  function openClassicPage(view) {
+  // From Simple: open one Advanced page (See why, research setup, Ask AI links, the palette, the Trend tracker) without
+  // saving a layout. A "Back to Simple" bar stays above the page until the person goes back or keeps Advanced. `args`
+  // go with it (Sheets takes { workbookId }).
+  function openClassicPage(view, args = {}) {
     if (!pageAllowed(view)) { setNotice(view === 'settings' ? `Settings are for admins. Ask ${askAdmin} if something needs changing.` : 'Only an admin can open that page.'); return; }
     if (!guard.confirmLeave()) return;
     setPeek(true); setDrawerOpen(false);
-    if (STUDIO_NAV.some((item) => item.id === view && !item.appView)) navigateStudio(view);
-    else navigate(view);
+    if (STUDIO_VIEWS.has(view)) navigateStudio(view);
+    else navigate(view, args);
   }
-  // Simple's tabs, the sidebar and ⌘1–5 all come here, so unsaved report edits are asked about once.
+  // Simple's pages, the sidebar and ⌘1–9 all come here, so unsaved report edits are asked about once.
   const simpleTabRef = useRef(simpleTab); simpleTabRef.current = simpleTab;
   function goSimple(next) {
     if (!simpleAllowed(next)) return;
@@ -470,7 +515,7 @@ function StudioApp({ api }) {
     withViewTransition(() => setSimpleTab(next));
   }
   // `focus` is a trend to jump to in My assets, once: any other way there (the nav, ⌘2) starts at the top.
-  function goChannel(next, focus = '') { if (!CHANNEL_TABS.some((tab) => tab.id === next)) return; setChannelFocus(typeof focus === 'string' ? focus : ''); withViewTransition(() => setChannelTab(next)); }
+  function goChannel(next, focus = '') { if (!channelIds.includes(next)) return; setChannelFocus(typeof focus === 'string' ? focus : ''); setChannelTrendFocus(''); withViewTransition(() => setChannelTab(next)); }
   function openSettings() {
     if (!settingsAllowed || !guard.confirmLeave()) return;
     if (mode === 'simple') withViewTransition(() => setSimpleTab('settings'));
@@ -481,10 +526,11 @@ function StudioApp({ api }) {
     if (mode === 'simple') goSimple(id);
     else navigate(id);
   }
-  // Simple | Advanced. Saved per person (setViewPrefs), or in the shared settings by an older main process.
-  async function chooseMode(next) {
+  // Simple | Advanced. Saved per person (setViewPrefs), or in the shared settings by an older main process. `confirmed`:
+  // the caller already asked about unsaved edits.
+  async function chooseMode(next, { confirmed = false } = {}) {
     if (!['simple', 'classic'].includes(next) || next === mode) return;
-    if (!guard.confirmLeave()) return;
+    if (!confirmed && !guard.confirmLeave()) return;
     setDrawerOpen(false);
     if (peek) { withViewTransition(() => setPeek(false)); if (next === savedMode) return; }
     if (next === savedMode) return;
@@ -492,37 +538,333 @@ function StudioApp({ api }) {
     await runAction(() => (api.setViewPrefs ? api.setViewPrefs({ uiMode: next }) : api.saveSettings({ uiMode: next })));
     setModeChoice('');
   }
+  // From the peek bar: make Advanced the saved layout, as choosing it in the sidebar would.
+  async function keepAdvanced() {
+    if (!peek) return;
+    withViewTransition(() => { setModeChoice('classic'); setPeek(false); });
+    await runAction(() => (api.setViewPrefs ? api.setViewPrefs({ uiMode: 'classic' }) : api.saveSettings({ uiMode: 'classic' })));
+    setModeChoice('');
+  }
+  function toggleDataTools() {
+    const next = !dataToolsOpen;
+    setDataToolsChoice(next); saveDataToolsOpen(next);
+  }
+  // The rail (⌘\ and the collapse button): saved in the person's prefs, and on this device for older servers. A refused
+  // save (a preview, an older main process) still leaves the choice in place for this window.
+  function toggleRail() {
+    if (narrow) return;
+    const next = !rail;
+    setSessionRail(next); saveRail(next);
+    if (typeof api.setViewPrefs === 'function') Promise.resolve().then(() => api.setViewPrefs({ navRail: next })).catch(() => {});
+  }
+  // A page from the nav model (the sidebar, ⌘1–9, the palette), in whichever layout it belongs to. From Simple, an
+  // Advanced page opens as a peek with the Back to Simple bar.
+  function openNavItem(row) {
+    if (!row) return;
+    if (row.kind === 'channel') { goChannel(row.target); return; }
+    if (row.kind === 'simple') { if (mode === 'simple') goSimple(row.target); return; }
+    if (row.kind === 'admin') { openAdminPage(row.target); return; }
+    if (row.kind === 'settings') { openSettings(); return; }
+    if (mode === 'simple') { openClassicPage(row.target); return; }
+    if (row.kind === 'studio') navigateStudio(row.target);
+    else navigate(row.target);
+  }
+  // Ask AI from the sidebar and ⌘J: Simple's Ask AI page, or Advanced's drawer (pressed again, it closes).
+  function toggleAsk() {
+    if (mode === 'classic') { setPaletteOpen(false); setHelpOpen((open) => !open); return; }
+    openAskAi('');
+  }
+  function openNewMenu() {
+    if (narrow && mode !== 'channel') setDrawerOpen(true);
+    setNewMenuKey((value) => value + 1);
+  }
+
+  // Ask AI with a question, in either layout: Simple's Ask AI tab, or Advanced's drawer. `draft` puts words in the box
+  // for the person to finish (New › Quick scan, New › Picture) instead of asking them; `context` goes with the question
+  // as background the person doesn't have to paste (a prompt's text from Prompts, a report under review).
+  function openAskAi(text = '', { draft = '', context = '' } = {}) {
+    const question = String(text || '').trim();
+    const start = String(draft || '');
+    const background = typeof context === 'string' ? context : '';
+    if (!askAllowed) return;
+    if (mode === 'simple') {
+      if (!simpleAllowed('ask') || (simpleTabRef.current !== 'ask' && !guard.confirmLeave())) return;
+      if (question) setShellRequest({ key: Date.now(), kind: 'ask', text: question, context: background });
+      else if (start) setShellRequest({ key: Date.now(), kind: 'ask', draft: start });
+      withViewTransition(() => setSimpleTab('ask'));
+      return;
+    }
+    if (mode !== 'classic') return;
+    if (question) setHelpSeed({ key: Date.now(), text: question, context: background });
+    else if (start) setHelpSeed({ key: Date.now(), draft: start });
+    setPaletteOpen(false); setHelpOpen(true);
+  }
+  // Open a report (an asset id) where each layout reads it: Simple's Reports, or the Advanced Library.
+  function openReport(assetId) {
+    if (!assetId) return;
+    if (mode === 'simple') {
+      if (!simpleAllowed('reports') || !guard.confirmLeave()) return;
+      setShellRequest({ key: Date.now(), kind: 'report', assetId });
+      withViewTransition(() => setSimpleTab('reports'));
+      return;
+    }
+    if (!studioAllowed('library')) { setNotice('Only an admin can open that page.'); return; }
+    setLibraryRequest({ key: Date.now(), assetId });
+    navigateStudio('library');
+  }
+  // A channel-asset folder (a kit's sourceKey) in the Advanced Library; Simple's Assets opens its own folders.
+  function openLibraryFolder(folderKey) {
+    if (!folderKey || mode !== 'classic') return;
+    if (!studioAllowed('library')) { setNotice('Only an admin can open that page.'); return; }
+    setLibraryRequest({ key: Date.now(), folderKey });
+    navigateStudio('library');
+  }
+  // After a palette jump, bring the named card into view once its page has drawn it.
+  function scrollToCard(selector, name) {
+    const want = String(name || '').trim().toLowerCase();
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    let tries = 0;
+    const look = () => {
+      const node = [...document.querySelectorAll(selector)].find((row) => String(row.dataset.spotItem || row.getAttribute('aria-label') || '').trim().toLowerCase() === want);
+      if (node) node.scrollIntoView?.({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+      else if (++tries < 20) setTimeout(look, 100);
+    };
+    setTimeout(look, 60);
+  }
+  // A trend waiting for an OK: Simple's Trends, or the Advanced Trend board, scrolled to its card.
+  function reviewTrend({ name } = {}) {
+    if (mode === 'simple') {
+      if (!simpleAllowed('trends')) return;
+      goSimple('trends');
+      scrollToCard('[data-spot="trends.card"]', name);
+      return;
+    }
+    navigateStudio('board');
+    scrollToCard('.tb-card', name);
+  }
+  // One prompt on the Prompts page (Ask AI's Open in Prompts, How this was made, a share link, an Inbox row), in either
+  // layout. A role without the Prompt Library says so; the page itself shows a locked prompt read-only.
+  function openPrompt(promptId = '', tab = '') {
+    if (!adminPages.includes('prompts')) { setNotice(viewer.preview ? 'Prompts aren’t part of the role you’re previewing.' : `Prompts aren’t part of your role. Ask ${askAdmin} if you need to see one.`); return; }
+    setPromptRequest({ key: Date.now(), promptId: String(promptId || ''), ...(tab ? { tab } : {}) });
+    openAdminPage('prompts');
+  }
+  // A trend's name from its theme id (a share link or an Inbox row carries only the id), so its card can be found.
+  function trendNameOf(themeId) {
+    if (!themeId) return '';
+    const card = classicActions.board.cards.find((row) => row.themeId === themeId);
+    if (card) return card.name;
+    for (const run of list(studioState.researchRuns)) { const theme = [...list(run.discoveredThemes), ...list(run.themes)].find((row) => row?.id === themeId); if (theme?.name) return theme.name; }
+    return list(studioState.themes).find((row) => row.id === themeId)?.name || '';
+  }
+  // Where a briefing card, an Inbox row or a share link leads (target = { kind: 'report'|'trend'|'folder'|'run'|'prompt'|
+  // 'page', id, page }), in this layout. Access still applies: what this role can't open says so and lands nowhere, and
+  // something that isn't in this workspace opens its page with a note.
+  function openTarget(target) {
+    if (!target?.kind) return;
+    const { kind, id = '', page = '' } = target;
+    if (kind === 'prompt') { openPrompt(id); return; }
+    if (mode === 'channel') {
+      const known = kind === 'trend' && list(channelView?.trends).some((row) => row.themeId === id);
+      if (kind === 'trend' || kind === 'report') {
+        goChannel('trends'); setChannelTrendFocus(known ? id : ''); // after goChannel, which clears it
+        if (kind === 'report') setNotice('Reports open from a trend’s brief on Trends.');
+        else if (id && !known) setNotice('That trend isn’t on your channel’s list. It may not have been sent to your channel.');
+        return;
+      }
+      if (kind === 'folder' || kind === 'run') { goChannel('assets', kind === 'folder' ? id : ''); return; }
+      goChannel(channelIds.includes(page) ? page : 'trends');
+      return;
+    }
+    if (kind === 'report') {
+      const known = Boolean(id) && list(studioState.assets).some((asset) => asset.id === id);
+      if (known) openReport(id);
+      else if (mode === 'simple') goSimple('reports');
+      else navigateStudio('library');
+      if (id && !known) noticeAcross('That report isn’t in this workspace. It may be in another workspace, or it was removed.');
+      return;
+    }
+    if (kind === 'trend') {
+      const name = trendNameOf(id);
+      reviewTrend({ name });
+      if (id && !name) noticeAcross('That trend isn’t in this workspace. It may be in another workspace.');
+      return;
+    }
+    if (kind === 'folder') {
+      if (mode === 'simple') {
+        if (!simpleAllowed('assets') || (simpleTabRef.current !== 'assets' && !guard.confirmLeave())) return;
+        setShellRequest({ key: Date.now(), kind: 'assets', ...(id ? { folderKey: id } : {}) });
+        withViewTransition(() => setSimpleTab('assets'));
+      } else if (id) openLibraryFolder(id);
+      else navigateStudio('library');
+      return;
+    }
+    if (kind === 'run') {
+      const research = list(studioState.researchRuns).find((row) => row.id === id);
+      const made = research ? null : list(studioState.contentRuns).find((row) => row.id === id);
+      if (made?.kit) { openTarget({ kind: 'folder', id: made.kit.sourceKey || '' }); return; }
+      const view = research || page === 'research' ? 'research' : 'create';
+      if (mode !== 'simple') navigateStudio(view);
+      else if (research?.status === 'awaiting-review' && simpleAllowed('trends')) goSimple('trends');
+      else if (pageAllowed(view)) openClassicPage(view);
+      else goSimple('home');
+      return;
+    }
+    // A page, by its Simple id (trends, reports, assets, inbox…) or an Advanced one (research, library…).
+    const tabId = { overview: 'home', board: 'trends', library: 'reports' }[page] || page;
+    if (!tabId) return;
+    if (tabId === 'settings') { if (settingsAllowed) openSettings(); else setNotice(`Settings are for admins. Ask ${askAdmin} if something needs changing.`); return; }
+    if (ADMIN_PAGES[tabId]) { if (adminPages.includes(tabId)) openAdminPage(tabId); else setNotice('Only an admin can open that page.'); return; }
+    if (mode === 'simple') { if (simpleAllowed(tabId)) goSimple(tabId); else openClassicPage(tabId); return; }
+    const classic = { home: 'overview', trends: 'board', reports: 'library', assets: 'library' }[page] || page;
+    if (STUDIO_VIEWS.has(classic)) navigateStudio(classic); else navigate(classic);
+  }
+  // "Find new trends with <program>" (the palette, in either layout): the shared action adapter (studio-actions.js)
+  // confirms the estimate against the program's caps in the in-app dialog before anything is spent.
+  async function startProgramResearch(programId) {
+    const program = list(state.contentStudio?.programs).find((row) => row.id === programId);
+    if (!program || !api.startResearchRun) return;
+    if (!canRun('startResearchRun')) { setNotice(viewer.preview ? PREVIEW_TITLE : `Only an admin or an editor can start research. Ask ${askAdmin}.`); return; }
+    const result = await classicActions.startResearch(program);
+    if (typeof result === 'string') setNotice(result);
+  }
+  // Channel assets are made and kept in Simple's Assets (Advanced has no asset dialog), so Ask AI's Make channel assets
+  // in the Advanced drawer switches to the Simple layout and opens the dialog there, and says so.
+  function openSimpleAssets(request = {}) {
+    if (channelBase || !modes.includes('simple') || !simpleAllowed('assets')) { setNotice('Channel assets are made in the Simple layout’s Assets tab.'); return; }
+    if (!guard.confirmLeave()) return;
+    setShellRequest({ key: Date.now(), kind: 'assets', ...request });
+    setHelpOpen(false); setSimpleTab('assets');
+    Promise.resolve(chooseMode('simple', { confirmed: true })).then(() => setNotice('Channel assets are made in the Simple layout, so the studio switched to it. Switch back to Advanced in the sidebar any time.'));
+  }
+  // New (the sidebar's menu, ⌥⌘N and the palette's Create group): every kind of new thing, in either layout. Paid work
+  // still confirms its estimate where it starts (research here, quick scans and pictures in Ask AI).
+  async function createFromNav(kind, { programId = '' } = {}) {
+    setPaletteOpen(false);
+    const programs = list(studioState.programs).filter(inWorkspace);
+    if (kind === 'research') {
+      if (!canRun('startResearchRun')) { setNotice(viewer.preview ? PREVIEW_TITLE : `Only an admin or an editor can start research. Ask ${askAdmin}.`); return; }
+      const newest = [...programs].sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))[0] || null;
+      const result = await classicActions.startResearch(programs.find((row) => row.id === programId) || newest);
+      if (typeof result === 'string') setNotice(result);
+      return;
+    }
+    if (kind === 'quick-scan') { openAskAi('', { draft: 'Plan a quick scan on ' }); return; }
+    if (kind === 'picture') {
+      const imagesReady = Boolean(state.keys?.OPENAI_API_KEY) || Boolean(studioState.capabilities?.imagesConfigured);
+      if (!imagesReady) { if (settingsAllowed) openSettings(); else setNotice(`Pictures are off for your team. Ask ${askAdmin} to turn them on.`); return; }
+      openAskAi('', { draft: 'Create a picture of ' });
+      return;
+    }
+    if (kind === 'assets') {
+      if (mode !== 'simple') { openSimpleAssets({ creator: true }); return; }
+      if (!simpleAllowed('assets') || (simpleTabRef.current !== 'assets' && !guard.confirmLeave())) return;
+      setShellRequest({ key: Date.now(), kind: 'assets', creator: true });
+      withViewTransition(() => setSimpleTab('assets'));
+      return;
+    }
+    if (kind === 'content') { if (mode === 'simple') openClassicPage('create'); else navigateStudio('create'); return; }
+    if (kind === 'program') {
+      setProgramRequest({ kind: 'new', key: Date.now() });
+      if (mode === 'simple') openClassicPage('research'); else navigateStudio('research');
+      return;
+    }
+    if (kind === 'person') { setPeopleRequest({ kind: 'invite', key: Date.now() }); openAdminPage('people'); return; }
+    if (kind === 'workspace' && newWorkspace) newWorkspace();
+  }
+  // Stop a live run from the Working popover, behind the studio's own confirmation (the same words as Ask AI's Stop).
+  async function stopLiveRun(run, title) {
+    if (typeof api.cancelStudioRun !== 'function' || !canRun('cancelStudioRun')) { setNotice(viewer.preview ? PREVIEW_TITLE : `Ask ${askAdmin} to stop it.`); return; }
+    const ok = await confirm({ title: `Stop “${title}”?`, lines: ['Finished work is kept, and you can try the rest later.'], confirmLabel: 'Stop', tone: 'danger' });
+    if (ok) await runAction(() => api.cancelStudioRun({ runId: run.id }), 'Stopped. Finished work is kept.');
+  }
+  // Open where a live run shows its progress: Home or Trends in Simple, the run's page in Advanced, My assets for owners.
+  function liveRunOpener(run, kind) {
+    if (mode === 'channel') return () => goChannel('assets', run.kit?.themeId || '');
+    const simple = { research: run.status === 'awaiting-review' ? 'trends' : 'home', scan: 'home', kit: 'assets' }[kind];
+    const classic = { research: 'research', scan: 'overview', kit: 'library', content: 'create' }[kind];
+    if (mode === 'simple' && simple && simpleAllowed(simple)) return () => goSimple(simple);
+    if (mode === 'simple' && classic && pageAllowed(classic)) return () => openClassicPage(classic);
+    if (mode === 'classic' && classic && studioAllowed(classic)) return () => navigateStudio(classic);
+    return undefined;
+  }
+  // Ask AI "Show me" in Advanced: each step first moves to where its control lives. Sidebar spots open the drawer
+  // below 860px, and spots inside Data tools open it; Settings spots open Settings; Ask AI's own spots (ask.*) open its
+  // drawer, and every other step closes it; spots on a page both layouts share (Inbox, Calendar, Prompts, People) open
+  // that page; spots on an Advanced page (`page`: the Library, Sheets) open that page.
+  async function prepareClassicSpot(step) {
+    const spot = spotFor(step?.target); if (!spot) return;
+    const inSidebar = spot.id.startsWith('nav.') || String(spot.selector || '').includes('"nav.');
+    if (narrow) setDrawerOpen(inSidebar);
+    if (DATA_TOOL_SPOTS.has(spot.id) && !dataToolsOpen) { setDataToolsChoice(true); saveDataToolsOpen(true); }
+    setHelpOpen(spot.tab === 'ask');
+    if (spot.tab === 'settings' && settingsAllowed && active !== 'settings') navigate('settings');
+    if (SHARED_SPOT_PAGES.has(spot.tab) && active !== spot.tab && pageAllowed(spot.tab)) navigate(spot.tab);
+    if (spot.page === 'sheets') navigate('sheets', spot.workbook ? { workbookId: spot.workbook } : {});
+    else if (spot.page && STUDIO_VIEWS.has(spot.page) && !(active === 'content-studio' && studioView === spot.page)) navigateStudio(spot.page);
+  }
+  // Steps on Simple's tabs (home.*, reports.*, trends.*, assets.* …) don't exist here, so they are left out; with
+  // nothing left, a note says where they are.
+  const classicSpot = (spot) => Boolean(spot) && spot.layout !== 'simple' && (!spot.tab || spot.tab === 'ask' || (spot.tab === 'settings' && settingsAllowed) || (SHARED_SPOT_PAGES.has(spot.tab) && pageAllowed(spot.tab)));
+  function showClassicTour(steps) {
+    const shown = list(steps).filter((step) => classicSpot(spotFor(step?.target)));
+    if (!shown.length) { setNotice('Those steps are in the Simple layout. Switch to Simple in the sidebar to see them.'); return; }
+    setHelpOpen(false); setClassicTour({ steps: shown, key: Date.now() });
+  }
+
   // View as (admins). Leaving for a channel owner's screens closes the report editor, so ask about unsaved edits first.
   const expectedRole = useRef(null);
   function viewAs(payload) {
     if (!api.setViewAs) return false;
-    if (payload?.role === 'channel' && mode !== 'channel' && !guard.confirmLeave()) return false;
-    expectedRole.current = `${viewer.realRole || ''}|${payload?.role === 'admin' ? viewer.realRole || '' : payload?.role || ''}|${payload?.role === 'channel' ? payload.channelId || '' : ''}`;
+    if ((payload?.channelId || payload?.memberId) && mode !== 'channel' && !guard.confirmLeave()) return false;
+    // A preview of one person (People's Preview as) lands on whatever that person's role is, so any role is expected.
+    // Roles are compared by id (a custom role's base can be the same as a built-in one's).
+    const realId = viewer.realRoleId || viewer.realRole || '';
+    expectedRole.current = payload?.memberId ? '*' : `${realId}|${payload?.role === 'admin' ? realId : payload?.role || ''}|${payload?.channelId || ''}`;
     setDrawerOpen(false); setPeek(false);
     runAction(() => api.setViewAs(payload));
     return true;
   }
 
   // Someone else changed this person's role (an admin in People, or the server's admin list): close what was open and say so.
-  const roleKey = `${viewer.realRole || ''}|${viewer.role || ''}|${viewer.channelId || ''}`;
+  // Keyed on role ids, not bases: a move from Editor to a custom editor-based role (Viewer) is a change too.
+  const roleKey = `${viewer.realRoleId || viewer.realRole || ''}|${viewer.roleId || viewer.role || ''}|${viewer.channelId || ''}`;
   const lastRole = useRef('');
   useEffect(() => {
     if (!state.viewer) return;
     const before = lastRole.current; lastRole.current = roleKey;
     if (!before || before === roleKey) return;
-    if (expectedRole.current === roleKey) { expectedRole.current = null; return; }
+    if (expectedRole.current === '*' || expectedRole.current === roleKey) { expectedRole.current = null; return; }
     expectedRole.current = null;
     if (!before.split('|')[1]) return; // just let in (from No access): the frame itself is the news
-    setRoleEpoch((value) => value + 1); setDrawerOpen(false); setPeek(false); setPaletteOpen(false); setHelpOpen(false);
-    if (role) setNotice(`Your role changed to ${role === 'channel' && viewer.channelName ? `Channel owner for ${viewer.channelName}` : roleLabel(role)}.`);
+    setRoleEpoch((value) => value + 1); setDrawerOpen(false); setPeek(false); setPaletteOpen(false); setHelpOpen(false); setHelpSeed(null); setShellRequest(null); setClassicTour(null); setPromptRequest(null);
+    const label = viewer.roleLabel || roleLabel(role);
+    if (role) setNotice(`Your role changed to ${channelBase && viewer.channelName ? `${label} for ${viewer.channelName}` : label}.`);
   }, [roleKey, Boolean(state.viewer)]);
   // A page this role no longer has (Settings after a preview starts, Analytics after a demotion) falls back to its home.
   useEffect(() => {
-    if (mode === 'simple' && !simpleAllowed(simpleTab)) setSimpleTab(simpleTabs[0]?.id || 'home');
+    if (mode === 'simple' && !simpleAllowed(simpleTab)) setSimpleTab(simpleTabs[0] || 'home');
     if (mode === 'classic' && !pageAllowed(active)) setActive(api.contentCatalog ? 'content-studio' : 'dashboard');
     if (active === 'content-studio' && !studioAllowed(studioView)) setStudioView('overview');
-  }, [roleKey, mode, adminPages.join('|'), settingsAllowed]);
+    if (mode === 'channel' && !channelIds.includes(channelTab)) setChannelTab(channelIds[0] || 'trends');
+  }, [roleKey, mode, adminPages.join('|'), settingsAllowed, simpleTabs.join('|'), channelIds.join('|')]);
   useEffect(() => { if (!narrow) setDrawerOpen(false); }, [narrow]);
+  // A request belongs to the layout it was made in: leaving that layout drops it, so a page that mounts again later
+  // (the Advanced drawer, Simple's Ask AI) never repeats an old question. Cleared before the next paint.
+  useLayoutEffect(() => {
+    if (mode !== 'classic') { setHelpSeed(null); setClassicTour(null); }
+    if (mode !== 'simple') setShellRequest(null);
+  }, [mode]);
+  // The Library, Research programs and Prompts act on their request when they open; once the person leaves the page, it
+  // is spent, so coming back later starts where the page normally does.
+  const wasOn = useRef({ library: false, research: false, prompts: false });
+  useEffect(() => {
+    const now = { library: mode === 'classic' && active === 'content-studio' && studioView === 'library', research: mode === 'classic' && active === 'content-studio' && studioView === 'research', prompts: mode === 'simple' ? simpleTab === 'prompts' : mode === 'classic' && active === 'prompts' };
+    if (wasOn.current.library && !now.library) setLibraryRequest(null);
+    if (wasOn.current.research && !now.research) setProgramRequest(null);
+    if (wasOn.current.prompts && !now.prompts) setPromptRequest(null);
+    wasOn.current = now;
+  }, [mode, active, studioView, simpleTab]);
 
   function choosePlaybook(id) {
     const template = MARKETING_TEMPLATES.find(item => item.id === id);
@@ -532,15 +874,32 @@ function StudioApp({ api }) {
     else navigate('marketing-template', { templateId: id });
   }
 
+  // Pages memoized below call the current ones.
+  const openAskAiRef = useRef(openAskAi); openAskAiRef.current = openAskAi;
+  const openTargetRef = useRef(openTarget); openTargetRef.current = openTarget;
+  const openPromptRef = useRef(openPrompt); openPromptRef.current = openPrompt;
+  // Palette items in either layout. An Advanced page opened from Simple is a peek, with the Back to Simple bar.
   async function runPaletteItem(item) {
-    if (item.action === 'studio') { navigateStudio(item.args.view); return; }
-    if (item.action === 'runMission' && item.args?.missionId) {
+    const args = item.args || {};
+    if (item.action === 'nav') { openNavItem(args.row); return; }
+    if (item.action === 'create') { await createFromNav(args.kind, args); return; }
+    if (item.action === 'simple') { goSimple(args.tab); return; }
+    if (item.action === 'settings') { openSettings(); return; }
+    if (item.action === 'admin') { openAdminPage(args.view); return; }
+    if (item.action === 'mode') { chooseMode(args.mode); return; }
+    if (item.action === 'ask') { openAskAi(args.text); return; }
+    if (item.action === 'read-report') { openReport(args.assetId); return; }
+    if (item.action === 'review-trend') { reviewTrend(args); return; }
+    if (item.action === 'start-research') { await startProgramResearch(args.programId); return; }
+    if (item.action === 'studio') { if (mode === 'simple') openClassicPage(args.view); else navigateStudio(args.view); return; }
+    if (item.action === 'runMission' && args.missionId) {
       if (!canRun('runMission')) { setNotice(PREVIEW_TITLE); return; }
-      await runBackground(`mission:${item.args.missionId}`, 'Workflow run', () => api.runMission(item.args.missionId), 'Workflow run complete.');
+      await runBackground(`mission:${args.missionId}`, 'Workflow run', () => api.runMission(args.missionId), 'Workflow run complete.');
       return;
     }
     if (item.action === 'navigate') {
-      navigate(item.args?.view || 'dashboard', item.args || {});
+      if (mode === 'simple') openClassicPage(args.view || 'dashboard');
+      else navigate(args.view || 'dashboard', args);
     }
   }
 
@@ -568,24 +927,35 @@ function StudioApp({ api }) {
       onClearMondayBoard={() => runAction(() => api.clearMondayBoard(), 'Monday.com board forgotten. Trends stay on your board here.')}
     />;
   }
-  // Analytics and People & roles, in either layout.
+  // The Studio group's pages (Prompts, Analytics, People & access), in either layout. People's Preview as passes a whole
+  // setViewAs payload: { role, channelId? } (any role, custom roles included) or { memberId } (one person).
   function renderAdminPage(id) {
-    if (id === 'analytics') return <AnalyticsView api={api} viewer={viewer} web={web} />;
-    if (id === 'people') return <PeopleView api={api} web={web} busy={busy} action={runAction} viewer={viewer} onPreview={(channelId) => viewAs(channelId ? { role: 'channel', channelId } : { role: 'editor' })} />;
+    if (id === 'analytics') return <AnalyticsView api={api} viewer={viewer} web={web} state={state} onFindTrends={() => openTargetRef.current({ kind: 'page', page: 'trends' })} />;
+    if (id === 'people') return <PeopleView api={api} web={web} busy={busy} action={runAction} viewer={viewer} request={peopleRequest} onPreview={(payload) => (payload && typeof payload === 'object' ? viewAs(payload) : false)} />;
+    if (id === 'prompts') return renderSharedPage('prompts');
     return null;
   }
-  const renderSimplePage = (id) => (id === 'settings' ? renderSettings() : renderAdminPage(id));
+  // Pages both layouts share (SHARED_PAGES): Inbox and Calendar for the team, My plan and Inbox for channel owners, and
+  // Prompts. Their links go through openTarget and openPrompt (read through refs: the Advanced page is memoized).
+  function renderSharedPage(id) {
+    if (id === 'inbox') return <InboxView state={state} viewer={viewer} api={api} onOpenTarget={(target) => openTargetRef.current(target)} onMarkRead={() => setInboxSeen((value) => value + 1)} />;
+    if (id === 'calendar') return <CalendarView state={state} viewer={viewer} api={api} mode="team" />;
+    if (id === 'plan') return <ChannelPlan state={state} api={api} viewer={viewer} />;
+    if (id === 'prompts' && typeof api.listPrompts === 'function') return <PromptLibrary api={api} state={state} viewer={viewer} can={can} request={promptRequest} onAsk={askAllowed ? (text, context) => openAskAiRef.current(text, { context }) : undefined} onNotice={setNotice} linkOrigin={linkOrigin} />;
+    return <PagePlaceholder id={id} />;
+  }
+  const renderSimplePage = (id) => (id === 'settings' ? renderSettings() : SHARED_PAGES[id] && !ADMIN_PAGES[id] ? renderSharedPage(id) : renderAdminPage(id));
 
   const content = useMemo(() => {
     const common = { state, busy };
-    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} onViewChange={(view) => withViewTransition(() => setStudioView(view))} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice('Asset revealed in Finder.'))} />} />;
+    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} onViewChange={(view) => withViewTransition(() => setStudioView(view))} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onAsk={askAllowed ? (text, context) => openAskAiRef.current(text, { context }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice('Asset revealed in Finder.'))} />} />;
     if (active === 'sheets') return <SheetsView api={api} state={state} initialWorkbookId={sheetRequest.id} workbookRequestKey={sheetRequest.key} onNavigate={(target) => (target === 'research-programs' ? navigateStudio('research') : target === 'trend-board' ? navigateStudio('board') : navigate(target))} />;
     if (active === 'templates') return <TemplateLibraryView {...common} onChooseTemplate={choosePlaybook} onNavigate={navigate} />;
     if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), '', true)} onNavigate={navigate} />;
     if (active === 'compare') return <CompareView {...common} onCompare={(request) => runAction(() => api.compareDatasets(request), '', true)} onSaveMonitor={(request) => runAction(() => api.saveMonitor(request), '', true)} onNavigate={navigate} />;
     if (active === 'search') return <SearchView {...common} onPreviewSearch={(request) => api.previewSearchSources(request)} onSearch={(request) => runBackground('search', 'Platform search', () => api.searchSources(request), '', true)} onRefreshActors={() => runAction(() => api.refreshApifyActors(), 'Apify Actors synced.', true)} onNavigate={navigate} />;
-    if (active === 'chat') return <FindingsChatView {...common} selectedDatasetId={selectedDatasetId} onDatasetSelect={setSelectedDatasetId} onAskQuestion={(request) => runBackground('ask', 'Answering your question', () => api.askFindings(request), '', true)} onOpenSourceUrl={(url) => api.openSourceUrl(url)} onNavigate={navigate} />;
-    if (active === 'marketing-template') return <MarketingTemplateView key={creation.key} templateId={creation.templateId} busy={busy} brandProfiles={state.brandProfiles} selectedBrandProfileId={state.settings.selectedBrandProfileId} onSelectBrandProfile={(id) => api.selectBrandProfile(id)} onManageProfiles={() => navigate('brands')} onOpenScrapers={() => navigate('automation')} onCancel={() => navigate('templates')} onSave={(recipe) => runAction(() => api.saveRecipe(recipe), 'Collection saved. Open Scrapers to collect pages, then AI reports to create the brief.', true)} />;
+    if (active === 'chat') return <FindingsChatView {...common} selectedDatasetId={selectedDatasetId} onDatasetSelect={setSelectedDatasetId} onAskQuestion={(request) => runBackground('ask', 'Answering your question', () => api.askFindings(request), '', true)} onOpenSourceUrl={(url) => api.openSourceUrl(url)} onNavigate={navigate} onOpenAskAi={askAllowed ? () => openAskAiRef.current('') : undefined} />;
+    if (active === 'marketing-template') return <MarketingTemplateView key={creation.key} templateId={creation.templateId} busy={busy} brandProfiles={state.brandProfiles} selectedBrandProfileId={state.settings.selectedBrandProfileId} onSelectBrandProfile={(id) => api.selectBrandProfile(id)} onManageProfiles={() => navigate('brands')} onOpenScrapers={() => navigate('automation')} onCancel={() => navigate('templates')} onSave={(recipe) => runAction(() => api.saveRecipe(recipe), 'Collection saved. Open Scrapers to collect pages, then Dataset reports to create the brief.', true)} />;
     if (active === 'automation') {
       return (
         <AutomationView
@@ -635,15 +1005,16 @@ function StudioApp({ api }) {
           selectedDatasetId={selectedDatasetId}
           onDatasetSelect={setSelectedDatasetId}
           onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)}
-          onAnalyze={(datasetId, kind, options = {}) => runBackground(`analyze:${datasetId}:${kind}`, 'AI report', () => api.analyzeDataset({ datasetId, kind, ...options }), 'AI report ready.')}
+          onAnalyze={(datasetId, kind, options = {}) => runBackground(`analyze:${datasetId}:${kind}`, 'Dataset report', () => api.analyzeDataset({ datasetId, kind, ...options }), 'Dataset report ready.')}
           onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), fileNotice('Analysis output opened.'))}
           onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), fileNotice('Analysis output revealed in Finder.'))}
         />
       );
     }
     if (active === 'settings') return renderSettings();
+    if (active === 'inbox' || active === 'calendar') return renderSharedPage(active);
     if (ADMIN_PAGES[active]) return renderAdminPage(active);
-    if (active === 'dashboard') return <HomeView state={state} busy={busy} onNavigate={navigate} />;
+    if (active === 'dashboard') return <HomeView state={state} busy={busy} web={web} onNavigate={navigate} />;
     return (
       <AdvancedView
         state={state}
@@ -665,48 +1036,72 @@ function StudioApp({ api }) {
         onNavigate={navigate}
       />
     );
-  }, [active, state, meta, busy, web, selectedDatasetId, payload, payloadError, selectedDataset, payloadDatasetId, creation, studioView, createWorkspaceKey, semrushShell, contentWorkspace, datasetTab, knowledgeTab, sheetRequest, viewer]);
+  }, [active, state, meta, busy, web, selectedDatasetId, payload, payloadError, selectedDataset, payloadDatasetId, creation, studioView, createWorkspaceKey, semrushShell, contentWorkspace, datasetTab, knowledgeTab, sheetRequest, libraryRequest, askAllowed, viewer, peopleRequest, programRequest, promptRequest, linkOrigin, inboxSeen]);
 
-  // One real pill slides under the active item (a snapshot would cover its label mid-transition).
-  const primaryNavRef = useRef(null);
-  const [navIndicator, setNavIndicator] = useState(null);
-  useLayoutEffect(() => {
-    const nav = primaryNavRef.current;
-    if (!nav) { setNavIndicator(null); return undefined; }
-    const measure = () => {
-      const button = nav.querySelector('button[aria-current="page"]');
-      setNavIndicator((current) => button ? { left: button.offsetLeft, top: button.offsetTop, width: button.offsetWidth, height: button.offsetHeight, settled: Boolean(current) } : null);
-    };
-    measure();
-    // Keep the active item clear of the sidebar's edge fade.
-    const scroller = nav.closest('.sidebar-body');
-    const current = nav.querySelector('button[aria-current="page"]');
-    if (scroller && current) {
-      const item = current.getBoundingClientRect(); const view = scroller.getBoundingClientRect();
-      if (item.bottom > view.bottom - 36) scroller.scrollBy?.({ top: item.bottom - view.bottom + 48, behavior: 'smooth' });
-      else if (item.top < view.top + 24) scroller.scrollBy?.({ top: item.top - view.top - 36, behavior: 'smooth' });
-    }
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
-    observer?.observe(nav);
-    return () => observer?.disconnect();
-  }, [active, studioView, moreOpen, semrushShell, mode, roleKey]);
-  const navShown = (item) => item.id !== 'settings' && pageAllowed(item.id);
-  const studioShown = (item) => (item.appView ? pageAllowed(item.appView) : studioAllowed(item.id));
-  const renderNavItem = (item, index = 0) => {
-    const Icon = item.icon;
-    const count = item.id === 'automation' ? state.recipes.length : item.id === 'datasets' ? state.datasets.length : item.id === 'runs' ? state.jobs.length : 0;
-    return <Button key={item.id} aria-label={item.label} className={active === item.id ? 'active' : ''} aria-current={active === item.id ? 'page' : undefined} style={{ '--i': index }} onClick={() => navigate(item.id)}><Icon size={18} aria-hidden="true" /><span>{item.label}</span>{count > 0 && <span className="nav-count">{count}</span>}</Button>;
+  // The palette's items, built only while it is open: this layout's pages from the nav model (in Simple, the Advanced
+  // pages too, as peeks), the Create group from the New menu, this workspace's trends, reports and programs, actions.
+  function paletteEntries() {
+    const iconOf = (name) => NAV_ICONS[name] || Command;
+    const groupOf = (model, row) => model.groups.find((group) => group.id === row.group)?.label || '';
+    const entry = (model, row, extra = {}) => ({ id: `page-${model.layout}-${row.id}`, label: `Open ${row.label}`, icon: iconOf(row.icon), group: PALETTE_GROUPS.pages, shortcut: model === nav ? row.shortcut : '',
+      keywords: [groupOf(model, row), row.kind === 'admin' && 'studio admin', row.id === 'settings' && 'connections keys apify claude codex images google monday preferences'].filter(Boolean).join(' '), action: 'nav', args: { row }, ...extra });
+    const pages = navPages(nav).map((row) => entry(nav, row));
+    const listed = new Set(pages.map((row) => row.label));
+    // From Simple, an Advanced page opens as a peek; it says so, and turns up when the person types its name. The
+    // General edition's content-studio tabs aren't in its sidebar, but the palette finds them.
+    const tabs = !semrushShell ? generalStudioTabs({ viewer, hasStudio: Boolean(api.contentCatalog) }).map((row) => entry(classicShape, row, { id: `studio-${row.id}`, hint: mode === 'simple' ? 'Advanced layout · Content studio' : 'Content studio', keywords: `${mode === 'simple' ? 'advanced ' : ''}content studio` })) : [];
+    const peeks = mode === 'simple' ? navPages(classicShape).filter((row) => !['admin', 'settings'].includes(row.kind) && !listed.has(`Open ${row.label}`)).map((row) => entry(classicShape, row, { hint: 'Advanced layout', keywords: `advanced ${groupOf(classicShape, row)}`.trim() })) : [];
+    const create = nav.actions.create.filter((row) => !row.disabled && !(row.id === 'research' && (row.programId || row.choices.length))).map((row) => ({ id: `create-${row.id}`, label: row.label, hint: row.hint, icon: iconOf(row.icon), group: PALETTE_GROUPS.create, keywords: 'new create make start', action: 'create', args: { kind: row.id, programId: row.programId || '' } }));
+    const content = api.contentCatalog && state.contentStudio ? paletteContent({ studio: state.contentStudio, canStartResearch: Boolean(api.startResearchRun) && can('startResearchRun') }) : [];
+    const canSwitch = nav.footer.layouts.length > 1;
+    const actions = [
+      ...(mode === 'classic' && can('saveRecipe') ? [{ id: 'create-scraper', label: 'Create a new scraper', icon: Globe2, group: PALETTE_GROUPS.actions, keywords: 'new scraper apify actor collect', action: 'navigate', args: { view: 'automation', create: true } }] : []),
+      ...(nav.actions.ask ? [{ id: 'open-ask-ai', label: 'Open Ask AI', icon: Sparkles, group: PALETTE_GROUPS.actions, shortcut: '⌘J', keywords: 'chat help question assistant', action: 'ask', args: { text: '' } }] : []),
+      ...(canSwitch ? [mode === 'simple' ? { id: 'mode-classic', label: 'Switch to the Advanced layout', icon: Repeat2, group: PALETTE_GROUPS.actions, keywords: 'advanced layout mode every tool', action: 'mode', args: { mode: 'classic' } }
+        : { id: 'mode-simple', label: peek ? 'Back to Simple' : 'Switch to the Simple layout', icon: Repeat2, group: PALETTE_GROUPS.actions, keywords: 'simple layout mode', action: 'mode', args: { mode: 'simple' } }] : []),
+      ...(mode === 'classic' && can('runMission') ? list(state.v5?.commandPalette).filter((item) => item.action === 'runMission' && item.args?.missionId).map((item) => ({ ...item, icon: Workflow, group: PALETTE_GROUPS.actions, keywords: 'workflow mission run' })) : []),
+    ];
+    return [...pages, ...tabs, ...peeks, ...create, ...content, ...actions];
+  }
+  // Whatever was typed can always go to Ask AI, as the palette's last result.
+  const paletteFallback = askAllowed && (mode === 'classic' || simpleAllowed('ask')) ? (text) => ({ id: 'ask-ai', label: `Ask AI: ${text}`, icon: Sparkles, group: PALETTE_GROUPS.ask, action: 'ask', args: { text } }) : undefined;
+  // How the Advanced layout takes someone somewhere, for Ask AI's buttons and cards (studio-actions.js StudioNav).
+  // Reports and channel-asset folders open in the Library; Make channel assets switches to Simple's Assets, the only
+  // place with the asset dialog. The New menu uses the same adapter from Simple, so a page link there is a peek.
+  const classicStudioNav = {
+    openReport,
+    openFolder: openLibraryFolder,
+    makeAssets: (source) => openSimpleAssets({ source }),
+    openTab: (tab) => (tab === 'ask' ? openAskAi('') : tab === 'settings' ? openSettings() : openHelpPage({ home: 'overview', reports: 'library', trends: 'board', assets: 'library' }[tab] || tab)),
+    openPage: (page) => (mode === 'simple' ? openClassicPage(page) : openHelpPage(page)),
+    openSheets: (workbookId) => navigate('sheets', workbookId ? { workbookId } : {}),
+    openPrompt: (promptId) => openPrompt(promptId),
   };
-  const paletteItems = [
-    ...(can('saveRecipe') ? [{ id: 'create-scraper', label: 'Create a new scraper', icon: Globe2, action: 'navigate', args: { view: 'automation', create: true } }] : []),
-    ...(api.contentCatalog ? STUDIO_NAV.filter((item) => !item.appView && studioShown(item)).map((item) => ({ id: `studio-${item.id}`, label: `Open ${item.label}`, icon: item.icon, action: 'studio', args: { view: item.id } })) : []),
-    ...NAV.filter((item) => !(semrushShell && item.id === 'dashboard') && (item.id === 'settings' ? settingsAllowed : navShown(item))).map((item) => ({ id: `go-${item.id}`, label: `Open ${item.id === 'dashboard' && api.contentCatalog ? 'Collection overview' : item.label}`, icon: item.icon, action: 'navigate', args: { view: item.id } })),
-    ...adminPages.map((id) => ({ id: `go-${id}`, label: `Open ${ADMIN_PAGES[id].label}`, icon: ADMIN_PAGES[id].icon, action: 'navigate', args: { view: id } })),
-    ...(can('runMission') ? (state.v5?.commandPalette || []).filter((item) => item.action === 'runMission' && item.args?.missionId) : []),
-  ];
+  // Ask AI's buttons in the Advanced drawer, the palette's "Find new trends with …" and New › Find new trends, through
+  // the same adapter as Simple (every paid step confirms its estimate in the in-app dialog). It's a hook, so it runs on
+  // every render, above the early returns below; StudioApp renders ViewerContext itself, so the viewer and its checks
+  // are passed in.
+  const classicActions = useStudioActions({ api, state, action: runAction, viewer, can, canRun, nav: classicStudioNav, settingsAllowed, tabs: simpleTabs, web, onNotice: setNotice });
   const studioState = state.contentStudio || {};
   const channelView = studioState.channelView;
   const dismiss = () => { setError(''); setNotice(''); };
+  const inWorkspace = (run) => !studioState.activeWorkspaceId || !run.workspaceId || run.workspaceId === studioState.activeWorkspaceId;
+  // New › Workspace and the switcher's New workspace: Brand knowledge's new-workspace form, for a real admin.
+  const newWorkspace = switchWorkspace && can('saveContentWorkspace') ? () => { setCreateWorkspaceKey((value) => value + 1); if (mode === 'simple') openClassicPage('knowledge'); else navigateStudio('knowledge'); } : undefined;
+  // The sidebar's model for this layout, with what waits on this person: trends that need their OK (the board knows
+  // decisions made a moment ago) and unread Inbox rows. ⌘1–9 walk its order.
+  const nav = buildNav({ ...navBase, layout: mode, counts: { waiting: can('decideResearchTheme') ? classicActions.waiting.length : 0 }, inboxUnread: inboxCount });
+  const activeNavId = mode === 'channel' ? channelTab : mode === 'simple' ? simpleTab : active === 'content-studio' ? (semrushShell ? studioView : 'content-studio') : active === 'marketing-template' ? 'templates' : active;
+  keysRef.current = { mode, order: nav.order, openNavItem, settingsAllowed, openSettings, canAsk: Boolean(nav.actions.ask), toggleAsk, canRail: !narrow, toggleRail, canCreate: nav.actions.create.length > 0, openNew: openNewMenu };
+  // Share links (#/report/…, #/trend/…, #/assets/…, #/prompt/…), opened once the studio has loaded and this person has a
+  // role (a link opened while signed out was kept through sign-in by web/main.jsx). Someone without a role keeps the link
+  // in the address bar until they're let in.
+  useDeepLink((link) => { const target = deepLinkTarget(link); if (target) openTargetRef.current(target); }, { enabled: !loading && Boolean(!state.viewer || state.viewer.role) });
+  // My channels (the account menu): saved per person; Assets, the asset dialog and trend cards read prefs.focusChannels.
+  async function saveFocusChannels(ids) {
+    const names = nav.footer.channels.filter((row) => ids.includes(row.id)).map((row) => row.short || row.name);
+    await runAction(() => api.setViewPrefs({ focusChannels: ids }), names.length ? `Saved. Your channels: ${names.join(', ')}.` : 'Saved. Every channel shows for you again.', true);
+  }
 
   // First load: nothing to show yet, and on the web this person's role isn't known, so no frame until it is.
   if (loading && !state.viewer) return <div className="studio-boot" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><p>Opening your studio…</p></div>;
@@ -715,71 +1110,67 @@ function StudioApp({ api }) {
     return <ViewerContext.Provider value={viewer}><NoAccess viewer={viewer} admins={list(state.team?.admins)} canSignOut={Boolean(api.signOut)} onRetry={refresh} onSignOut={() => api.signOut?.()} /></ViewerContext.Provider>;
   }
 
-  const inWorkspace = (run) => !studioState.activeWorkspaceId || !run.workspaceId || run.workspaceId === studioState.activeWorkspaceId;
-  const liveRuns = mode === 'channel' ? list(channelView?.runs).filter((run) => ACTIVE_RUN.has(run.status)).length
-    : [...list(state.jobs), ...list(studioState.researchRuns).filter(inWorkspace), ...list(studioState.contentRuns).filter(inWorkspace)].filter((run) => ACTIVE_RUN.has(run.status)).length;
   const backgroundLabels = Object.values(background);
-  // The Advanced top bar already says "Working" for quick actions, so the sidebar only counts real jobs there.
-  const working = liveRuns || (backgroundLabels.length === 1 ? `${backgroundLabels[0]}…` : backgroundLabels.length > 1 ? `${backgroundLabels.length} tasks running` : mode !== 'classic' && busy ? true : 0);
-  const classicTitle = ADMIN_PAGES[active]?.label || (semrushShell && active === 'content-studio' ? STUDIO_NAV.find(item => item.id === studioView)?.label : semrushShell && active === 'dashboard' ? 'Collection overview' : undefined);
-  const simpleItems = simpleTabs.map((tab, index) => ({ id: tab.id, label: tab.label, icon: tab.icon, shortcut: index < 9 ? `⌘${index + 1}` : undefined, count: simpleCounts[tab.id] || 0 }));
-  const newTrends = Number(channelView?.counts?.newTrends) || 0;
-  const channelItems = CHANNEL_TABS.filter((tab) => !navMain || navMain.includes(tab.id)).map((tab) => ({ ...tab, count: tab.id === 'trends' ? newTrends : 0, countLabel: tab.id === 'trends' ? `${newTrends} new` : undefined }));
+  // Working: every live run, with Open (where its progress shows) and Stop, then running data jobs with Cancel. Quick
+  // work with no run behind it is a plain status line; the Advanced top bar says "Working" for those too.
+  const live = (row) => ACTIVE_RUN.has(row.status);
+  const canStop = typeof api.cancelStudioRun === 'function' && can('cancelStudioRun');
+  const stopper = (run, title) => (canStop ? () => stopLiveRun(run, title) : undefined);
+  const liveRows = mode === 'channel'
+    ? list(channelView?.runs).filter(live).map((run) => { const title = run.kit?.sourceTitle || run.title || 'Channel assets'; return { id: run.id, title, kindLabel: 'Channel assets', line: runLine(run), onOpen: liveRunOpener(run, 'kit'), onStop: stopper(run, title) }; })
+    : [
+      ...list(studioState.researchRuns).filter(inWorkspace).filter(live).map((run) => { const scan = run.origin === 'quick-scan'; const title = run.title || (scan ? 'Quick scan' : 'Research run'); return { id: run.id, title, kindLabel: scan ? 'Quick scan' : 'Research', line: runLine(run), onOpen: liveRunOpener(run, scan ? 'scan' : 'research'), onStop: stopper(run, title) }; }),
+      ...list(studioState.contentRuns).filter(inWorkspace).filter(live).map((run) => { const kit = Boolean(run.kit); const title = (kit && run.kit.sourceTitle) || run.title || (kit ? 'Channel assets' : 'Content'); return { id: run.id, title, kindLabel: kit ? 'Channel assets' : 'Writing', line: runLine(run), onOpen: liveRunOpener(run, kit ? 'kit' : 'content'), onStop: stopper(run, title) }; }),
+      ...list(state.jobs).filter(live).map((job) => ({ id: `job-${job.id}`, title: job.title || readable(job.kind) || 'Job', kindLabel: readable(job.kind), line: runLine(job), stopLabel: 'Cancel',
+        onOpen: pageAllowed('runs') ? () => (mode === 'simple' ? openClassicPage('runs') : navigate('runs')) : undefined,
+        onStop: job.cancellable && typeof api.cancelJob === 'function' ? async () => { if (confirmCancel()) await runAction(() => api.cancelJob(job.id), 'Job cancelled.'); } : undefined })),
+    ];
+  const quickWork = backgroundLabels.length === 1 ? `${backgroundLabels[0]}…` : backgroundLabels.length > 1 ? `${backgroundLabels.length} tasks running` : mode !== 'classic' && busy ? 'Working…' : '';
+  const working = { label: liveRows.length ? `${new Intl.NumberFormat().format(liveRows.length)} running` : quickWork, runs: liveRows };
+  const classicTitle = active === 'content-studio' ? (semrushShell ? PAGE_LABELS[studioView] || 'Home' : 'Content studio') : semrushShell && active === 'dashboard' ? 'Collection overview' : PAGE_LABELS[active] || 'Overview';
   const pageTitle = mode === 'channel' ? viewer.channelName || 'Your channel'
-    : mode === 'simple' ? (SIMPLE_TABS.find((tab) => tab.id === simpleTab)?.label || ADMIN_PAGES[simpleTab]?.label || (simpleTab === 'settings' ? 'Settings' : ''))
-    : classicTitle || NAV.find((item) => item.id === active)?.label || 'Overview';
-  const adminItems = adminPages.map((id) => ({ id, label: ADMIN_PAGES[id].label, icon: ADMIN_PAGES[id].icon, spot: `nav.${id}` }));
-  const activeAdmin = mode === 'simple' ? simpleTab : mode === 'classic' ? active : '';
-  const settingsActive = (mode === 'simple' && simpleTab === 'settings') || (mode === 'classic' && active === 'settings');
+    : mode === 'simple' ? (navPages(nav).find((row) => row.id === simpleTab)?.label || (simpleTab === 'ask' ? 'Ask AI' : simpleTab === 'settings' ? 'Settings' : ''))
+    : classicTitle;
   const signOut = web && api.signOut ? () => api.signOut() : undefined;
   // From a Simple "Show me" step: below 860px the sidebar is a drawer, so open it for nav.* spots and close it after.
   const revealNav = (open) => { if (narrow && mode !== 'channel') setDrawerOpen(Boolean(open)); };
-
-  const classicNav = <>
-    <nav aria-label="Primary" ref={primaryNavRef}>{navIndicator && <span className={`nav-indicator ${navIndicator.settled ? 'settled' : ''}`} aria-hidden="true" style={{ transform: `translate(${navIndicator.left}px, ${navIndicator.top}px)`, width: navIndicator.width, height: navIndicator.height }} />}<div className="nav-group">{semrushShell ? STUDIO_NAV.filter(studioShown).map(item => { const Icon = item.icon; const selected = item.appView ? active === item.appView : active === 'content-studio' && studioView === item.id; return <Button key={item.id} aria-label={item.label} className={selected ? 'active' : ''} aria-current={selected ? 'page' : undefined} onClick={() => (item.appView ? navigate(item.appView) : navigateStudio(item.id))}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></Button>; }) : <><small>WORKSPACE</small>{NAV.filter((item) => item.group === 'Workspace' && navShown(item)).map((item) => renderNavItem(item))}</>}</div>
-      <div className="nav-group more-nav"><Button className="more-toggle" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><SlidersHorizontal size={18} /><span>More tools</span><ChevronDown className={moreOpen ? 'rotated' : ''} size={14} /></Button>{moreOpen && NAV.filter((item) => (semrushShell ? !['content-studio', 'settings', 'sheets'].includes(item.id) : item.group === 'More tools') && navShown(item)).map((item, index) => renderNavItem(semrushShell && item.id === 'dashboard' ? { ...item, label: 'Collection overview' } : item, index))}</div>
-    </nav>
-    {!semrushShell && !state.keys.APIFY_API_TOKEN && settingsAllowed && <div className="sidebar-setup"><span className="small-icon"><PlugZap size={17} /></span><strong>A little setup.<br />A lot to discover.</strong><p>Connect Apify to start collecting from the web.</p><Button className="ghost" onClick={() => navigate('settings')}>Connect Apify <ArrowUpRight size={14} /></Button></div>}
-  </>;
 
   const main = mode === 'channel'
     ? <main className="channel-main" key={`channel-${roleEpoch}`}>
       {channelTab === 'assets'
         ? <ChannelAssets api={api} web={web} view={channelView} viewer={viewer} busy={busy} action={runAction} cache={channelCache} onCache={(key, url) => setChannelCache((current) => ({ ...current, [key]: url }))} focusThemeId={channelFocus} />
-        : <ChannelTrends api={api} view={channelView} viewer={viewer} busy={busy} action={runAction} imagesReady={studioState.capabilities?.imagesConfigured ?? true} onOpenAssets={(themeId) => goChannel('assets', themeId || '')} onPrefs={(patch) => Promise.resolve(api.setViewPrefs?.(patch)).catch(() => null)} onToast={setNotice} />}
+        : SHARED_PAGES[channelTab] ? renderSharedPage(channelTab)
+          : <ChannelTrends api={api} view={channelView} viewer={viewer} busy={busy} action={runAction} imagesReady={studioState.capabilities?.imagesConfigured ?? true} onOpenAssets={(themeId) => goChannel('assets', themeId || '')} onPrefs={(patch) => Promise.resolve(api.setViewPrefs?.(patch)).catch(() => null)} onToast={setNotice} linkOrigin={linkOrigin} focusThemeId={channelTrendFocus} />}
     </main>
     : mode === 'simple'
-      ? <SimpleMode key={`simple-${roleEpoch}`} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs.map((tab) => tab.id)} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onCounts={setSimpleCounts} onNavSpot={revealNav} spotRoot={() => frameRef.current} />
+      ? <SimpleMode key={`simple-${roleEpoch}`} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onNavSpot={revealNav} spotRoot={() => frameRef.current} shellRequest={shellRequest} onOpenSheets={(workbookId) => openClassicPage('sheets', workbookId ? { workbookId } : {})} onOpenTarget={openTarget} onOpenPrompt={openPrompt} linkOrigin={linkOrigin} />
       : <main className="workspace" key={`classic-${roleEpoch}`}>
-        <Header active={active === 'marketing-template' ? 'dashboard' : active} title={classicTitle} busy={busy} background={backgroundLabels} state={state} onAskAi={askAllowed ? () => setHelpOpen((open) => !open) : undefined} askAiOpen={helpOpen} onRefresh={() => runAction(refresh)} onOpenPalette={() => setPaletteOpen(true)} />
+        <Header title={classicTitle} workspaceName={contentWorkspace?.name || (web ? 'Shared studio' : 'Workspace')} busy={busy} background={backgroundLabels} onRefresh={() => runAction(refresh)} />
         <div className={`content${active === 'sheets' ? ' content-fill' : active === 'chat' ? ' content-fit' : ''}`} ref={contentRef}>
           {(error || notice) && <div className="feedback" onMouseEnter={() => setNoticeHeld(true)} onMouseLeave={() => setNoticeHeld(false)}><StatusBanner error={error} notice={notice} /><Button className="ghost icon-button" aria-label="Dismiss notification" onClick={dismiss}><X size={16} /></Button></div>}
-          <JobTray jobs={state.jobs || []} busy={false} onCancelJob={(jobId) => confirmCancel() && runAction(() => api.cancelJob(jobId), 'Job cancelled.')} />
           {loading ? <div className="loading-state" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><h2>Opening your workspace</h2><p>Loading your research, sheets and reports.</p></div> : <ErrorBoundary page key={`${active}:${studioView}`}>{content}</ErrorBoundary>}
         </div>
-        {askAllowed && <HelpAssistant api={api} open={helpOpen} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} copy={settingsAllowed ? {} : { noPictures: `Pictures are off for your team. ${askAdmin} can turn them on.` }} onClose={() => setHelpOpen(false)} page={{ id: active === 'content-studio' ? studioView : active, label: (classicTitle || NAV.find((item) => item.id === active)?.label) || '', layout: 'classic' }} onOpenPage={openHelpPage} onOpenSettings={settingsAllowed ? () => navigate('settings') : undefined} />}
-        <CommandPalette open={paletteOpen} items={paletteItems} onClose={() => setPaletteOpen(false)} onRun={runPaletteItem} />
+        {askAllowed && <HelpAssistant api={api} open={helpOpen} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} copy={settingsAllowed ? {} : { noPictures: `Pictures are off for your team. ${askAdmin} can turn them on.` }} onClose={() => setHelpOpen(false)} page={{ id: active === 'content-studio' ? studioView : active, label: classicTitle || '', layout: 'classic' }} onOpenPage={openHelpPage} onOpenSettings={settingsAllowed ? () => navigate('settings') : undefined} seed={helpSeed} state={state} nav={classicStudioNav} onAction={classicActions.runAiAction} onShow={showClassicTour} />}
       </main>;
 
   // One frame for every layout and role: the sidebar is never remounted, only the main column changes, so focus stays
   // on the control just pressed (the layout switch, View as) while the page beside it changes.
   return <ViewerContext.Provider value={viewer}><UnsavedContext.Provider value={guard}>
-    <div ref={frameRef} className={`app-shell studio-frame${web ? '' : ' is-desktop'}`} data-edition={semrushShell ? 'semrush' : 'general'} data-mode={mode}>
-      <StudioSidebar edition={semrushShell ? 'semrush' : 'general'} meta={meta} web={web} viewer={viewer} workspaces={contentWorkspaces} activeWorkspaceId={contentWorkspace?.id || ''} mode={mode} busy={busy} working={working}
-        onSelectWorkspace={switchWorkspace}
-        onNewWorkspace={switchWorkspace && can('saveContentWorkspace') ? () => { setCreateWorkspaceKey((value) => value + 1); if (mode === 'simple') openClassicPage('knowledge'); else navigateStudio('knowledge'); } : undefined}
-        onViewAs={api.setViewAs && realAdmin ? viewAs : undefined} onMode={chooseMode} onSignOut={signOut} drawerOpen={drawerOpen} onCloseDrawer={() => setDrawerOpen(false)}
-        adminItems={mode === 'channel' ? [] : adminItems} activeAdmin={activeAdmin} onAdminNavigate={openAdminPage} showSettings={settingsAllowed && mode !== 'channel'} settingsActive={settingsActive} onSettings={openSettings}>
-        {mode === 'channel' ? <SidebarNav ariaLabel="Main" items={channelItems} active={channelTab} onNavigate={goChannel} />
-          : mode === 'simple' ? <SidebarNav ariaLabel="Main" items={simpleItems} active={simpleTab} onNavigate={goSimple} />
-          : classicNav}
-      </StudioSidebar>
+    <div ref={frameRef} className={`app-shell studio-frame${web ? '' : ' is-desktop'}`} data-edition={semrushShell ? 'semrush' : 'general'} data-mode={mode} data-rail={rail ? '' : undefined}>
+      <StudioSidebar edition={semrushShell ? 'semrush' : 'general'} meta={meta} web={web} viewer={viewer} nav={nav} activeId={activeNavId} mode={mode} busy={busy} workspaces={contentWorkspaces} activeWorkspaceId={contentWorkspace?.id || ''}
+        rail={rail} onToggleRail={toggleRail} drawerOpen={drawerOpen} onCloseDrawer={() => setDrawerOpen(false)}
+        onNavigate={openNavItem} onCreate={createFromNav} onSearch={() => setPaletteOpen(true)} onAsk={toggleAsk} askCurrent={mode === 'simple' && simpleTab === 'ask'} askExpanded={mode === 'classic' && helpOpen} onToggleDataTools={toggleDataTools}
+        onSelectWorkspace={switchWorkspace} onNewWorkspace={newWorkspace} onViewAs={api.setViewAs && realAdmin ? viewAs : undefined} onMode={chooseMode} onSignOut={signOut}
+        working={working} onSaveFocusChannels={typeof api.setViewPrefs === 'function' ? saveFocusChannels : undefined} newMenuKey={newMenuKey} />
       <div className="studio-main">
         <StudioTopBar title={pageTitle} working={working} mode={mode} drawerOpen={drawerOpen} onMenu={() => setDrawerOpen((open) => !open)} channelName={viewer.channelName || ''} web={web} onSignOut={signOut} />
         <PreviewBanner viewer={viewer} busy={busy} onBack={api.setViewAs ? () => viewAs({ role: 'admin' }) : undefined} />
+        {peek && mode === 'classic' && <div className="studio-peek-bar" role="region" aria-label="Advanced page"><p>You’re looking at an Advanced page. Your layout is still Simple.</p><button type="button" className="studio-peek-keep" disabled={busy} onClick={keepAdvanced}>Keep Advanced</button><button type="button" className="studio-peek-back" data-spot="top.back-to-simple" onClick={() => chooseMode('simple')}><ArrowLeft size={14} aria-hidden="true" />Back to Simple</button></div>}
         {main}
+        {mode !== 'channel' && <CommandPalette open={paletteOpen} items={paletteOpen ? paletteEntries() : []} fallback={paletteFallback} limit={{ idle: 6, search: 8 }} onClose={() => setPaletteOpen(false)} onRun={runPaletteItem} />}
+        {mode === 'classic' && classicTour && !loading && <Spotlight key={classicTour.key} steps={classicTour.steps} onPrepare={prepareClassicSpot} onClose={() => { setClassicTour(null); if (narrow) setDrawerOpen(false); }} onBackToChat={() => { setClassicTour(null); if (narrow) setDrawerOpen(false); setHelpOpen(true); }} />}
         {mode === 'channel' && (error || notice) && <div className={`studio-toast${error ? ' error' : ''}`} role={error ? 'alert' : 'status'} onMouseEnter={() => setNoticeHeld(true)} onMouseLeave={() => setNoticeHeld(false)}><span>{error || notice}</span><button type="button" className="studio-toast-close" aria-label="Dismiss" onClick={dismiss}><X size={15} aria-hidden="true" /></button></div>}
-        {mode === 'channel' && <ChannelBottomNav items={channelItems} active={channelTab} onNavigate={goChannel} />}
+        {mode === 'channel' && <ChannelBottomNav items={navPages(nav)} active={channelTab} onNavigate={goChannel} />}
       </div>
     </div>
   </UnsavedContext.Provider></ViewerContext.Provider>;

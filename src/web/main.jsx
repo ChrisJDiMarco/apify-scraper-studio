@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from '../renderer/src/App.jsx';
+import { ConfirmProvider } from '../renderer/src/confirm-dialog.jsx';
+import { restoreDeepLink, stashDeepLink } from '../renderer/src/deep-links.js';
 import { createWebApi, postJson, request, SignedOut } from './web-api.js';
 import '../renderer/src/styles.css';
 import '../renderer/src/workflow.css';
@@ -20,6 +22,9 @@ function takeLinkToken() {
   return (raw.match(/^[a-f0-9]{64}/i)?.[0] || raw.slice(0, 200)).toLowerCase(); // mail apps sometimes append punctuation
 }
 const linkToken = takeLinkToken();
+// A share link (#/report/…, #/trend/…, #/assets/…, #/prompt/…) opened while signed out is kept for this browser, so it
+// still opens after the sign-in link (often in a new tab). App resolves it once the studio has loaded (useDeepLink).
+stashDeepLink();
 // Remembers how this browser signs in, so the signed-out screen can point back to the link. A convenience only.
 const LINK_HINT = 'studio.signin';
 function remember(value) { try { if (value) window.localStorage.setItem(LINK_HINT, value); else window.localStorage.removeItem(LINK_HINT); } catch (_) { /* storage blocked */ } }
@@ -60,6 +65,7 @@ function WebStudio() {
     try {
       const session = await request('/api/session'); const api = window.apifyStudio = window.apifyStudio || createWebApi();
       if (session.signOut === false) delete api.signOut; // company sign-in owns the session: nothing to sign out of here
+      restoreDeepLink(); // the share link this browser opened before signing in, back in the address bar for App
       setStatus({ phase: 'ready' });
     }
     catch (failure) { setStatus(failure instanceof SignedOut ? { phase: 'signed-out', mode: failure.mode || 'password' } : { phase: 'error', message: failure.message }); }
@@ -86,7 +92,8 @@ function WebStudio() {
   if (status.phase === 'link-invalid') return <LinkInvalid message={status.message} onRetry={status.retry ? () => signInWithLink(status.retry) : null} />;
   if (status.phase === 'error') return <main className="web-loading" role="alert">{status.message} <button type="button" onClick={check}>Try again</button></main>;
   if (status.phase === 'signed-out') return <SignIn mode={status.mode} onSignedIn={check} />;
-  return <App />;
+  // The in-app confirmation sits above App, which asks through it, and draws inside the studio frame for its tokens.
+  return <ConfirmProvider container={() => document.querySelector('.app-shell')}><App /></ConfirmProvider>;
 }
 
 createRoot(document.getElementById('root')).render(<WebStudio />);

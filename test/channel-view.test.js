@@ -181,8 +181,8 @@ describe('the channel owner’s view', () => {
     const blog = view('blog');
     expect(blog.runs.map((entry) => entry.id)).toEqual(['content-kit-shared', 'content-kit-blog']);
     expect(blog.assets).toEqual([
-      { id: 'asset-kit-blog-long', runId: 'content-kit-blog', themeId: 'theme-aio', deliverableId: 'bloglong', title: 'AI Overviews: the long read', kind: 'text', format: 'markdown', createdAt: fixture.at('10-12', '10:40:00'), variantIndex: null, edited: null },
-      { id: 'asset-kit-blog-short', runId: 'content-kit-blog', themeId: 'theme-aio', deliverableId: 'blogshort', title: 'AI Overviews: a short news update', kind: 'text', format: 'markdown', createdAt: fixture.at('10-12', '10:20:00'), variantIndex: null, edited: { at: fixture.at('10-14'), byName: 'Alex' } },
+      { id: 'asset-kit-blog-long', runId: 'content-kit-blog', themeId: 'theme-aio', deliverableId: 'bloglong', title: 'AI Overviews: the long read', kind: 'text', format: 'markdown', createdAt: fixture.at('10-12', '10:40:00'), variantIndex: null, edited: null, status: 'draft', link: '' },
+      { id: 'asset-kit-blog-short', runId: 'content-kit-blog', themeId: 'theme-aio', deliverableId: 'blogshort', title: 'AI Overviews: a short news update', kind: 'text', format: 'markdown', createdAt: fixture.at('10-12', '10:20:00'), variantIndex: null, edited: { at: fixture.at('10-14'), byName: 'Alex' }, status: 'draft', link: '' },
     ]);
     const social = view('social');
     expect(social.runs.map((entry) => [entry.id, entry.status])).toEqual([['content-kit-local', 'running'], ['content-kit-shared', 'succeeded']]);
@@ -221,5 +221,36 @@ describe('the channel owner’s view', () => {
     expect(view('blog', { memberSince: '2027-01-01T00:00:00.000Z' }).trends.find((trend) => trend.themeId === 'theme-aio')).toMatchObject({ earlier: false, isNew: false });
     expect(view('blog', { memberSince: null }).trends.every((trend) => !trend.earlier)).toBe(true);
     expect(view('blog', { memberSince: 'not a date' }).trends.every((trend) => !trend.earlier)).toBe(true);
+  });
+});
+
+describe('trends routed to channels', () => {
+  // Riley said yes to Local packs for Social only, with a note; AI Overviews went to every channel.
+  const routed = () => {
+    const studio = fixture.contentStudio(); const run = studio.researchRuns.find((entry) => entry.id === 'research-new');
+    run.decisionsBy['theme-local'] = { id: 'member-riley', name: 'Riley', at: fixture.at('10-10', '10:57:00'), note: 'Lead with the map pack data.', channels: ['social'] };
+    return studio;
+  };
+  const view = (channelId) => buildChannelView({ contentStudio: routed(), adoptions: [], channelId, editionId: 'semrush', viewerId: 'member-alex' });
+
+  it('says who suggested a trend for which channels, and counts it as new only where it was sent', () => {
+    expect(readyTrends(routed()).find((trend) => trend.themeId === 'theme-local').decidedBy).toEqual({ name: 'Riley', at: fixture.at('10-10', '10:57:00'), auto: false, note: 'Lead with the map pack data.', channels: ['social'] });
+    const social = view('social');
+    expect(social.trends.find((trend) => trend.themeId === 'theme-local')).toMatchObject({ offered: true, forUs: true, isNew: true, decidedBy: { name: 'Riley', auto: false }, suggestion: { byName: 'Riley', note: 'Lead with the map pack data.', channels: [{ id: 'social', name: 'Semrush Social Team' }] } });
+    expect(social.counts).toEqual({ newTrends: 2 });
+    const blog = view('blog');
+    expect(blog.trends.find((trend) => trend.themeId === 'theme-local')).toMatchObject({ offered: false, forUs: false, isNew: false });
+    expect(blog.trends.find((trend) => trend.themeId === 'theme-aio')).toMatchObject({ offered: true, forUs: false, isNew: true, decidedBy: { name: 'Riley', auto: false }, suggestion: null });
+    expect(blog.counts).toEqual({ newTrends: 1 });
+  });
+
+  it('names automatic approval as such and keeps each asset’s pipeline status', () => {
+    const studio = fixture.contentStudio();
+    studio.researchRuns.find((entry) => entry.id === 'research-new').decisionsBy['theme-aio'] = { id: 'system', name: 'Automatic', at: fixture.at('10-10', '11:00:00') };
+    const asset = studio.assets.find((entry) => entry.id === 'asset-kit-blog-long'); asset.reviewStatus = 'published'; asset.review = { status: 'published', link: 'https://www.semrush.com/blog/aio/', at: fixture.at('10-15') };
+    const blog = buildChannelView({ contentStudio: studio, adoptions: [], channelId: 'blog', editionId: 'semrush' });
+    expect(blog.trends.find((trend) => trend.themeId === 'theme-aio').decidedBy).toMatchObject({ auto: true });
+    expect(blog.assets.find((entry) => entry.id === 'asset-kit-blog-long')).toMatchObject({ status: 'published', link: 'https://www.semrush.com/blog/aio/' });
+    expect(blog.assets.find((entry) => entry.id === 'asset-kit-blog-short')).toMatchObject({ status: 'draft', link: '' });
   });
 });

@@ -67,21 +67,25 @@ export function DialogClose({ onClose, disabled, label = 'Close' }) {
   return <button type="button" className="studio-icon-button" aria-label={label} disabled={disabled} onClick={onClose}><X size={18} aria-hidden="true" /></button>;
 }
 
-// "…": a small menu of actions. Arrow keys move, Esc closes and returns focus to the button.
-export function MoreMenu({ label, items, disabled = false, title, align = 'end', icon: Icon = Ellipsis, buttonText = '', describedBy }) {
+// "…": a small menu of actions. Arrow keys move, Esc closes and returns focus to the button. Items are
+// { label, icon, onSelect, danger, disabled, title }; { type: 'radio', checked } items are menuitemradio; items that
+// share a `group` string sit under that heading (role="group"); { type: 'separator' } draws a line. placement 'top'
+// opens it upward (a footer menu).
+const ITEM_ROLES = '[role="menuitem"]:not([disabled]), [role="menuitemradio"]:not([disabled])';
+export function MoreMenu({ label, items, disabled = false, title, align = 'end', placement = 'bottom', icon: Icon = Ellipsis, buttonText = '', describedBy, buttonClassName = '', buttonContent = null }) {
   const [open, setOpen] = useState(false);
   const button = useRef(null); const menu = useRef(null);
   const shown = items.filter(Boolean);
   useEffect(() => {
     if (!open) return undefined;
-    menu.current?.querySelector('[role="menuitem"]:not([disabled])')?.focus();
+    (menu.current?.querySelector('[role="menuitemradio"][aria-checked="true"]:not([disabled])') || menu.current?.querySelector(ITEM_ROLES))?.focus();
     const away = (event) => { if (!menu.current?.contains(event.target) && !button.current?.contains(event.target)) setOpen(false); };
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
   }, [open]);
   function close(refocus = true) { setOpen(false); if (refocus) button.current?.focus(); }
   function onKeyDown(event) {
-    const nodes = [...(menu.current?.querySelectorAll('[role="menuitem"]:not([disabled])') || [])];
+    const nodes = [...(menu.current?.querySelectorAll(ITEM_ROLES) || [])];
     const index = nodes.indexOf(document.activeElement);
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
     else if (event.key === 'ArrowDown') { event.preventDefault(); nodes[(index + 1) % nodes.length]?.focus(); }
@@ -90,11 +94,23 @@ export function MoreMenu({ label, items, disabled = false, title, align = 'end',
     else if (event.key === 'End') { event.preventDefault(); nodes[nodes.length - 1]?.focus(); }
     else if (event.key === 'Tab') close(false);
   }
-  if (!shown.length) return null;
+  if (!shown.some((item) => item.type !== 'separator')) return null;
+  const renderItem = (item, index) => {
+    if (item.type === 'separator') return <div key={`separator-${index}`} role="separator" className="studio-menu-separator" />;
+    const radio = item.type === 'radio';
+    return <button key={item.key || item.label} type="button" role={radio ? 'menuitemradio' : 'menuitem'} aria-checked={radio ? Boolean(item.checked) : undefined} className={[item.danger ? 'danger' : '', radio && item.checked ? 'checked' : ''].filter(Boolean).join(' ')} disabled={item.disabled} title={item.title} onClick={() => { close(); item.onSelect(); }}>
+      {radio ? <Check className="studio-menu-check" size={15} aria-hidden="true" style={{ visibility: item.checked ? 'visible' : 'hidden' }} /> : item.icon ? <item.icon size={15} aria-hidden="true" /> : null}{item.label}
+    </button>;
+  };
+  // Consecutive items with the same group become one labelled group.
+  const sections = [];
+  shown.forEach((item, index) => { const last = sections[sections.length - 1]; if (item.group && last?.group === item.group) last.items.push([item, index]); else sections.push({ group: item.group || '', items: [[item, index]] }); });
   return <span className="studio-menu-wrap">
-    <button ref={button} type="button" className={buttonText ? 'studio-quiet small' : 'studio-icon-button'} aria-label={buttonText ? undefined : label} aria-haspopup="menu" aria-expanded={open} aria-describedby={describedBy} disabled={disabled} title={title} onClick={() => setOpen((value) => !value)} onKeyDown={(event) => { if (event.key === 'ArrowDown' && !open) { event.preventDefault(); setOpen(true); } }}><Icon size={17} aria-hidden="true" />{buttonText}</button>
-    {open && <div ref={menu} className={`studio-menu align-${align}`} role="menu" aria-label={label} onKeyDown={onKeyDown}>
-      {shown.map((item) => <button key={item.label} type="button" role="menuitem" className={item.danger ? 'danger' : ''} disabled={item.disabled} title={item.title} onClick={() => { close(); item.onSelect(); }}>{item.icon ? <item.icon size={15} aria-hidden="true" /> : null}{item.label}</button>)}
+    <button ref={button} type="button" className={buttonClassName || (buttonText ? 'studio-quiet small' : 'studio-icon-button')} aria-label={buttonText || buttonContent ? undefined : label} aria-haspopup="menu" aria-expanded={open} aria-describedby={describedBy} disabled={disabled} title={title} onClick={() => setOpen((value) => !value)} onKeyDown={(event) => { if (event.key === 'ArrowDown' && !open) { event.preventDefault(); setOpen(true); } }}>{buttonContent || <><Icon size={17} aria-hidden="true" />{buttonText}</>}</button>
+    {open && <div ref={menu} className={`studio-menu align-${align}${placement === 'top' ? ' placement-top' : ''}`} role="menu" aria-label={label} onKeyDown={onKeyDown}>
+      {sections.map((section, index) => (section.group
+        ? <div key={`group-${section.group}-${index}`} role="group" aria-label={section.group} className="studio-menu-group"><span className="studio-menu-heading" aria-hidden="true">{section.group}</span>{section.items.map(([item, at]) => renderItem(item, at))}</div>
+        : section.items.map(([item, at]) => renderItem(item, at))))}
     </div>}
   </span>;
 }
@@ -117,13 +133,13 @@ export function useToast(duration = 6000) {
   return [element, show, dismiss];
 }
 
-// A 40px row above the page while an admin previews another role. Focus lands on it when a preview starts, and a
-// polite live region names who the preview is for.
+// A 40px row above the page while an admin previews another role or one person. Focus lands on it when a preview
+// starts, and a polite live region names who the preview is for: "Previewing what Riley Jones (Editor, 2 changes) sees."
 export function PreviewBanner({ viewer, onBack, busy = false }) {
   const banner = useRef(null);
   const [said, setSaid] = useState('');
   const who = previewWho(viewer);
-  const key = viewer?.preview ? `${viewer.role}:${viewer.channelId || ''}` : '';
+  const key = viewer?.preview ? `${viewer.roleId || viewer.role}:${viewer.channelId || ''}:${viewer.viewAs?.memberId || ''}:${viewer.previewChanges || 0}` : '';
   useEffect(() => {
     if (!key) { setSaid(''); return undefined; }
     banner.current?.focus({ preventScroll: true });

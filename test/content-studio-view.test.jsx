@@ -19,60 +19,49 @@ function props(extra = {}) { return { state: { contentStudio: fresh() }, api: { 
 const nav = (name) => fireEvent.click(within(screen.getByRole('navigation', { name: 'Content studio' })).getByRole('button', { name, exact: true }));
 const fill = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
 const creationStep = (name) => fireEvent.click(screen.getByRole('tab', { name, exact: true }));
-async function setupCreate(handlers = props()) { render(<ContentStudioView {...handlers} initialView="create" initialSource={source} />); await screen.findByRole('checkbox', { name: 'Evidence report', hidden: true }); creationStep('Choose deliverables'); return handlers; }
+async function setupCreate(handlers = props()) { render(<ContentStudioView {...handlers} initialView="create" initialSource={source} />); await screen.findByRole('checkbox', { name: /^(Evidence report|Trends report)$/, hidden: true }); creationStep('Choose deliverables'); return handlers; }
 
 describe('research and content studio workspace', () => {
-  it('keeps the Semrush campaign hero on Overview and gives each work view a single contextual title', async () => {
+  it('opens Overview on the weekly briefing and gives each work view a single contextual title', async () => {
     const handlers = props({ state: { contentStudio: fresh({ activeWorkspaceId: 'semrush' }) } });
     const { container } = render(<ContentStudioView {...handlers} />);
-    expect(screen.getByRole('heading', { level: 1, name: 'From a trend to a complete campaign.' })).toBeVisible();
-    expect(screen.getByRole('button', { name: /Research your market/ })).toHaveClass('cs-entry-research');
-    expect(screen.getByRole('button', { name: /Create from a trend/ })).toHaveClass('cs-entry-content');
+    expect(screen.getByRole('heading', { level: 1, name: 'This week in Semrush workspace' })).toHaveAttribute('id', 'content-studio-title');
+    expect(container.querySelector('.cs-hero')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Copy briefing for Slack/ })).toBeVisible();
     for (const [destination, title] of [['Research programs', 'Research programs'], ['Create content', 'Create content'], ['Library', 'Your asset library'], ['Brand knowledge', 'Brand knowledge']]) {
       nav(destination);
       expect(screen.getByRole('heading', { level: 1, name: title })).toHaveAttribute('id', 'content-studio-title');
       expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-      expect(container.querySelector('.cs-hero')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /Research your market/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /^This week in/ })).not.toBeInTheDocument();
     }
     nav('Overview');
-    expect(screen.getByRole('heading', { level: 1, name: 'From a trend to a complete campaign.' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'This week in Semrush workspace' })).toBeVisible();
     expect(handlers.api.createContentRun).not.toHaveBeenCalled();
   });
 
-  it('summarizes actual Semrush activity, excludes other workspaces, and opens the run needing attention', async () => {
-    const handlers = props({ state: { contentStudio: fresh({ activeWorkspaceId: 'semrush', researchRuns: [{ id: 'r1', workspaceId: 'semrush', status: 'running' }, { id: 'r2', workspaceId: 'general', status: 'running' }], contentRuns: [{ id: 'c1', workspaceId: 'semrush', status: 'partial', title: 'Review this campaign', maxBudgetUsd: 5, jobs: [{ id: 'social', label: 'Social captions', status: 'failed', error: 'Provider unavailable' }] }, { id: 'c2', workspaceId: 'general', status: 'failed' }], assets: [{ id: 'a1', workspaceId: 'semrush', title: 'Current draft', kind: 'text' }, { id: 'a2', workspaceId: 'general', title: 'Private draft' }] }) } });
+  it('briefs only this workspace’s work and opens a live run from Working now', async () => {
+    const handlers = props({ state: { contentStudio: fresh({ activeWorkspaceId: 'semrush', researchRuns: [{ id: 'r1', workspaceId: 'semrush', title: 'Weekly listening', status: 'running', stage: 'collecting', createdAt: new Date().toISOString() }, { id: 'r2', workspaceId: 'general', title: 'Private run', status: 'running' }], contentRuns: [{ id: 'c2', workspaceId: 'general', status: 'running', title: 'Private campaign' }] }) } });
     render(<ContentStudioView {...handlers} />);
-    const summary = within(screen.getByRole('region', { name: 'Workspace activity' }));
-    expect(summary.getByRole('button', { name: '1 active runs' })).toBeEnabled();
-    expect(summary.getByRole('button', { name: '1 saved assets' })).toBeEnabled();
-    fireEvent.click(summary.getByRole('button', { name: '1 runs need attention' }));
-    expect(screen.getByLabelText('Total retry budget (USD)')).toHaveValue(5);
-    expect(screen.getByText('Provider unavailable')).toBeVisible();
-    expect(handlers.api.retryStudioRun).not.toHaveBeenCalled();
+    const working = within(screen.getByRole('region', { name: /Working now/ }));
+    expect(screen.queryByText('Private run')).not.toBeInTheDocument();
+    expect(screen.queryByText('Private campaign')).not.toBeInTheDocument();
+    fireEvent.click(working.getByRole('button', { name: 'Weekly listening' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Research programs' })).toBeVisible();
+    expect(handlers.api.startResearchRun).not.toHaveBeenCalled();
   });
 
-  it('shows compact brand readiness without truncating the actual editable knowledge', async () => {
-    const audience = 'Enterprise leaders, practitioners, publishers, and agencies. '.repeat(12);
-    const handlers = props({ state: { contentStudio: fresh({ activeWorkspaceId: 'semrush', workspaces: [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush', knowledge: { audience, voice: 'Practical and precise' }, products: [] }] }) } });
-    const { container } = render(<ContentStudioView {...handlers} />);
-    expect(screen.queryByText(`Writing for ${audience}`)).not.toBeInTheDocument();
-    const readiness = within(container.querySelector('.cs-brand-checklist'));
-    expect(readiness.getAllByText('Saved')).toHaveLength(2);
-    expect(readiness.getByText('Add context')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit brand knowledge' }));
-    expect(screen.getByLabelText('Audience')).toHaveValue(audience);
-    expect(screen.getByRole('heading', { name: 'Audience & positioning' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Voice & editorial guardrails' })).toBeVisible();
+  it('says when the week is quiet and teaches what comes next', async () => {
+    render(<ContentStudioView {...props({ state: { contentStudio: fresh({ activeWorkspaceId: 'semrush' }) } })} />);
+    expect(screen.getByRole('heading', { name: 'Quiet week so far.' })).toBeVisible();
+    expect(screen.getByText(/No reports yet\. Say yes to a trend on Trends, then press Write reports/)).toBeVisible();
+    expect(screen.getByRole('heading', { name: /Needs your OK/ })).toBeVisible();
   });
 
-  it('presents two clear paths and only actual workspace records', async () => {
-    const handlers = props({ state: { contentStudio: fresh({ assets: [{ id: 'foreign', workspaceId: 'semrush', title: 'Private foreign asset' }], contentRuns: [{ id: 'foreign-run', workspaceId: 'semrush', title: 'Private foreign campaign' }] }) } });
+  it('shows only actual workspace records, on the briefing and in the Library', async () => {
+    const handlers = props({ state: { contentStudio: fresh({ assets: [{ id: 'foreign', workspaceId: 'semrush', title: 'Private foreign asset' }], contentRuns: [{ id: 'foreign-run', workspaceId: 'semrush', title: 'Private foreign campaign', status: 'running' }] }) } });
     render(<ContentStudioView {...handlers} />);
-    expect(screen.getByRole('button', { name: /Research your market/ })).toBeVisible();
-    expect(screen.getByRole('button', { name: /Create from a trend/ })).toBeVisible();
-    expect(screen.getByText('Your next idea starts here')).toBeVisible();
-    expect(screen.queryByText('Private foreign campaign')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'This week in My brand' })).toBeVisible();
+    expect(screen.queryByText(/Private foreign campaign/)).not.toBeInTheDocument();
     nav('Library'); expect(screen.getByText('Make something worth sharing')).toBeVisible();
     expect(screen.queryByText('Private foreign asset')).not.toBeInTheDocument();
   });
@@ -114,7 +103,7 @@ describe('research and content studio workspace', () => {
     const handlers = props({ state: { contentStudio: fresh({ activeWorkspaceId: 'semrush' }) } });
     await setupCreate(handlers);
     expect(screen.queryByRole('checkbox', { name: 'Editorial heroes' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Evidence report' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Trends report' })); // the Semrush edition's name for evidence-report
     fireEvent.click(screen.getByRole('button', { name: 'Explore 1 more format' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Editorial heroes' }));
     fireEvent.click(screen.getByRole('button', { name: 'Show core formats' }));

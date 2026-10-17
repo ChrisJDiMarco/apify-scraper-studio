@@ -1,7 +1,13 @@
 import { createContext, useCallback, useContext } from 'react';
 
 // Who is looking at the studio, as the server projected it (state.viewer). The server enforces access; the renderer
-// only hides what the role can't do. Labels live here (not in roles.json) so a renderer import never pulls in policy.
+// only hides what the role can't do. Built-in labels live here (not in roles.json) so a renderer import never pulls in
+// policy; a custom role's label comes from the server (viewer.roleLabel, a member's roleLabel).
+//
+// viewer.role is the role's base ('admin' | 'editor' | 'channel' | null), so every "is this a channel owner" check works
+// for custom roles too; viewer.roleId is the role itself ('editor' or 'role-…'), with roleLabel and roleDescription.
+// viewer.capabilities lists what this session can do (roles.json capability ids); in a preview it is the previewed
+// person's or role's, with roleCapabilities (the role before the person's own changes), previewName and previewChanges.
 export const ROLE_LABELS = Object.freeze({ admin: 'Admin', editor: 'Editor', channel: 'Channel owner' });
 export const ROLE_DESCRIPTIONS = Object.freeze({
   admin: 'Everything, including settings, people and analytics.',
@@ -13,8 +19,9 @@ export const PREVIEW_TITLE = 'Buttons that change things are off in a preview.';
 
 // Old mocks and the Mac app before its first state push: an admin who may call everything (allowed: null).
 export const LOCAL_ADMIN_FALLBACK = Object.freeze({
-  id: 'local', name: 'You', email: '', role: 'admin', realRole: 'admin', channelId: null, channelName: '', via: 'desktop', web: false, disabled: false, memberSince: '',
-  preview: false, viewAs: null, prefs: Object.freeze({}), nav: null, modes: Object.freeze(['simple', 'classic']), hiddenPages: Object.freeze([]), allowed: null, channels: Object.freeze([]),
+  id: 'local', name: 'You', email: '', role: 'admin', roleId: 'admin', base: 'admin', realRole: 'admin', realRoleId: 'admin', realBase: 'admin', roleLabel: 'Admin', roleDescription: '', capabilities: null,
+  channelId: null, channelName: '', via: 'desktop', web: false, disabled: false, memberSince: '',
+  preview: false, viewAs: null, prefs: Object.freeze({}), nav: null, modes: Object.freeze(['simple', 'classic']), hiddenPages: Object.freeze([]), allowed: null, channels: Object.freeze([]), roles: Object.freeze([]),
 });
 
 export const ViewerContext = createContext(LOCAL_ADMIN_FALLBACK);
@@ -33,15 +40,31 @@ export function useCanRun() {
   return useCallback((method) => canRun(viewer, method), [viewer]);
 }
 
-export const roleLabel = (role) => ROLE_LABELS[role] || 'No access';
-export const roleDescription = (role) => ROLE_DESCRIPTIONS[role] || '';
+// A role's name: a role id ('editor', 'role-…'), or a member or viewer carrying the server's roleLabel.
+export function roleLabel(value) {
+  if (value && typeof value === 'object') return value.roleLabel || ROLE_LABELS[value.roleId || value.role] || (value.roleId || value.role ? 'Custom role' : 'No access');
+  return ROLE_LABELS[value] || (value ? 'Custom role' : 'No access');
+}
+export const roleDescription = (value) => (value && typeof value === 'object' ? value.roleDescription || ROLE_DESCRIPTIONS[value.roleId || value.role] || '' : ROLE_DESCRIPTIONS[value] || '');
 export const isPreview = (viewer) => Boolean(viewer?.preview);
+// The kind of role (admin, editor, channel), for viewers, members and older mocks that only carry role.
+export const baseOf = (value) => value?.base ?? value?.role ?? null;
+export const isChannelBase = (value) => baseOf(value) === 'channel';
+// Whether this session holds a capability. Viewers from older hosts (no capabilities) keep what their role always had.
+export const hasCapability = (viewer, id) => (Array.isArray(viewer?.capabilities) ? viewer.capabilities.includes(id) : !viewer?.allowed || baseOf(viewer) === 'admin');
 // Spread onto any button that changes something: off in a preview, with the reason as its title.
 export const writeProps = (viewer, disabled = false) => (viewer?.preview ? { disabled: true, title: PREVIEW_TITLE } : { disabled: Boolean(disabled) });
-// "Semrush Blog’s channel owner" or "an editor", for the preview banner and its announcement.
+// Who a preview shows, for the banner and its announcement: "Riley Jones (Editor, 2 changes)", "Semrush Blog’s channel
+// owner", "an editor", "the Viewer role" or "Channel reviewer for Semrush Blog".
 export function previewWho(viewer) {
-  if (viewer?.role === 'channel') return viewer.channelName ? `${viewer.channelName}’s channel owner` : 'a channel owner';
-  return viewer?.role === 'editor' ? 'an editor' : 'an admin';
+  const custom = Boolean(viewer?.roleId) && !ROLE_LABELS[viewer.roleId];
+  if (viewer?.previewName) {
+    const changes = Number(viewer.previewChanges) || 0;
+    return `${viewer.previewName} (${[roleLabel(viewer), changes ? `${changes} ${changes === 1 ? 'change' : 'changes'}` : ''].filter(Boolean).join(', ')})`;
+  }
+  if (baseOf(viewer) === 'channel') return custom ? `${roleLabel(viewer)} for ${viewer.channelName || 'a channel'}` : viewer?.channelName ? `${viewer.channelName}’s channel owner` : 'a channel owner';
+  if (baseOf(viewer) === 'editor') return custom ? `the ${roleLabel(viewer)} role` : 'an editor';
+  return 'an admin';
 }
 export const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || '';
 export function initials(name) {

@@ -1,0 +1,240 @@
+/* Chat cards under an Ask AI answer (chat-cards.jsx), and the in-app confirmation (confirm-dialog.jsx).
+   Cards take Ask AI's tokens (help-assistant.css) so they match the drawer and the Simple page in both themes; the
+   fallbacks keep them readable anywhere else. They size to their column with container queries, down to 300px. */
+:where(.chat-cards, .cc-memory) {
+  --cc-ink: var(--help-ink, var(--ink, #181e15)); --cc-muted: var(--help-muted, #5f6b62); --cc-faint: var(--help-faint, #6f7a72);
+  --cc-line: var(--help-line, var(--line, #dfe4df)); --cc-line-strong: var(--help-line-strong, #cfd6d0);
+  --cc-surface: var(--help-surface, var(--surface, #fff)); --cc-surface-soft: var(--help-surface-soft, #f7f8f7); --cc-hover: var(--help-hover, #f1f3f1);
+  --cc-accent: var(--help-accent, #7a46d1); --cc-accent-strong: var(--help-accent-strong, #6a38c0); --cc-accent-line: var(--help-accent-line, #cdb5f2); --cc-accent-ring: var(--help-accent-ring, rgba(122, 70, 209, .12)); --cc-soft: var(--help-soft, #f5f1fd); --cc-link: var(--help-link, #5a2fa0);
+  --cc-action: var(--help-action, #c190ff); --cc-action-strong: var(--help-action-strong, #b07cf7); --cc-action-ink: var(--help-action-ink, #181e15);
+  --cc-ok: var(--help-ok, #1f5a3c); --cc-ok-soft: #e3f2e9; --cc-warn: #7a4f0e; --cc-warn-soft: #fff4dc; --cc-danger: var(--help-danger, #8a3a22); --cc-danger-soft: var(--help-danger-bg, #fdf6f2);
+  /* Chart series: the validated categorical order (blue, orange, aqua, yellow), and recessive chrome. */
+  --cc-s1: #2a78d6; --cc-s2: #eb6834; --cc-s3: #1baf7a; --cc-s4: #eda100; --cc-grid: #e1e0d9; --cc-axis: #c3c2b7; --cc-chart-bg: var(--cc-surface);
+}
+:is(:root, .app-shell)[data-theme="dark"] :where(.chat-cards, .cc-memory) {
+  --cc-ok-soft: #173325; --cc-warn: #f0c46c; --cc-warn-soft: #33270f;
+  --cc-s1: #3987e5; --cc-s2: #d95926; --cc-s3: #199e70; --cc-s4: #c98500; --cc-grid: #2c2c2a; --cc-axis: #383835;
+}
+.chat-cards { container-type: inline-size; display: grid; gap: 10px; min-width: 0; font-size: 12.5px; color: var(--cc-ink); }
+.help-page .chat-cards { font-size: 13.5px; }
+.cc-card { display: grid; gap: 8px; min-width: 0; padding: 12px 14px; border: 1px solid var(--cc-line); border-radius: 14px; background: var(--cc-surface); }
+.cc-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.cc-icon { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 8px; color: var(--cc-accent); background: var(--cc-soft); }
+.cc-head-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.cc-kicker { font-size: .8em; font-weight: 650; letter-spacing: .02em; color: var(--cc-muted); }
+.cc-card h4 { margin: 0; font-size: 1.08em; font-weight: 650; line-height: 1.35; letter-spacing: -.1px; color: var(--cc-ink); overflow-wrap: anywhere; }
+.cc-note, .cc-meta, .cc-text { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
+.cc-note { color: var(--cc-ink); }
+.cc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: .92em; color: var(--cc-muted); }
+.cc-faint { color: var(--cc-faint); }
+.cc-text { color: var(--cc-ink); }
+.cc-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+/* Badges carry a word and an icon, never color alone. */
+.cc-momentum, .cc-status, .cc-stage { display: inline-flex; align-items: center; gap: 4px; flex: none; min-height: 22px; padding: 2px 8px; font-size: .82em; font-weight: 700; line-height: 1.2; border-radius: 999px; color: var(--cc-ink); background: var(--cc-hover); }
+.cc-momentum.is-new { color: var(--cc-link); background: var(--cc-soft); }
+.cc-momentum.is-rising, .cc-status.is-succeeded, .cc-stage.is-ready, .cc-stage.is-approved { color: var(--cc-ok); background: var(--cc-ok-soft); }
+.cc-momentum.is-fading, .cc-status.is-partial, .cc-status.is-awaiting-review, .cc-stage.is-waiting { color: var(--cc-warn); background: var(--cc-warn-soft); }
+.cc-status.is-failed { color: var(--cc-danger); background: var(--cc-danger-soft); }
+.cc-status.is-running, .cc-status.is-queued, .cc-stage.is-writing { color: var(--cc-link); background: var(--cc-soft); }
+.cc-trend-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.cc-trend-foot small { font-size: .88em; color: var(--cc-muted); }
+.cc-spark { flex: none; overflow: visible; }
+.cc-spark polyline { stroke: var(--cc-s1); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.cc-spark circle { fill: var(--cc-s1); stroke: var(--cc-surface); stroke-width: 1.5; }
+.cc-progress { height: 6px; overflow: hidden; border-radius: 999px; background: var(--cc-hover); }
+.cc-progress span { display: block; height: 100%; border-radius: inherit; background: var(--cc-accent); transition: width 300ms ease; }
+@media (prefers-reduced-motion: reduce) { .cc-progress span { transition: none; } }
+.cc-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.cc-chips li { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 2px 9px; font-size: .88em; font-weight: 600; color: var(--cc-ink); background: var(--cc-surface-soft); border: 1px solid var(--cc-line); border-radius: 999px; overflow-wrap: anywhere; }
+.cc-chips li span { font-weight: 700; color: var(--cc-muted); font-variant-numeric: tabular-nums; }
+.cc-chips .cc-more { color: var(--cc-muted); }
+.cc-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 12px; margin: 0; font-size: .92em; }
+.cc-facts dt { color: var(--cc-muted); }
+.cc-facts dd { margin: 0; color: var(--cc-ink); overflow-wrap: anywhere; }
+/* Buttons: explicit backgrounds on every state, so no global hover color leaks in. */
+.cc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.cc-action { display: inline-grid; gap: 4px; justify-items: start; }
+.chat-cards .cc-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 5px 12px; font-size: .94em; font-weight: 650; line-height: 1.25; text-align: left; border: 1px solid var(--cc-line-strong); border-radius: 999px; color: var(--cc-ink); background: var(--cc-surface); box-shadow: none; transform: none; }
+.chat-cards .cc-btn:hover:not(:disabled) { color: var(--cc-ink); background: var(--cc-hover); border-color: var(--cc-muted); box-shadow: none; }
+.chat-cards .cc-btn.is-primary { color: var(--cc-action-ink); background: var(--cc-action); border-color: var(--cc-action); }
+.chat-cards .cc-btn.is-primary:hover:not(:disabled) { color: var(--cc-action-ink); background: var(--cc-action-strong); border-color: var(--cc-action-strong); }
+.chat-cards .cc-btn.is-yes { color: var(--cc-ok); background: var(--cc-ok-soft); border-color: transparent; }
+.chat-cards .cc-btn.is-yes:hover:not(:disabled) { color: var(--cc-ok); background: var(--cc-ok-soft); border-color: var(--cc-ok); }
+.chat-cards .cc-btn:disabled { opacity: .5; cursor: not-allowed; }
+.chat-cards .cc-text-button { display: inline; min-height: 0; padding: 0; font: inherit; font-size: .92em; font-weight: 650; color: var(--cc-link); background: none; border: 0; text-decoration: underline; text-underline-offset: 2px; }
+.chat-cards .cc-text-button:hover:not(:disabled) { color: var(--cc-accent-strong); background: none; }
+.cc-done { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: .94em; font-weight: 650; color: var(--cc-ok); }
+.cc-failed { margin: 0; font-size: .92em; color: var(--cc-danger); overflow-wrap: anywhere; }
+.cc-link { display: inline-flex; align-items: center; gap: 4px; font-size: .92em; font-weight: 650; color: var(--cc-link); text-decoration: underline; text-underline-offset: 2px; }
+.cc-link:hover { color: var(--cc-accent-strong); }
+/* Metric tiles: label, value, and a signed delta with its direction in an icon. */
+.cc-metrics { display: grid; grid-template-columns: repeat(var(--cc-cols, 2), minmax(0, 1fr)); gap: 8px; margin: 0; }
+.cc-metrics[data-count="3"] { --cc-cols: 3; }
+.cc-metrics[data-count="4"] { --cc-cols: 4; }
+.cc-metric { display: grid; gap: 2px; min-width: 0; padding: 9px 10px; border-radius: 10px; background: var(--cc-surface-soft); }
+.cc-metric dt { font-size: .86em; color: var(--cc-muted); overflow-wrap: anywhere; }
+.cc-metric dd { display: grid; gap: 2px; margin: 0; }
+.cc-metric strong { font-size: 1.32em; font-weight: 650; line-height: 1.2; color: var(--cc-ink); overflow-wrap: anywhere; }
+.cc-delta { display: inline-flex; align-items: center; gap: 3px; font-size: .86em; font-weight: 650; color: var(--cc-muted); }
+.cc-delta.is-up { color: var(--cc-ok); }
+.cc-delta.is-down { color: var(--cc-danger); }
+@container (max-width: 380px) { .cc-metrics[data-count="3"], .cc-metrics[data-count="4"] { --cc-cols: 2; } }
+/* Chart: thin marks, hairline grid, a crosshair and readout on hover or arrow keys. */
+.cc-chart { display: grid; gap: 8px; margin: 0; }
+.cc-chart-frame { position: relative; }
+.cc-chart svg { display: block; width: 100%; height: auto; overflow: visible; border-radius: 8px; background: var(--cc-chart-bg); touch-action: pan-y; }
+.cc-chart svg:focus-visible { outline: 2px solid var(--cc-accent); outline-offset: 2px; }
+.cc-grid { stroke: var(--cc-grid); stroke-width: 1; }
+.cc-axis { stroke: var(--cc-axis); stroke-width: 1; }
+.cc-tick { font-size: 10px; fill: var(--cc-muted); font-variant-numeric: tabular-nums; }
+.cc-hit { fill: transparent; }
+.cc-hover-band { fill: var(--cc-hover); }
+.cc-crosshair { stroke: var(--cc-axis); stroke-width: 1; }
+.cc-series.s1 { --cc-series: var(--cc-s1); } .cc-series.s2 { --cc-series: var(--cc-s2); } .cc-series.s3 { --cc-series: var(--cc-s3); } .cc-series.s4 { --cc-series: var(--cc-s4); }
+.cc-line { fill: none; stroke: var(--cc-series); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.cc-dot { fill: var(--cc-series); stroke: var(--cc-chart-bg); stroke-width: 2; }
+.cc-bar { fill: var(--cc-series); }
+.cc-tooltip { position: absolute; top: 4px; z-index: 2; display: grid; gap: 3px; min-width: 96px; max-width: 220px; padding: 7px 9px; font-size: .88em; color: var(--cc-ink); background: var(--cc-surface); border: 1px solid var(--cc-line); border-radius: 8px; box-shadow: 0 8px 22px rgba(24, 30, 21, .12); transform: translateX(-50%); pointer-events: none; }
+.cc-tooltip.is-start { transform: translateX(0); }
+.cc-tooltip.is-end { transform: translateX(-100%); }
+.cc-tooltip-x { font-size: .92em; color: var(--cc-muted); }
+.cc-tooltip-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cc-tooltip-row strong { font-variant-numeric: tabular-nums; }
+.cc-tooltip-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cc-muted); }
+.cc-key { display: inline-block; flex: none; width: 12px; height: 2px; border-radius: 2px; background: var(--cc-s1); }
+.cc-key.is-box { width: 9px; height: 9px; border-radius: 2px; }
+.cc-key.s2 { background: var(--cc-s2); } .cc-key.s3 { background: var(--cc-s3); } .cc-key.s4 { background: var(--cc-s4); }
+.cc-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; list-style: none; font-size: .9em; color: var(--cc-ink); }
+.cc-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.cc-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* Table, checklist, compare. */
+.cc-table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--cc-line); border-radius: 10px; }
+.cc-table-wrap:focus-visible { outline: 2px solid var(--cc-accent); outline-offset: 2px; }
+.cc-table { width: 100%; border-collapse: collapse; font-size: .92em; }
+.cc-table :is(th, td) { padding: 7px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--cc-line); color: var(--cc-ink); }
+.cc-table th { text-transform: none; letter-spacing: normal; font-size: inherit; }
+.cc-table thead th { font-weight: 650; color: var(--cc-muted); background: var(--cc-surface-soft); white-space: nowrap; }
+.cc-table tbody th { font-weight: 600; }
+.cc-table tbody tr:last-child :is(th, td) { border-bottom: 0; }
+.cc-table td { font-variant-numeric: tabular-nums; }
+.cc-checklist { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.cc-checklist li { display: flex; align-items: flex-start; gap: 8px; line-height: 1.5; color: var(--cc-ink); }
+.cc-checklist li svg { flex: none; margin-top: .2em; color: var(--cc-muted); }
+.cc-checklist li.is-done { color: var(--cc-muted); }
+.cc-checklist li.is-done svg { color: var(--cc-ok); }
+.cc-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cc-compare section { min-width: 0; padding: 9px 10px; border-radius: 10px; background: var(--cc-surface-soft); }
+.cc-compare h5 { margin: 0 0 4px; font-size: 1em; font-weight: 650; color: var(--cc-ink); }
+.cc-compare ul { display: grid; gap: 4px; margin: 0; padding-left: 1.1em; line-height: 1.5; color: var(--cc-ink); }
+@container (max-width: 360px) { .cc-compare { grid-template-columns: 1fr; } }
+/* Posts: quoted from the studio's collected evidence, with the platform and the source. */
+.cc-posts { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.cc-post { display: grid; gap: 5px; min-width: 0; padding: 9px 10px; border-radius: 10px; background: var(--cc-surface-soft); }
+.cc-post-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.cc-post-head strong { min-width: 0; font-weight: 650; overflow-wrap: anywhere; color: var(--cc-ink); }
+.cc-post-head small { font-size: .86em; color: var(--cc-muted); }
+.cc-mark { display: grid; place-items: center; flex: none; min-width: 22px; height: 22px; padding: 0 4px; font-size: .8em; font-weight: 800; color: var(--cc-ink); background: var(--cc-surface); border: 1px solid var(--cc-line-strong); border-radius: 6px; }
+.cc-post blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--cc-accent-line); line-height: 1.55; color: var(--cc-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cc-post blockquote.cc-clamp { -webkit-line-clamp: 5; }
+.cc-post-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+/* Remembered: chips with Undo. */
+.cc-memory { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--cc-ink); }
+.help-page .cc-memory { font-size: 13px; }
+.cc-memory-label { display: inline-flex; align-items: center; gap: 5px; font-weight: 650; color: var(--cc-muted); }
+.cc-memory-label svg { color: var(--cc-accent); }
+.cc-memory ul { display: contents; }
+.cc-memory li { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; min-height: 28px; padding: 3px 4px 3px 10px; list-style: none; border: 1px solid var(--cc-accent-line); border-radius: 999px; background: var(--cc-soft); }
+.cc-memory li > span { min-width: 0; overflow-wrap: anywhere; }
+.cc-memory li.is-forgotten { border-color: var(--cc-line); background: var(--cc-surface-soft); color: var(--cc-muted); }
+.cc-memory li.is-forgotten > span { text-decoration: line-through; }
+.cc-memory li small { padding-right: 6px; font-size: .9em; color: var(--cc-muted); }
+.cc-memory button { display: inline-flex; align-items: center; gap: 4px; min-height: 22px; padding: 2px 8px; font-size: .9em; font-weight: 650; color: var(--cc-ink); background: var(--cc-surface); border: 1px solid var(--cc-line-strong); border-radius: 999px; box-shadow: none; }
+.cc-memory button:hover:not(:disabled) { color: var(--cc-ink); background: var(--cc-hover); border-color: var(--cc-muted); }
+/* Scan plan: an editable planner. Native radios and checkboxes, drawn as segments and chips. */
+.cc-plan { display: grid; gap: 12px; margin: 0; }
+.cc-plan fieldset { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.cc-plan legend { width: 100%; margin-bottom: 6px; padding: 0; font-size: .9em; font-weight: 650; color: var(--cc-ink); }
+.cc-plan fieldset label { position: relative; display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; font-size: .94em; font-weight: 600; color: var(--cc-ink); background: var(--cc-surface); border: 1px solid var(--cc-line-strong); border-radius: 999px; cursor: pointer; }
+.cc-plan fieldset label:hover { background: var(--cc-hover); }
+.cc-plan fieldset label.is-on { color: var(--cc-action-ink); background: var(--cc-action); border-color: var(--cc-action); }
+.cc-plan fieldset label:focus-within { outline: 2px solid var(--cc-accent); outline-offset: 2px; }
+.cc-plan fieldset label:has(input:disabled) { cursor: default; }
+.cc-plan fieldset input { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; margin: 0; opacity: 0; cursor: inherit; }
+.cc-plan .cc-segment { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+.cc-plan .cc-segment label { justify-content: center; text-align: center; border-radius: 10px; }
+.cc-field { display: grid; gap: 4px; margin: 0; font-size: .9em; font-weight: 650; color: var(--cc-ink); }
+.chat-cards .cc-field :is(input, select) { width: 100%; min-height: 34px; padding: 6px 10px; font-size: 1.04em; font-weight: 500; color: var(--cc-ink); background: var(--cc-surface); border: 1px solid var(--cc-line-strong); border-radius: 8px; }
+.chat-cards .cc-field :is(input, select):focus { outline: 2px solid var(--cc-accent); outline-offset: 1px; }
+.cc-steppers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+@container (max-width: 330px) { .cc-steppers { grid-template-columns: 1fr; } }
+.cc-stepper { display: grid; gap: 4px; min-width: 0; }
+.cc-stepper label { font-size: .9em; font-weight: 650; color: var(--cc-ink); }
+.cc-stepper-box { display: flex; align-items: center; min-width: 0; height: 34px; border: 1px solid var(--cc-line-strong); border-radius: 8px; background: var(--cc-surface); }
+.cc-stepper-box:focus-within { border-color: var(--cc-accent); box-shadow: 0 0 0 3px var(--cc-accent-ring); }
+.chat-cards .cc-stepper-box button { display: grid; place-items: center; flex: none; width: 32px; height: 32px; min-height: 32px; padding: 0; color: var(--cc-ink); background: transparent; border: 0; border-radius: 7px; box-shadow: none; }
+.chat-cards .cc-stepper-box button:hover:not(:disabled) { color: var(--cc-ink); background: var(--cc-hover); }
+.chat-cards .cc-stepper-box button:disabled { opacity: .35; }
+.cc-prefix { color: var(--cc-muted); font-weight: 600; }
+.chat-cards .cc-stepper-box input { flex: 1; min-width: 0; width: 100%; height: 32px; min-height: 0; padding: 0 2px; font-size: 1em; font-weight: 650; text-align: center; color: var(--cc-ink); background: transparent; border: 0; box-shadow: none; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.chat-cards .cc-stepper-box input:focus { outline: none; }
+.cc-stepper-box input::-webkit-outer-spin-button, .cc-stepper-box input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.cc-note-line { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: .92em; line-height: 1.5; color: var(--cc-muted); }
+.cc-note-line svg { flex: none; margin-top: .15em; color: var(--cc-accent); }
+/* The cost check. A stale one stays readable, dimmed, until checked again. */
+.cc-estimate { display: grid; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--cc-surface-soft); transition: opacity 160ms ease; }
+.cc-estimate.is-stale > :not(.cc-note-line) { opacity: .5; }
+.cc-estimate[aria-busy="true"] { opacity: .7; }
+.cc-plan-lines { display: grid; gap: 3px; margin: 0; padding-left: 1.1em; line-height: 1.5; color: var(--cc-ink); }
+.cc-meter { display: grid; gap: 5px; }
+.cc-meter-text { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; font-size: .94em; color: var(--cc-muted); }
+.cc-meter-text strong { font-weight: 650; color: var(--cc-ink); font-variant-numeric: tabular-nums; }
+.cc-meter-track { height: 6px; overflow: hidden; border-radius: 999px; background: var(--cc-hover); }
+.cc-meter-track span { display: block; height: 100%; border-radius: inherit; background: var(--cc-ok); }
+.cc-meter.is-near .cc-meter-track span { background: var(--cc-warn); }
+.cc-meter.is-over .cc-meter-track span { background: var(--cc-danger); }
+.cc-targets { border-top: 1px solid var(--cc-line); padding-top: 8px; }
+.cc-targets summary { display: flex; align-items: center; gap: 6px; font-size: .94em; font-weight: 650; color: var(--cc-ink); cursor: pointer; list-style: none; }
+.cc-targets summary::-webkit-details-marker { display: none; }
+.cc-targets summary svg { transition: transform 160ms ease; }
+.cc-targets[open] summary svg { transform: rotate(180deg); }
+.cc-target-group h5 { margin: 10px 0 4px; font-size: .9em; font-weight: 650; color: var(--cc-muted); }
+.cc-target-group ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.cc-target-group li { display: grid; gap: 1px; min-width: 0; }
+.cc-target-group strong { font-weight: 600; color: var(--cc-ink); overflow-wrap: anywhere; }
+.cc-target-group small { font-size: .88em; color: var(--cc-muted); overflow-wrap: anywhere; }
+.cc-warnings { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.cc-warnings li { display: flex; align-items: flex-start; gap: 6px; font-size: .92em; line-height: 1.5; color: var(--cc-warn); }
+.cc-warnings svg { flex: none; margin-top: .15em; }
+
+/* The in-app confirmation: the studio's own tokens (the provider sits inside the shell), above every panel. */
+.confirm-backdrop {
+  --cd-surface: var(--surface, #fff); --cd-ink: var(--ink, #181e15); --cd-muted: #5f6b62; --cd-line: var(--line, #dfe4df);
+  --cd-accent: var(--accent, #16785f); --cd-accent-ink: var(--accent-ink, #fff); --cd-danger: #a73d35; --cd-danger-ink: #fff; --cd-scrim: rgba(16, 20, 16, .42);
+  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: var(--cd-scrim); animation: confirm-fade 140ms ease-out;
+}
+:is(:root, .app-shell)[data-theme="dark"] .confirm-backdrop { --cd-muted: #b2b9b1; --cd-danger: #e0786e; --cd-danger-ink: #1a0c0a; --cd-scrim: rgba(0, 0, 0, .6); }
+.confirm-dialog { display: grid; gap: 14px; width: min(460px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; padding: 20px 20px 16px; color: var(--cd-ink); background: var(--cd-surface); border: 1px solid var(--cd-line); border-radius: 16px; box-shadow: 0 24px 60px rgba(16, 20, 16, .28); animation: confirm-rise 200ms var(--spring-settle, cubic-bezier(.2, .8, .2, 1)); }
+.confirm-dialog h2 { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 16px; font-weight: 650; line-height: 1.35; letter-spacing: -.2px; color: var(--cd-ink); overflow-wrap: anywhere; }
+.confirm-dialog h2 svg { flex: none; margin-top: 2px; color: var(--cd-danger); }
+.confirm-body { display: grid; gap: 8px; font-size: 13px; line-height: 1.55; color: var(--cd-ink); }
+.confirm-body p { margin: 0; overflow-wrap: anywhere; }
+.confirm-body ul { display: grid; gap: 2px; margin: 0; padding-left: 1.2em; }
+.confirm-note { font-size: 12px; color: var(--cd-muted); }
+.confirm-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.confirm-dialog .confirm-buttons button { min-height: 36px; padding: 7px 16px; font-size: 13px; font-weight: 650; border-radius: 999px; box-shadow: none; transform: none; }
+.confirm-dialog .confirm-cancel { color: var(--cd-ink); background: var(--cd-surface); border: 1px solid var(--cd-line); }
+.confirm-dialog .confirm-cancel:hover:not(:disabled) { color: var(--cd-ink); background: color-mix(in srgb, var(--cd-ink) 6%, var(--cd-surface)); border-color: color-mix(in srgb, var(--cd-ink) 25%, var(--cd-surface)); }
+.confirm-dialog .confirm-ok { color: var(--cd-accent-ink); background: var(--cd-accent); border: 1px solid var(--cd-accent); }
+.confirm-dialog .confirm-ok:hover:not(:disabled) { color: var(--cd-accent-ink); background: color-mix(in srgb, var(--cd-accent) 86%, var(--cd-ink)); border-color: color-mix(in srgb, var(--cd-accent) 86%, var(--cd-ink)); }
+.confirm-dialog.is-danger .confirm-ok { color: var(--cd-danger-ink); background: var(--cd-danger); border-color: var(--cd-danger); }
+.confirm-dialog.is-danger .confirm-ok:hover:not(:disabled) { color: var(--cd-danger-ink); background: color-mix(in srgb, var(--cd-danger) 86%, var(--cd-ink)); border-color: color-mix(in srgb, var(--cd-danger) 86%, var(--cd-ink)); }
+@media (max-width: 420px) { .confirm-buttons { flex-direction: column-reverse; } .confirm-dialog .confirm-buttons button { width: 100%; justify-content: center; } }
+@keyframes confirm-fade { from { opacity: 0; } }
+@keyframes confirm-rise { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+@media (prefers-reduced-motion: reduce) { .confirm-backdrop, .confirm-dialog { animation: none; } .cc-estimate, .cc-targets summary svg { transition: none; } }
+
+/* Prompt change (PromptChangeCard): the line diff takes the card's tokens, so it follows the drawer's theme. */
+.chat-cards .pdiff { --pdiff-ink: var(--cc-ink); --pdiff-muted: var(--cc-muted); --pdiff-bg: var(--cc-surface-soft); --pdiff-line: var(--cc-line); --pdiff-add: var(--cc-ok-soft); --pdiff-add-ink: var(--cc-ok); --pdiff-del: var(--cc-danger-soft); --pdiff-del-ink: var(--cc-danger); max-height: 300px; font-size: .94em; }
+.chat-cards .pdiff-empty { color: var(--cc-muted); }
+.cc-status.is-locked { color: var(--cc-ink); background: var(--cc-surface); box-shadow: inset 0 0 0 1px var(--cc-line-strong); }
+@container (max-width: 360px) { .chat-cards .pdiff { font-size: .88em; } }

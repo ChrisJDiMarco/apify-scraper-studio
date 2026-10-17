@@ -14,11 +14,13 @@ const RESEARCH_STAGES = ['discovery', 'synthesis', 'matching', 'tagging', 'repor
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // n8n ran Opus 4.8 for discovery/synthesis/matching and Fable 5 for tagging and reports; these
 // are the current models in the same tiers. Prices are list USD per million tokens (input, output).
+// `discovery` marks the models strong enough to read 200-post batches and cite evidence ids reliably;
+// a small quick scan uses the cheapest of them.
 const RESEARCH_MODELS = [
-  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', input: 10, output: 50 },
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', input: 4, output: 20 },
-  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', input: 2, output: 10 },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', input: 1, output: 5 },
+  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', input: 10, output: 50, discovery: true },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', input: 4, output: 20, discovery: true },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', input: 2, output: 10, discovery: true },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', input: 1, output: 5, discovery: false },
 ];
 const DEFAULT_RESEARCH_AI = Object.freeze({
   models: { discovery: 'claude-opus-5-5', synthesis: 'claude-opus-5-5', matching: 'claude-opus-5-5', tagging: 'claude-fable-5-1', reports: 'claude-fable-5-1' },
@@ -58,6 +60,13 @@ function date(v, field) {
   const value = string(v, field, 10);
   if (value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T00:00:00Z`)) || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value)) fail(field, `Use a valid YYYY-MM-DD date for ${field}.`);
   return value;
+}
+// An hour-level window start (quick scans): a full ISO timestamp, stored in UTC to the second.
+function datetime(v, field) {
+  const value = string(v, field, 40);
+  if (!value) return '';
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) fail(field, `Use a valid ISO date and time for ${field}.`);
+  return new Date(Math.floor(Date.parse(value) / 1000) * 1000).toISOString();
 }
 function platform(v) { const p = text(v).toLowerCase(); return p === 'twitter' ? 'x' : p.startsWith('linkedin') ? 'linkedin' : p; }
 function safeUrl(v) {
@@ -134,8 +143,13 @@ function validateResearchProgram(input = {}) {
   if (new Set(sourceGroups.map((g) => g.id)).size !== sourceGroups.length) fail('sourceGroups', 'Source group IDs must be unique.');
   if (sourceGroups.reduce((sum, group) => sum + group.targets.length, 0) > 2000) fail('targets', 'Use no more than 2,000 targets in a research program.');
   const window = object(input.window || {}, 'window');
-  const startDate = date(window.startDate, 'window.startDate'); const endDate = date(window.endDate, 'window.endDate');
+  // An hour-level start (window.startAt) is optional; when set, startDate is its UTC day so day-based readers still work.
+  const startAt = datetime(window.startAt, 'window.startAt'); const savedStartDate = date(window.startDate, 'window.startDate');
+  if (startAt && savedStartDate && savedStartDate !== startAt.slice(0, 10)) fail('window.startDate', 'The start date must be the day of the start time.');
+  const startDate = startAt ? startAt.slice(0, 10) : savedStartDate; const endDate = date(window.endDate, 'window.endDate');
   if (startDate && endDate && startDate > endDate) fail('window.endDate', 'The end date must be on or after the start date.');
+  // Absent on programs saved before hour-level windows, so their validated shape (and collection plans) stay identical.
+  const lookbackHours = input.lookbackHours == null ? undefined : number(input.lookbackHours, 'lookbackHours', 1, 720, undefined, true);
   const schedule = validateResearchSchedule(input.schedule);
   if (schedule.enabled && !sourceGroups.some(group => group.enabled)) fail('sourceGroups', 'Enable at least one source group before scheduling research.');
   const budgets = object(input.budgets || {}, 'budgets');
@@ -151,11 +165,11 @@ function validateResearchProgram(input = {}) {
   const sizes = input.taggingBatchSizes === undefined ? {} : object(input.taggingBatchSizes, 'taggingBatchSizes');
   const delivery = input.delivery === undefined ? {} : object(input.delivery, 'delivery');
   return {
-    id: string(input.id, 'id', 160) || `program-${digest(name + JSON.stringify(sourceGroups))}`, name, query, sourceGroups, window: { startDate, endDate }, schedule,
+    id: string(input.id, 'id', 160) || `program-${digest(name + JSON.stringify(sourceGroups))}`, name, query, sourceGroups, window: { startDate, endDate, ...(startAt ? { startAt } : {}) }, schedule,
     targetPerPlatform: number(input.targetPerPlatform, 'targetPerPlatform', 1, MAX_EVIDENCE_ITEMS, 3000, true),
     maxEvidenceItems: number(input.maxEvidenceItems, 'maxEvidenceItems', 1, MAX_EVIDENCE_ITEMS, MAX_EVIDENCE_ITEMS, true),
     perAuthorCap: number(input.perAuthorCap, 'perAuthorCap', 1, 1000, 10, true),
-    lookbackDays: number(input.lookbackDays, 'lookbackDays', 1, 365, DEFAULT_RESEARCH_PROGRAM.lookbackDays, true),
+    lookbackDays: number(input.lookbackDays, 'lookbackDays', 1, 365, DEFAULT_RESEARCH_PROGRAM.lookbackDays, true), ...(lookbackHours ? { lookbackHours } : {}),
     discoveryBatchSize: number(input.discoveryBatchSize, 'discoveryBatchSize', 40, 200, 200, true),
     taggingBatchSize: legacyTaggingSize,
     taggingBatchSizes: Object.fromEntries(PLATFORMS.map((p) => [p, number(sizes[p], `taggingBatchSizes.${p}`, 10, 200, DEFAULT_TAGGING_BATCH_SIZES[p], true)])),
@@ -170,9 +184,16 @@ function validateResearchProgram(input = {}) {
 }
 
 // n8n Config: a run without a start date searches the last `lookbackDays` (default 7) up to now.
+// Hour-level programs (quick scans) carry window.startAt or lookbackHours: the window then also returns startAt, the
+// exact start, with startDate its UTC day. Programs without those fields resolve exactly as before (no startAt key).
 function resolveResearchWindow(program, at = new Date()) {
   const now = new Date(at); if (!Number.isFinite(now.getTime())) fail('at', 'A valid run time is required.');
+  if (program.window?.startAt) return { startDate: program.window.startAt.slice(0, 10), endDate: program.window.endDate || '', startAt: program.window.startAt, resolvedFrom: 'program' };
   if (program.window?.startDate) return { startDate: program.window.startDate, endDate: program.window.endDate || '', resolvedFrom: 'program' };
+  if (program.lookbackHours) {
+    const startAt = new Date(Math.floor((now.getTime() - program.lookbackHours * 3600000) / 1000) * 1000).toISOString();
+    return { startDate: startAt.slice(0, 10), endDate: '', startAt, resolvedFrom: 'lookback', lookbackHours: program.lookbackHours };
+  }
   const start = new Date(now.getTime() - (program.lookbackDays || 7) * 86400000);
   return { startDate: start.toISOString().slice(0, 10), endDate: '', resolvedFrom: 'lookback', lookbackDays: program.lookbackDays || 7 };
 }
@@ -245,7 +266,8 @@ function prepareResearchEvidence({ runId, program, items = [], rawItems } = {}) 
   if (rawItems !== undefined && (!Array.isArray(rawItems) || rawItems.length !== items.length)) fail('rawItems', 'Raw rows must align one-to-one with normalized rows.');
   const dropped = { unsupportedPlatform: 0, emptyText: 0, nonSpeech: 0, duplicate: 0, outsideWindow: 0, undated: 0, authorCap: 0, platformCap: 0, totalCap: 0 };
   const seen = new Set(); const fingerprints = new Set(); const candidates = [];
-  const start = program.window.startDate ? Date.parse(`${program.window.startDate}T00:00:00Z`) : -Infinity;
+  // An hour-level window keeps posts from its exact start; a day window from midnight UTC of its start date.
+  const start = program.window.startAt ? Date.parse(program.window.startAt) : program.window.startDate ? Date.parse(`${program.window.startDate}T00:00:00Z`) : -Infinity;
   const end = program.window.endDate ? Date.parse(`${program.window.endDate}T00:00:00Z`) + 86400000 : Infinity;
   for (let index = 0; index < items.length; index++) {
     const original = object(items[index], `items.${index}`); const row = rawItems ? { ...original, raw: rawItems[index] } : original;

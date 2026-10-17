@@ -37,6 +37,9 @@ function count(options, key, fallback, sourceId) {
 }
 const xItemPrice = (queries) => ACTOR_PRICING['apidojo/twitter-scraper-lite'].itemTiers.find(([limit]) => queries <= limit)[1];
 const untilDate = (endDate) => new Date(Date.parse(`${endDate}T00:00:00.000Z`) + 86400000).toISOString().slice(0, 10);
+// The window start each Actor is given: the exact time for an hour-level window (quick scans), else midnight UTC of the
+// start date. prepareResearchEvidence enforces the same start again after collection.
+const startIso = (window) => window.startAt || `${window.startDate}T00:00:00.000Z`;
 
 function xJobs(group, program, window) {
   const options = group.options || {}; checkOptions('x', options);
@@ -44,7 +47,9 @@ function xJobs(group, program, window) {
   const replies = choice(options, 'replies', ['all', 'exclude', 'only'], 'all', 'x');
   const media = choice(options, 'media', ['all', 'media', 'images', 'videos', 'links'], 'all', 'x');
   const topic = program.topicFiltersTargets && program.query ? `(${program.query})` : '';
-  const filters = [`since:${window.startDate}`, ...(window.endDate ? [`until:${untilDate(window.endDate)}`] : []), ...(replies === 'all' ? [] : [`${replies === 'exclude' ? '-' : ''}filter:replies`]), ...(media === 'all' ? [] : [`filter:${media}`]), ...(options.includeRetweets === undefined ? [] : [options.includeRetweets ? 'include:nativeretweets' : '-filter:nativeretweets'])];
+  // X search takes since_time:<unix seconds> for an exact start; since:<date> is a whole UTC day.
+  const since = window.startAt ? `since_time:${Math.floor(Date.parse(window.startAt) / 1000)}` : `since:${window.startDate}`;
+  const filters = [since, ...(window.endDate ? [`until:${untilDate(window.endDate)}`] : []), ...(replies === 'all' ? [] : [`${replies === 'exclude' ? '-' : ''}filter:replies`]), ...(media === 'all' ? [] : [`filter:${media}`]), ...(options.includeRetweets === undefined ? [] : [options.includeRetweets ? 'include:nativeretweets' : '-filter:nativeretweets'])];
   return split(group.targets, program.collection.xHandlesPerJob).map((handles) => {
     const maxItems = Math.min(MAX_JOB_PROVIDER_ROWS, Math.max(handles.length * 10, handles.length * program.collection.xMaxItemsPerHandle));
     const input = { searchTerms: handles.map((handle) => [topic, `from:${handle}`, ...filters].filter(Boolean).join(' ')), sort, maxItems, includeSearchTerms: true };
@@ -63,7 +68,7 @@ function linkedinProfileJobs(group, program, window) {
   return split(group.targets, perJob).map((urls) => {
     // n8n [LI] Sources: strip ?trk= and force a trailing slash.
     const targetUrls = urls.map((url) => `${String(url).split('?')[0].replace(/\/?$/, '/')}`);
-    const input = { targetUrls, maxPosts: posts, postedLimitDate: `${window.startDate}T00:00:00.000Z`, scrapeReactions: reactions > 0, scrapeComments: comments > 0 };
+    const input = { targetUrls, maxPosts: posts, postedLimitDate: startIso(window), scrapeReactions: reactions > 0, scrapeComments: comments > 0 };
     if (comments) Object.assign(input, { maxComments: comments, commentsPostedLimit: choice(options, 'commentsPostedLimit', ['any', '1h', '24h', 'week', 'month'], 'any', 'linkedin-profile') });
     if (reactions) input.maxReactions = reactions;
     if (options.includeQuotePosts !== undefined) input.includeQuotePosts = options.includeQuotePosts === true;
@@ -79,13 +84,13 @@ function redditJobs(group, program, window) {
   const includeComments = options.includeComments === true;
   const maxComments = includeComments ? count(options, 'maxComments', 75, 'reddit') : 75;
   const maxItems = Math.min(MAX_JOB_PROVIDER_ROWS, Math.ceil(program.targetPerPlatform * OVERFETCH_FACTOR * (includeComments ? 4 : 1)));
-  const startIso = `${window.startDate}T00:00:00.000Z`;
+  const start = startIso(window); const keywordStart = window.startAt || window.startDate;
   const pricing = ACTOR_PRICING['trudax/reddit-scraper-lite'];
   const base = { maxItems, maxPostCount: program.collection.redditPostsPerSub, maxComments, skipComments: !includeComments, scrollTimeout: program.collection.redditScrollTimeoutSecs, navigationTimeout: 60, includeMediaLinks: options.includeMediaLinks !== false, includeNSFW: options.includeNSFW === true, skipCommunity: true, skipUserPosts: true, proxy: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] } };
   if (program.topicFiltersTargets && program.query) {
     // Opt-in keyword mode: search the program topic inside these communities, newest first.
     const scope = group.targets.map((name) => `subreddit:${name}`).join(' OR ');
-    const input = { ...base, searches: [`(${program.query}) AND (${scope})`], startUrls: [], searchPosts: true, searchComments: options.searchComments === true, searchCommunities: false, searchUsers: false, searchMedia: false, sort: 'new', postDateLimit: window.startDate, ...(includeComments ? { commentDateLimit: window.startDate } : {}) };
+    const input = { ...base, searches: [`(${program.query}) AND (${scope})`], startUrls: [], searchPosts: true, searchComments: options.searchComments === true, searchCommunities: false, searchUsers: false, searchMedia: false, sort: 'new', postDateLimit: keywordStart, ...(includeComments ? { commentDateLimit: keywordStart } : {}) };
     return [{ targets: group.targets, query: program.query, input, plannedPosts: maxItems, plannedProviderRows: maxItems, worstCaseUsd: pricing.start + maxItems * pricing.perResult }];
   }
   // Unlike n8n's single run, subreddits go in groups (redditSubsPerJob) that collect in parallel, so a
@@ -93,7 +98,7 @@ function redditJobs(group, program, window) {
   // a /new/ listing stops at maxPostCount posts (plus maxComments per post with comments on), so a short
   // group can never cost its full maxItems.
   return split(group.targets, program.collection.redditSubsPerJob).map((subs) => {
-    const input = { ...base, startUrls: subs.map((name) => ({ url: `https://www.reddit.com/r/${name}/new/` })), postDateLimit: startIso, commentDateLimit: startIso, ignoreStartUrls: false, debugMode: false };
+    const input = { ...base, startUrls: subs.map((name) => ({ url: `https://www.reddit.com/r/${name}/new/` })), postDateLimit: start, commentDateLimit: start, ignoreStartUrls: false, debugMode: false };
     const posts = Math.min(maxItems, subs.length * program.collection.redditPostsPerSub);
     const results = Math.min(maxItems, posts * (includeComments ? 1 + maxComments : 1));
     return { targets: subs, query: '', input, plannedPosts: posts, plannedProviderRows: maxItems, worstCaseUsd: pricing.start + results * pricing.perResult };
@@ -133,7 +138,7 @@ function buildCollectionPlan(input, { now = new Date() } = {}) {
     const timeoutSecs = LANE_TIMEOUTS[group.sourceId];
     const id = `collection-${hash(`${program.id}:${group.id}:${index}:${JSON.stringify(draft.input)}:${budgetUsd}`)}`;
     const postFilter = { ...window, perAuthorCap: program.perAuthorCap, targetPerPlatform: program.targetPerPlatform, maxEvidenceItems: program.maxEvidenceItems, includeUndated: program.includeUndated };
-    const dateSemantics = group.sourceId === 'x' ? 'X search uses since: (and until: for an end date) on whole UTC days.' : group.sourceId === 'reddit' ? 'Reddit /new/ listings stop at the window start; the program window is enforced again after collection.' : 'LinkedIn posts newer than the window start; the program window is enforced again after collection.';
+    const dateSemantics = group.sourceId === 'x' ? (window.startAt ? 'X search uses since_time: at the exact start time (and until: for an end date); the window is enforced again after collection.' : 'X search uses since: (and until: for an end date) on whole UTC days.') : group.sourceId === 'linkedin-search' && window.startAt ? 'LinkedIn keyword search filters by whole days; posts before the start time are dropped after collection.' : group.sourceId === 'reddit' ? 'Reddit /new/ listings stop at the window start; the program window is enforced again after collection.' : 'LinkedIn posts newer than the window start; the program window is enforced again after collection.';
     const researchContext = { programId: program.id, sourceGroupId: group.id, sourceId: group.sourceId, query: draft.query, targets: draft.targets, plannedPosts: draft.plannedPosts, plannedProviderRows: draft.plannedProviderRows, worstCaseUsd: cents(draft.worstCaseUsd), postFilter, sourceOptions: group.options || {}, dateSemantics, warnings: [] };
     const recipe = { name: `${program.name} · ${group.name} · ${draft.groupJobIndex}`, platform: source.platform, actorId: source.actorId, taskId: '', input: draft.input, mapper: { ...source.mapper }, proxyNote: source.scopeNote, runOptions: { maxTotalChargeUsd: budgetUsd, timeoutSecs }, researchContext };
     return { id, sourceGroupId: group.id, sourceId: group.sourceId, platform: group.platform, lane: group.platform, targets: draft.targets, query: draft.query, recipe, maxItems: draft.plannedProviderRows, plannedPosts: draft.plannedPosts, plannedProviderRows: draft.plannedProviderRows, budgetUsd, worstCaseUsd: cents(draft.worstCaseUsd), abortAfterSecs: timeoutSecs + 300, postFilter };
@@ -146,7 +151,8 @@ function buildCollectionPlan(input, { now = new Date() } = {}) {
   if (window.endDate && groups.some((g) => g.sourceId !== 'x')) warnings.push('Reddit and LinkedIn do not support an end date in the Actor query. The end date is enforced after retrieval, so newer excluded rows can consume the collection allowance.');
   if (Object.keys(platforms).length * program.targetPerPlatform > program.maxEvidenceItems) warnings.push(`The combined platform targets exceed the ${program.maxEvidenceItems}-item retained evidence cap; newest retained evidence is kept first.`);
   if (program.query && !program.topicFiltersTargets && groups.some((g) => g.sourceId !== 'linkedin-search')) warnings.push('The research focus guides the AI analysis only. Account and community collection is not filtered by it (the n8n behavior); turn on topic filtering to narrow collection.');
-  if (window.resolvedFrom === 'lookback') warnings.push(`No start date is saved, so this run searches the last ${window.lookbackDays} days (from ${window.startDate}).`);
+  if (window.startAt && groups.some((g) => g.sourceId === 'linkedin-search')) warnings.push('LinkedIn keyword search only filters by day, so posts from earlier that day are collected and then dropped; they can use some of the collection allowance.');
+  if (window.resolvedFrom === 'lookback') warnings.push(window.lookbackHours ? `No start time is saved, so this run searches the last ${window.lookbackHours} hours (from ${window.startAt}).` : `No start date is saved, so this run searches the last ${window.lookbackDays} days (from ${window.startDate}).`);
   warnings.push('Planned counts are maximum requests, not guaranteed results. Spend caps, source activity, unavailable accounts, duplicate posts, and author limits can reduce retained evidence.');
   const totalBudgetUsd = cents(jobs.reduce((sum, job) => sum + job.budgetUsd, 0));
   return { programId: program.id, window, jobs, receipt: { jobCount: jobs.length, requestedBudgetUsd: program.budgets.collectionUsd, totalBudgetUsd, worstCaseUsd: cents(worstCaseUsd), totalPlannedPosts: jobs.reduce((sum, job) => sum + job.plannedPosts, 0), totalPlannedProviderRows: jobs.reduce((sum, job) => sum + job.plannedProviderRows, 0), retainedEvidenceCap: program.maxEvidenceItems, window, platforms, laneConcurrency: program.collection.laneConcurrency, warnings } };

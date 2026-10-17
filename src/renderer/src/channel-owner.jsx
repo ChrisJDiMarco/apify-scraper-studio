@@ -1,8 +1,12 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleStop, ClipboardCopy, Clock, Download, ExternalLink, FileText, FolderDown, FolderOpen, Image as ImageIcon, LayoutTemplate, Link2, LoaderCircle, Pencil, RefreshCw, RotateCcw, Sparkles, TriangleAlert, TrendingUp } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleStop, ClipboardCopy, Clock, Download, ExternalLink, FileText, FolderDown, FolderOpen, Image as ImageIcon, LayoutTemplate, Link2, LoaderCircle, MessageSquareQuote, Pencil, RefreshCw, RotateCcw, Send, Sparkles, TriangleAlert, TrendingUp } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import { Dialog, DialogClose, MoreMenu, copyText, useToast } from './role-screens.jsx';
-import { PREVIEW_TITLE, firstName, formatDay, plural, writeProps } from './viewer.js';
+import { PREVIEW_TITLE, can, firstName, formatDay, plural, writeProps } from './viewer.js';
+import { AssetStatusMenu } from './asset-editor.jsx';
+import { CalendarView } from './calendar-view.jsx';
+import { LINK_COPIED, linkFor } from './deep-links.js';
+import { decidedLine } from './trend-pulse.jsx';
 import './channel-owner.css';
 
 // The channel owner's whole studio: Trends (read the brief, Generate for my channel, say whether it was used) and
@@ -50,7 +54,10 @@ export function linkLabel(link) {
     return text.length > 44 ? `${text.slice(0, 43)}…` : text;
   } catch { return String(link || ''); }
 }
-const sameAnswer = (a, b) => (!a && !b) || (Boolean(a) && Boolean(b) && a.status === b.status && (a.link || '') === (b.link || '') && (a.note || '') === (b.note || ''));
+const sameAnswer = (a, b) => (!a && !b) || (Boolean(a) && Boolean(b) && a.status === b.status && (a.link || '') === (b.link || '') && (a.note || '') === (b.note || '') && (a.plannedFor || '') === (b.plannedFor || ''));
+// "2026-10-20" → "Tue, Oct 20" (a local calendar day, never shifted a day west of UTC).
+export const plannedLabel = (day) => (/^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) ? new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '');
+const todayKey = () => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; };
 // The trend arrived more than 14 days before this person joined (the server's "earlier" rule).
 const beforeJoining = (readyAt, memberSince) => Boolean(readyAt && memberSince) && new Date(readyAt).getTime() < new Date(memberSince).getTime() - 14 * DAY;
 
@@ -69,9 +76,11 @@ function useAnswers({ api, viewer, trends, onError }) {
   const of = (trend) => (Object.prototype.hasOwnProperty.call(local, trend.themeId) ? local[trend.themeId] : trend.adoption || null);
   function save(trend, next) {
     const before = of(trend);
-    setLocal((current) => ({ ...current, [trend.themeId]: next ? { status: next.status, link: next.link || '', note: next.note || '', at: new Date().toISOString(), byName: viewer.name || '', byMe: true } : null }));
+    // plannedFor goes only when the person set or cleared it; otherwise the server keeps the date it has.
+    const planned = next && next.status === 'using' ? (next.plannedFor !== undefined ? next.plannedFor : before?.plannedFor || '') : '';
+    setLocal((current) => ({ ...current, [trend.themeId]: next ? { status: next.status, link: next.link || '', note: next.note || '', plannedFor: planned, at: new Date().toISOString(), byName: viewer.name || '', byMe: true } : null }));
     if (!api?.setTrendAdoption) return Promise.resolve(false);
-    const payload = next ? { themeId: trend.themeId, status: next.status, link: next.link || '', note: next.note || '' } : { themeId: trend.themeId, status: 'clear' };
+    const payload = next ? { themeId: trend.themeId, status: next.status, link: next.link || '', note: next.note || '', ...(next.plannedFor !== undefined ? { plannedFor: next.plannedFor } : {}) } : { themeId: trend.themeId, status: 'clear' };
     let request;
     try { request = Promise.resolve(api.setTrendAdoption(payload)); } catch (failure) { request = Promise.reject(failure); }
     return request.then(() => true, (failure) => {
@@ -107,6 +116,14 @@ function MakeSlot({ trend, run, channel, viewer, imagesReady, pending, described
   const files = deliverables.filter((item) => imagesReady || item.kind !== 'image').map((item) => fileLabel(item.label));
   const picturesOff = !imagesReady && pictures ? <p className="channel-note">Pictures are off for your team, so only the written drafts are made.</p> : null;
   const write = (disabled) => writeProps(viewer, disabled || Boolean(pending));
+  // What this role may do with drafts (in an admin's preview, the previewed role's): a role without Make channel assets
+  // or Manage runs gets no button the server would refuse.
+  const mayMake = can(viewer, 'planAssetKit') && can(viewer, 'createAssetKit');
+  const mayStop = can(viewer, 'cancelStudioRun');
+  const mayFinish = can(viewer, 'retryStudioRun');
+  if (!run && !mayMake) {
+    return Number(trend.assetCount) > 0 ? <div className="channel-make"><button type="button" className="studio-link" aria-describedby={describedBy} onClick={onOpenAssets}><FolderOpen size={14} aria-hidden="true" />Open my assets</button></div> : null;
+  }
   if (!run) {
     const ready = Boolean(trend.primaryReportId);
     return <div className="channel-make">
@@ -122,7 +139,7 @@ function MakeSlot({ trend, run, channel, viewer, imagesReady, pending, described
     return <div className="channel-make is-live">
       <p className="channel-make-status"><LoaderCircle className="spin" size={15} aria-hidden="true" />{run.status === 'queued' ? 'Starting soon…' : `Writing ${Math.min(done + 1, Math.max(1, total))} of ${Math.max(1, total)}…`}</p>
       <Progress run={run} label={`Drafts for “${trend.name}”`} />
-      {!run.shared && <button type="button" className="studio-quiet small" aria-describedby={describedBy} {...write(false)} onClick={onStop}><CircleStop size={15} aria-hidden="true" />Stop</button>}
+      {!run.shared && mayStop && <button type="button" className="studio-quiet small" aria-describedby={describedBy} {...write(false)} onClick={onStop}><CircleStop size={15} aria-hidden="true" />Stop</button>}
       {anyFiles && <button type="button" className="studio-link" aria-describedby={describedBy} onClick={onOpenAssets}><FolderOpen size={14} aria-hidden="true" />Open my assets</button>}
     </div>;
   }
@@ -130,21 +147,21 @@ function MakeSlot({ trend, run, channel, viewer, imagesReady, pending, described
     return <div className="channel-make is-done">
       <p className="channel-make-status done"><Check size={15} aria-hidden="true" />{run.createdAt ? `Drafts ready · ${formatDay(run.createdAt)}` : 'Drafts ready'}</p>
       <button type="button" className="studio-primary wide" aria-describedby={describedBy} onClick={onOpenAssets}><FolderOpen size={16} aria-hidden="true" />Open my assets</button>
-      <button type="button" className="studio-link" aria-describedby={describedBy} {...write(false)} onClick={onAgain}><RefreshCw size={14} aria-hidden="true" />Generate a new set</button>
-      {picturesOff}
+      {mayMake && <button type="button" className="studio-link" aria-describedby={describedBy} {...write(false)} onClick={onAgain}><RefreshCw size={14} aria-hidden="true" />Generate a new set</button>}
+      {mayMake && picturesOff}
     </div>;
   }
   const left = Math.max(0, total - done);
   // Only an admin can fix what stopped it (a key, a sign-in, the account): say so, and offer no retry that would fail again.
   const adminNeeded = Boolean(run.needsAdmin);
-  const canFinish = !run.shared && !adminNeeded;
+  const canFinish = !run.shared && !adminNeeded && mayFinish;
   return <div className="channel-make is-problem">
     <p className="channel-make-status problem"><TriangleAlert size={15} aria-hidden="true" />{run.status === 'cancelled' && !done ? 'Stopped before any drafts were ready.' : `${left} of ${total} ${total === 1 ? 'draft' : 'drafts'} didn’t finish.`}</p>
     {adminNeeded && <p className="channel-note">{run.message || 'Ask an admin: the AI connection needs attention.'}</p>}
     {canFinish && <button type="button" className="studio-primary wide" aria-describedby={describedBy} {...write(false)} onClick={onFinish}><RefreshCw size={15} aria-hidden="true" />Finish the rest</button>}
     {run.shared && !adminNeeded && <p className="channel-note">This set was made with other channels. Ask an editor.</p>}
     {anyFiles && <button type="button" className={canFinish ? 'studio-quiet' : 'studio-primary wide'} aria-describedby={describedBy} onClick={onOpenAssets}><FolderOpen size={15} aria-hidden="true" />Open my assets</button>}
-    {run.shared && !adminNeeded && <button type="button" className="studio-link" aria-describedby={describedBy} {...write(false)} onClick={onAgain}><RefreshCw size={14} aria-hidden="true" />Generate a new set</button>}
+    {run.shared && !adminNeeded && mayMake && <button type="button" className="studio-link" aria-describedby={describedBy} {...write(false)} onClick={onAgain}><RefreshCw size={14} aria-hidden="true" />Generate a new set</button>}
   </div>;
 }
 
@@ -170,7 +187,26 @@ function LinkField({ initial = '', viewer, describedBy, onSave, onCancel }) {
   </form>;
 }
 
-// "Yes, I'm using this trend" / "Not for us", then the link once it's live. Shared by Trends and My assets.
+// "Planned for <date>" after "Yes, I'm using this trend": optional, and what My plan and the team's Calendar show.
+function PlannedFor({ value = '', viewer, describedBy, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [day, setDay] = useState(value || '');
+  const input = useRef(null); const opener = useRef(null);
+  const id = useId();
+  useEffect(() => { if (editing) input.current?.focus(); }, [editing]);
+  useEffect(() => { if (!editing) setDay(value || ''); }, [value, editing]);
+  const close = () => { setEditing(false); requestAnimationFrame(() => opener.current?.focus()); };
+  if (!editing) return <p className="channel-planned">{value
+    ? <><CalendarDays size={14} aria-hidden="true" /><span>Planned for {plannedLabel(value)}</span><button ref={opener} type="button" className="studio-link" aria-describedby={describedBy} {...writeProps(viewer)} onClick={() => setEditing(true)}>Change</button></>
+    : <button ref={opener} type="button" className="studio-link" data-spot="trends.plan" aria-describedby={describedBy} {...writeProps(viewer)} onClick={() => setEditing(true)}><CalendarDays size={14} aria-hidden="true" />Add the date it goes out <em>(optional)</em></button>}</p>;
+  return <form className="channel-planned-form" onSubmit={(event) => { event.preventDefault(); onSave(day); close(); }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } }}>
+    <label className="studio-field" htmlFor={id}><span>Planned for</span><input ref={input} id={id} type="date" min={value && value < todayKey() ? value : todayKey()} value={day} aria-describedby={describedBy} onChange={(event) => setDay(event.target.value)} /></label>
+    <div className="channel-link-actions"><button type="submit" className="studio-primary small" {...writeProps(viewer, !day || day === value)}>Save</button>{value && <button type="button" className="studio-quiet small" {...writeProps(viewer)} onClick={() => { onSave(''); close(); }}>Clear the date</button>}<button type="button" className="studio-quiet small" onClick={close}>Not now</button></div>
+  </form>;
+}
+
+// "Yes, I'm using this trend" / "Not for us", then the link once it's live and the date it goes out. Shared by Trends
+// and My assets.
 export function AnswerRow({ api, trend, answer, channel = {}, viewer = {}, describedBy, onAnswer }) {
   const [editing, setEditing] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
@@ -196,6 +232,7 @@ export function AnswerRow({ api, trend, answer, channel = {}, viewer = {}, descr
         ]} />
       </div>
       {linkOpen && <LinkField initial={answer.link} viewer={viewer} describedBy={describedBy} onSave={(link) => { onAnswer({ status: 'using', link, note: answer.note || '' }); setLinkOpen(false); setRefocus(true); }} onCancel={() => { setLinkOpen(false); setRefocus(true); }} />}
+      {!linkOpen && <PlannedFor value={answer.plannedFor || ''} viewer={viewer} describedBy={describedBy} onSave={(day) => onAnswer({ status: 'using', link: answer.link || '', note: answer.note || '', plannedFor: day })} />}
       {answeredBy}
     </div>;
   }
@@ -218,11 +255,14 @@ function briefMarkdown(payload) {
   return [`# ${text(output.title)}`, text(output.summary), ...list(output.sections).map((section) => `## ${text(section.heading)}\n\n${text(section.body)}`)].filter((part) => part.trim() && part.trim() !== '#').join('\n\n');
 }
 
-// The brief, read in place: what the trend is and why it matters, with who last edited it.
-export function ChannelBriefReader({ api, trend, onClose }) {
+// The brief, read in place: what the trend is and why it matters, who approved it (and their note for the channels),
+// and who last edited it. `linkOrigin` (deep-links.js shareOrigin) adds Copy link.
+export function ChannelBriefReader({ api, trend, onClose, linkOrigin = '' }) {
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState('');
+  const shareLink = linkOrigin ? linkFor('trend', trend.themeId, { origin: linkOrigin }) : '';
   const titleId = useId();
   useEffect(() => {
     let cancelled = false;
@@ -234,9 +274,10 @@ export function ChannelBriefReader({ api, trend, onClose }) {
   const edited = payload?.asset?.edited || payload?.edited || (trend.briefEditedAt ? { at: trend.briefEditedAt } : null);
   return <Dialog labelledBy={titleId} wide onClose={onClose} className="channel-brief">
     <header className="studio-dialog-head">
-      <div><small>The brief</small><h2 id={titleId}>{trend.name}</h2>{edited?.at && <p className="studio-dialog-meta"><Pencil size={13} aria-hidden="true" />Edited{edited.byName ? ` by ${edited.byName}` : ''} · {formatDay(edited.at)}</p>}</div>
-      <div className="studio-dialog-tools"><button type="button" className="studio-quiet small" disabled={!markdown} onClick={async () => { setCopied(await copyText(markdown)); setTimeout(() => setCopied(false), 1800); }}>{copied ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}{copied ? 'Copied' : 'Copy text'}</button><DialogClose onClose={onClose} /></div>
+      <div><small>The brief</small><h2 id={titleId}>{trend.name}</h2>{edited?.at && <p className="studio-dialog-meta"><Pencil size={13} aria-hidden="true" />Edited{edited.byName ? ` by ${edited.byName}` : ''} · {formatDay(edited.at)}</p>}{decidedLine(trend.decidedBy, 'approved') && <p className="studio-dialog-meta"><Check size={13} aria-hidden="true" />{decidedLine(trend.decidedBy, 'approved')}</p>}</div>
+      <div className="studio-dialog-tools">{shareLink && <button type="button" className="studio-quiet small" onClick={async () => { const done = await copyText(shareLink); setLinkCopied(done ? LINK_COPIED : 'The link couldn’t be copied.'); setTimeout(() => setLinkCopied(''), 2400); }}><Link2 size={15} aria-hidden="true" />Copy link</button>}<button type="button" className="studio-quiet small" disabled={!markdown} onClick={async () => { setCopied(await copyText(markdown)); setTimeout(() => setCopied(false), 1800); }}>{copied ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}{copied ? 'Copied' : 'Copy text'}</button><DialogClose onClose={onClose} /></div>
     </header>
+    {(linkCopied || trend.suggestion) && <div className="channel-brief-notes">{trend.suggestion && <Suggestion trend={trend} />}<p className="channel-brief-status" role="status">{linkCopied}</p></div>}
     <div className="studio-dialog-body studio-reading">
       {error ? <p className="studio-error" role="alert">{error}</p>
         : !payload ? <div className="studio-skeleton" role="status" aria-label="Opening the brief"><span /><span /><span /><span /></div>
@@ -314,18 +355,32 @@ export function ChannelGenerateSheet({ api, trend, channel = {}, viewer = {}, im
   </Dialog>;
 }
 
+// "Suggested for Social by Riley: “Lead with the CTR data.”", "Suggested for Blog and PR" (routed elsewhere), or the
+// approver's note when the trend went to every channel.
+function Suggestion({ trend, channel = {} }) {
+  const suggestion = trend.suggestion; if (!suggestion) return null;
+  const names = list(suggestion.channels).map((entry) => entry.name);
+  const forUs = Boolean(trend.forUs);
+  const lead = names.length ? `Suggested for ${forUs ? channel.name || names.join(', ') : names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]}${suggestion.byName ? ` by ${suggestion.byName}` : ''}` : `Note from ${suggestion.byName || 'the team'}`;
+  return <p className={`channel-suggestion${forUs ? ' is-for-us' : names.length ? ' is-elsewhere' : ''}`}>{forUs || !names.length ? <MessageSquareQuote size={14} aria-hidden="true" /> : <Send size={14} aria-hidden="true" />}<span><strong>{lead}</strong>{suggestion.note ? <>: “{suggestion.note}”</> : null}</span></p>;
+}
+
 function TrendCard({ row, api, channel, viewer, imagesReady, run, pending, onRead, onGenerate, onAgain, onOpenAssets, onStop, onFinish, onAnswer }) {
   const { trend, answer, isNew } = row;
   const hid = headingId(trend.themeId);
-  return <article className={`channel-card${isNew ? ' is-new' : ''}`} aria-labelledby={hid} data-theme-card={trend.themeId} data-spot="trends.channel-card" data-spot-item={trend.name}>
+  const decided = decidedLine(trend.decidedBy, 'approved');
+  return <article className={`channel-card${isNew ? ' is-new' : ''}${trend.offered === false ? ' is-elsewhere' : ''}`} aria-labelledby={hid} data-theme-card={trend.themeId} data-spot="trends.channel-card" data-spot-item={trend.name}>
     <div className="channel-card-main">
       <div className="channel-card-meta">
         {PRIORITY[trend.priority] && <span className={`studio-chip priority-${trend.priority}`}>{PRIORITY[trend.priority]}</span>}
         {isNew && <span className="studio-chip new">New</span>}
+        {trend.forUs && <span className="studio-chip using">For us</span>}
         {trend.category && <span className="studio-chip plain">{trend.category}</span>}
         {trend.evidenceCount > 0 && <span className="studio-chip plain">{plural(trend.evidenceCount, 'source')}</span>}
       </div>
       <h3 id={hid} tabIndex={-1}>{trend.name}</h3>
+      {decided && <p className="channel-decided">{decided}</p>}
+      <Suggestion trend={trend} channel={channel} />
       {trend.description && <p className="channel-card-summary">{trend.description}</p>}
       <button type="button" className="studio-link" data-spot="trends.brief" aria-describedby={hid} disabled={!trend.primaryReportId} onClick={onRead}><FileText size={15} aria-hidden="true" />Read the brief{trend.briefEditedAt ? <span className="channel-edited"> · edited {formatDay(trend.briefEditedAt)}</span> : null}</button>
     </div>
@@ -343,16 +398,20 @@ function ChannelLoading({ title }) {
   </div>;
 }
 
-const FILTERS = [['new', 'New'], ['using', 'Using'], ['not-using', 'Not for us'], ['all', 'All']];
+const FILTERS = [['new', 'New'], ['for-us', 'For us'], ['using', 'Using'], ['not-using', 'Not for us'], ['all', 'All']];
 const EMPTY = {
+  'for-us': 'Nothing has been suggested for your channel yet. Trends sent to every channel are under New and All.',
   using: 'You haven’t marked any trends as used yet.',
   'not-using': 'Trends you pass on show up here, in case you change your mind.',
   new: 'You’ve answered every trend. New ones show up here, and the count next to Trends tells you when.',
   all: 'You’ve answered every trend. New ones show up here, and the count next to Trends tells you when.',
 };
 
-export function ChannelTrends({ api, view, viewer = {}, busy = false, action, imagesReady = true, onOpenAssets, onPrefs, onToast }) {
+// `linkOrigin` (deep-links.js shareOrigin) adds Copy link to the brief; `focusThemeId` opens one trend's brief (a share
+// link to #/trend/<themeId>).
+export function ChannelTrends({ api, view, viewer = {}, busy = false, action, imagesReady = true, onOpenAssets, onPrefs, onToast, linkOrigin = '', focusThemeId = '' }) {
   const channel = view?.channel || {};
+  const mayMake = can(viewer, 'planAssetKit') && can(viewer, 'createAssetKit');
   const trends = useMemo(() => [...list(view?.trends)].sort(byNewest('readyAt')), [view?.trends]);
   const [toast, showToast] = useToast();
   const notify = (text) => (onToast ? onToast(text) : showToast(text));
@@ -371,14 +430,18 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
 
   // "Earlier": unanswered, and ready well before this person joined. The server decides for unanswered trends; an
   // answer cleared here falls back to the same date rule.
+  // A trend routed to other channels only stays under All, and isn't new here (the server's rule too).
   const rowOf = (trend, answer) => {
     const old = !answer && Boolean(trend.earlier || (trend.adoption && viewer.via !== 'desktop' && beforeJoining(trend.readyAt, viewer.memberSince)));
-    return { trend, answer, old, isNew: !answer && !old };
+    return { trend, answer, old, isNew: !answer && !old && trend.offered !== false };
   };
   const rows = trends.map((trend) => rowOf(trend, answers.of(trend)));
-  const counts = { new: rows.filter((row) => row.isNew).length, using: rows.filter((row) => row.answer?.status === 'using').length, 'not-using': rows.filter((row) => row.answer?.status === 'not-using').length, all: rows.length };
+  const counts = { new: rows.filter((row) => row.isNew).length, 'for-us': rows.filter((row) => row.trend.forUs).length, using: rows.filter((row) => row.answer?.status === 'using').length, 'not-using': rows.filter((row) => row.answer?.status === 'not-using').length, all: rows.length };
   const shown = filter || (counts.new > 0 ? 'new' : 'all');
-  const inFilter = (row, which = shown) => (which === 'new' ? row.isNew : which === 'using' ? row.answer?.status === 'using' : which === 'not-using' ? row.answer?.status === 'not-using' : !row.old);
+  const inFilter = (row, which = shown) => (which === 'new' ? row.isNew : which === 'for-us' ? Boolean(row.trend.forUs) : which === 'using' ? row.answer?.status === 'using' : which === 'not-using' ? row.answer?.status === 'not-using' : !row.old);
+  // A share link to one trend opens its brief once the trend is here.
+  const linked = useRef('');
+  useEffect(() => { if (!focusThemeId || linked.current === focusThemeId) return; const trend = trends.find((row) => row.themeId === focusThemeId); if (trend) { linked.current = focusThemeId; setReading(trend); } }, [focusThemeId, trends]);
   const main = rows.filter((row) => inFilter(row));
   const earlier = ['new', 'all'].includes(shown) ? rows.filter((row) => row.old) : [];
   const groups = groupBy(main, (row) => dayGroup(row.trend.readyAt));
@@ -419,8 +482,9 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
       showToast(text, { actionLabel: 'Undo', onAction: () => { answers.save(row.trend, before); setFocusTarget({ id: row.trend.themeId }); } });
     }
   }
-  function generate(trend) { setMaking(trend); }
+  function generate(trend) { if (mayMake) setMaking(trend); }
   function again(trend) {
+    if (!mayMake) return;
     const run = runOf(trend);
     // Ask only when drafts exist; name the set's date when the card's set is the one that has them.
     const when = hasFiles(run) && run?.createdAt ? ` from ${formatDay(run.createdAt)}` : '';
@@ -461,21 +525,22 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
   return <div className="studio-screen studio-page channel-page" data-spot="trends.channel">
     <div className="studio-page-head"><div>
       <h1 ref={titleRef} tabIndex={-1}>Trends for {channel.name || 'your channel'}</h1>
-      <p>New trends the team approved, each with a brief. Generate drafts for your channel, then tell us if you used it.</p>
+      <p>{mayMake ? 'New trends the team approved, each with a brief. Generate drafts for your channel, then tell us if you used it.' : 'New trends the team approved, each with a brief. Read it, then tell us if you used it.'}</p>
     </div></div>
 
     {showWelcome && <section className="channel-welcome" aria-labelledby="channel-welcome-title">
       <div className="channel-welcome-copy">
         <h2 id="channel-welcome-title">Welcome{firstName(viewer.name) ? `, ${firstName(viewer.name)}` : ''}. This is where trends for {channel.name || 'your channel'} land.</h2>
-        <ol className="channel-steps"><li><span>1</span>Read the brief.</li><li><span>2</span>Generate drafts for your channel if it fits.</li><li><span>3</span>Tell us if you used it, and add the link when it’s live.</li></ol>
+        {mayMake ? <ol className="channel-steps"><li><span>1</span>Read the brief.</li><li><span>2</span>Generate drafts for your channel if it fits.</li><li><span>3</span>Tell us if you used it, and add the link when it’s live.</li></ol>
+          : <ol className="channel-steps"><li><span>1</span>Read the brief.</li><li><span>2</span>Tell us if you used it, and add the link when it’s live.</li></ol>}
       </div>
       <button type="button" className="studio-primary" onClick={() => { setWelcomed(true); onPrefs?.({ welcomedAt: new Date().toISOString() }); titleRef.current?.focus(); }}>Got it</button>
     </section>}
 
-    {rows.length > 0 && <div className="studio-filters" role="group" aria-label="Show trends" data-spot="trends.filters">{FILTERS.map(([value, label]) => <button type="button" key={value} aria-pressed={shown === value} onClick={() => setFilter(value)}>{label}<span>{counts[value]}</span></button>)}</div>}
+    {rows.length > 0 && <div className="studio-filters" role="group" aria-label="Show trends" data-spot="trends.filters">{FILTERS.filter(([value]) => value !== 'for-us' || counts['for-us'] > 0 || shown === 'for-us').map(([value, label]) => <button type="button" key={value} aria-pressed={shown === value} onClick={() => setFilter(value)}>{label}<span>{counts[value]}</span></button>)}</div>}
 
     <div ref={listRef} className="channel-list">
-      {!rows.length && <div className="studio-empty big"><TrendingUp size={28} aria-hidden="true" /><p>No trends yet. When the team approves a trend and its brief is written, it shows up here.</p></div>}
+      {!rows.length && <div className="studio-empty big"><TrendingUp size={28} aria-hidden="true" /><p>No trends for {channel.name || 'your channel'} yet. The team reviews new trends each week; when a brief is ready, it appears here with a count next to Trends.{viewer.askAdmin ? ` Questions? Ask ${viewer.askAdmin}.` : ''}</p></div>}
       {rows.length > 0 && !main.length && <div className="studio-empty"><p>{earlier.length ? 'Nothing new right now. Trends from before you joined are below, if you want to answer them.' : EMPTY[shown]}</p>{shown !== 'all' && !earlier.length && <button type="button" className="studio-quiet small" onClick={() => setFilter('all')}>Show all trends</button>}</div>}
       {groups.map((group) => <section className="channel-group" key={group.key} aria-labelledby={domId('channel-day', group.key)}>
         <h2 className="studio-group-label" id={domId('channel-day', group.key)}>{group.key}</h2>
@@ -488,7 +553,7 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
       </section>}
     </div>
 
-    {reading && <ChannelBriefReader api={api} trend={reading} onClose={() => setReading(null)} />}
+    {reading && <ChannelBriefReader api={api} trend={reading} linkOrigin={linkOrigin} onClose={() => setReading(null)} />}
     {making && <ChannelGenerateSheet api={api} trend={making} channel={channel} viewer={viewer} imagesReady={imagesReady} busy={busy} action={action} onClose={() => setMaking(null)} onStarted={(run, count) => startedSet(making, run, count)} />}
     {toast}
   </div>;
@@ -519,7 +584,7 @@ function setLine(run, onCard = false) {
   return onCard ? `${done} of ${total} ready · finish the rest on Trends` : `${done} of ${total} ready`;
 }
 
-function ChannelSet({ run, assets, web, cache, saving, onCard = false, onSave, onOpenFile, onOpenPicture }) {
+function ChannelSet({ api, run, assets, web, cache, saving, onCard = false, maySave = true, onSave, onOpenFile, onOpenPicture, onNotice }) {
   const jobs = list(run.jobs);
   const live = ACTIVE.has(run.status);
   const day = formatDay(run.createdAt);
@@ -527,7 +592,7 @@ function ChannelSet({ run, assets, web, cache, saving, onCard = false, onSave, o
     <header className="channel-set-head">
       <span className="channel-set-icon">{live ? <LoaderCircle className="spin" size={18} aria-hidden="true" /> : <FolderOpen size={18} aria-hidden="true" />}</span>
       <span className="channel-set-copy"><strong>{day ? `Set from ${day}` : 'Set'}</strong><small>{setLine(run, onCard)}</small></span>
-      <button type="button" className="studio-quiet small" data-spot="assets.save-folder" disabled={!assets.length || saving} onClick={onSave}>{saving ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : web ? <Download size={15} aria-hidden="true" /> : <FolderDown size={15} aria-hidden="true" />}{web ? 'Download folder' : 'Save folder'}</button>
+      {maySave && <button type="button" className="studio-quiet small" data-spot="assets.save-folder" disabled={!assets.length || saving} onClick={onSave}>{saving ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : web ? <Download size={15} aria-hidden="true" /> : <FolderDown size={15} aria-hidden="true" />}{web ? 'Download folder' : 'Save folder'}</button>}
     </header>
     {run.shared && <p className="channel-note quiet">Made with other channels.</p>}
     {live && <Progress run={run} label={day ? `Drafts in the set from ${day}` : 'Drafts in this set'} />}
@@ -542,11 +607,11 @@ function ChannelSet({ run, assets, web, cache, saving, onCard = false, onSave, o
         </li>;
       }
       const asset = assets.find((row) => row.deliverableId === job.id && row.kind !== 'image') || assets.find((row) => row.id === job.assetId);
-      return <li key={job.id}><button type="button" className="channel-file" disabled={!asset} aria-label={asset ? `Open ${fileLabel(job.label)}` : undefined} onClick={() => onOpenFile(asset, run)}>
+      return <li key={job.id} className={asset ? 'has-status' : undefined}><button type="button" className="channel-file" disabled={!asset} aria-label={asset ? `Open ${fileLabel(job.label)}` : undefined} onClick={() => onOpenFile(asset, run)}>
         <span className="channel-file-icon">{job.id === 'landingpage' ? <LayoutTemplate size={17} aria-hidden="true" /> : <FileText size={17} aria-hidden="true" />}</span>
         <span className="channel-file-copy"><strong>{fileLabel(job.label)}</strong><small>{jobLine(job, asset)}{asset?.edited?.at ? ` · edited ${formatDay(asset.edited.at)}` : ''}</small></span>
         <JobDot job={job} />
-      </button></li>;
+      </button>{asset && api && <AssetStatusMenu api={api} asset={asset} align="end" onNotice={onNotice} />}</li>;
     })}</ul>
   </article>;
 }
@@ -689,7 +754,7 @@ export function ChannelAssets({ api, web = false, view, viewer = {}, busy = fals
       <h1>My assets · {channel.name || 'your channel'}</h1>
       <p>Drafts made for {channel.name || 'your channel'}, by trend, newest first.</p>
     </div></div>
-    {!groups.length && <div className="studio-empty big"><FolderOpen size={28} aria-hidden="true" /><p>No drafts yet. On Trends, choose a trend and press Generate for my channel.</p></div>}
+    {!groups.length && <div className="studio-empty big"><FolderOpen size={28} aria-hidden="true" /><p>{can(viewer, 'createAssetKit') ? 'No drafts yet. On Trends, open a trend’s brief and press Generate for my channel. Your drafts land here, grouped by trend, and you can download each set as a folder.' : `No drafts for ${channel.name || 'your channel'} yet. Drafts the team makes for your channel land here, grouped by trend.`}</p></div>}
     {groups.map((group) => {
       const hid = domId('channel-group', group.themeId || group.key);
       return <section className="channel-asset-group" key={group.key} aria-labelledby={hid}>
@@ -698,7 +763,7 @@ export function ChannelAssets({ api, web = false, view, viewer = {}, busy = fals
           {group.trend && <button type="button" className="studio-quiet small" aria-describedby={hid} disabled={!group.trend.primaryReportId} onClick={() => setBrief(group.trend)}><FileText size={15} aria-hidden="true" />Read the brief</button>}
         </header>
         {group.trend && <AnswerRow api={api} trend={group.trend} answer={answers.of(group.trend)} channel={channel} viewer={viewer} describedBy={hid} onAnswer={(next) => answers.save(group.trend, next)} />}
-        <div className="channel-sets">{group.runs.map((run) => <ChannelSet key={run.id} run={run} assets={assets.filter((asset) => asset.runId === run.id)} web={web} cache={images} saving={saving === run.id || busy} onCard={group.trend?.latestRun?.id === run.id} onSave={() => save(run)} onOpenFile={(asset) => setReading({ asset, run })} onOpenPicture={(asset, pictures) => setPicture({ asset, pictures, run })} />)}</div>
+        <div className="channel-sets">{group.runs.map((run) => <ChannelSet key={run.id} api={api} onNotice={(text) => showToast(text)} run={run} assets={assets.filter((asset) => asset.runId === run.id)} web={web} cache={images} saving={saving === run.id || busy} onCard={can(viewer, 'retryStudioRun') && group.trend?.latestRun?.id === run.id} maySave={can(viewer, 'saveAssetKitFolder')} onSave={() => save(run)} onOpenFile={(asset) => setReading({ asset, run })} onOpenPicture={(asset, pictures) => setPicture({ asset, pictures, run })} />)}</div>
       </section>;
     })}
     {reading && <ChannelFileReader api={api} web={web} file={reading} label={labelOf(reading.asset, reading.run)} onClose={() => setReading(null)} onMove={moveFile} onFile={openFile} />}
@@ -706,4 +771,11 @@ export function ChannelAssets({ api, web = false, view, viewer = {}, busy = fals
     {brief && <ChannelBriefReader api={api} trend={brief} onClose={() => setBrief(null)} />}
     {toast}
   </div>;
+}
+
+// My plan, for channel owners: the dates this channel set with "Planned for", as the team's Calendar shows them, plus
+// the trends in use that don't have a date yet. `state` is the channel owner's projected state.
+export function ChannelPlan({ state, api, viewer }) {
+  if (!state?.contentStudio?.channelView) return <ChannelLoading title="My plan" />;
+  return <CalendarView state={state} api={api} viewer={viewer} mode="channel" />;
 }

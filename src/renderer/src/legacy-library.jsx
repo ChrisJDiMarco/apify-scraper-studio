@@ -3,7 +3,8 @@ import { ExternalLink, FolderOpen } from 'lucide-react';
 import { Button, formatDate, label, short } from './ui.jsx';
 import './workspace-pages.css';
 
-// Items made with the earlier content board stay reachable in Library after the board was folded into the Trend board.
+// Items made with the earlier content board stay reachable in Library after the board was folded into the Trend board:
+// the Library shows them as a collapsed "From the earlier content board" folder, which renders this list when opened.
 export function LegacyLibrary({ state, busy, onOpenAsset, onRevealAsset }) {
   const assets = (state.assets || []).filter((asset) => asset && asset.id);
   const cards = (state.cards || []).filter((card) => card && card.id && !String(card.id).startsWith('dataset-'));

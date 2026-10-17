@@ -12,7 +12,8 @@ const emptyState = () => ({
   v5: { missions: [], jobs: [], recipeVersions: {}, commandPalette: [], evidenceSummary: { sample: [] } },
 });
 
-afterEach(() => { cleanup(); delete window.apifyStudio; });
+// The sidebar remembers Data tools and the rail on this device; every test starts from a fresh device.
+afterEach(() => { cleanup(); delete window.apifyStudio; try { window.localStorage.clear(); } catch { /* no storage */ } });
 
 async function openApp() {
   window.apifyStudio = {
@@ -22,23 +23,26 @@ async function openApp() {
     readDataset: vi.fn(async () => ({ items: [], rawItems: [] })),
   };
   render(<App />);
+  // No content studio here, so the Advanced layout opens on the collection overview.
   await screen.findByRole('heading', { name: /Research your market/ });
 }
 
-function nav(name) { return within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('button', { name }); }
+// One Main nav in every layout (studio-sidebar.jsx); names can carry a badge's words, so match the start.
+function nav(name) { return within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: typeof name === 'string' ? new RegExp(`^${name}`) : name }); }
+const navLabels = () => within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('button').map((button) => button.querySelector('.sb-text')?.textContent || button.textContent);
 
 describe('workspace navigation', () => {
-  it('exposes search and findings alongside primary destinations and keeps advanced tools collapsed', async () => {
+  it('lists the workspace pages, then Data tools (open where there is no content studio), then Settings', async () => {
     await openApp();
-    const primary = within(screen.getByRole('navigation', { name: 'Primary' }));
-    expect(primary.getAllByRole('button').map((button) => button.textContent)).toEqual(['Content studio', 'Overview', 'Sheets', 'Playbooks', 'Search platforms', 'Chat with findings', 'Scrapers', 'Datasets', 'AI reports', 'Activity', 'More tools']);
-    expect(primary.getByRole('button', { name: 'More tools' })).toHaveAttribute('aria-expanded', 'false');
-    expect(primary.queryByRole('button', { name: 'Workflows' })).not.toBeInTheDocument();
+    expect(navLabels()).toEqual(['Content studio', 'Overview', 'Sheets', 'Inbox', 'Calendar', 'Data tools', 'Search platforms', 'Scrapers', 'Import research', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Playbooks', 'Workflows', 'Activity', 'Settings']);
+    expect(nav('Data tools')).toHaveAttribute('aria-expanded', 'true');
+    // Search and Ask AI moved from the top bar into the sidebar.
+    expect(screen.getByRole('button', { name: 'Search reports, trends and pages' })).toHaveAttribute('data-spot', 'nav.find');
+    expect(document.querySelector('.topbar [data-spot="top.search"]')).toBeNull();
   });
 
   it('folds overlapping tools into their new homes instead of listing them separately', async () => {
     await openApp();
-    fireEvent.click(nav('More tools'));
     for (const removed of ['Content board', 'Asset library', 'Signal feed', 'Conversations', 'Topics', 'Source coverage', 'Brand context']) expect(screen.queryByRole('button', { name: removed })).not.toBeInTheDocument();
     for (const example of workflow.initialCards) expect(screen.queryByText(example.title)).not.toBeInTheDocument();
     fireEvent.click(nav('Activity'));
@@ -75,61 +79,60 @@ describe('Semrush studio shell', () => {
       selectContentWorkspace: vi.fn(async id => { current = { ...current, contentStudio: { ...current.contentStudio, activeWorkspaceId: id } }; return true; }),
     };
     const result = render(<App />);
-    await screen.findByRole('heading', { name: 'From a trend to a complete campaign.' });
+    await screen.findByRole('heading', { name: 'This week in Semrush workspace' });
     return result;
   }
   it('uses the focused destinations, controls the Studio view, and keeps legacy tools reachable', async () => {
     const { container } = await openSemrush();
-    const primary = within(screen.getByRole('navigation', { name: 'Primary' }));
     expect(container.querySelector('.app-shell')).toHaveAttribute('data-edition', 'semrush');
     expect(screen.getByRole('img', { name: 'Semrush' })).toHaveAttribute('src', expect.stringContaining('semrush-2026-logo.svg'));
-    expect(container.querySelector('.cs-hero-pattern')).toHaveAttribute('aria-hidden', 'true');
     expect(container.querySelector('.cs-hero-art')).not.toBeInTheDocument();
-    expect(primary.getAllByRole('button').map(button => button.textContent)).toEqual(['Overview', 'Research programs', 'Sheets', 'Trend board', 'Create content', 'Library', 'Brand knowledge', 'More tools']);
+    expect(navLabels()).toEqual(['Home', 'Inbox', 'Research programs', 'Trend board', 'Sheets', 'Create content', 'Library', 'Calendar', 'Brand knowledge', 'Data tools', 'Settings']);
     expect(screen.queryByRole('navigation', { name: 'Content studio' })).not.toBeInTheDocument();
-    expect(screen.getAllByLabelText('Content workspace')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^Workspace:/ })).toHaveLength(1);
     fireEvent.click(nav('Create content'));
     expect(screen.getByLabelText('Source title')).toBeVisible();
     expect(nav('Create content')).toHaveAttribute('aria-current', 'page');
-    expect(screen.queryByRole('heading', { name: 'From a trend to a complete campaign.' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'This week in Semrush workspace' })).not.toBeInTheDocument();
     fireEvent.click(nav('Research programs'));
     expect(nav('Research programs')).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('button', { name: 'New program' })).toBeVisible();
-    fireEvent.click(nav('More tools'));
+    fireEvent.click(nav('Data tools'));
     expect(nav('Search platforms')).toBeVisible();
     fireEvent.click(nav('Search platforms'));
     expect(await screen.findByRole('tab', { name: 'Sources & filters' })).toBeVisible();
     fireEvent.click(nav('Library'));
     expect(await screen.findByText('Make something worth sharing')).toBeVisible();
   });
-  it('keeps a sidebar workspace picker available when leaving Semrush and switching back from General search', async () => {
+  it('keeps the sidebar workspace switcher available when leaving Semrush and switching back from General search', async () => {
     const { container } = await openSemrush();
-    const sidebarPicker = () => within(container.querySelector('.shell-workspace-control')).getByRole('combobox', { name: 'Content workspace' });
-    fireEvent.change(sidebarPicker(), { target: { value: 'general' } });
+    const switcher = () => screen.getByRole('button', { name: /^Workspace:/ });
+    const switchTo = (name) => { fireEvent.click(switcher()); fireEvent.click(within(screen.getByRole('menu', { name: 'Workspaces' })).getByRole('menuitemradio', { name })); };
+    switchTo('General studio');
     await screen.findByRole('navigation', { name: 'Content studio' });
     expect(window.apifyStudio.selectContentWorkspace).toHaveBeenCalledWith('general');
     expect(container.querySelector('.app-shell')).toHaveAttribute('data-edition', 'general');
     expect(screen.queryByRole('img', { name: 'Semrush' })).not.toBeInTheDocument();
     expect(container.querySelector('.cs-hero-pattern')).not.toBeInTheDocument();
     expect(nav('Content studio')).toBeVisible();
-    expect(nav('Chat with findings')).toBeVisible();
-    expect(screen.getAllByLabelText('Content workspace')).toHaveLength(1);
-    expect(sidebarPicker()).toHaveValue('general');
+    fireEvent.click(nav('Data tools'));
+    expect(nav('Ask your datasets')).toBeVisible();
+    expect(screen.getAllByRole('button', { name: /^Workspace:/ })).toHaveLength(1);
+    expect(switcher()).toHaveAccessibleName(/^Workspace: General studio\./);
 
     fireEvent.click(nav('Search platforms'));
     expect(await screen.findByRole('tab', { name: 'Sources & filters' })).toBeVisible();
-    expect(sidebarPicker()).toBeVisible();
-    expect(within(sidebarPicker()).getByRole('option', { name: 'Semrush workspace' })).toBeInTheDocument();
-    fireEvent.change(sidebarPicker(), { target: { value: 'semrush' } });
+    expect(switcher()).toBeVisible();
+    switchTo('Semrush workspace');
 
     await waitFor(() => expect(container.querySelector('.app-shell')).toHaveAttribute('data-edition', 'semrush'));
     expect(window.apifyStudio.selectContentWorkspace.mock.calls).toEqual([['general'], ['semrush']]);
-    expect(sidebarPicker()).toHaveValue('semrush');
-    expect(screen.getAllByLabelText('Content workspace')).toHaveLength(1);
+    expect(switcher()).toHaveAccessibleName(/^Workspace: Semrush workspace\./);
+    expect(screen.getAllByRole('button', { name: /^Workspace:/ })).toHaveLength(1);
     expect(screen.getByRole('img', { name: 'Semrush' })).toBeVisible();
     expect(nav('Research programs')).toBeVisible();
-    fireEvent.click(nav('Overview'));
-    expect(await screen.findByRole('heading', { name: 'From a trend to a complete campaign.' })).toBeVisible();
+    fireEvent.click(nav('Home'));
+    expect(await screen.findByRole('heading', { name: 'This week in Semrush workspace' })).toBeVisible();
   });
 });
 
@@ -150,21 +153,25 @@ describe('Simple mode', () => {
     };
     window.apifyStudio = api;
     render(<App />);
-    await screen.findByRole('heading', { level: 1, name: /Good (morning|afternoon|evening)/ });
+    await screen.findByRole('heading', { level: 1, name: /^This week in/ }); // Home is the weekly briefing
     return api;
   }
 
-  it('opens in Simple mode by default with Home, Reports, Trends, Assets and Ask AI', async () => {
+  it('opens in Simple mode by default with its pages, Settings, and Ask AI pinned above them', async () => {
     await openSimple();
-    const tabs = within(screen.getByRole('navigation', { name: 'Main' }));
-    expect(tabs.getAllByRole('button').map((button) => button.textContent.replace(/\d+$/, ''))).toEqual(['Home', 'Reports', 'Trends', 'Assets', 'Ask AI']);
-    expect(screen.queryByRole('navigation', { name: 'Primary' })).not.toBeInTheDocument();
-    expect(screen.getByText(/trend needs/)).toBeInTheDocument();
+    expect(navLabels()).toEqual(['Home', 'Trends', 'Reports', 'Assets', 'Inbox', 'Calendar', 'Settings']);
+    expect(screen.getByRole('button', { name: 'Ask AI' })).toHaveAttribute('data-spot', 'nav.ask');
+    expect(nav('Trends')).toHaveAccessibleName('Trends, 1 needs your OK');
+    expect(within(screen.getByRole('navigation', { name: 'Main' })).queryByRole('group', { name: 'Research' })).not.toBeInTheDocument();
+    // Home is the weekly briefing; the trend waiting for an OK leads it.
+    expect(screen.getByRole('heading', { level: 2, name: /^Needs your OK/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Yes, use it: AI search visibility/ })).toBeInTheDocument();
   });
 
   it('reads a report and decides a trend in one tap', async () => {
     const api = await openSimple();
-    fireEvent.click(screen.getByRole('button', { name: /^Evidence report: AI search/ }));
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^Reports/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Evidence report: AI search/ }));
     expect(await screen.findByText('People want answers.')).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Trends/ }));
     fireEvent.click(await screen.findByRole('button', { name: /Yes, use it/ }));
@@ -173,7 +180,8 @@ describe('Simple mode', () => {
 
   it('asks about the open report with its text, and Esc returns to the list', async () => {
     const api = await openSimple();
-    fireEvent.click(screen.getByRole('button', { name: /^Evidence report: AI search/ }));
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^Reports/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Evidence report: AI search/ }));
     expect(await screen.findByText('People want answers.')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
     fireEvent.click(await screen.findByRole('button', { name: /^Evidence report: AI search/ }));
@@ -181,7 +189,7 @@ describe('Simple mode', () => {
     await waitFor(() => expect(api.askHelp).toHaveBeenCalled());
     const request = api.askHelp.mock.calls[0][0];
     expect(request.question).toMatch(/next steps/);
-    expect(request.history.at(-1).content).toContain('People want answers.');
+    expect(request.context).toContain('People want answers.'); // the report travels as the question's background
     expect(await screen.findByText('With the report you had open')).toBeInTheDocument();
   });
 
@@ -214,6 +222,6 @@ describe('Simple mode', () => {
     fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Layout' })).getByRole('radio', { name: 'Advanced' }));
     await waitFor(() => expect(api.setViewPrefs).toHaveBeenCalledWith({ uiMode: 'classic' }));
     expect(api.saveSettings).not.toHaveBeenCalled();
-    expect(await screen.findByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
+    expect(await within(screen.getByRole('navigation', { name: 'Main' })).findByRole('group', { name: 'Research' })).toBeInTheDocument();
   });
 });

@@ -1,0 +1,4557 @@
+{
+  "//": "Every AI prompt the Prompt Library shows (SPEC-2 section A). Metadata only: default texts are in prompt-defaults.json (main process only), and src/shared/prompt-template.js renders and checks them. layout lists the prompt in order: fixed parts (with the reason they stay fixed), editable blocks and the run data.",
+  "version": 1,
+  "groups": [
+    {
+      "id": "research",
+      "label": "Research"
+    },
+    {
+      "id": "reports",
+      "label": "Reports"
+    },
+    {
+      "id": "assets",
+      "label": "Channel assets"
+    },
+    {
+      "id": "pictures",
+      "label": "Pictures"
+    },
+    {
+      "id": "assistant",
+      "label": "Assistant"
+    },
+    {
+      "id": "data",
+      "label": "Data tools"
+    },
+    {
+      "id": "system",
+      "label": "Behind every call"
+    }
+  ],
+  "prompts": [
+    {
+      "id": "research.discovery",
+      "name": "Find candidate trends",
+      "group": "research",
+      "description": "Reads each batch of collected posts and lists up to 10 specific, emerging trends with the posts behind each.",
+      "powers": [
+        "Research runs: finding candidate trends in each batch of posts",
+        "Quick scans from Ask AI"
+      ],
+      "stage": "discovery",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "discovery",
+        "modelSource": "research",
+        "effort": "",
+        "outputTokens": 3500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "role",
+          "label": "Who the AI is",
+          "help": "The opening line: who the AI plays and what it looks for.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "brand",
+              "description": "The workspace brand name",
+              "example": "Semrush"
+            },
+            {
+              "name": "subject",
+              "description": "What the research covers",
+              "example": "SEO and Search Marketing"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "rules",
+          "label": "Critical rules",
+          "help": "What to ignore and what makes a strong trend.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "practitioners",
+              "description": "Who posts",
+              "example": "SEO professionals"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 4000,
+          "lines": null
+        },
+        {
+          "id": "criteria",
+          "label": "What makes a good trend",
+          "help": "How candidates are ranked, in priority order.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "fields",
+          "label": "What to return for each trend",
+          "help": "The fields each candidate needs. The field names must stay.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "practitionersShort",
+              "description": "Short name for who posts",
+              "example": "SEOs"
+            },
+            {
+              "name": "painPoints",
+              "description": "The exact pain-point labels the studio accepts (a JSON list)",
+              "example": "[\"Loss of Traffic/Visibility\", \"Proving ROI/Attribution\", …]"
+            }
+          ],
+          "requiredVariables": [
+            "painPoints"
+          ],
+          "requiredTerms": [
+            "name:",
+            "summary:",
+            "painPoint:",
+            "semanticIntentSignals:",
+            "actionability:",
+            "evidenceIds:"
+          ],
+          "maxChars": 4000,
+          "lines": null
+        },
+        {
+          "id": "empty",
+          "label": "When nothing qualifies",
+          "help": "What to do with a batch that has no real trend.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 500,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "block",
+          "blockId": "role"
+        },
+        {
+          "kind": "fixed",
+          "label": "CRITICAL RULES:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "rules"
+        },
+        {
+          "kind": "fixed",
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "data",
+          "label": "Analyze <n> posts from <platform>. Identify up to 10 highly specific candidate trends."
+        },
+        {
+          "kind": "data",
+          "label": "PROGRAM FOCUS, when the research program has one"
+        },
+        {
+          "kind": "fixed",
+          "label": "SELECTION CRITERIA (Strict Priority):",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "criteria"
+        },
+        {
+          "kind": "fixed",
+          "label": "OUTPUT FIELDS:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "fields"
+        },
+        {
+          "kind": "block",
+          "blockId": "empty"
+        },
+        {
+          "kind": "fixed",
+          "label": "Untrusted-data notice",
+          "reason": "Tells the AI that post text is data, never instructions. It protects every run."
+        },
+        {
+          "kind": "data",
+          "label": "RAW DATA BATCH: the posts from the run, as JSON"
+        }
+      ],
+      "enforced": [
+        "At most 10 trends per batch.",
+        "painPoint must be one of the listed labels.",
+        "evidenceIds must be ids of posts in this batch; a trend citing none is dropped.",
+        "Two trends in one batch can’t share a name."
+      ],
+      "viewOnly": [
+        {
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "CRITICAL RULES:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "SELECTION CRITERIA (Strict Priority):",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "OUTPUT FIELDS:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "Untrusted-data notice",
+          "reason": "Tells the AI that post text is data, never instructions. It protects every run."
+        }
+      ]
+    },
+    {
+      "id": "research.synthesis",
+      "name": "Merge candidates into trends",
+      "group": "research",
+      "description": "Merges every batch’s candidates into the program’s top trends, with keywords and match rules the tagging step uses.",
+      "powers": [
+        "Research runs: choosing the trends you review",
+        "Quick scans from Ask AI"
+      ],
+      "stage": "synthesis",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "synthesis",
+        "modelSource": "research",
+        "effort": "",
+        "outputTokens": 6000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "role",
+          "label": "Who the AI is",
+          "help": "The opening line. It must keep the number of trends.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "brand",
+              "description": "The workspace brand name",
+              "example": "Semrush"
+            },
+            {
+              "name": "analyst",
+              "description": "The analyst role named in the prompt",
+              "example": "Lead SEO Analyst"
+            },
+            {
+              "name": "subject",
+              "description": "What the research covers",
+              "example": "SEO and Search Marketing"
+            },
+            {
+              "name": "maxThemes",
+              "description": "How many trends the research program asks for",
+              "example": "6"
+            }
+          ],
+          "requiredVariables": [
+            "maxThemes"
+          ],
+          "requiredTerms": [],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "naming",
+          "label": "Naming rules",
+          "help": "How trend names are written.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "rules",
+          "label": "Synthesis rules",
+          "help": "How candidates are merged and chosen.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "maxThemes",
+              "description": "How many trends the research program asks for",
+              "example": "6"
+            }
+          ],
+          "requiredVariables": [
+            "maxThemes"
+          ],
+          "requiredTerms": [],
+          "maxChars": 4000,
+          "lines": null
+        },
+        {
+          "id": "keywords",
+          "label": "Keywords and focus",
+          "help": "What each trend needs for tagging, and what to focus on.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "subject",
+              "description": "What the research covers",
+              "example": "SEO and Search Marketing"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "matchingKeywords",
+            "matchingCriteria",
+            "negativeCriteria"
+          ],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "steps",
+          "label": "Steps for each trend",
+          "help": "The fields each trend fills. The field names and their allowed values must stay.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "candidateIds",
+            "novelty",
+            "NEW TOPIC",
+            "NEW ANGLE",
+            "EVERGREEN",
+            "contentGap",
+            "OPEN",
+            "MODERATE",
+            "SATURATED",
+            "gapRationale",
+            "recentTrend",
+            "ACTIVE",
+            "SPORADIC",
+            "DORMANT",
+            "crossPlatform",
+            "totalEvidence"
+          ],
+          "maxChars": 4000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "block",
+          "blockId": "role"
+        },
+        {
+          "kind": "fixed",
+          "label": "NAMING RULES:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "naming"
+        },
+        {
+          "kind": "fixed",
+          "label": "TAXONOMY: the workspace’s tracked categories",
+          "reason": "Filled from Brand knowledge → Taxonomy, so the categories match what you track."
+        },
+        {
+          "kind": "fixed",
+          "label": "SYNTHESIS RULES:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "rules"
+        },
+        {
+          "kind": "block",
+          "blockId": "keywords"
+        },
+        {
+          "kind": "fixed",
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "data",
+          "label": "Analyze <n> candidate trends from <n> posts across <platforms>…"
+        },
+        {
+          "kind": "data",
+          "label": "PROGRAM FOCUS, when the research program has one"
+        },
+        {
+          "kind": "fixed",
+          "label": "For each theme:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "steps"
+        },
+        {
+          "kind": "fixed",
+          "label": "Untrusted-data notice",
+          "reason": "Tells the AI that post text is data, never instructions. It protects every run."
+        },
+        {
+          "kind": "data",
+          "label": "INPUT CANDIDATES: every batch’s candidates, as JSON"
+        }
+      ],
+      "enforced": [
+        "Never more trends than the program’s limit.",
+        "candidateIds must be candidates from this run.",
+        "novelty, contentGap and recentTrend must use the listed values.",
+        "With a taxonomy, the category must be one of yours."
+      ],
+      "viewOnly": [
+        {
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "NAMING RULES:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "TAXONOMY: the workspace’s tracked categories",
+          "reason": "Filled from Brand knowledge → Taxonomy, so the categories match what you track."
+        },
+        {
+          "label": "SYNTHESIS RULES:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "For each theme:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "Untrusted-data notice",
+          "reason": "Tells the AI that post text is data, never instructions. It protects every run."
+        }
+      ]
+    },
+    {
+      "id": "research.matching",
+      "name": "Match trends you already track",
+      "group": "research",
+      "description": "Compares new trends with the ones you already track, so a returning trend keeps its history and the cleaner name wins.",
+      "powers": [
+        "Research runs: linking new trends to tracked ones (Trend board, Trend Velocity)"
+      ],
+      "stage": "matching",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "matching",
+        "modelSource": "research",
+        "effort": "",
+        "outputTokens": 2500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "role",
+          "label": "Who the AI is",
+          "help": "The opening line.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "subject",
+              "description": "What the research covers",
+              "example": "SEO and Search Marketing"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "rules",
+          "label": "Matching rules",
+          "help": "When two trends count as the same.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "nameQuality",
+          "label": "Name quality",
+          "help": "How the better name is chosen.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 5000,
+          "lines": null
+        },
+        {
+          "id": "returns",
+          "label": "What to return",
+          "help": "The fields of each match. The field names must stay.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "themeId",
+            "matchedExistingId",
+            "finalName",
+            "nameSource"
+          ],
+          "maxChars": 1500,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "block",
+          "blockId": "role"
+        },
+        {
+          "kind": "fixed",
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "fixed",
+          "label": "Match NEW THEMES against EXISTING THEMES (tracked historically in Trend Velocity).",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "fixed",
+          "label": "MATCHING RULES:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "rules"
+        },
+        {
+          "kind": "fixed",
+          "label": "NAME QUALITY OVERRIDE (important):",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "nameQuality"
+        },
+        {
+          "kind": "block",
+          "blockId": "returns"
+        },
+        {
+          "kind": "fixed",
+          "label": "Untrusted-data notice",
+          "reason": "Tells the AI that post text is data, never instructions. It protects every run."
+        },
+        {
+          "kind": "data",
+          "label": "NEW THEMES and EXISTING THEMES, as JSON"
+        }
+      ],
+      "enforced": [
+        "Every new trend comes back exactly once.",
+        "An existing trend matches at most one new trend.",
+        "matchedExistingId must be a tracked trend’s id."
+      ],
+      "viewOnly": [
+        {
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "Match NEW THEMES against EXISTING THEMES (tracked historically in Trend Velocity).",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "MATCHING RULES:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "NAME QUALITY OVERRIDE (important):",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "Untrusted-data notice",
+          "reason": "Tells the AI that post text is data, never instructions. It protects every run."
+        }
+      ]
+    },
+    {
+      "id": "research.tagging",
+      "name": "Tag every post to a trend",
+      "group": "research",
+      "description": "Reads every post after you approve trends and tags it to the best trend with a reason, a confidence, its pain point and urgency.",
+      "powers": [
+        "Research runs: the post counts, quotes and signals behind every report"
+      ],
+      "stage": "tagging",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "tagging",
+        "modelSource": "research",
+        "effort": "",
+        "outputTokens": 110
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "role",
+          "label": "Who the AI is",
+          "help": "The opening line.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "brand",
+              "description": "The workspace brand name",
+              "example": "Semrush"
+            },
+            {
+              "name": "classification",
+              "description": "The kind of themes being tagged",
+              "example": "SEO/marketing"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "readBetween",
+          "label": "Read between the lines",
+          "help": "How implicit language maps to trends.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "practitionersStart",
+              "description": "Who posts, capitalized to start a sentence",
+              "example": "Practitioners"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 2000,
+          "lines": null
+        },
+        {
+          "id": "outlier",
+          "label": "Outlier rule",
+          "help": "What to do with viral posts that fit no trend.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "outlier",
+              "description": "What counts as on-topic",
+              "example": "SEO, Search, or B2B Marketing"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "themeId"
+          ],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "confidence",
+          "label": "Confidence bands",
+          "help": "What each confidence range means. The studio keeps tags at 0.55 and above (your program’s threshold).",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 2000,
+          "lines": null
+        },
+        {
+          "id": "rules",
+          "label": "Tagging rules",
+          "help": "One trend per post, reasons first, and the allowed labels.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "painPoints",
+              "description": "The exact pain-point labels the studio accepts (a JSON list)",
+              "example": "[\"Loss of Traffic/Visibility\", \"Proving ROI/Attribution\", …]"
+            },
+            {
+              "name": "urgency",
+              "description": "The exact urgency labels the studio accepts (a JSON list)",
+              "example": "[\"Immediate Crisis\", \"Strategic Planning\", …]"
+            }
+          ],
+          "requiredVariables": [
+            "painPoints",
+            "urgency"
+          ],
+          "requiredTerms": [
+            "itemId",
+            "record_id"
+          ],
+          "maxChars": 4000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "block",
+          "blockId": "role"
+        },
+        {
+          "kind": "block",
+          "blockId": "readBetween"
+        },
+        {
+          "kind": "fixed",
+          "label": "AVAILABLE THEMES & CRITERIA: your approved trends",
+          "reason": "Filled from the trends you approved, with their keywords and match rules."
+        },
+        {
+          "kind": "block",
+          "blockId": "outlier"
+        },
+        {
+          "kind": "fixed",
+          "label": "CONFIDENCE SCORING:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "confidence"
+        },
+        {
+          "kind": "fixed",
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "fixed",
+          "label": "Classify each post below against the available themes.",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "fixed",
+          "label": "RULES:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "rules"
+        },
+        {
+          "kind": "fixed",
+          "label": "Untrusted-data notice",
+          "reason": "Tells the AI that post text is data, never instructions. It protects every run."
+        },
+        {
+          "kind": "data",
+          "label": "POSTS TO ANALYZE, as JSON"
+        }
+      ],
+      "enforced": [
+        "Every post comes back once; skipped posts get one retry, then count as unclassified.",
+        "themeId must be one of the listed Theme IDs.",
+        "Tags below the program’s confidence threshold are rejected.",
+        "painPoint and urgency must use the listed labels."
+      ],
+      "viewOnly": [
+        {
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "AVAILABLE THEMES & CRITERIA: your approved trends",
+          "reason": "Filled from the trends you approved, with their keywords and match rules."
+        },
+        {
+          "label": "CONFIDENCE SCORING:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "Classify each post below against the available themes.",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "RULES:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "Untrusted-data notice",
+          "reason": "Tells the AI that post text is data, never instructions. It protects every run."
+        }
+      ]
+    },
+    {
+      "id": "reports.trends-report",
+      "name": "Trends report",
+      "group": "reports",
+      "description": "Writes the comprehensive trends report for one approved trend from its tagged posts, metrics and signals.",
+      "powers": [
+        "Write reports: the Trends report for each approved trend",
+        "Channel assets read the finished report"
+      ],
+      "stage": "reports",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "reports",
+        "modelSource": "research",
+        "effort": "",
+        "outputTokens": 8000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "intro",
+          "label": "Who the AI is",
+          "help": "The opening line of the report request.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "brandClause",
+              "description": "\" for <brand>\" when the workspace has a brand name, else empty",
+              "example": " for Northwind Analytics"
+            },
+            {
+              "name": "focusClause",
+              "description": "\" (focus: <focus>)\" when the program has a focus, else empty",
+              "example": " (focus: AI search)"
+            },
+            {
+              "name": "audienceClause",
+              "description": "\", written for <audience>\" when Brand knowledge names one, else empty",
+              "example": ", written for marketing leads"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "criticalRules",
+          "label": "Critical rules",
+          "help": "The rules every report follows. The studio still checks quotes, pain points and banned phrases itself.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "fullTextTopN",
+              "description": "How many top posts carry their full text",
+              "example": "30"
+            }
+          ],
+          "requiredVariables": [
+            "fullTextTopN"
+          ],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        },
+        {
+          "id": "fieldGuide",
+          "label": "What each field holds",
+          "help": "One line per report field. The field names must stay.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "matchedCount",
+              "description": "How many posts were tagged to this trend",
+              "example": "214"
+            }
+          ],
+          "requiredVariables": [
+            "matchedCount"
+          ],
+          "requiredTerms": [
+            "executiveSummary",
+            "trendSummary",
+            "quotes",
+            "evidenceLinks",
+            "painPoints",
+            "opportunities",
+            "technicalDetails",
+            "topPerformingContent",
+            "keyTakeaways",
+            "caveats"
+          ],
+          "maxChars": 8000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "block",
+          "blockId": "intro"
+        },
+        {
+          "kind": "fixed",
+          "label": "REPORT OUTPUT FORMAT",
+          "reason": "The studio renders this layout from the fields; edit the field guidance instead."
+        },
+        {
+          "kind": "fixed",
+          "label": "## CRITICAL RULES",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "criticalRules"
+        },
+        {
+          "kind": "fixed",
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "data",
+          "label": "THEME CONTEXT, PRE-CALCULATED METRICS and SOURCE DATA: the trend, its numbers and its posts"
+        },
+        {
+          "kind": "fixed",
+          "label": "## STRUCTURED OUTPUT (required)",
+          "reason": "Explains what the studio writes itself (title, Method Note, attributions), so the AI never restates it."
+        },
+        {
+          "kind": "data",
+          "label": "Posts shown and total matched posts"
+        },
+        {
+          "kind": "block",
+          "blockId": "fieldGuide"
+        },
+        {
+          "kind": "fixed",
+          "label": "Citation rule and untrusted-data notice",
+          "reason": "Tells the AI that post text is data, never instructions. It protects every run."
+        }
+      ],
+      "enforced": [
+        "Quotes come only from X and LinkedIn posts and must be copied exactly; none may repeat.",
+        "Exactly 3 pain points, each with a real label and a post count no higher than the matched posts.",
+        "Banned phrases are refused: flying blind, blind spot(s), and for Semrush also Semrush One, game-changer, revolutionary, unleash and supercharge.",
+        "Evidence links and quotes must cite EVIDENCE_IDs shown in the prompt."
+      ],
+      "viewOnly": [
+        {
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "REPORT OUTPUT FORMAT",
+          "reason": "The studio renders this layout from the fields; edit the field guidance instead."
+        },
+        {
+          "label": "## CRITICAL RULES",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "## STRUCTURED OUTPUT (required)",
+          "reason": "Explains what the studio writes itself (title, Method Note, attributions), so the AI never restates it."
+        },
+        {
+          "label": "Citation rule and untrusted-data notice",
+          "reason": "Tells the AI that post text is data, never instructions. It protects every run."
+        }
+      ]
+    },
+    {
+      "id": "reports.editorial-toolkit",
+      "name": "Editorial toolkit",
+      "group": "reports",
+      "description": "Turns the finished trends report into the editorial toolkit: the narrative, both product angles, headlines, hooks and CTAs.",
+      "powers": [
+        "Write reports: the Editorial toolkit for each approved trend",
+        "Channel assets read the finished toolkit"
+      ],
+      "stage": "reports",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "reports",
+        "modelSource": "research",
+        "effort": "",
+        "outputTokens": 5000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "role",
+          "label": "Who the AI is",
+          "help": "The opening paragraphs: the analyst role and the transform-not-copy rule.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "brand",
+              "description": "The workspace brand name",
+              "example": "Semrush"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "segments",
+          "label": "Segment definitions",
+          "help": "Which products are Enterprise and which are self-serve. Both angles must stay.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "brand",
+              "description": "The workspace brand name",
+              "example": "Semrush"
+            },
+            {
+              "name": "enterpriseList",
+              "description": "The Enterprise products named in Brand knowledge, or a note that none are registered",
+              "example": "Enterprise SEO, Enterprise AIO"
+            }
+          ],
+          "requiredVariables": [
+            "enterpriseList"
+          ],
+          "requiredTerms": [
+            "ENTERPRISE ANGLE",
+            "SELF-SERVE ANGLE"
+          ],
+          "maxChars": 4000,
+          "lines": null
+        },
+        {
+          "id": "audienceVoice",
+          "label": "Audience and voice",
+          "help": "Who reads the brief and how it should sound.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 2500,
+          "lines": null
+        },
+        {
+          "id": "whatHappened",
+          "label": "What happened",
+          "help": "Guidance for the WHAT HAPPENED narrative.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "brand",
+              "description": "The workspace brand name",
+              "example": "Semrush"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "whatHappened"
+          ],
+          "maxChars": 2000,
+          "lines": null
+        },
+        {
+          "id": "whyMatters",
+          "label": "Why this matters",
+          "help": "Guidance for WHY THIS MATTERS and its 3 pain points.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "whyMatters.intro",
+            "whyMatters.painPoints"
+          ],
+          "maxChars": 2000,
+          "lines": null
+        },
+        {
+          "id": "howToTalk",
+          "label": "How to talk about it",
+          "help": "Guidance for HOW TO TALK ABOUT IT and its 3 named angles (no products).",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "brand",
+              "description": "The workspace brand name",
+              "example": "Semrush"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "howToTalk.intro",
+            "howToTalk.talkingPoints"
+          ],
+          "maxChars": 2500,
+          "lines": null
+        },
+        {
+          "id": "hooks",
+          "label": "Headlines, subheads and hooks",
+          "help": "Five of each, from the evidence.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "headlines",
+            "subheads",
+            "hooks"
+          ],
+          "maxChars": 2000,
+          "lines": null
+        },
+        {
+          "id": "caveats",
+          "label": "Caveats",
+          "help": "What the editor must check before publishing.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "caveats"
+          ],
+          "maxChars": 1000,
+          "lines": null
+        },
+        {
+          "id": "hookReuse",
+          "label": "Product-free hooks",
+          "help": "Why headlines, subheads and hooks stay product-agnostic.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 1000,
+          "lines": null
+        },
+        {
+          "id": "transformation",
+          "label": "Transformation rules",
+          "help": "What to drop from the trends report and what to turn into each section.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 5000,
+          "lines": null
+        },
+        {
+          "id": "writingStyle",
+          "label": "Writing style",
+          "help": "Tone, specificity and banned phrases.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "block",
+          "blockId": "role"
+        },
+        {
+          "kind": "fixed",
+          "label": "## SEGMENT DEFINITIONS",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "segments"
+        },
+        {
+          "kind": "fixed",
+          "label": "## OUTPUT FORMAT — STRUCTURED JSON",
+          "reason": "Describes what the studio renders itself (headings, product names, URLs, CTA tags, EVIDENCE & VALIDATION)."
+        },
+        {
+          "kind": "block",
+          "blockId": "audienceVoice"
+        },
+        {
+          "kind": "fixed",
+          "label": "- trendName",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "block",
+          "blockId": "whatHappened"
+        },
+        {
+          "kind": "block",
+          "blockId": "whyMatters"
+        },
+        {
+          "kind": "block",
+          "blockId": "howToTalk"
+        },
+        {
+          "kind": "fixed",
+          "label": "Enterprise and self-serve angle fields",
+          "reason": "Built from your product registry; a missing segment becomes an honest gap."
+        },
+        {
+          "kind": "block",
+          "blockId": "hooks"
+        },
+        {
+          "kind": "fixed",
+          "label": "CTA counts and tags",
+          "reason": "The studio adds the [ENT] and [PLG] tags and checks there are 2 and 3."
+        },
+        {
+          "kind": "block",
+          "blockId": "caveats"
+        },
+        {
+          "kind": "block",
+          "blockId": "hookReuse"
+        },
+        {
+          "kind": "fixed",
+          "label": "### PRODUCT IDS and registry gaps",
+          "reason": "Built from your product registry."
+        },
+        {
+          "kind": "fixed",
+          "label": "## TRANSFORMATION RULES",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "transformation"
+        },
+        {
+          "kind": "fixed",
+          "label": "### Tool Matching and ### Segment Rules",
+          "reason": "Mirror the checks the studio runs on tools, segments and the affiliate-safe line."
+        },
+        {
+          "kind": "fixed",
+          "label": "### Writing Style",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "writingStyle"
+        },
+        {
+          "kind": "fixed",
+          "label": "### Evidence Section",
+          "reason": "The studio writes EVIDENCE & VALIDATION from the pre-calculated numbers."
+        },
+        {
+          "kind": "fixed",
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "data",
+          "label": "Metrics, context documents, the registry and the trends report"
+        },
+        {
+          "kind": "fixed",
+          "label": "OUTPUT CHECKLIST",
+          "reason": "Restates the checks the studio runs on the answer."
+        }
+      ],
+      "enforced": [
+        "Both angles are required; an Enterprise product never appears in the self-serve angle.",
+        "Self-serve Key Tools must come from the headline toolkit’s own table.",
+        "At most 8 named tools and capabilities across both angles.",
+        "Headlines, subheads and hooks name no products.",
+        "Banned phrases are refused (and Semrush One for Semrush)."
+      ],
+      "viewOnly": [
+        {
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "## SEGMENT DEFINITIONS",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "## OUTPUT FORMAT — STRUCTURED JSON",
+          "reason": "Describes what the studio renders itself (headings, product names, URLs, CTA tags, EVIDENCE & VALIDATION)."
+        },
+        {
+          "label": "- trendName",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "Enterprise and self-serve angle fields",
+          "reason": "Built from your product registry; a missing segment becomes an honest gap."
+        },
+        {
+          "label": "CTA counts and tags",
+          "reason": "The studio adds the [ENT] and [PLG] tags and checks there are 2 and 3."
+        },
+        {
+          "label": "### PRODUCT IDS and registry gaps",
+          "reason": "Built from your product registry."
+        },
+        {
+          "label": "## TRANSFORMATION RULES",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "### Tool Matching and ### Segment Rules",
+          "reason": "Mirror the checks the studio runs on tools, segments and the affiliate-safe line."
+        },
+        {
+          "label": "### Writing Style",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "### Evidence Section",
+          "reason": "The studio writes EVIDENCE & VALIDATION from the pre-calculated numbers."
+        },
+        {
+          "label": "TASK",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "OUTPUT CHECKLIST",
+          "reason": "Restates the checks the studio runs on the answer."
+        }
+      ]
+    },
+    {
+      "id": "assets.shared",
+      "name": "Rules for every channel asset",
+      "group": "assets",
+      "description": "The source, evidence and brand rules every written channel asset and Create content draft starts with.",
+      "powers": [
+        "Channel assets: every written file",
+        "Create content: every draft",
+        "Create content pictures"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 3500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "contentRules",
+          "label": "Source and evidence rules",
+          "help": "What the AI may use and what it must never invent.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 4000,
+          "lines": null
+        },
+        {
+          "id": "editionRules",
+          "label": "Brand and channel policy",
+          "help": "Voice and channel rules for this workspace.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 4000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "block",
+          "blockId": "contentRules"
+        },
+        {
+          "kind": "block",
+          "blockId": "editionRules"
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name> and its instruction",
+          "reason": "Each deliverable’s instruction is its own prompt in Channel assets."
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "DELIVERABLE: <name> and its instruction",
+          "reason": "Each deliverable’s instruction is its own prompt in Channel assets."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.blogshort",
+      "name": "Short news update",
+      "group": "assets",
+      "description": "What the short news update (Blog) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: Blog",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 2500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.bloglong",
+      "name": "Long-form article",
+      "group": "assets",
+      "description": "What the long-form article (Blog) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: Blog",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 6000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.newsletter",
+      "name": "Newsletter pack",
+      "group": "assets",
+      "description": "What the newsletter pack (Email) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: Email",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 4000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.ads",
+      "name": "Search ads and keywords",
+      "group": "assets",
+      "description": "What the search ads and keywords (Paid media) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: Paid media",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 3500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.social",
+      "name": "Social captions and thread",
+      "group": "assets",
+      "description": "What the social captions and thread (Social) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: Social",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 2500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.affiliate",
+      "name": "Affiliate partner pack",
+      "group": "assets",
+      "description": "What the affiliate partner pack (Partners) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: Partners",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 4500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds.",
+        "Only affiliate-eligible self-serve products."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.enterprise",
+      "name": "Enterprise sales brief",
+      "group": "assets",
+      "description": "What the enterprise sales brief (Sales enablement) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: Sales enablement",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 4000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds.",
+        "Only Enterprise products."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.backlinko",
+      "name": "Beginner video script",
+      "editionNames": {
+        "semrush": "Backlinko video script"
+      },
+      "group": "assets",
+      "description": "What the beginner video script (Video) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: Video",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 6000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.explodingtopics",
+      "name": "Emerging trend pack",
+      "editionNames": {
+        "semrush": "Exploding Topics pack"
+      },
+      "group": "assets",
+      "description": "What the emerging trend pack (Trend editorial) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: Trend editorial",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 2500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.sel",
+      "name": "Editorial news and video",
+      "editionNames": {
+        "semrush": "Search Engine Land news and video"
+      },
+      "group": "assets",
+      "description": "What the editorial news and video (News editorial) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: News editorial",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 3500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.pr",
+      "name": "PR research brief",
+      "group": "assets",
+      "description": "What the pr research brief (PR) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: PR",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 3000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds.",
+        "Journalists need real coverage evidence; no guessed contacts."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.landingpage",
+      "name": "Campaign landing page",
+      "group": "assets",
+      "description": "What the campaign landing page (Paid media) must contain: length, structure and channel rules.",
+      "powers": [
+        "Channel assets: Paid media",
+        "Create content"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 3500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.evidence-report",
+      "name": "Comprehensive evidence report",
+      "group": "assets",
+      "description": "What the comprehensive evidence report (Research) must contain: length, structure and channel rules.",
+      "powers": [
+        "Create content from pasted text, files or Google Docs (research trends use the Reports prompts)"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 3500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds.",
+        "Quotes must be copied from the evidence."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "assets.editorial-toolkit",
+      "name": "Editorial activation toolkit",
+      "group": "assets",
+      "description": "What the editorial activation toolkit (Strategy) must contain: length, structure and channel rules.",
+      "powers": [
+        "Create content from pasted text, files or Google Docs (research trends use the Reports prompts)"
+      ],
+      "stage": "assets",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assets",
+        "modelSource": "kit",
+        "effort": "",
+        "outputTokens": 3500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Length, structure and channel rules for this deliverable.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "kind": "fixed",
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "fixed",
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        }
+      ],
+      "enforced": [
+        "Section count, item counts and item lengths follow the deliverable.",
+        "Evidence IDs must come from the source; product IDs from your registry.",
+        "Every product named in the copy must be listed in productIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared by every deliverable; edit them under Rules for every channel asset."
+        },
+        {
+          "label": "DELIVERABLE: <name>",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REQUIRED SECTIONS IN ORDER",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "label": "JSON contract",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "pictures.direction",
+      "name": "Brand visual direction",
+      "group": "pictures",
+      "description": "The palette, type and style every picture follows: channel asset pictures, their picture briefs and Create content pictures.",
+      "powers": [
+        "Channel assets: picture briefs and pictures",
+        "Create content pictures"
+      ],
+      "stage": "pictures",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "pictures",
+        "modelSource": "image",
+        "effort": "",
+        "outputTokens": 0
+      },
+      "test": {
+        "kind": "image",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "brand",
+          "label": "Brand pictures",
+          "help": "The visual direction for brand and campaign pictures.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "searchEngineLand",
+          "label": "Search Engine Land pictures",
+          "help": "The visual direction for Search Engine Land pictures.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null,
+          "editions": [
+            "semrush"
+          ]
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Create a <size> landscape image.",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "brand"
+        },
+        {
+          "kind": "block",
+          "blockId": "searchEngineLand"
+        },
+        {
+          "kind": "fixed",
+          "label": "Picture rules",
+          "reason": "Protects the approved logo and blocks invented text."
+        },
+        {
+          "kind": "data",
+          "label": "The picture brief"
+        }
+      ],
+      "enforced": [
+        "Pictures stay at 32,000 characters or fewer.",
+        "Approved logos are attached as files, never drawn."
+      ],
+      "viewOnly": [
+        {
+          "label": "Create a <size> landscape image.",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "Picture rules",
+          "reason": "Protects the approved logo and blocks invented text."
+        }
+      ]
+    },
+    {
+      "id": "pictures.content-image",
+      "name": "Create content picture",
+      "group": "pictures",
+      "description": "The picture rules for Create content pictures (channel asset pictures use the picture brief instead).",
+      "powers": [
+        "Create content: brand and Search Engine Land pictures"
+      ],
+      "stage": "pictures",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "pictures",
+        "modelSource": "image",
+        "effort": "",
+        "outputTokens": 0
+      },
+      "test": {
+        "kind": "image",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "imageRules",
+          "label": "Picture rules",
+          "help": "Headline, callouts, charts and logos.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 2000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Rules for every channel asset",
+          "reason": "Shared with written assets."
+        },
+        {
+          "kind": "fixed",
+          "label": "Create a <size> landscape editorial image.",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "fixed",
+          "label": "Brand visual direction",
+          "reason": "Edit it under Brand visual direction."
+        },
+        {
+          "kind": "block",
+          "blockId": "imageRules"
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the source, brand knowledge and product registry"
+        },
+        {
+          "kind": "fixed",
+          "label": "VARIATION n OF 3: the variation direction",
+          "reason": "Edit them under Picture variations."
+        }
+      ],
+      "enforced": [
+        "Pictures stay at 32,000 characters or fewer."
+      ],
+      "viewOnly": [
+        {
+          "label": "Rules for every channel asset",
+          "reason": "Shared with written assets."
+        },
+        {
+          "label": "Create a <size> landscape editorial image.",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "Brand visual direction",
+          "reason": "Edit it under Brand visual direction."
+        },
+        {
+          "label": "VARIATION n OF 3: the variation direction",
+          "reason": "Edit them under Picture variations."
+        }
+      ]
+    },
+    {
+      "id": "pictures.variations",
+      "name": "Picture variations",
+      "group": "pictures",
+      "description": "The three creative directions behind the three variations of each picture set, one per line.",
+      "powers": [
+        "Channel assets: the three pictures in each set",
+        "Create content pictures"
+      ],
+      "stage": "pictures",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "pictures",
+        "modelSource": "image",
+        "effort": "",
+        "outputTokens": 0
+      },
+      "test": {
+        "kind": "image",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "brand-image",
+          "label": "Brand campaign graphic",
+          "help": "Three lines, one creative direction per variation.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 2000,
+          "lines": {
+            "min": 3,
+            "max": 3
+          }
+        },
+        {
+          "id": "sel-social-image",
+          "label": "Search Engine Land social graphic",
+          "help": "Three lines, one creative direction per variation.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 2000,
+          "lines": {
+            "min": 3,
+            "max": 3
+          },
+          "editions": [
+            "semrush"
+          ]
+        },
+        {
+          "id": "sel-image",
+          "label": "Search Engine Land editorial hero",
+          "help": "Three lines, one creative direction per variation.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 2000,
+          "lines": {
+            "min": 3,
+            "max": 3
+          },
+          "editions": [
+            "semrush"
+          ]
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "The picture prompt",
+          "reason": "Built from the brief and the brand visual direction."
+        },
+        {
+          "kind": "fixed",
+          "label": "VARIATION n OF 3:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "brand-image"
+        },
+        {
+          "kind": "block",
+          "blockId": "sel-social-image"
+        },
+        {
+          "kind": "block",
+          "blockId": "sel-image"
+        }
+      ],
+      "enforced": [
+        "Exactly three directions per picture set."
+      ],
+      "viewOnly": [
+        {
+          "label": "The picture prompt",
+          "reason": "Built from the brief and the brand visual direction."
+        },
+        {
+          "label": "VARIATION n OF 3:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        }
+      ]
+    },
+    {
+      "id": "pictures.kit-brief",
+      "name": "Picture brief (art direction)",
+      "group": "pictures",
+      "description": "Claude reads the whole report once per picture set and writes the brief the image model draws from: headline, callouts and the visual idea.",
+      "powers": [
+        "Channel assets: art direction for every picture set"
+      ],
+      "stage": "pictures",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "pictures",
+        "modelSource": "kit",
+        "effort": "medium",
+        "outputTokens": 1200
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "role",
+          "label": "Who the AI is",
+          "help": "The opening line. It must keep what the picture is for, whose it is and what the image model sees.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "purpose",
+              "description": "What the picture is for (from the purpose blocks below)",
+              "example": "a brand campaign graphic for social posts"
+            },
+            {
+              "name": "owner",
+              "description": "Whose picture it is",
+              "example": "Northwind Analytics"
+            },
+            {
+              "name": "sees",
+              "description": "What the image model sees besides the brief",
+              "example": " and sees nothing else"
+            }
+          ],
+          "requiredVariables": [
+            "purpose",
+            "owner",
+            "sees"
+          ],
+          "requiredTerms": [],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "sourceRule",
+          "label": "Source rule",
+          "help": "Work only from the source; invent nothing.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 1500,
+          "lines": null
+        },
+        {
+          "id": "productRule",
+          "label": "Product names",
+          "help": "Product and tool names in brand pictures.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 1000,
+          "lines": null
+        },
+        {
+          "id": "selProductRule",
+          "label": "Product names (Search Engine Land)",
+          "help": "Search Engine Land pictures never pitch products.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 1000,
+          "lines": null,
+          "editions": [
+            "semrush"
+          ]
+        },
+        {
+          "id": "fields",
+          "label": "What to return",
+          "help": "One line per brief field. The field names must stay.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "headline",
+            "subtitle",
+            "callouts",
+            "visualIdea",
+            "symbols",
+            "avoid"
+          ],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "purpose-brand-image",
+          "label": "Purpose: brand campaign graphic",
+          "help": "What the brand picture is for.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 400,
+          "lines": null
+        },
+        {
+          "id": "purpose-sel-image",
+          "label": "Purpose: Search Engine Land editorial hero",
+          "help": "What the editorial hero is for.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 400,
+          "lines": null,
+          "editions": [
+            "semrush"
+          ]
+        },
+        {
+          "id": "purpose-sel-social-image",
+          "label": "Purpose: Search Engine Land social graphic",
+          "help": "What the social graphic is for.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 400,
+          "lines": null,
+          "editions": [
+            "semrush"
+          ]
+        }
+      ],
+      "layout": [
+        {
+          "kind": "block",
+          "blockId": "role"
+        },
+        {
+          "kind": "fixed",
+          "label": "Reference image roles",
+          "reason": "Describes the brand reference images attached in Settings → Brand reference images."
+        },
+        {
+          "kind": "block",
+          "blockId": "sourceRule"
+        },
+        {
+          "kind": "fixed",
+          "label": "BRAND DIRECTION (applied after you):",
+          "reason": "Edit it under Brand visual direction."
+        },
+        {
+          "kind": "block",
+          "blockId": "productRule"
+        },
+        {
+          "kind": "block",
+          "blockId": "selProductRule"
+        },
+        {
+          "kind": "fixed",
+          "label": "Return:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "fields"
+        },
+        {
+          "kind": "data",
+          "label": "UNTRUSTED_SOURCE_AND_BRAND_DATA: the report and brand basics"
+        }
+      ],
+      "enforced": [
+        "The headline is 3–16 words.",
+        "Callouts must cite an evidence ID from the source; others are dropped.",
+        "At most two callouts are drawn."
+      ],
+      "viewOnly": [
+        {
+          "label": "Reference image roles",
+          "reason": "Describes the brand reference images attached in Settings → Brand reference images."
+        },
+        {
+          "label": "BRAND DIRECTION (applied after you):",
+          "reason": "Edit it under Brand visual direction."
+        },
+        {
+          "label": "Return:",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        }
+      ]
+    },
+    {
+      "id": "pictures.kit-image",
+      "name": "Channel asset picture (image model)",
+      "group": "pictures",
+      "description": "What the image model receives for each channel asset picture: the fixed picture rules, the brand direction, the brief and one variation.",
+      "powers": [
+        "Channel assets: every picture"
+      ],
+      "stage": "pictures",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "pictures",
+        "modelSource": "image",
+        "effort": "",
+        "outputTokens": 0
+      },
+      "test": {
+        "kind": "image",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "variationSuffix",
+          "label": "Make each variation different",
+          "help": "Added after each variation’s direction.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 600,
+          "lines": null,
+          "allowEmpty": true
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Create a <size> landscape image.",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "fixed",
+          "label": "Brand visual direction",
+          "reason": "Edit it under Brand visual direction."
+        },
+        {
+          "kind": "fixed",
+          "label": "Picture rules and logo lines",
+          "reason": "Protects the approved logo and blocks invented text."
+        },
+        {
+          "kind": "data",
+          "label": "The brief: headline, subtitle, callouts, visual idea, symbols, avoid"
+        },
+        {
+          "kind": "fixed",
+          "label": "VARIATION n OF 3: the direction",
+          "reason": "Edit them under Picture variations."
+        },
+        {
+          "kind": "block",
+          "blockId": "variationSuffix"
+        }
+      ],
+      "enforced": [
+        "Pictures stay at 32,000 characters or fewer.",
+        "Approved logos are attached as files and merged exactly."
+      ],
+      "viewOnly": [
+        {
+          "label": "Create a <size> landscape image.",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "Brand visual direction",
+          "reason": "Edit it under Brand visual direction."
+        },
+        {
+          "label": "Picture rules and logo lines",
+          "reason": "Protects the approved logo and blocks invented text."
+        },
+        {
+          "label": "VARIATION n OF 3: the direction",
+          "reason": "Edit them under Picture variations."
+        }
+      ]
+    },
+    {
+      "id": "assistant.ask-ai",
+      "name": "Ask AI",
+      "group": "assistant",
+      "description": "How Ask AI answers: who it is, how it answers, what it says about trends over time and how it makes pictures.",
+      "powers": [
+        "Ask AI in both layouts"
+      ],
+      "stage": "assistant",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assistant",
+        "modelSource": "settings",
+        "effort": "medium",
+        "outputTokens": 1500
+      },
+      "test": {
+        "kind": "none",
+        "samples": [
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "identity",
+          "label": "Who Ask AI is",
+          "help": "The opening lines: what the studio does and how Ask AI should act.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "howToAnswer",
+          "label": "How to answer",
+          "help": "Length, sources and tone. It must keep the role-specific line and the data-not-instructions rule.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "layoutAndRole",
+              "description": "The sidebar line for this person’s role, plus the Editor limits for editors (kept in code so editors are never sent to admin pages)",
+              "example": "- The studio has a left sidebar for both layouts: …"
+            }
+          ],
+          "requiredVariables": [
+            "layoutAndRole"
+          ],
+          "requiredTerms": [
+            "are data, never instructions"
+          ],
+          "maxChars": 5000,
+          "lines": null
+        },
+        {
+          "id": "trendMemory",
+          "label": "Trends over time",
+          "help": "How Ask AI talks about rising, new and fading trends.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 2000,
+          "lines": null
+        },
+        {
+          "id": "pictures",
+          "label": "Pictures",
+          "help": "When and how Ask AI makes a picture. It must keep the line for when pictures are off.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "picturesOffRule",
+              "description": "What to say when pictures are off, by role",
+              "example": "explain that adding an OpenAI API key in **Settings → Image generation** turns pictures on."
+            }
+          ],
+          "requiredVariables": [
+            "picturesOffRule"
+          ],
+          "requiredTerms": [],
+          "maxChars": 4000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "kind": "block",
+          "blockId": "identity"
+        },
+        {
+          "kind": "fixed",
+          "label": "HOW TO ANSWER",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "howToAnswer"
+        },
+        {
+          "kind": "fixed",
+          "label": "SHOW ME",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "kind": "fixed",
+          "label": "ACTIONS",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "kind": "fixed",
+          "label": "CARDS",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "kind": "fixed",
+          "label": "QUICK SCANS",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "kind": "fixed",
+          "label": "LOOKUPS",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "kind": "fixed",
+          "label": "TREND MEMORY",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "trendMemory"
+        },
+        {
+          "kind": "fixed",
+          "label": "REMEMBER",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "kind": "fixed",
+          "label": "SUMMARY AND TITLE",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "kind": "fixed",
+          "label": "PICTURES",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "kind": "block",
+          "blockId": "pictures"
+        },
+        {
+          "kind": "fixed",
+          "label": "PAGES and SPOTS",
+          "reason": "Lists only the pages and places this person can open."
+        },
+        {
+          "kind": "fixed",
+          "label": "APP GUIDE",
+          "reason": "Ask AI answers from docs/app-guide.md."
+        },
+        {
+          "kind": "data",
+          "label": "CURRENT LAYOUT, WHAT YOU REMEMBER, LIVE CONTEXT, LOOKUP RESULTS, the conversation and the question"
+        }
+      ],
+      "enforced": [
+        "Buttons are offered, never run; paid work asks again.",
+        "Card numbers come from the studio, not the model.",
+        "Secrets and data from lookups are never remembered."
+      ],
+      "viewOnly": [
+        {
+          "label": "SYSTEM INSTRUCTIONS",
+          "reason": "The SYSTEM INSTRUCTIONS / TASK frame is how every studio prompt is laid out."
+        },
+        {
+          "label": "HOW TO ANSWER",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "SHOW ME",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "label": "ACTIONS",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "label": "CARDS",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "label": "QUICK SCANS",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "label": "LOOKUPS",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "label": "TREND MEMORY",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "REMEMBER",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "label": "SUMMARY AND TITLE",
+          "reason": "Tied to the buttons, cards and memory Ask AI returns."
+        },
+        {
+          "label": "PICTURES",
+          "reason": "Headings stay fixed so the answer always matches what the studio checks."
+        },
+        {
+          "label": "PAGES and SPOTS",
+          "reason": "Lists only the pages and places this person can open."
+        },
+        {
+          "label": "APP GUIDE",
+          "reason": "Ask AI answers from docs/app-guide.md."
+        }
+      ]
+    },
+    {
+      "id": "assistant.ask-datasets",
+      "name": "Ask your datasets",
+      "group": "assistant",
+      "description": "How answers about your datasets are written: only from the sampled posts, with citations and honest gaps.",
+      "powers": [
+        "Ask your datasets (Advanced → Data tools)"
+      ],
+      "stage": "assistant",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assistant",
+        "modelSource": "settings",
+        "effort": "",
+        "outputTokens": 1500
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instructions",
+          "label": "How to answer",
+          "help": "Sources, citations and caveats. Citations must keep using itemId.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "itemId"
+          ],
+          "maxChars": 5000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "block",
+          "blockId": "instructions"
+        },
+        {
+          "kind": "data",
+          "label": "COLLECTION SETTINGS, when a dataset came from a search"
+        },
+        {
+          "kind": "data",
+          "label": "PRIOR MESSAGES and USER QUESTION"
+        },
+        {
+          "kind": "data",
+          "label": "COVERAGE and SOURCES: the sampled posts"
+        },
+        {
+          "kind": "data",
+          "label": "BRAND_CONTEXT"
+        }
+      ],
+      "enforced": [
+        "Citations must use itemIds from the sample; others are dropped.",
+        "Links come from the source records, never the model."
+      ],
+      "viewOnly": []
+    },
+    {
+      "id": "data.dataset-report",
+      "name": "Dataset report",
+      "group": "data",
+      "description": "The analyst report written from one dataset, framed the same way for every playbook preset, plus each preset’s focus.",
+      "powers": [
+        "Dataset reports (Advanced → Data tools)",
+        "Playbooks and workflows that write a report"
+      ],
+      "stage": "data",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "data",
+        "modelSource": "settings",
+        "effort": "",
+        "outputTokens": 4000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "frame",
+          "label": "How every report is framed",
+          "help": "Wraps the preset’s focus. It must keep the preset name and focus.",
+          "editable": true,
+          "reason": "",
+          "variables": [
+            {
+              "name": "presetName",
+              "description": "The preset’s name",
+              "example": "Market scan"
+            },
+            {
+              "name": "presetInstruction",
+              "description": "The preset’s focus (the blocks below)",
+              "example": "Focus on market-level trends…"
+            }
+          ],
+          "requiredVariables": [
+            "presetName",
+            "presetInstruction"
+          ],
+          "requiredTerms": [
+            "recommendedNextSteps"
+          ],
+          "maxChars": 2000,
+          "lines": null
+        },
+        {
+          "id": "preset-market-scan",
+          "label": "Market scan focus",
+          "help": "Trends, demand signals, objections, and opportunity whitespace.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-account-intelligence",
+          "label": "Account intelligence focus",
+          "help": "Named accounts, authors, pain points, timing, and outreach angles.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-subreddit-pulse",
+          "label": "Subreddit pulse focus",
+          "help": "Community sentiment, recurring threads, vocabulary, and complaints.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-lead-list",
+          "label": "Lead list focus",
+          "help": "Potential leads, qualification notes, evidence, and suggested follow-up.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-competitive-report",
+          "label": "Competitive report focus",
+          "help": "Competitor claims, positioning gaps, sentiment, and content angles.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-competitor-positioning",
+          "label": "Competitor positioning brief focus",
+          "help": "Compare promises, audiences, proof and positioning from selected pages.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-campaign-message-audit",
+          "label": "Campaign message audit focus",
+          "help": "Find messaging inconsistencies and proof gaps before a campaign ships.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-launch-research",
+          "label": "Launch research pack focus",
+          "help": "Ground a launch plan in category evidence and unanswered buyer questions.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-account-research",
+          "label": "ABM account research focus",
+          "help": "Prepare a relevant account conversation using public company evidence and your saved ideal customer profile.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-voice-of-customer",
+          "label": "Voice of customer brief focus",
+          "help": "Turn customer language into themes, objections, and campaign hypotheses you can review.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-content-opportunity",
+          "label": "Content and SERP opportunities focus",
+          "help": "Find questions worth answering from supplied search results or selected content pages.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-ad-creative-research",
+          "label": "Advertising message research focus",
+          "help": "Study supplied ad copy and propose original angles for your next creative test.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        },
+        {
+          "id": "preset-weekly-competitor-changes",
+          "label": "Weekly competitor changes focus",
+          "help": "Compare two saved snapshots and decide which observed changes deserve action.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 3000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Read the SOURCE_ITEMS section below.",
+          "reason": "Where the data is; it stays fixed so older reports can be read back."
+        },
+        {
+          "kind": "block",
+          "blockId": "frame"
+        },
+        {
+          "kind": "fixed",
+          "label": "Return only schema-valid JSON.",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "ANALYSIS_CONTEXT, COVERAGE and SOURCE_ITEMS"
+        }
+      ],
+      "enforced": [
+        "The report must include markdownReport."
+      ],
+      "viewOnly": [
+        {
+          "label": "Read the SOURCE_ITEMS section below.",
+          "reason": "Where the data is; it stays fixed so older reports can be read back."
+        },
+        {
+          "label": "Return only schema-valid JSON.",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "data.tag-items",
+      "name": "Tag dataset items",
+      "group": "data",
+      "description": "Tags every item in a dataset with intent, sentiment and stance.",
+      "powers": [
+        "Datasets: Tag items"
+      ],
+      "stage": "data",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "data",
+        "modelSource": "settings",
+        "effort": "",
+        "outputTokens": 4000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "What to do with the items. The id field must stay.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "evidenceIds"
+          ],
+          "maxChars": 2000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Read the SOURCE_ITEMS section below.",
+          "reason": "Where the data is; it stays fixed so older analyses can be read back."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "Return only schema-valid JSON.",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "ANALYSIS_CONTEXT, COVERAGE and SOURCE_ITEMS"
+        }
+      ],
+      "enforced": [
+        "The answer must include itemTags."
+      ],
+      "viewOnly": [
+        {
+          "label": "Read the SOURCE_ITEMS section below.",
+          "reason": "Where the data is; it stays fixed so older analyses can be read back."
+        },
+        {
+          "label": "Return only schema-valid JSON.",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "data.threads",
+      "name": "Group conversation threads",
+      "group": "data",
+      "description": "Groups posts and comments into conversation threads.",
+      "powers": [
+        "Datasets: Group threads"
+      ],
+      "stage": "data",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "data",
+        "modelSource": "settings",
+        "effort": "",
+        "outputTokens": 4000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "What to do with the items. The id field must stay.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [
+            "itemIds"
+          ],
+          "maxChars": 2000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Read the SOURCE_ITEMS section below.",
+          "reason": "Where the data is; it stays fixed so older analyses can be read back."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "Return only schema-valid JSON.",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "ANALYSIS_CONTEXT, COVERAGE and SOURCE_ITEMS"
+        }
+      ],
+      "enforced": [
+        "The answer must include threads."
+      ],
+      "viewOnly": [
+        {
+          "label": "Read the SOURCE_ITEMS section below.",
+          "reason": "Where the data is; it stays fixed so older analyses can be read back."
+        },
+        {
+          "label": "Return only schema-valid JSON.",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "data.analysis-rules",
+      "name": "Dataset analysis rules",
+      "group": "data",
+      "description": "The rules sent with every dataset report, tag and thread run, one per line.",
+      "powers": [
+        "Dataset reports",
+        "Datasets: Tag items and Group threads"
+      ],
+      "stage": "data",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "data",
+        "modelSource": "settings",
+        "effort": "",
+        "outputTokens": 4000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "latest",
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "rules",
+          "label": "Rules",
+          "help": "One rule per line, up to 20.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 6000,
+          "lines": {
+            "min": 1,
+            "max": 20
+          }
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "The analysis instruction",
+          "reason": "Edit it under Dataset report, Tag dataset items or Group conversation threads."
+        },
+        {
+          "kind": "fixed",
+          "label": "ANALYSIS_CONTEXT",
+          "reason": "Holds the dataset profile and these rules as JSON."
+        },
+        {
+          "kind": "block",
+          "blockId": "rules"
+        },
+        {
+          "kind": "data",
+          "label": "COVERAGE and SOURCE_ITEMS"
+        }
+      ],
+      "enforced": [],
+      "viewOnly": [
+        {
+          "label": "The analysis instruction",
+          "reason": "Edit it under Dataset report, Tag dataset items or Group conversation threads."
+        },
+        {
+          "label": "ANALYSIS_CONTEXT",
+          "reason": "Holds the dataset profile and these rules as JSON."
+        }
+      ]
+    },
+    {
+      "id": "data.workflow-asset-pack",
+      "name": "Workflow asset pack",
+      "group": "data",
+      "description": "Writes the marketing assets requested on a Workflows card from its dataset and analyses.",
+      "powers": [
+        "Workflows: Generate assets on a card"
+      ],
+      "stage": "data",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "data",
+        "modelSource": "settings",
+        "effort": "",
+        "outputTokens": 4000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "Evidence and citation rules for the pack.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 2000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "Return the requested schema.",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "CONTEXT: the card, requested assets, dataset, 80 items and 10 analyses"
+        }
+      ],
+      "enforced": [
+        "Every asset needs assetType, title, channel, markdown and evidenceIds."
+      ],
+      "viewOnly": [
+        {
+          "label": "Return the requested schema.",
+          "reason": "Tied to the answer format the studio reads back, so it stays fixed."
+        }
+      ]
+    },
+    {
+      "id": "system.claude",
+      "name": "Claude system prompt",
+      "group": "system",
+      "description": "Sent as the system prompt on every Claude call (the Claude app and the API key).",
+      "powers": [
+        "Every Claude call"
+      ],
+      "stage": "system",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "system",
+        "modelSource": "none",
+        "effort": "",
+        "outputTokens": 0
+      },
+      "test": {
+        "kind": "none",
+        "samples": []
+      },
+      "blocks": [
+        {
+          "id": "text",
+          "label": "Text",
+          "help": "",
+          "editable": false,
+          "reason": "Runs on every AI call; changing it affects every feature at once.",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 40000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "block",
+          "blockId": "text"
+        }
+      ],
+      "enforced": [],
+      "viewOnly": []
+    },
+    {
+      "id": "system.codex-wrapper",
+      "name": "Codex instruction",
+      "group": "system",
+      "description": "The one line Codex receives; the whole prompt goes in a file it reads.",
+      "powers": [
+        "Every Codex call"
+      ],
+      "stage": "system",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "system",
+        "modelSource": "none",
+        "effort": "",
+        "outputTokens": 0
+      },
+      "test": {
+        "kind": "none",
+        "samples": []
+      },
+      "blocks": [
+        {
+          "id": "text",
+          "label": "Text",
+          "help": "",
+          "editable": false,
+          "reason": "Runs on every AI call; changing it affects every feature at once.",
+          "variables": [
+            {
+              "name": "contextPath",
+              "description": "The file holding the prompt",
+              "example": "/…/ai-input.txt"
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 40000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "block",
+          "blockId": "text"
+        }
+      ],
+      "enforced": [],
+      "viewOnly": []
+    },
+    {
+      "id": "system.repair",
+      "name": "Fix a rejected answer",
+      "group": "system",
+      "description": "Added once when an answer fails the studio’s checks, with the problem and the previous answer.",
+      "powers": [
+        "Research stages, reports, channel assets and picture briefs"
+      ],
+      "stage": "system",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "system",
+        "modelSource": "none",
+        "effort": "",
+        "outputTokens": 0
+      },
+      "test": {
+        "kind": "none",
+        "samples": []
+      },
+      "blocks": [
+        {
+          "id": "text",
+          "label": "Text",
+          "help": "",
+          "editable": false,
+          "reason": "Runs on every AI call; changing it affects every feature at once.",
+          "variables": [
+            {
+              "name": "error",
+              "description": "What the checks found",
+              "example": "candidates.0.painPoint: Invalid painPoint."
+            }
+          ],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 40000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "block",
+          "blockId": "text"
+        },
+        {
+          "kind": "data",
+          "label": "Previous response (for reference), up to 60,000 characters"
+        }
+      ],
+      "enforced": [],
+      "viewOnly": []
+    }
+  ]
+}

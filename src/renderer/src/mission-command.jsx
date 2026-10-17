@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { groupPaletteItems, rankPaletteItems } from './palette-content.js';
 import {
   Activity,
   Archive,
@@ -41,12 +42,22 @@ function Stat({ icon, label, value, detail, tone }) {
   );
 }
 
-export function CommandPalette({ open, items = [], onClose, onRun }) {
+// The ⌘K palette in both layouts. Items are { id, label, icon?, group?, hint?, shortcut?, keywords?, action, args }: typed words
+// match the label and the keywords, results show under their group's heading (best match first), and `fallback`
+// adds one last item for whatever was typed (App's "Ask AI: <text>"). `limit` caps each group: `idle` before typing,
+// `search` after (0 keeps every match). A page's `shortcut` (⌘3) shows beside it, so the palette teaches the keys.
+export function CommandPalette({ open, items = [], onClose, onRun, placeholder = 'Search reports, trends and pages…', fallback, limit = { idle: 0, search: 0 } }) {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
   const dialogRef = useRef(null);
   const inputRef = useRef(null);
-  const visible = items.filter((item) => item.label.toLowerCase().includes(query.trim().toLowerCase()));
+  const typed = query.trim();
+  const sections = useMemo(() => {
+    const grouped = groupPaletteItems(rankPaletteItems(items, typed), (typed ? limit?.search : limit?.idle) || 0);
+    const extra = typed && fallback ? fallback(typed) : null;
+    return extra ? [...grouped.filter((section) => section.items.length), { group: extra.group || '', items: [extra] }] : grouped.filter((section) => section.items.length);
+  }, [items, typed, fallback, limit?.idle, limit?.search]);
+  const visible = sections.flatMap((section) => section.items);
   const selectedIndex = Math.min(activeIndex, visible.length - 1);
   // Enter runs the first match before any arrow key, so show that row as chosen from the start.
   const highlightedIndex = Math.max(0, selectedIndex);
@@ -108,23 +119,33 @@ export function CommandPalette({ open, items = [], onClose, onRun }) {
   }
 
   if (!open) return null;
+  let position = -1;
+  const renderItem = (item) => {
+    position += 1;
+    const index = position;
+    const Icon = item.icon || Command;
+    return (
+      <button type="button" data-palette-command="" className={[index === highlightedIndex ? 'active' : '', item.action === 'ask' ? 'palette-ask' : ''].filter(Boolean).join(' ')} key={item.id} onFocus={() => setActiveIndex(index)} onMouseMove={() => index !== selectedIndex && setActiveIndex(index)} onClick={() => runItem(item)}>
+        <Icon size={16} aria-hidden="true" />
+        {item.hint ? <span className="palette-text"><span>{item.label}</span><small>{item.hint}</small></span> : <span>{item.label}</span>}
+        {item.shortcut && <kbd className="palette-shortcut" aria-hidden="true">{item.shortcut}</kbd>}
+        <kbd aria-hidden="true">↵</kbd>
+      </button>
+    );
+  };
   return (
     <div className="command-palette-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
         <div className="palette-input">
           <Search size={18} aria-hidden="true" />
-          <input ref={inputRef} aria-label="Search commands" value={query} onChange={(event) => { setQuery(event.target.value); setActiveIndex(-1); }} placeholder="Search pages and actions…" />
+          <input ref={inputRef} aria-label="Search commands" value={query} onChange={(event) => { setQuery(event.target.value); setActiveIndex(-1); }} placeholder={placeholder} />
           <kbd>Esc</kbd>
         </div>
         <div className="palette-list" aria-label="Matching commands">
-          {visible.map((item, index) => { const Icon = item.icon || Command; return (
-            <button type="button" data-palette-command="" className={index === highlightedIndex ? 'active' : ''} key={item.id} onFocus={() => setActiveIndex(index)} onMouseMove={() => index !== selectedIndex && setActiveIndex(index)} onClick={() => runItem(item)}>
-              <Icon size={16} aria-hidden="true" />
-              <span>{item.label}</span>
-              <kbd aria-hidden="true">↵</kbd>
-            </button>
-          ); })}
-          {!visible.length && <Empty title="No commands" detail="Try another page or action." />}
+          {sections.map((section, sectionIndex) => (section.group
+            ? <div className="palette-group" role="group" aria-labelledby={`palette-group-${sectionIndex}`} key={section.group}><h3 className="palette-group-label" id={`palette-group-${sectionIndex}`}>{section.group}</h3>{section.items.map(renderItem)}</div>
+            : <React.Fragment key={`ungrouped-${sectionIndex}`}>{section.items.map(renderItem)}</React.Fragment>))}
+          {!visible.length && <Empty title="No matches" detail="Try another word, or the name of a page, report or trend." />}
         </div>
       </section>
     </div>

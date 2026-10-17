@@ -1,0 +1,32 @@
+{
+  "folders": [
+    { "id": "blog", "semrush": "Semrush Blog", "general": "Blog", "semrushShort": "Blog", "generalShort": "Blog", "deliverables": ["blogshort", "bloglong"] },
+    { "id": "newsletter", "semrush": "Semrush Newsletter", "general": "Newsletter", "semrushShort": "Newsletter", "generalShort": "Newsletter", "deliverables": ["newsletter"] },
+    { "id": "paidmedia", "semrush": "Semrush Paid Media", "general": "Paid media", "semrushShort": "Paid media", "generalShort": "Paid media", "deliverables": ["ads", "landingpage"] },
+    { "id": "pr", "semrush": "Semrush PR", "general": "PR", "semrushShort": "PR", "generalShort": "PR", "deliverables": ["pr"] },
+    { "id": "social", "semrush": "Semrush Social Team", "general": "Social", "semrushShort": "Social", "generalShort": "Social", "deliverables": ["social", "brand-image"] },
+    { "id": "affiliate", "semrush": "Affiliate Program", "general": "Partners", "semrushShort": "Affiliate", "generalShort": "Partners", "deliverables": ["affiliate"] },
+    { "id": "enterprise", "semrush": "Enterprise Sales Enablement", "general": "Sales enablement", "semrushShort": "Enterprise", "generalShort": "Sales", "deliverables": ["enterprise"] },
+    { "id": "backlinko", "semrush": "Backlinko", "general": "Video", "semrushShort": "Backlinko", "generalShort": "Video", "deliverables": ["backlinko"] },
+    { "id": "explodingtopics", "semrush": "Exploding Topics", "general": "Trend editorial", "semrushShort": "Exploding Topics", "generalShort": "Trend editorial", "deliverables": ["explodingtopics"] },
+    { "id": "searchengineland", "semrush": "Search Engine Land / MarTech", "general": "News editorial", "semrushShort": "SEL", "generalShort": "News", "deliverables": ["sel", "sel-image", "sel-social-image"] }
+  ],
+  "editionOnly": { "sel-image": ["semrush"], "sel-social-image": ["semrush"] },
+  "semrushFileLabels": {
+    "blogshort": "Blog — Short News Update",
+    "bloglong": "Blog — Long-form Article",
+    "newsletter": "Newsletter — Teaser + Long-form",
+    "ads": "Paid Media — Search Ads + Keywords",
+    "landingpage": "Paid Media — Landing Page",
+    "pr": "PR — Journalist Outreach Research",
+    "social": "Social Team — LinkedIn + X + FB Captions",
+    "brand-image": "Social Team — Hero Graphic",
+    "affiliate": "Affiliate — Partner Promo Pack",
+    "enterprise": "Enterprise — Sales Enablement Brief",
+    "backlinko": "Backlinko — Video Script",
+    "explodingtopics": "Exploding Topics — Social + Email + Trend Card",
+    "sel": "Search Engine Land — News Update + Video Script",
+    "sel-image": "Search Engine Land — Editorial Hero",
+    "sel-social-image": "Search Engine Land — Social Hero"
+  }
+}

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import teamStoreModule from '../src/main/team-store.js';
-const { createTeamStore, migrate, TEAM_VERSION } = teamStoreModule;
+const { createTeamStore, migrate, auditForMember, nameFromEmail, TEAM_VERSION, AUDIT_LIMIT } = teamStoreModule;
 const roots = [];
 afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 
@@ -24,11 +24,12 @@ describe('team file', () => {
     const h = harness();
     expect(h.store.listMembers()).toEqual([]);
     expect(h.store.admins()).toEqual([]);
-    expect(h.store.prefsFor('local')).toEqual({ uiMode: '', welcomedAt: '' });
+    expect(h.store.prefsFor('local')).toEqual({ uiMode: '', welcomedAt: '', inboxSeenAt: '', focusChannels: [], navRail: null });
     expect(fs.existsSync(path.join(h.root, 'team.json'))).toBe(false);
     h.store.saveMember({ name: 'Alex', email: 'Alex@Semrush.com ', role: 'channel', channelId: 'blog' }, ADMIN);
     const saved = h.file();
-    expect(saved).toMatchObject({ version: TEAM_VERSION, members: [{ name: 'Alex', email: 'alex@semrush.com', role: 'channel', channelId: 'blog', disabled: false, createdBy: { id: 'owner', name: 'Studio admin' }, lastSeenAt: '', link: null }], adoptions: [], activity: [], prefs: {} });
+    expect(saved).toMatchObject({ version: TEAM_VERSION, members: [{ name: 'Alex', email: 'alex@semrush.com', role: 'channel', channelId: 'blog', grants: [], denies: [], disabled: false, createdBy: { id: 'owner', name: 'Studio admin' }, lastSeenAt: '', link: null }], roles: [], rolePolicy: { rev: 0, builtIn: {} }, adoptions: [], activity: [], audit: [], prefs: {} });
+    expect(TEAM_VERSION).toBe(2);
     expect(saved.members[0].id).toMatch(/^member-[0-9a-f-]{36}$/);
     expect(fs.readdirSync(h.root).filter((name) => name.endsWith('.tmp'))).toEqual([]);
     expect(fs.statSync(path.join(h.root, 'team.json')).mode & 0o777).toBe(0o600);
@@ -42,8 +43,10 @@ describe('team file', () => {
     }
     expect(() => harness({ files: { 'team.json': JSON.stringify({ version: TEAM_VERSION + 1, members: [] }) }, openNow: false }).open()).toThrow('This team file is from a newer Scraper Studio. Update the app or server.');
     const legacy = harness({ files: { 'team.json': JSON.stringify({ members: [{ id: 'member-1', name: 'Pat', email: 'pat@semrush.com', role: 'editor' }] }) } });
-    expect(legacy.store.listMembers()).toMatchObject([{ id: 'member-1', role: 'editor', channelId: null, disabled: false, link: null, serverAdmin: false }]);
-    expect(migrate({ version: 1, members: [] })).toEqual({ version: 1, members: [] });
+    expect(legacy.store.listMembers()).toMatchObject([{ id: 'member-1', role: 'editor', channelId: null, grants: [], denies: [], disabled: false, link: null, serverAdmin: false }]);
+    // Version 1 becomes version 2 with no access changes: everyone keeps exactly what they had.
+    expect(migrate({ version: 1, members: [{ id: 'member-1', role: 'editor' }] })).toEqual({ version: 2, members: [{ id: 'member-1', role: 'editor', grants: [], denies: [] }], roles: [], rolePolicy: { rev: 0, updatedAt: '', updatedBy: null, builtIn: {} }, audit: [] });
+    expect(legacy.store.identityFor(legacy.store.memberById('member-1'))).toMatchObject({ role: 'editor', roleId: 'editor' });
   });
 
   it('undoes a change in memory when it cannot be written', () => {
@@ -61,7 +64,8 @@ describe('members', () => {
     const { store } = harness();
     expect(() => store.saveMember({ name: ' ', email: 'a@semrush.com', role: 'editor' }, ADMIN)).toThrow('Enter a name of up to 120 characters.');
     expect(() => store.saveMember({ name: 'x'.repeat(121), email: 'a@semrush.com', role: 'editor' }, ADMIN)).toThrow(/120 characters/);
-    expect(() => store.saveMember({ name: 'Pat', email: 'a@semrush.com', role: 'owner' }, ADMIN)).toThrow('Choose Admin, Editor or Channel owner.');
+    expect(() => store.saveMember({ name: 'Pat', email: 'a@semrush.com', role: 'owner' }, ADMIN)).toThrow('Choose a role for this person.');
+    expect(() => store.saveMember({ name: 'Pat', email: 'a@semrush.com', role: 'role-missing-0000' }, ADMIN)).toThrow('Choose a role for this person.');
     expect(() => store.saveMember({ name: 'Pat', email: 'not an email', role: 'editor' }, ADMIN)).toThrow(/work email/);
     expect(() => store.saveMember({ name: 'Pat', role: 'editor' }, ADMIN)).toThrow('Add their work email so they can sign in.');
     expect(() => store.saveMember({ name: 'Pat', email: 'p@semrush.com', role: 'channel' }, ADMIN)).toThrow('Choose the channel this person owns.');
@@ -118,7 +122,7 @@ describe('members', () => {
     store.log('adoption', 'semrush', { themeId: 'theme-aio', channelId: 'blog', status: 'using' }, { id: alex.id, name: 'Alex' });
     const paused = store.saveMember({ id: alex.id, disabled: true }, ADMIN);
     expect(paused).toMatchObject({ disabled: true, link: null });
-    expect(store.prefsFor(alex.id)).toEqual({ uiMode: '', welcomedAt: '' });
+    expect(store.prefsFor(alex.id)).toEqual({ uiMode: '', welcomedAt: '', inboxSeenAt: '', focusChannels: [], navRail: null });
     expect(store.memberByLinkToken(token)).toBeNull();
     expect(store.identityFor(store.memberById(alex.id))).toMatchObject({ role: null, channelId: null, disabled: true });
     expect(() => store.issueLink(alex.id, ADMIN)).toThrow('Turn this person back on before making a sign-in link.');
@@ -208,10 +212,10 @@ describe('SSO sign-in', () => {
   it('gives members their role, disabled members none, and strangers a guest identity', () => {
     const { store } = harness();
     const riley = store.saveMember({ name: 'Riley', email: 'riley@semrush.com', role: 'editor' }, ADMIN);
-    expect(store.fromProxyEmail('Riley@Semrush.com')).toEqual({ id: riley.id, name: 'Riley', email: 'riley@semrush.com', role: 'editor', channelId: null, via: 'proxy', disabled: false, memberSince: riley.createdAt });
+    expect(store.fromProxyEmail('Riley@Semrush.com')).toEqual({ id: riley.id, name: 'Riley', email: 'riley@semrush.com', role: 'editor', roleId: 'editor', channelId: null, via: 'proxy', disabled: false, memberSince: riley.createdAt });
     store.saveMember({ id: riley.id, disabled: true }, ADMIN);
     expect(store.fromProxyEmail('riley@semrush.com')).toMatchObject({ id: riley.id, role: null, disabled: true });
-    expect(store.fromProxyEmail('pat@semrush.com')).toEqual({ id: 'guest:pat@semrush.com', name: 'pat', email: 'pat@semrush.com', role: null, channelId: null, via: 'proxy', disabled: false, memberSince: null });
+    expect(store.fromProxyEmail('pat@semrush.com')).toEqual({ id: 'guest:pat@semrush.com', name: 'pat', email: 'pat@semrush.com', role: null, roleId: null, channelId: null, via: 'proxy', disabled: false, memberSince: null });
     expect(store.fromProxyEmail('')).toBeNull();
     expect(store.fromProxyEmail('nonsense')).toBeNull();
     expect(store.listMembers()).toHaveLength(1);
@@ -268,6 +272,13 @@ describe('trend adoptions', () => {
     expect(store.setAdoption({ ...base, link: 'semrush.com/blog/ai-overviews', note: ' Live on the blog. ' }, alex)).toMatchObject({ link: 'https://semrush.com/blog/ai-overviews', note: 'Live on the blog.' });
     expect(store.setAdoption({ ...base, link: 'http://example.org' }, alex).link).toBe('http://example.org/');
     expect(store.setAdoption({ ...base, link: '' }, alex).link).toBe('');
+    // A planned date: a real calendar day; Not for us clears it; left out keeps it.
+    for (const plannedFor of ['2026-02-30', 'next week', '2026-10-24T00:00:00Z']) expect(() => store.setAdoption({ ...base, plannedFor }, alex)).toThrow('Choose a planned date like 2026-10-24.');
+    expect(store.setAdoption({ ...base, plannedFor: '2026-10-24' }, alex).plannedFor).toBe('2026-10-24');
+    expect(store.setAdoption({ ...base, note: 'Live soon' }, alex).plannedFor).toBe('2026-10-24');
+    expect(store.setAdoption({ ...base, plannedFor: '' }, alex).plannedFor).toBe('');
+    store.setAdoption({ ...base, plannedFor: '2026-10-25' }, alex);
+    expect(store.setAdoption({ ...base, status: 'not-using' }, alex).plannedFor).toBe('');
   });
 
   it('keeps one answer per workspace, trend and channel, records who answered, and clears it', () => {
@@ -333,11 +344,18 @@ describe('activity', () => {
 });
 
 describe('preferences', () => {
-  it('keeps only the layout and the welcome date', () => {
+  it('keeps only the layout, the welcome and Inbox dates, the person’s channels and the sidebar rail', () => {
     const h = harness(); const { store } = h;
-    expect(store.setPrefs('owner', { uiMode: 'classic', viewAs: { role: 'channel', channelId: 'blog' }, theme: 'dark' })).toEqual({ uiMode: 'classic', welcomedAt: '' });
+    expect(store.setPrefs('owner', { uiMode: 'classic', viewAs: { role: 'channel', channelId: 'blog' }, theme: 'dark' })).toEqual({ uiMode: 'classic', welcomedAt: '', inboxSeenAt: '', focusChannels: [], navRail: null });
     expect(h.file().prefs).toEqual({ owner: { uiMode: 'classic' } });
-    expect(store.setPrefs('owner', { welcomedAt: '2026-10-16T09:00:00Z' })).toEqual({ uiMode: 'classic', welcomedAt: '2026-10-16T09:00:00.000Z' });
+    expect(store.setPrefs('owner', { welcomedAt: '2026-10-16T09:00:00Z' })).toMatchObject({ uiMode: 'classic', welcomedAt: '2026-10-16T09:00:00.000Z' });
+    expect(store.setPrefs('owner', { inboxSeenAt: '2026-10-17T08:00:00Z', focusChannels: ['blog', 'social', 'blog'], navRail: false })).toEqual({ uiMode: 'classic', welcomedAt: '2026-10-16T09:00:00.000Z', inboxSeenAt: '2026-10-17T08:00:00.000Z', focusChannels: ['blog', 'social'], navRail: false });
+    expect(h.file().prefs.owner).toEqual({ uiMode: 'classic', welcomedAt: '2026-10-16T09:00:00.000Z', inboxSeenAt: '2026-10-17T08:00:00.000Z', focusChannels: ['blog', 'social'], navRail: false });
+    expect(() => store.setPrefs('owner', { focusChannels: ['Semrush Blog'] })).toThrow('Choose channels from the list.');
+    expect(() => store.setPrefs('owner', { navRail: 'yes' })).toThrow(/sidebar/);
+    expect(() => store.setPrefs('owner', { inboxSeenAt: 'soon' })).toThrow('Choose a valid date.');
+    store.setPrefs('owner', { inboxSeenAt: '', focusChannels: [], navRail: null, welcomedAt: '' });
+    expect(h.file().prefs).toEqual({ owner: { uiMode: 'classic' } });
     expect(() => store.setPrefs('owner', { uiMode: 'advanced' })).toThrow('Choose Simple or Advanced.');
     expect(() => store.setPrefs('owner', { welcomedAt: 'yesterday' })).toThrow('Choose a valid date.');
     expect(() => store.setPrefs('__proto__', { uiMode: 'simple' })).toThrow(/Sign in/);
@@ -347,7 +365,134 @@ describe('preferences', () => {
     expect(writes).not.toHaveBeenCalled();
     store.setPrefs('owner', { uiMode: 'simple', welcomedAt: '' });
     expect(h.file().prefs).toEqual({ owner: { uiMode: 'simple' } });
-    expect(store.prefsFor('local')).toEqual({ uiMode: '', welcomedAt: '' });
-    expect(store.prefsFor('toString')).toEqual({ uiMode: '', welcomedAt: '' });
+    expect(store.prefsFor('local')).toEqual({ uiMode: '', welcomedAt: '', inboxSeenAt: '', focusChannels: [], navRail: null });
+    expect(store.prefsFor('toString')).toEqual({ uiMode: '', welcomedAt: '', inboxSeenAt: '', focusChannels: [], navRail: null });
+  });
+});
+
+describe('roles and access (team.json v2)', () => {
+  const refusal = (fn) => { try { fn(); } catch (error) { return { message: error.message, status: error.status, code: error.code }; } return null; };
+  function team() {
+    const h = harness(); const { store } = h;
+    const alex = store.saveMember({ name: 'Alex', email: 'alex@semrush.com', role: 'admin' }, ADMIN);
+    const riley = store.saveMember({ name: 'Riley', email: 'riley@semrush.com', role: 'editor' }, ADMIN);
+    const sam = store.saveMember({ name: 'Sam', email: 'sam@semrush.com', role: 'channel', channelId: 'blog' }, ADMIN);
+    return { h, store, alex, riley, sam };
+  }
+
+  it('saves the built-in role policy with a rev, refusing a stale one, locked capabilities and missing requirements', () => {
+    const { h, store, alex } = team();
+    const by = { id: alex.id, name: 'Alex' };
+    expect(store.accessSummary()).toMatchObject({ rev: 0, roles: [{ id: 'admin', memberCount: 1 }, { id: 'editor', memberCount: 1 }, { id: 'channel', memberCount: 1 }] });
+    const saved = store.saveRolePolicy({ rev: 0, builtIn: { editor: { grant: ['seeAnalytics'], deny: ['editPrompts'] } } }, by);
+    expect(saved.affected).toBe(1);
+    expect(saved.audit.map((row) => [row.kind, row.target.id, row.changes[0].capability, row.changes[0].to])).toEqual([['policy-changed', 'editor', 'editPrompts', false], ['policy-changed', 'editor', 'seeAnalytics', true]]);
+    expect(saved.access.rev).toBe(1);
+    expect(h.file().rolePolicy).toMatchObject({ rev: 1, updatedBy: { id: alex.id, name: 'Alex' }, builtIn: { editor: { grant: ['seeAnalytics'], deny: ['editPrompts'] } } });
+    expect(store.identityFor(store.memberByEmail('riley@semrush.com'))).toMatchObject({ role: 'editor', roleId: 'editor' });
+    expect(store.accessPolicy().roles.get('editor').capabilities).toContain('seeAnalytics');
+    expect(refusal(() => store.saveRolePolicy({ rev: 0, builtIn: { editor: { grant: [], deny: [] } } }, by))).toMatchObject({ status: 409, code: 'policyConflict', message: expect.stringMatching(/^Alex changed roles at .+, after you opened them\. Reload to see the latest\.$/) });
+    expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { admin: { deny: ['settings'] } } }, by))).toMatchObject({ code: 'adminAccess', status: 400 });
+    expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { editor: { grant: ['settings'] } } }, by))).toMatchObject({ code: 'lockedCapability', message: 'Only admins can have “Settings and connections”.' });
+    expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { channel: { grant: ['askAi'] } } }, by))).toMatchObject({ code: 'notForChannelRoles' });
+    expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { editor: { deny: ['readResearch'] } } }, by))).toMatchObject({ code: 'needsCapability' });
+    expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { editor: { grant: ['teleport'] } } }, by))?.status).toBe(400);
+    // Saving the defaults back clears the adjustment.
+    expect(store.saveRolePolicy({ rev: 1, builtIn: { editor: { grant: [], deny: [] } } }, by).access.rev).toBe(2);
+    expect(h.file().rolePolicy.builtIn).toEqual({});
+    expect(store.saveRolePolicy({ rev: 2, builtIn: { editor: { grant: [], deny: [] } } }, by)).toMatchObject({ affected: 0, audit: [] }); // nothing changed, nothing written
+  });
+
+  it('makes, renames and deletes custom roles, moving their people in the same write', () => {
+    const { h, store, riley, sam } = team();
+    const made = store.saveRole({ label: 'Viewer', base: 'editor', template: 'viewer', rev: 0 }, ADMIN);
+    expect(made.role).toMatchObject({ label: 'Viewer', base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'], template: 'viewer', policyVersion: 1 });
+    expect(made.role.id).toMatch(/^role-viewer-[0-9a-f]{4}$/);
+    expect(made.audit[0]).toMatchObject({ kind: 'role-created', target: { type: 'role', id: made.role.id, name: 'Viewer' } });
+    expect(refusal(() => store.saveRole({ label: 'viewer', base: 'editor', rev: 1 }, ADMIN))).toMatchObject({ code: 'roleName' });
+    expect(refusal(() => store.saveRole({ label: 'Editor', base: 'editor', rev: 1 }, ADMIN))).toMatchObject({ code: 'roleName' });
+    expect(refusal(() => store.saveRole({ id: made.role.id, base: 'channel', rev: 1 }, ADMIN))).toMatchObject({ code: 'roleBase' });
+    expect(refusal(() => store.saveRole({ label: 'Reviewers', base: 'channel', template: 'viewer', rev: 1 }, ADMIN))?.message).toMatch(/different kind of role/);
+    expect(refusal(() => store.saveRole({ label: 'Boss', base: 'admin', rev: 1 }, ADMIN))?.status).toBe(400);
+    expect(refusal(() => store.saveRole({ label: 'Late', base: 'editor', rev: 0 }, ADMIN))?.code).toBe('policyConflict');
+    const renamed = store.saveRole({ id: made.role.id, label: 'Readers', description: 'Read only.', capabilities: ['readAssets', 'readResearch', 'sheets'], rev: 1 }, ADMIN);
+    expect(renamed.role).toMatchObject({ label: 'Readers', description: 'Read only.', capabilities: ['core', 'readAssets', 'readResearch', 'sheets'] });
+    expect(renamed.audit[0].changes.map((change) => change.field)).toEqual(['label', 'description', 'capability']);
+    // People can have it; their identity carries the base and the role.
+    store.saveMember({ id: riley.id, role: made.role.id }, ADMIN);
+    expect(store.identityFor(store.memberById(riley.id))).toMatchObject({ role: 'editor', roleId: made.role.id });
+    expect(refusal(() => store.saveMember({ id: sam.id, role: made.role.id }, ADMIN))).toBeNull(); // channel → editor base is allowed; the channel goes
+    expect(store.memberById(sam.id)).toMatchObject({ role: made.role.id, channelId: null });
+    expect(refusal(() => store.deleteRole({ id: made.role.id, rev: 2 }, ADMIN))).toMatchObject({ status: 409, code: 'roleInUse', message: 'This role has 2 people. Choose a role to move them to first.' });
+    expect(refusal(() => store.deleteRole({ id: made.role.id, moveTo: 'channel', rev: 2 }, ADMIN))?.message).toMatch(/same kind/);
+    expect(refusal(() => store.deleteRole({ id: 'editor', rev: 2 }, ADMIN))?.message).toBe('Built-in roles can’t be deleted.');
+    const deleted = store.deleteRole({ id: made.role.id, moveTo: 'editor', rev: 2 }, ADMIN);
+    expect(deleted).toMatchObject({ ok: true, moved: 2 });
+    expect(deleted.audit.map((row) => row.kind)).toEqual(['role-deleted', 'member-changed', 'member-changed']);
+    expect(store.memberById(riley.id).role).toBe('editor');
+    expect(h.file().roles).toEqual([]);
+  });
+
+  it('gives no access to someone whose role was removed by hand', () => {
+    const h = harness({ files: { 'team.json': JSON.stringify({ version: 2, members: [{ id: 'member-1', name: 'Pat', email: 'pat@semrush.com', role: 'role-gone-0000', grants: ['settings'], denies: [] }], roles: [], rolePolicy: { rev: 0, builtIn: {} }, audit: [] }) } });
+    expect(h.store.identityFor(h.store.memberById('member-1'))).toMatchObject({ role: null, roleId: null });
+  });
+
+  it('adjusts one person’s access, with the guards: admins, yourself, locked and out-of-base capabilities, requirements', () => {
+    const { store, alex, riley, sam } = team();
+    const result = store.saveMemberAccess({ id: riley.id, grants: ['seeAnalytics', 'askAi'], denies: ['askAi', 'editPrompts'] }, ADMIN);
+    expect(result.member).toMatchObject({ grants: ['seeAnalytics'], denies: ['askAi', 'editPrompts'] }); // deny wins
+    expect(result.audit[0]).toMatchObject({ kind: 'member-access', target: { id: riley.id, name: 'Riley' } });
+    expect(result.audit[0].changes).toEqual([{ field: 'capability', capability: 'askAi', from: 'default', to: 'off' }, { field: 'capability', capability: 'editPrompts', from: 'default', to: 'off' }, { field: 'capability', capability: 'seeAnalytics', from: 'default', to: 'on' }]);
+    expect(store.accessFor(riley.id)).toEqual({ grants: ['seeAnalytics'], denies: ['askAi', 'editPrompts'] });
+    expect(store.saveMemberAccess({ id: riley.id, grants: ['seeAnalytics'], denies: ['askAi', 'editPrompts'] }, ADMIN).audit).toEqual([]); // no change
+    expect(refusal(() => store.saveMemberAccess({ id: alex.id, grants: ['askAi'] }, ADMIN))).toMatchObject({ code: 'adminAccess' });
+    expect(refusal(() => store.saveMemberAccess({ id: riley.id, grants: ['settings'] }, ADMIN))).toMatchObject({ code: 'lockedCapability' });
+    expect(refusal(() => store.saveMemberAccess({ id: sam.id, grants: ['askAi'] }, ADMIN))).toMatchObject({ code: 'notForChannelRoles' });
+    expect(refusal(() => store.saveMemberAccess({ id: riley.id, grants: ['startResearch'], denies: ['readResearch'] }, ADMIN))).toMatchObject({ code: 'needsCapability', message: '“Start research” also needs “See research and evidence”.' });
+    expect(refusal(() => store.saveMemberAccess({ id: riley.id, grants: [] }, { id: riley.id, name: 'Riley' }))).toMatchObject({ code: 'selfChange' });
+    expect(refusal(() => store.saveMemberAccess({ id: 'member-missing' }, ADMIN))?.status).toBe(404);
+    // Moving to another kind of role clears their own changes.
+    store.saveMember({ id: riley.id, role: 'channel', channelId: 'pr' }, ADMIN);
+    expect(store.accessFor(riley.id)).toEqual({ grants: [], denies: [] });
+    expect(auditForMember(result.member, store.memberById(riley.id), (id) => store.roleLabel(id))).toMatchObject({ kind: 'member-changed', changes: expect.arrayContaining([{ field: 'role', from: 'editor', to: 'channel', fromLabel: 'Editor', toLabel: 'Channel owner' }, { field: 'channelId', from: '', to: 'pr' }, { field: 'grant', capability: 'seeAnalytics', from: true, to: false }]) });
+  });
+
+  it('invites people in one write, skipping what can’t be added, with links when asked', () => {
+    const { h, store } = team();
+    const writes = vi.spyOn(fs, 'renameSync');
+    const result = store.inviteMembers({ people: [{ email: 'Pat.Lee@semrush.com' }, 'jordan@semrush.com', { email: 'riley@semrush.com' }, { email: 'pat.lee@semrush.com' }, { email: 'not an email' }], role: 'channel', channelId: 'social', grants: [], denies: ['makeAssets'], makeLinks: true, linkDays: 7 }, ADMIN);
+    expect(writes).toHaveBeenCalledTimes(1);
+    expect(result.members.map((member) => [member.name, member.email, member.role, member.channelId, member.denies])).toEqual([['Pat Lee', 'pat.lee@semrush.com', 'channel', 'social', ['makeAssets']], ['Jordan', 'jordan@semrush.com', 'channel', 'social', ['makeAssets']]]);
+    expect(result.skipped).toEqual([{ email: 'riley@semrush.com', reason: 'Already in the studio' }, { email: 'pat.lee@semrush.com', reason: 'Listed twice' }, { email: 'not an email', reason: 'Not an email address' }]);
+    expect(result.links).toHaveLength(2);
+    expect(result.links[0]).toEqual({ id: result.members[0].id, token: expect.stringMatching(/^[0-9a-f]{64}$/), expiresAt: '2026-10-23T09:00:00.000Z' });
+    expect(JSON.stringify(h.file())).not.toContain(result.links[0].token);
+    expect(store.memberByLinkToken(result.links[0].token)?.member.id).toBe(result.members[0].id);
+    expect(result.audit.map((row) => row.kind)).toEqual(['member-added', 'link-issued', 'member-added', 'link-issued']);
+    expect(store.inviteMembers({ people: ['riley@semrush.com'], role: 'editor' }, ADMIN)).toMatchObject({ members: [], skipped: [{ reason: 'Already in the studio' }] });
+    expect(() => store.inviteMembers({ people: [], role: 'editor' }, ADMIN)).toThrow('Add between 1 and 50 email addresses.');
+    expect(() => store.inviteMembers({ people: ['x@semrush.com'], role: 'channel' }, ADMIN)).toThrow('Choose the channel they own.');
+    expect(refusal(() => store.inviteMembers({ people: ['x@semrush.com'], role: 'admin', grants: ['askAi'] }, ADMIN))).toMatchObject({ code: 'adminAccess' });
+    expect(nameFromEmail('sam_o-neil+studio@semrush.com')).toBe('Sam O Neil Studio');
+  });
+
+  it('keeps an access log of its own: 2,000 rows, filtered and paged, never evicted by activity', () => {
+    const h = harness({ files: { 'team.json': JSON.stringify({ version: 2, members: [], roles: [], rolePolicy: { rev: 0, builtIn: {} }, adoptions: [], activity: [], prefs: {}, audit: Array.from({ length: AUDIT_LIMIT }, (_, index) => ({ id: `audit-${index}`, at: '2026-10-01T00:00:00.000Z', by: { id: 'x', name: 'X' }, kind: 'link-issued', target: { type: 'member', id: `member-${index % 3}`, name: 'M' }, changes: [], affected: 1 })) }) } });
+    const written = h.store.audit([{ kind: 'policy-changed', target: { type: 'role', id: 'editor', name: 'Editor' }, changes: [{ field: 'capability', capability: 'askAi', from: true, to: false, token: 'secret' }], affected: 3 }, { kind: 'hacked', target: {} }], { id: 'member-alex', name: 'Alex' });
+    expect(written).toHaveLength(1);
+    expect(h.file().audit).toHaveLength(AUDIT_LIMIT);
+    expect(h.file().audit[0].id).toBe('audit-1');
+    expect(h.file().audit.at(-1)).toMatchObject({ kind: 'policy-changed', by: { name: 'Alex' }, changes: [{ field: 'capability', capability: 'askAi', from: true, to: false }] });
+    expect(JSON.stringify(h.file().audit.at(-1))).not.toContain('secret');
+    const first = h.store.auditFor({ limit: 2 });
+    expect(first.rows.map((row) => row.kind)).toEqual(['policy-changed', 'link-issued']);
+    expect(first).toMatchObject({ more: true, next: first.rows[1].id });
+    expect(h.store.auditFor({ limit: 2, before: first.next }).rows[0].id).toBe(`audit-${AUDIT_LIMIT - 2}`);
+    expect(h.store.auditFor({ roleId: 'editor' }).rows).toHaveLength(1);
+    expect(h.store.auditFor({ kinds: ['link-issued'], memberId: 'member-1', limit: 200 }).rows.every((row) => row.target.id === 'member-1')).toBe(true);
+    expect(h.store.auditFor({ memberId: 'member-alex' }).rows).toHaveLength(1); // rows they made
+    for (let index = 0; index < 5; index++) h.store.log('research-started', 'semrush', { programName: 'Pulse' }, { id: 'member-alex', name: 'Alex' });
+    expect(h.file().audit).toHaveLength(AUDIT_LIMIT);
   });
 });

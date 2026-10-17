@@ -152,8 +152,11 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     finally { for (const id of uploadIds) { const entry = uploads.get(String(id)); if (entry) { uploads.delete(String(id)); removeLater(path.dirname(entry.path)); } } }
   }
   async function upload(req, res, who) {
-    // Only admins and editors pick files (imports, setup files); a preview as a channel owner can't either.
-    if (who.identity && !['admin', 'editor'].includes(effective(who.identity, who.session).role)) return send(res, 403, { error: noAccess(who) ? noAccessMessage(who.identity) : COPY.forbidden });
+    // Only someone who may call a method that reads a file picks one (imports, setup files, brand images); never in a
+    // preview. The people provider answers from the role policy; without one, admins and editors may, as before.
+    const provider = people();
+    const mayUpload = !who.identity || (typeof provider?.canUpload === 'function' ? provider.canUpload(who.identity, who.session) : ['admin', 'editor'].includes(effective(who.identity, who.session).role));
+    if (!mayUpload) return send(res, 403, { error: noAccess(who) ? noAccessMessage(who.identity) : COPY.forbidden });
     const name = safeName(decodeURIComponent(String(req.headers['x-file-name'] || 'upload')));
     if (Number(req.headers['content-length'] || 0) > MAX_UPLOAD_BYTES) return send(res, 413, { error: 'Choose a file under 30 MB.' });
     const body = await readBody(req, MAX_UPLOAD_BYTES);
@@ -178,7 +181,9 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     const view = () => (provider ? provider.view(base, who.identity, who.session) : JSON.stringify(base));
     if (!base || typeof base !== 'object') return view();
     const seen = provider && effective(who.identity, who.session);
-    const key = seen ? `${who.identity.id}|${seen.role}|${seen.channelId || ''}|${seen.preview ? 'preview' : ''}` : '*';
+    // A preview of one person ({ memberId }) or a custom role looks like a plain admin or editor to effective(), so the
+    // provider's own key (the whole viewer) separates them when it has one.
+    const key = seen ? (typeof provider.viewKey === 'function' ? `${who.identity.id}|${provider.viewKey(who.identity, who.session)}` : `${who.identity.id}|${seen.role}|${seen.channelId || ''}|${seen.preview ? 'preview' : ''}|${who.session?.viewAs?.memberId || who.session?.viewAs?.role || ''}`) : '*';
     let views = rendered.get(base); if (!views) { views = new Map(); rendered.set(base, views); }
     if (!views.has(key)) views.set(key, view());
     return views.get(key);

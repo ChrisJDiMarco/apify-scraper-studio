@@ -47,7 +47,8 @@ button {
   font-weight: 740;
   transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, color 150ms ease, transform 150ms ease;
 }
-button:hover {
+/* Like premium.css, the dark hover stays out of Simple, whose controls each set their own (no added specificity). */
+button:hover:not(:where(.app-shell[data-mode="simple"] *)) {
   background: #263537;
   box-shadow: 0 8px 18px rgba(14, 23, 25, 0.16);
   transform: translateY(-1px);
@@ -62,7 +63,7 @@ button.ghost {
   color: #1c292b;
   background: rgba(255, 255, 255, 0.84);
 }
-button.ghost:hover {
+button.ghost:hover:not(:where(.app-shell[data-mode="simple"] *)) {
   border-color: #d1dad7;
   background: #ffffff;
 }
@@ -162,120 +163,6 @@ meter {
   height: 100dvh;
   overflow: hidden;
   background: #eef1ee;
-}
-.sidebar {
-  position: relative;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 18px;
-  min-height: 0;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 54px 14px 16px;
-  color: #e8f1f1;
-  background: linear-gradient(180deg, #172123 0%, var(--rail) 100%);
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
-}
-.sidebar::before {
-  position: absolute;
-  top: 18px;
-  left: 20px;
-  width: 50px;
-  height: 12px;
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at 6px 6px, #ff6159 0 5px, transparent 5.5px),
-    radial-gradient(circle at 25px 6px, #ffbf3f 0 5px, transparent 5.5px),
-    radial-gradient(circle at 44px 6px, #2fd36b 0 5px, transparent 5.5px);
-  content: "";
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px 10px;
-}
-.brand > span {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  color: #0f1718;
-  background: var(--lime);
-  box-shadow: 0 12px 28px rgba(201, 255, 53, 0.2);
-  font-weight: 900;
-}
-.brand strong,
-.brand small {
-  display: block;
-}
-.brand strong {
-  color: #ffffff;
-  line-height: 1.08;
-}
-.brand small {
-  color: #93a1a4;
-  margin-top: 3px;
-}
-nav {
-  min-height: 0;
-  overflow: auto;
-  padding-right: 2px;
-}
-.nav-group {
-  display: grid;
-  gap: 7px;
-  margin-bottom: 22px;
-}
-.nav-group small {
-  padding: 0 10px 3px;
-  color: #8b999b;
-  font-weight: 820;
-  text-transform: uppercase;
-}
-nav button {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  justify-content: flex-start;
-  width: 100%;
-  min-height: 40px;
-  border-color: transparent;
-  color: #dde8e8;
-  background: transparent;
-  text-align: left;
-  box-shadow: none;
-}
-nav button::before {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #6d7b7d;
-  content: "";
-  flex: 0 0 auto;
-}
-nav button.active,
-nav button:hover {
-  color: #101719;
-  background: var(--lime);
-  box-shadow: 0 12px 28px rgba(201, 255, 53, 0.17);
-  transform: none;
-}
-nav button.active::before,
-nav button:hover::before {
-  background: #101719;
-}
-.sidebar-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
-  padding: 11px;
-  color: #cbd7d9;
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.04);
 }
 .workspace {
   display: grid;

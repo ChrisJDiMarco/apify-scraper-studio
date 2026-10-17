@@ -20,6 +20,8 @@ const EARLIER_MS = 14 * 86400000;
 const NEEDS_ADMIN = /(api[\s_-]?keys?|\bkeys?\b|\bsettings\b|\btokens?\b|\blog(?:ged)?[\s-]?in\b|\bsign(?:ed)?[\s-]?in\b|\bcredentials?\b|\bunauthori[sz]ed\b|\bauthenticat|\bcredits?\b|\bbilling\b)/i;
 const NEEDS_ADMIN_MESSAGE = 'Ask an admin: the AI connection needs attention.';
 const UNFINISHED = new Set(['failed', 'partial', 'cancelled']);
+// Where an asset is in the team's pipeline (content-workspace setAssetStatus); anything else reads as a draft.
+const ASSET_STATUSES = new Set(['draft', 'in-review', 'approved', 'scheduled', 'published']);
 
 const descriptorOf = (id) => content.CONTENT_DELIVERABLES.find((entry) => entry.id === id);
 // A deliverable's channel: kitFolderFor(deliverableId, editionId).id, from one lookup table per edition because every
@@ -113,13 +115,17 @@ function readyTrends(contentStudio = {}) {
       const primary = files.find((asset) => asset.deliverableId === 'editorial-toolkit') || files.find((asset) => asset.deliverableId === 'evidence-report') || null;
       const tracked = repository.get(theme.id) || {};
       const tier = theme.scoring?.priorityTier || tracked.scoring?.priorityTier || '';
+      // Who said yes, with their note and the channels they routed it to ([] = every channel). Automatic approval
+      // (autoApproveThemes) is said as such, not as a person.
+      const by = run.decisionsBy?.[theme.id];
+      const decidedBy = by ? { name: String(by.name || ''), at: by.at || null, auto: by.id === 'system', note: typeof by.note === 'string' ? by.note : '', channels: list(by.channels).filter((id) => typeof id === 'string') } : null;
       ready.set(theme.id, {
         themeId: theme.id, name: theme.name || tracked.name || 'Untitled trend', description: theme.description || tracked.description || '',
         category: theme.scoring?.taxonomy?.category && theme.scoring.taxonomy.category !== 'UNMAPPED' ? theme.scoring.taxonomy.category : theme.taxonomyCategory || '',
         priorityTier: tier, priority: PRIORITY[tier] || null, evidenceCount: Number(theme.evidenceCount ?? list(theme.evidenceIds).length) || 0,
         readyAt, researchRunId: run.id, reportRunId: report.id,
         reportAssets: files.map(({ id, title, deliverableId }) => ({ id, title: title || '', deliverableId })),
-        primaryReportId: primary?.id || null, briefEditedAt: primary?.edited?.at || null,
+        primaryReportId: primary?.id || null, briefEditedAt: primary?.edited?.at || null, decidedBy,
       });
     }
   }
@@ -146,22 +152,29 @@ function buildChannelView({ contentStudio = {}, adoptions = [], channelId = null
   const runs = kitRuns.map((run) => publicKitRun(run, channelId, editionId));
   const themeOfRun = new Map(kitRuns.map((run) => [run.id, run.kit.themeId || null]));
   const assets = list(contentStudio.assets).filter((asset) => themeOfRun.has(asset.runId) && folderOf(asset.deliverableId, editionId) === channelId).sort(newestFirst('createdAt'))
-    .map((asset) => ({ id: asset.id, runId: asset.runId, themeId: themeOfRun.get(asset.runId), deliverableId: asset.deliverableId, title: asset.title || '', kind: asset.kind || 'text', format: asset.format || '', createdAt: asset.createdAt || '', variantIndex: Number.isInteger(asset.variantIndex) ? asset.variantIndex : null, edited: editedOf(asset) }));
+    .map((asset) => ({ id: asset.id, runId: asset.runId, themeId: themeOfRun.get(asset.runId), deliverableId: asset.deliverableId, title: asset.title || '', kind: asset.kind || 'text', format: asset.format || '', createdAt: asset.createdAt || '', variantIndex: Number.isInteger(asset.variantIndex) ? asset.variantIndex : null, edited: editedOf(asset), status: ASSET_STATUSES.has(asset.reviewStatus) ? asset.reviewStatus : 'draft', link: asset.review?.status === 'published' && typeof asset.review.link === 'string' ? asset.review.link : '' }));
   // Sets and file counts per trend, grouped once (newest first, as runs are).
   const runsByTheme = new Map(); const assetCounts = new Map();
   for (const run of runs) { const key = run.kit.themeId; let rows = runsByTheme.get(key); if (!rows) { rows = []; runsByTheme.set(key, rows); } rows.push(run); }
   for (const asset of assets) assetCounts.set(asset.themeId, (assetCounts.get(asset.themeId) || 0) + 1);
   const answers = new Map(list(adoptions).filter((row) => row && row.channelId === channelId && (!row.workspaceId || !workspaceId || row.workspaceId === workspaceId)).map((row) => [row.themeId, row]));
   const since = time(memberSince);
+  const channelName = (id) => kit.kitFolders(editionId).find((entry) => entry.id === id)?.name || id;
   const trends = readyTrends(contentStudio).map((trend) => {
     const answer = answers.get(trend.themeId);
-    const adoption = answer ? { status: answer.status, link: answer.link || '', note: answer.note || '', at: answer.at || answer.updatedAt || null, byName: answer.by?.name || '', byMe: Boolean(viewerId) && answer.by?.id === viewerId } : null;
+    const adoption = answer ? { status: answer.status, link: answer.link || '', note: answer.note || '', plannedFor: typeof answer.plannedFor === 'string' ? answer.plannedFor : '', at: answer.at || answer.updatedAt || null, byName: answer.by?.name || '', byMe: Boolean(viewerId) && answer.by?.id === viewerId } : null;
     const earlier = !adoption && Number.isFinite(since) && time(trend.readyAt) < since - EARLIER_MS;
     const own = runsByTheme.get(trend.themeId) || [];
+    // Routing: a trend sent to other channels only stays on the list (under All) but isn't new for this one.
+    const routed = list(trend.decidedBy?.channels); const offered = !routed.length || routed.includes(channelId); const forUs = routed.includes(channelId);
+    const decided = trend.decidedBy;
     return {
       themeId: trend.themeId, name: trend.name, description: trend.description, priority: trend.priority, category: trend.category, evidenceCount: trend.evidenceCount, readyAt: trend.readyAt,
-      primaryReportId: trend.primaryReportId, reportAssets: trend.reportAssets, adoption, isNew: !adoption && !earlier, earlier, briefEditedAt: trend.briefEditedAt,
+      primaryReportId: trend.primaryReportId, reportAssets: trend.reportAssets, adoption, isNew: !adoption && !earlier && offered, earlier, briefEditedAt: trend.briefEditedAt,
       latestRun: cardRun(own), runCount: own.length, assetCount: assetCounts.get(trend.themeId) || 0,
+      offered, forUs,
+      decidedBy: decided ? { name: decided.name, at: decided.at, auto: decided.auto } : null,
+      suggestion: decided && (decided.note || routed.length) ? { byName: decided.auto ? '' : decided.name, at: decided.at, note: decided.note, channels: routed.map((id) => ({ id, name: channelName(id) })) } : null,
     };
   });
   return { channel, counts: { newTrends: trends.filter((trend) => trend.isNew).length }, trends, runs, assets };

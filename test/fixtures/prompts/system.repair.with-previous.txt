@@ -1,0 +1,6 @@
+
+
+YOUR PREVIOUS RESPONSE WAS REJECTED BY VALIDATION: candidates.0.painPoint: Invalid painPoint.
+Return a complete, corrected response for the whole task.
+Previous response (for reference):
+{"candidates":[{"name":"Example"}]}

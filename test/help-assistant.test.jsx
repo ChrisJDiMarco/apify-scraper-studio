@@ -15,7 +15,7 @@ describe('Ask AI panel', () => {
     const onOpenPage = vi.fn();
     render(<HelpAssistant api={api} open onClose={vi.fn()} page={page} onOpenPage={onOpenPage} />);
     fireEvent.click(screen.getByRole('button', { name: /How do I run my first research program\?/ }));
-    await waitFor(() => expect(api.askHelp).toHaveBeenCalledWith({ question: 'How do I run my first research program?', history: [], page }));
+    await waitFor(() => expect(api.askHelp).toHaveBeenCalledWith(expect.objectContaining({ question: 'How do I run my first research program?', history: [], page, requestId: expect.any(String) })));
     const answer = await screen.findByRole('article', { name: 'Answer' });
     expect(within(answer).getByText('Start research')).toBeInTheDocument();
     expect(answer).toHaveTextContent('claude-opus-5-5 · $0.09');
