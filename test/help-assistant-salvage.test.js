@@ -173,3 +173,18 @@ describe('Ask AI with an unreadable reply, end to end through the router and the
     expect(error.partial).toBe('');
   });
 });
+
+describe('salvage when Claude answers in plain prose', () => {
+  it('uses the whole prose reply as the answer after a schema-in-prompt retry', async () => {
+    const { salvageReply, SALVAGE_NOTE } = await import('../src/main/help-assistant.js');
+    const rawText = 'Neither of your latest runs failed. Both were **cancelled**.\n\n- Research run: cancelled while collecting.';
+    const saved = salvageReply(Object.assign(new Error('x'), { code: 'CLAUDE_INVALID_RESULT', rawText, schemaInPrompt: true, costUsd: 0.2 }));
+    expect(saved.output.answer).toBe(`${rawText}\n\n${SALVAGE_NOTE}`);
+    expect(saved.receipt.costUsd).toBe(0.2);
+  });
+  it('does not treat broken JSON or a native reply as prose', async () => {
+    const { salvageReply } = await import('../src/main/help-assistant.js');
+    expect(salvageReply(Object.assign(new Error('x'), { code: 'CLAUDE_INVALID_RESULT', rawText: '{"pages": [', schemaInPrompt: true }))).toBeNull();
+    expect(salvageReply(Object.assign(new Error('x'), { code: 'CLAUDE_INVALID_RESULT', rawText: 'Plain words', schemaInPrompt: false }))).toBeNull();
+  });
+});

@@ -23,7 +23,19 @@ export function revealSection(el, { smooth = true, focus = false } = {}) {
   if (!el) return;
   const details = el.tagName === 'DETAILS' ? el : [...el.children].find((child) => child.tagName === 'DETAILS');
   if (details && !details.open) details.open = true;
-  el.scrollIntoView?.({ block: 'start', behavior: smooth && !reducedMotion() ? 'smooth' : 'auto' });
+  // Scroll only the section's own scroll area. scrollIntoView also scrolls every ancestor, including the app frame's
+  // overflow-hidden boxes, so a jump to a short section near the bottom used to shift the whole page (and the sticky
+  // section nav) up out of view.
+  const behavior = smooth && !reducedMotion() ? 'smooth' : 'auto';
+  const area = scrollParent(el);
+  if (area) {
+    const top = el.getBoundingClientRect().top - area.getBoundingClientRect().top + area.scrollTop - (parseFloat(window.getComputedStyle(el).scrollMarginTop) || 0);
+    area.scrollTo?.({ top: Math.max(0, top), behavior });
+  } else {
+    const page = document.scrollingElement;
+    if (page && page.scrollHeight > page.clientHeight) window.scrollTo?.({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - (parseFloat(window.getComputedStyle(el).scrollMarginTop) || 0)), behavior });
+    else el.scrollIntoView?.({ block: 'nearest', behavior }); // nothing scrolls: only bring it into view if it's hidden
+  }
   if (!focus) return;
   const target = el.querySelector('h2, h3, summary');
   if (!target) return;

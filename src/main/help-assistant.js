@@ -831,6 +831,10 @@ function salvageReply(error, { keys } = {}) {
   if (!error || typeof error !== 'object' || !SALVAGE_CODES.has(error.code) || typeof error.rawText !== 'string') return null;
   let answer = '';
   try { answer = String(readStringField(error.rawText, 'answer', { keys }) ?? '').trim(); } catch (_) { answer = ''; }
+  // When the API refuses the answer schema the reply is asked for as JSON in the prompt, and Claude sometimes answers in
+  // plain prose instead (seen live: schemaInPrompt with a markdown answer and no JSON at all). That prose is the answer.
+  const plainProse = !answer && error.schemaInPrompt === true && !/\{\s*"/.test(error.rawText) && !/^\s*```/.test(error.rawText);
+  if (plainProse) answer = error.rawText.trim();
   if (!answer) return null;
   let followUps = [];
   try { const listed = readJsonField(error.rawText, 'followUps'); if (Array.isArray(listed) && listed.every((line) => typeof line === 'string')) followUps = listed; } catch (_) { followUps = []; }

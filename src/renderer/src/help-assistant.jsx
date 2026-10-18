@@ -139,6 +139,35 @@ function referencesLine(image) {
 
 // A picture made in the chat, in the same card shell as every other card: a sized placeholder while it's drawn, then the
 // picture (click to enlarge), what it cost and Download.
+// The drawer's left edge: drag (or arrow keys) to widen it; double-click resets. The width is remembered per browser.
+const DRAWER_KEY = 'studio.ask.drawerWidth';
+const DRAWER_DEFAULT = 440; const DRAWER_MIN = 360; const DRAWER_MAX = 900;
+const clampDrawer = (value) => Math.round(Math.max(DRAWER_MIN, Math.min(value, DRAWER_MAX, (typeof window !== 'undefined' ? window.innerWidth : 1440) - 320)));
+function readDrawerWidth() { try { const saved = Number(window.localStorage.getItem(DRAWER_KEY)); return saved ? clampDrawer(saved) : DRAWER_DEFAULT; } catch { return DRAWER_DEFAULT; } }
+function saveDrawerWidth(value) { try { window.localStorage.setItem(DRAWER_KEY, String(value)); } catch { /* a blocked store just forgets */ } }
+function DrawerResizer({ width, onWidth }) {
+  const start = (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handle = event.currentTarget; handle.setPointerCapture?.(event.pointerId);
+    document.body.classList.add('is-resizing-drawer');
+    let last = width;
+    const move = (moved) => { last = clampDrawer(window.innerWidth - moved.clientX); onWidth(last); };
+    const end = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', end); handle.removeEventListener('pointercancel', end); document.body.classList.remove('is-resizing-drawer'); saveDrawerWidth(last); };
+    handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', end); handle.addEventListener('pointercancel', end);
+  };
+  const key = (event) => {
+    const step = event.shiftKey ? 80 : 24;
+    const next = event.key === 'ArrowLeft' ? width + step : event.key === 'ArrowRight' ? width - step : event.key === 'Home' ? DRAWER_MIN : event.key === 'End' ? DRAWER_MAX : null;
+    if (next == null) return;
+    event.preventDefault(); const value = clampDrawer(next); onWidth(value); saveDrawerWidth(value);
+  };
+  return <div className="help-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Ask AI" aria-valuemin={DRAWER_MIN} aria-valuemax={DRAWER_MAX} aria-valuenow={width} tabIndex={0}
+    title="Drag to resize · double-click to reset" onPointerDown={start} onKeyDown={key} onDoubleClick={() => { onWidth(DRAWER_DEFAULT); saveDrawerWidth(DRAWER_DEFAULT); }}>
+    <span className="help-resizer-grip" aria-hidden="true" />
+  </div>;
+}
+
 function Picture({ image, onRetry, onDownload, onEnlarge, onOpenAssets }) {
   const pending = image.status === 'creating' || image.status === 'loading';
   return <ReplyCard type="picture" kicker="Picture" title={image.title} icon={ImageIcon}>
@@ -355,6 +384,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   const [stopping, setStopping] = useState('');
   const [notice, setNotice] = useState('');
   const [enlarged, setEnlarged] = useState(null);
+  const [drawerWidth, setDrawerWidth] = useState(readDrawerWidth);
   const [actionState, setActionState] = useState({});
   const [panel, setPanel] = useState(''); // '' | 'history' (drawer) | 'memory'
   const [railOpen, setRailOpen] = useState(false);
@@ -1023,8 +1053,9 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   </>;
 
   const railHidden = narrow && !railOpen;
-  return <aside ref={asideRef} id={inline ? 'help-page' : 'help-drawer'} className={`help-drawer${inline ? ' help-page' : ''}${inline && persisted ? ' has-rail' : ''}${open || inline ? ' open' : ''}${dropping ? ' is-dropping' : ''}`} aria-label="Ask AI about Scraper Studio" aria-hidden={!open && !inline} inert={!open && !inline}
+  return <aside ref={asideRef} id={inline ? 'help-page' : 'help-drawer'} className={`help-drawer${inline ? ' help-page' : ''}${inline && persisted ? ' has-rail' : ''}${open || inline ? ' open' : ''}${dropping ? ' is-dropping' : ''}`} aria-label="Ask AI about Scraper Studio" aria-hidden={!open && !inline} inert={!open && !inline} style={inline ? undefined : { '--help-drawer-w': `${drawerWidth}px` }}
     onDragOver={onDragOver} onDragEnter={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+    {!inline && <DrawerResizer width={drawerWidth} onWidth={setDrawerWidth} />}
     {inline ? <>
       {persisted && <nav className={`help-rail${railOpen ? ' is-open' : ''}`} data-spot={narrow ? undefined : 'ask.conversations'} aria-label="Ask AI conversations" aria-hidden={railHidden || undefined} inert={railHidden || undefined}>{history}</nav>}
       {persisted && narrow && railOpen && <button type="button" className="help-rail-scrim" aria-label="Close conversations" tabIndex={-1} onClick={() => setRailOpen(false)} />}

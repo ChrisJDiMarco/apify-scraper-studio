@@ -168,7 +168,7 @@ function buildMessageParams({ model, prompt, schema, maxTokens, effort = '', ada
 // The API compiles a structured-output schema into a grammar and refuses one it judges too large or too complex; these
 // are the messages it uses. The request is retried once with the schema written into the prompt instead (see run()).
 const GRAMMAR_REFUSED = /compiled grammar is too large|too complex for compilation/i;
-const answerFormat = (schemaText) => `\n\nANSWER FORMAT\nReturn only one JSON object that matches this JSON schema: every property it lists, nothing else, no code fences and no text before or after it.\n${schemaText}`;
+const answerFormat = (schemaText) => `\n\nANSWER FORMAT (this overrides any other instruction about how to write the reply)\nYour whole reply must be one JSON object that matches the JSON schema below: every property it lists, nothing else, no code fences and no text before or after it. Anything you would write as prose (Markdown included) goes inside the object's string fields, escaped as JSON, never outside the object. Start your reply with { and end it with }.\n${schemaText}`;
 
 const usd = (value) => `$${value >= 0.1 ? value.toFixed(2) : Number(value.toPrecision(2))}`;
 const RAISE_BUDGET = "Raise the run's AI budget and retry; finished steps are kept.";

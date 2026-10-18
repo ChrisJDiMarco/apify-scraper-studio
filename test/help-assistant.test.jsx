@@ -374,3 +374,22 @@ describe('Ask AI streaming', () => {
     sessionStorage.clear();
   });
 });
+
+describe('Ask AI drawer resize handle', () => {
+  it('widens with the arrow keys, remembers the width and resets on double-click', () => {
+    const store = new Map(); vi.stubGlobal('localStorage', { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, String(value)), removeItem: (key) => store.delete(key) });
+    render(<HelpAssistant api={{ askHelp: vi.fn() }} open onClose={vi.fn()} page={{ id: 'home', label: 'Home' }} onOpenPage={vi.fn()} />);
+    const handle = screen.getByRole('separator', { name: 'Resize Ask AI' });
+    const drawer = document.getElementById('help-drawer');
+    expect(handle).toHaveAttribute('aria-valuenow', '440');
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(handle).toHaveAttribute('aria-valuenow', '464');
+    expect(drawer.style.getPropertyValue('--help-drawer-w')).toBe('464px');
+    expect(store.get('studio.ask.drawerWidth')).toBe('464');
+    fireEvent.keyDown(handle, { key: 'Home' });
+    expect(handle).toHaveAttribute('aria-valuenow', '360');
+    fireEvent.doubleClick(handle);
+    expect(handle).toHaveAttribute('aria-valuenow', '440');
+    vi.unstubAllGlobals();
+  });
+});
