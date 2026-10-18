@@ -48,6 +48,9 @@ function falInput(profile = {}, request = {}) {
   if (request.negativePrompt && fields.has('negative_prompt')) body.negative_prompt = request.negativePrompt;
   return body;
 }
+// A request's status, result and cancel addresses use the app id (owner/app) without the endpoint's sub-path, e.g.
+// bytedance/seedance-2.0 for bytedance/seedance-2.0/fast/text-to-video (fal returns them; these are the fallbacks).
+const appOf = (endpoint) => String(endpoint || '').split('/').slice(0, 2).join('/');
 const isMp4 = (bytes) => Buffer.isBuffer(bytes) && bytes.length > 12 && bytes.toString('ascii', 4, 8) === 'ftyp';
 
 function createFalProvider({ getKey, fetchImpl = globalThis.fetch, clock = Date.now, sleep = wait, pollMs = 2500, slowPollMs = 5000, maxWaitMs = 15 * 60 * 1000, mediaHosts = String(process.env.STUDIO_FAL_MEDIA_HOSTS || '').split(',').map((host) => host.trim().toLowerCase()).filter(Boolean), limits = null } = {}) {
@@ -105,7 +108,7 @@ function createFalProvider({ getKey, fetchImpl = globalThis.fetch, clock = Date.
   // Submit (or resume) one queue request and wait for it: { result, requestId, statusUrl, responseUrl }.
   async function runRequest({ endpoint, input, credential, signal, isCancelled = () => false, onSubmitted, onProgress, resume = null }) {
     let requestId = resume?.requestId || ''; let statusUrl = resume?.statusUrl || ''; let responseUrl = resume?.responseUrl || '';
-    const base = `${QUEUE}/${endpoint}/requests/`;
+    const base = `${QUEUE}/${appOf(endpoint)}/requests/`;
     if (!requestId) {
       const leave = await slot({ signal, isCancelled });
       let submitted;
@@ -155,7 +158,10 @@ function createFalProvider({ getKey, fetchImpl = globalThis.fetch, clock = Date.
     if (!Array.isArray(prompts) || prompts.length !== deliverable.variants || prompts.some((text) => typeof text !== 'string' || !text.trim() || text.length > 32000)) throw problem('IMAGE_INPUT_INVALID', 'deliverable.variantPrompts', 'Each image direction needs a prompt of 1–32,000 characters.', { beforeDispatch: true });
     if (profile.png === false) throw problem('IMAGE_INPUT_INVALID', 'model', `${model} can’t return PNG pictures. Choose another picture model.`, { beforeDispatch: true });
     const [width, height] = String(deliverable.size || '1536x1024').split('x').map(Number);
-    const units = price.unit && /megapixel/i.test(price.unit) ? Math.ceil((width * height) / 1e6) : 1;
+    // Pictures are priced per image or per megapixel; any other unit can't be estimated before the request.
+    const unitName = String(price.unit || 'image').toLowerCase();
+    const units = /^megapixels?$/.test(unitName) ? Math.ceil((width * height) / 1e6) : /^images?$/.test(unitName) ? 1 : null;
+    if (units == null) throw problem('IMAGE_PRICE_UNKNOWN', 'model', `fal.ai prices ${model} per ${price.unit}, which the studio can’t estimate. Nothing was started.`, { beforeDispatch: true });
     const estimateUsd = Math.round(price.unitUsd * units * 1e6) / 1e6;
     // References: data URIs, only to a model that takes images, within the inline size cap (checked before anything is sent).
     const takes = (profile.referenceImages || 0) > 0 && profile.referenceField;
@@ -222,7 +228,8 @@ function createFalProvider({ getKey, fetchImpl = globalThis.fetch, clock = Date.
     if (!Number.isInteger(durationSeconds) || durationSeconds < 1 || durationSeconds > 60) throw problem('VIDEO_INPUT_INVALID', 'durationSeconds', 'Choose a video length.');
     if (!Number.isFinite(price.unitUsd)) throw problem('VIDEO_PRICE_UNKNOWN', 'model', `fal.ai didn’t return a price for ${model}, so the studio can’t estimate it. Nothing was started.`);
     const unit = String(price.unit || 'second').toLowerCase();
-    const units = /second/.test(unit) ? durationSeconds : /video/.test(unit) ? 1 : null;
+    // Seconds of video, or one clip; any other unit (GPU compute seconds, say) can't be estimated from a video's length.
+    const units = /^seconds?$/.test(unit) ? durationSeconds : /^(videos?|clips?)$/.test(unit) ? 1 : null;
     if (units == null) throw problem('VIDEO_PRICE_UNKNOWN', 'model', `fal.ai prices ${model} per ${price.unit}, which the studio can’t estimate. Nothing was started.`);
     const estimateUsd = Math.round(price.unitUsd * units * 100) / 100;
     if (!resume && Number.isFinite(maxBudgetUsd) && maxBudgetUsd + 1e-9 < estimateUsd) throw problem('VIDEO_ALLOWANCE', 'maxBudgetUsd', `This video needs about $${estimateUsd.toFixed(2)}, more than the $${maxBudgetUsd.toFixed(2)} left in its budget. Nothing was started.`);
@@ -258,7 +265,7 @@ function createFalProvider({ getKey, fetchImpl = globalThis.fetch, clock = Date.
   // Asks fal to stop a request: 202 → it may still be charged if it finishes; ALREADY_COMPLETED → keep the result.
   async function cancel({ endpoint, requestId, cancelUrl } = {}) {
     const credential = key();
-    const url = queueUrl(cancelUrl, `${QUEUE}/${endpoint}/requests/${encodeURIComponent(requestId)}/cancel`);
+    const url = queueUrl(cancelUrl, `${QUEUE}/${appOf(endpoint)}/requests/${encodeURIComponent(requestId)}/cancel`);
     const reply = await call(url, { method: 'PUT', credential });
     if (reply.status === 202 || reply.json?.status === 'CANCELLATION_REQUESTED') return { status: 'cancel-requested' };
     if (reply.status === 400 && /ALREADY_COMPLETED/i.test(JSON.stringify(reply.json || {}))) return { status: 'already-completed' };
@@ -269,4 +276,4 @@ function createFalProvider({ getKey, fetchImpl = globalThis.fetch, clock = Date.
   return { generateImages, generateVideo, cancel, checkKey, falInput };
 }
 
-module.exports = { createFalProvider, falInput, isMp4, DEFAULT_MEDIA_HOSTS, MAX_INLINE_REFERENCE_BYTES };
+module.exports = { createFalProvider, falInput, isMp4, appOf, DEFAULT_MEDIA_HOSTS, MAX_INLINE_REFERENCE_BYTES };

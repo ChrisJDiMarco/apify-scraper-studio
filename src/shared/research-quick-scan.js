@@ -223,9 +223,11 @@ function deriveQuickScanProgram(savedProgram, scan, { ranking = [], now = new Da
   const lite = s.depth === 'lite'; const cheap = lite ? cheapestDiscoveryModel() : '';
   const used = { discovery: cheap || saved.ai.models.discovery, synthesis: cheap || saved.ai.models.synthesis, matching: cheap || saved.ai.models.matching };
   const ai = {
-    // Tagging never runs in a quick scan, and its short trends report (when on) writes with the synthesis model; both mirror
-    // it so the host's model check before the start only asks about models the scan calls.
-    models: { ...used, tagging: used.synthesis, reports: used.synthesis },
+    // Tagging never runs in a quick scan, so it mirrors synthesis. The short trends report (when on) follows Model routing
+    // (quickScans.report, which inherits the synthesis choice): only a small scan's cheap model, or a reports model the
+    // program chose for itself, is kept here, because the router reads a stage that differs from the defaults as the
+    // program's own choice and would pin the report to it.
+    models: { ...used, tagging: used.synthesis, reports: cheap || saved.ai.models.reports },
     effort: lite ? Object.fromEntries(research.RESEARCH_STAGES.map((stage) => [stage, 'low'])) : { ...saved.ai.effort },
     concurrency: clamp(Math.floor(s.aiBudgetUsd / MIN_CALL_RESERVE_USD), 1, saved.ai.concurrency),
   };

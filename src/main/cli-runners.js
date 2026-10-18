@@ -77,7 +77,7 @@ function createCodexRunner({ spawnCli, writeJson, support = async () => ({}), ig
       const raw = fs.existsSync(answerPath) ? fs.readFileSync(answerPath, 'utf8') : '';
       let output = null; try { output = raw ? JSON.parse(raw) : null; } catch (_) { output = null; }
       if (outputPath) { if (output !== null) writeJson(outputPath, output); else if (raw) fs.writeFileSync(outputPath, raw); } // kept for the receipt
-      return { ...result, output, receipt: { provider: 'codex', requestedModel: model || 'CLI configuration', actualModel: '', costUsd: null, ...(chosen ? { effort: chosen } : {}), ...(effortNote ? { effortNote } : {}), ...(codexUsage(result.stdout) ? { usage: codexUsage(result.stdout) } : {}), costBasis: CODEX_COST_BASIS } };
+      return { ...result, output, receipt: { provider: 'codex', requestedModel: model || 'Codex default', actualModel: '', costUsd: null, ...(chosen ? { effort: chosen } : {}), ...(effortNote ? { effortNote } : {}), ...(codexUsage(result.stdout) ? { usage: codexUsage(result.stdout) } : {}), costBasis: CODEX_COST_BASIS } };
     } finally { fs.rmSync(isolated, { recursive: true, force: true }); }
   }
   return { run };

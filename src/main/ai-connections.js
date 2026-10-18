@@ -11,12 +11,15 @@ const CONNECTIONS = Object.fromEntries(PROVIDERS.connections.map((entry) => [ent
 const KEY_ROUTES = ['claude-api', 'openai', 'openrouter', 'fal'];
 const NOTHING = 'Nothing was started.';
 
-// "codex login status" output → how Codex is signed in ('chatgpt' | 'api-key' | '' when signed out).
-function codexSignIn({ code, stdout = '', stderr = '' } = {}) {
+// "codex login status" output → how Codex is signed in: 'chatgpt' | 'api-key', '' when it says it is signed out, or
+// 'unknown' when the answer can't be read (an older Codex without the command, a timeout). Only a clear "not logged in"
+// stops work; an unreadable answer lets Codex run and report its own sign-in problem, as before Model routing.
+function codexSignIn({ code, stdout = '', stderr = '', timedOut = false } = {}) {
   const text = `${stdout}\n${stderr}`;
-  if (code !== 0 || /not logged in|logged out/i.test(text)) return '';
+  if (/not logged in|logged out|not signed in/i.test(text)) return '';
   if (/logged in using an api key/i.test(text)) return 'api-key';
-  return /logged in/i.test(text) ? 'chatgpt' : '';
+  if (code === 0 && /logged in/i.test(text)) return 'chatgpt';
+  return timedOut || code !== 0 || !text.trim() || !/logged in/i.test(text) ? 'unknown' : 'chatgpt';
 }
 const versionOf = (text) => String(text || '').trim().split(/\r?\n/)[0].replace(/^codex-cli\s+/i, '').replace(/\s*\(Claude Code\)\s*$/i, '').slice(0, 60);
 
@@ -40,14 +43,23 @@ function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => ''
     if (!cli.loggedIn) return { ...base, status: 'sign-in', detail: 'Not signed in. In Terminal run: claude auth login', commands: [{ label: 'Sign in', command: 'claude auth login' }] };
     return { ...base, status: 'ready', signedInWith: cli.authMethod === 'claude.ai' || !cli.authMethod ? 'claude-plan' : 'api-key', detail: `Signed in · Claude Code ${versionOf(cli.version)}`, streaming: Boolean(cli.streaming) };
   }
-  async function codexStatus() {
+  async function codexStatusNow() {
     const version = await probeCli('codex', ['--version']);
     if (version.missing) return { id: 'codex', status: 'not-installed', version: '', detail: `Codex isn’t installed ${where}. Install it, then sign in.`, commands: [{ label: 'Then sign in', command: 'codex login' }] };
     const login = await probeCli('codex', ['login', 'status']);
     const signedInWith = codexSignIn(login);
     const label = versionOf(version.stdout || version.stderr);
     if (!signedInWith) return { id: 'codex', status: 'sign-in', version: label, detail: 'Not signed in. In Terminal run: codex login', commands: [{ label: 'Sign in', command: 'codex login' }] };
+    if (signedInWith === 'unknown') return { id: 'codex', status: 'ready', version: label, signedInWith: '', detail: `${label ? `Codex ${label} · ` : ''}the sign-in couldn’t be confirmed. If Codex jobs fail, run in Terminal: codex login`, commands: [{ label: 'Check the sign-in', command: 'codex login status' }] };
     return { id: 'codex', status: 'ready', version: label, signedInWith, detail: `${signedInWith === 'chatgpt' ? 'Signed in with ChatGPT' : 'Signed in with an API key'}${label ? ` · Codex ${label}` : ''}`, commands: [] };
+  }
+  // Codex's own status is cached apart from the rest, so a Codex job checks only Codex (two quick CLI calls a minute).
+  let codexCached = null; let codexInflight = null;
+  async function codexStatus({ fresh = false } = {}) {
+    if (!fresh && codexCached && now() - codexCached.at < STATUS_TTL_MS) return codexCached.value;
+    if (!fresh && codexInflight) return codexInflight;
+    codexInflight = codexStatusNow().then((value) => { codexCached = { at: now(), value }; return value; }).finally(() => { codexInflight = null; });
+    return codexInflight;
   }
   function keyStatus(route) {
     const state = keyState(route); const name = vendorKey[route];
@@ -61,11 +73,11 @@ function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => ''
     return routing.tasks.filter((row) => row.route === route || (route === 'claude' && row.route === 'auto') || (route === 'claude-api' && row.route === 'auto')).map((row) => row.taskId);
   };
 
-  async function compute() {
+  async function compute(fresh = false) {
     const rows = await Promise.all([
       claudeStatus().catch((error) => ({ id: 'claude', status: 'not-installed', detail: String(error?.message || error), commands: [] })),
       keyStatus('claude-api'),
-      codexStatus().catch((error) => ({ id: 'codex', status: 'not-installed', detail: String(error?.message || error), commands: [] })),
+      codexStatus({ fresh }).catch((error) => ({ id: 'codex', status: 'not-installed', detail: String(error?.message || error), commands: [] })),
       keyStatus('openai'), keyStatus('openrouter'), keyStatus('fal'),
     ]);
     return {
@@ -76,15 +88,15 @@ function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => ''
   async function status({ fresh = false } = {}) {
     if (!fresh && cached && now() - cached.at < STATUS_TTL_MS) return cached.value;
     if (!fresh && inflight) return inflight;
-    inflight = compute().then((value) => { cached = { at: now(), value }; return value; }).finally(() => { inflight = null; });
+    inflight = compute(fresh).then((value) => { cached = { at: now(), value }; return value; }).finally(() => { inflight = null; });
     return inflight;
   }
-  function invalidate() { cached = null; aiRoutes?.invalidate?.(); }
+  function invalidate() { cached = null; codexCached = null; aiRoutes?.invalidate?.(); }
   // Synchronous readiness from what's known now (keys are read directly; Claude Code and Codex from the last status).
   // null means not checked yet.
   function ready(route) {
     if (KEY_ROUTES.includes(route)) return keyState(route).status === 'ready';
-    const row = cached?.value?.connections?.find((entry) => entry.id === route);
+    const row = route === 'codex' && codexCached ? codexCached.value : cached?.value?.connections?.find((entry) => entry.id === route);
     if (route === 'auto') { const claude = cached?.value?.connections?.find((entry) => entry.id === 'claude'); return claude?.status === 'ready' || keyState('claude-api').status === 'ready' ? true : claude ? false : null; }
     return row ? row.status === 'ready' : null;
   }
@@ -101,9 +113,11 @@ function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => ''
     if (route === 'auto' || route === 'claude') return claudeRoute(route);
     if (route === 'claude-api') { const state = keyState(route); if (state.status !== 'ready') throw notReady(route, state); return route; }
     if (route === 'codex') {
-      const row = (await status()).connections.find((entry) => entry.id === 'codex');
+      // Only Codex is checked (its version and "codex login status"); a sign-out seen earlier is checked again first.
+      let row = await codexStatus();
+      if (row?.status !== 'ready') row = await codexStatus({ fresh: true });
       if (row?.status === 'not-installed') throw Object.assign(new Error(`Codex isn’t installed ${where}. ${NOTHING}`), { code: 'AI_NOT_CONNECTED' });
-      if (row?.status !== 'ready') { const again = (await status({ fresh: true })).connections.find((entry) => entry.id === 'codex'); if (again?.status !== 'ready') throw Object.assign(new Error(`Codex isn’t signed in ${where}. In Terminal run: codex login. ${NOTHING}`), { code: 'AI_NOT_CONNECTED' }); }
+      if (row?.status !== 'ready') throw Object.assign(new Error(`Codex isn’t signed in ${where}. In Terminal run: codex login. ${NOTHING}`), { code: 'AI_NOT_CONNECTED' });
       return route;
     }
     if (KEY_ROUTES.includes(route)) { const state = keyState(route); if (state.status !== 'ready') throw notReady(route, state); return route; }

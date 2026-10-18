@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleStop, ClipboardCopy, Clock, Download, ExternalLink, FileText, FolderDown, FolderOpen, Image as ImageIcon, LayoutTemplate, Link2, LoaderCircle, MessageSquareQuote, Pencil, RefreshCw, RotateCcw, Send, Sparkles, TriangleAlert, TrendingUp } from 'lucide-react';
+import { CalendarDays, Check, Clapperboard, ChevronDown, ChevronLeft, ChevronRight, CircleStop, ClipboardCopy, Clock, Download, ExternalLink, FileText, FolderDown, FolderOpen, Image as ImageIcon, LayoutTemplate, Link2, LoaderCircle, MessageSquareQuote, Pencil, RefreshCw, RotateCcw, Send, Sparkles, TriangleAlert, TrendingUp } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
+import { VideoPlayer, VideoTile } from './video-preview.jsx';
 import { Dialog, DialogClose, MoreMenu, copyText, useToast } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { PREVIEW_TITLE, can, firstName, formatDay, plural, writeProps } from './viewer.js';
@@ -583,7 +584,7 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
 
 function jobLine(job, asset) {
   if (job.status === 'succeeded') return asset?.title || 'Ready';
-  if (job.status === 'running') return job.kind === 'image' ? 'Drawing…' : 'Writing…';
+  if (job.status === 'running') return job.kind === 'image' ? 'Drawing…' : job.kind === 'video' ? 'Making the video (a few minutes)…' : 'Writing…';
   if (job.status === 'queued') return 'Waiting its turn';
   if (job.status === 'cancelled') return 'Stopped before it finished';
   return 'Didn’t finish';
@@ -628,6 +629,16 @@ function ChannelSet({ api, run, assets, web, cache, saving, onCard = false, mayS
           {pictures.length > 0 && <span className="channel-thumbs">{pictures.map((asset) => <button type="button" key={asset.id} className="channel-thumb" aria-label={`Open ${asset.title || fileLabel(job.label)}`} onClick={() => onOpenPicture(asset, pictures)}>{cache[`studio:${asset.id}`] ? <img src={cache[`studio:${asset.id}`]} alt="" /> : <span className="studio-shimmer" />}</button>)}</span>}
         </li>;
       }
+      // The short video: a muted preview that plays on hover; opening it plays it with its on-screen lines.
+      if (job.kind === 'video') {
+        const clip = assets.find((row) => row.deliverableId === job.id && row.kind === 'video');
+        return <li key={job.id} className="channel-file is-pictures">
+          <span className="channel-file-icon"><Clapperboard size={17} aria-hidden="true" /></span>
+          <span className="channel-file-copy"><strong>{fileLabel(job.label)}</strong><small>{clip ? `${clip.durationSeconds || 8}-second video` : jobLine(job)}</small></span>
+          <JobDot job={job} />
+          {clip && api && <span className="channel-thumbs"><button type="button" className="channel-thumb" aria-label={`Play ${clip.title || fileLabel(job.label)}`} onClick={() => onOpenFile(clip, run)}><VideoTile asset={clip} api={api} title={clip.title} /></button></span>}
+        </li>;
+      }
       const asset = assets.find((row) => row.deliverableId === job.id && row.kind !== 'image') || assets.find((row) => row.id === job.assetId);
       return <li key={job.id} className={asset ? 'has-status' : undefined}><button type="button" className="channel-file" disabled={!asset} aria-label={asset ? `Open ${fileLabel(job.label)}` : undefined} onClick={() => onOpenFile(asset, run)}>
         <span className="channel-file-icon">{job.id === 'landingpage' ? <LayoutTemplate size={17} aria-hidden="true" /> : <FileText size={17} aria-hidden="true" />}</span>
@@ -647,6 +658,7 @@ function ChannelFileReader({ api, web, file, label, onClose, onMove, onFile }) {
   const titleId = useId();
   useEffect(() => {
     let cancelled = false; setPayload(null); setError(''); setCopied(false);
+    if (asset.kind === 'video') return undefined; // the player reads the clip itself
     Promise.resolve().then(() => api.readStudioAsset({ assetId: asset.id })).then((result) => { if (!cancelled) setPayload(result || {}); }, (failure) => { if (!cancelled) setError(failure?.message || 'This file couldn’t be opened.'); });
     return () => { cancelled = true; };
   }, [asset.id]);
@@ -662,7 +674,7 @@ function ChannelFileReader({ api, web, file, label, onClose, onMove, onFile }) {
         </div>
       </header>
       <div className="studio-dialog-body studio-reading">
-        {error ? <p className="studio-error" role="alert">{error}</p> : !payload ? <div className="studio-skeleton" role="status" aria-label="Opening the file"><span /><span /><span /><span /></div> : markdown ? <MarkdownContent onOpenSourceUrl={api.openSourceUrl ? (url) => api.openSourceUrl(url) : undefined}>{markdown}</MarkdownContent> : <p className="studio-hint">This file has no readable text. Try {web ? 'Download' : 'Open'}.</p>}
+        {asset.kind === 'video' ? <VideoPlayer asset={asset} api={api} /> : error ? <p className="studio-error" role="alert">{error}</p> : !payload ? <div className="studio-skeleton" role="status" aria-label="Opening the file"><span /><span /><span /><span /></div> : markdown ? <MarkdownContent onOpenSourceUrl={api.openSourceUrl ? (url) => api.openSourceUrl(url) : undefined}>{markdown}</MarkdownContent> : <p className="studio-hint">This file has no readable text. Try {web ? 'Download' : 'Open'}.</p>}
       </div>
   </Dialog>;
 }

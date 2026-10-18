@@ -4,6 +4,7 @@ import { Button, Badge, formatDate, friendlyMessage, modelLabel, number } from '
 import { VideoPlayer } from './video-preview.jsx';
 import { LIBRARY_TYPES, TYPE_LABEL, buildLibraryTree, filterLibrary, folderSummary, isQuickScan, libraryChannels, pathTo } from '../../shared/library-tree.js';
 import { MarkdownContent, safeMarkdownUrl } from './markdown-content.jsx';
+import { studioRefDragProps } from './ask-slash.js';
 import { adminNames, can as canCall, hasCapability, useViewer, writeProps } from './viewer.js';
 import { TrendBoardView } from './trend-board-view.jsx';
 import { buildTrendBoard } from '../../shared/trend-board.js';
@@ -749,7 +750,9 @@ function StudioLibrary({ workspace, inputs, studio = {}, selectedId, onSelect, a
   const usedByLine = (node) => (list(node?.meta?.usedBy).length ? <small className="cs-used-by"><Megaphone size={11} aria-hidden="true" />Used by {node.meta.usedBy.map((row) => row.name).join(', ')}</small> : null);
   const card = (id) => {
     const node = tree.nodes[id]; const Icon = nodeIcon(node);
-    return <button type="button" key={id} className={`cs-folder-card${node.live ? ' is-live' : ''}`} onClick={() => openFolder(id)}>
+    // A trend's folder (or a run's) can be dragged into the Ask AI drawer to ask about it (ask-slash.js).
+    const dragRef = !onAsk ? null : node.type === 'trend' ? { kind: 'asset-folder', ref: node.title, id } : node.type === 'research-run' ? { kind: 'run', ref: node.title, id } : null;
+    return <button type="button" key={id} className={`cs-folder-card${node.live ? ' is-live' : ''}`} {...(dragRef ? studioRefDragProps(dragRef) : {})} onClick={() => openFolder(id)}>
       <span className="cs-folder-cover" aria-hidden="true">{node.cover.length ? node.cover.map((assetId) => (thumbs[`studio:${assetId}`] ? <img key={assetId} src={thumbs[`studio:${assetId}`]} alt="" /> : <span key={assetId} className="cs-thumb-wait" />)) : <span className="cs-folder-glyph"><Icon size={22} /></span>}</span>
       <span className="cs-folder-copy"><strong>{node.title}</strong><small>{node.live ? <><LoaderCircle className="spin" size={12} aria-hidden="true" />{node.liveText || 'Working…'}</> : folderSummary(node)}</small>{usedByLine(node)}</span>
     </button>;
@@ -757,7 +760,9 @@ function StudioLibrary({ workspace, inputs, studio = {}, selectedId, onSelect, a
   const row = (item, { place = false } = {}) => {
     const on = selected?.key === item.key; const where = place ? pathTo(tree, item.location).map((node) => node.title).join(' › ') : '';
     // The status chip sits beside the row (a menu can't live inside the row's button).
-    return <div className="cs-file-row-wrap" key={item.key}><button type="button" className={`cs-file-row${on ? ' selected' : ''}`} aria-pressed={on} onClick={() => pick(item, { place })}>
+    // A written report can be dragged into the Ask AI drawer to ask about it (ask-slash.js).
+    const dragRef = onAsk && item.source === 'studio' && item.kind !== 'image' && item.kind !== 'video' ? studioRefDragProps({ kind: 'report', ref: item.title, id: item.id }) : {};
+    return <div className="cs-file-row-wrap" key={item.key}><button type="button" className={`cs-file-row${on ? ' selected' : ''}`} aria-pressed={on} {...dragRef} onClick={() => pick(item, { place })}>
       <span className="cs-mini-icon">{item.kind === 'image' ? (thumbs[item.key] ? <img src={thumbs[item.key]} alt="" /> : <ImageIcon size={17} aria-hidden="true" />) : item.kind === 'video' ? <Clapperboard size={17} aria-hidden="true" /> : <FileText size={17} aria-hidden="true" />}</span>
       <span><strong>{item.title}</strong><small>{[item.label || TYPE_LABEL[item.type], item.edited ? 'Edited' : '', item.createdAt ? formatDate(item.createdAt) : ''].filter(Boolean).join(' · ')}</small>{where && <small className="cs-file-path">{where}</small>}</span>
       <ChevronRight size={15} aria-hidden="true" />

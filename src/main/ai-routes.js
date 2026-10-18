@@ -12,12 +12,14 @@ const ADD_KEY = 'Add an Anthropic API key in Settings → AI connections.';
 const PING_SCHEMA = { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false };
 
 function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, describeError = (error) => error?.message || String(error), now = Date.now }) {
-  let cached = null; // a working route, reused for ten minutes
+  // provider → a working route, reused for ten minutes. Kept per provider: 'auto' (a connection check) and 'claude' (the
+  // Claude Code runner asking whether the CLI streams) alternate on every Ask AI call and must not re-detect each time.
+  const cached = new Map();
   let client = null; // { apiKey, runner }
   const answered = new Set(); // `${route}:${model}` that answered this session
   const apiRequests = new Map(); // jobId → AbortController for in-flight API calls
 
-  function invalidate() { cached = null; answered.clear(); }
+  function invalidate() { cached.clear(); answered.clear(); }
 
   async function detectClaudeCli() {
     const run = (args) => spawn('claude', args, { timeoutMs: 10000 });
@@ -40,7 +42,8 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
 
   // { provider, route, cli, keySaved, problem }; route is '' when nothing works. Only working routes are cached.
   async function resolve(provider = getSettings().aiProvider || 'auto', { fresh = false } = {}) {
-    if (!fresh && cached?.provider === provider && now() - cached.at < AI_ROUTE_TTL_MS) return cached;
+    const hit = cached.get(provider);
+    if (!fresh && hit && now() - hit.at < AI_ROUTE_TTL_MS) return hit;
     const keySaved = Boolean(getKey('ANTHROPIC_API_KEY'));
     let resolved;
     if (provider === 'codex') resolved = { provider, route: 'codex', problem: '' };
@@ -52,7 +55,7 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
       else if (keySaved) resolved = { provider, route: 'claude-api', cli, keySaved, problem: '' };
       else resolved = { provider, route: '', cli, keySaved, problem: `${issue} Or ${ADD_KEY.charAt(0).toLowerCase()}${ADD_KEY.slice(1)}` };
     }
-    if (!resolved.problem) cached = { ...resolved, at: now() };
+    if (!resolved.problem) cached.set(provider, { ...resolved, at: now() });
     return resolved;
   }
   async function requireRoute() {

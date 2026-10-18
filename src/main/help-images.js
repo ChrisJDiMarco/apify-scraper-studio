@@ -49,6 +49,8 @@ function createHelpImages({ generateImage, dir, isConfigured = () => true, probl
       dataUrl: `data:image/png;base64,${Buffer.from(image.png).toString('base64')}`,
       costUsd: Number.isFinite(receipt.costUsd) ? receipt.costUsd : null,
       model: receipt.returnedModel || receipt.model || '',
+      // Which picture connection drew it ('openai' or 'fal'), for the caption.
+      provider: receipt.provider === 'fal' ? 'fal' : 'openai',
     };
   }
   const metaOf = (id) => { try { return JSON.parse(fs.readFileSync(file(id, 'json'), 'utf8')); } catch { return {}; } };

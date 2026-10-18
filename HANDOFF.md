@@ -266,6 +266,8 @@ commented template with the same variables (except the ones the tooling sets).
 | `STUDIO_AI_CONCURRENCY` | At most this many AI calls (text and pictures) at once across the studio; the rest queue (cancellable). |
 | `STUDIO_DAILY_AI_BUDGET_USD` | Refuse new AI work once the day's recorded spend (UTC, kept in `<data>/ai-spend.json`) reaches this. Error code `dailyAiBudget` (429). Codex reports no spend and isn't counted. |
 | `STUDIO_CODEX_USER_CONFIG` | `1` lets Codex load the operator's `~/.codex/config.toml`; `0` skips it. Default: skipped on the web, loaded on the Mac. |
+| `CODEX_HOME` | Where Codex keeps its sign-in and model list (default `~/.codex`); Settings → Model routing reads Codex's models from `models_cache.json` there. |
+| `STUDIO_FAL_MEDIA_HOSTS` | Comma-separated hosts the studio downloads fal.ai results from (default `fal.media`, `fal.run`, `fal.ai` and their subdomains). |
 
 **Service keys** (fallbacks only; prefer Settings, which encrypts them). `KEY_NAMES` in `src/main/index.js`; a key
 saved in Settings wins, and the studio removes these from the AI tools' environment.
@@ -278,6 +280,8 @@ saved in Settings wins, and the studio removes these from the AI tools' environm
 | `GOOGLE_SHEETS_WEBHOOK_URL` | The Apps Script Sheets bridge URL. |
 | `GOOGLE_DOCS_ACCESS_TOKEN` | Reading private Google Docs and Drive publishing without the bridge. |
 | `MONDAY_API_TOKEN` | Monday.com board sync. |
+| `OPENROUTER_API_KEY` | The OpenRouter connection (any model through one key; Settings → AI connections). |
+| `FAL_KEY` | The fal.ai connection (pictures and short videos). |
 
 **Backups** (`scripts/studio-backup.cjs`)
 
@@ -301,8 +305,9 @@ saved in Settings wins, and the studio removes these from the AI tools' environm
 browser studio), `ELECTRON_RENDERER_URL` (electron-vite dev), and `SHELL`, `PATH`, `HOME`, `USER`, `LOGNAME`, `APPDATA`
 (read from the OS to find the `claude` and `codex` tools and to reset the user after `STUDIO_RUN_AS`).
 
-**Settings stored in data** (`data.json` `settings`, validated in `src/shared/validation.js`): the AI route
-(`aiProvider`: `auto`, `claude`, `claude-api`, `codex`), `aiModel` (default `claude-opus-5-5`), the per-request budget,
+**Settings stored in data** (`data.json` `settings`, validated in `src/shared/validation.js`): Model routing
+(`aiRouting`, written only by `saveAiRouting`), the text route and model it mirrors for older readers (`aiProvider`,
+`aiModel`, default `claude-opus-5-5`), the per-request budget,
 `uiMode` per person, the Studio web address, `lastAiCheck` (the last Check connections result, which ticks Home's
 setup checklist), and Data tools settings. Research program defaults
 (`src/shared/research-program.js`): Opus 5.5 for discovery, synthesis and matching, Fable 5.1 for tagging and reports,
@@ -348,14 +353,27 @@ Everything lives in one data folder: `~/Library/Application Support/apify-scrape
 
 ## AI routes and cost controls
 
-- **One entry point.** Every AI call goes through `generateStructuredOutput` in `src/main/index.js`, with a strict JSON
-  schema. Routes (`src/main/ai-routes.js`): `auto` (Claude app when installed, signed in and new enough, else the API
-  key), `claude` (Claude Code CLI, `claude-runner.js`; tools, MCP and session persistence switched off, prompt on
-  stdin), `claude-api` (Anthropic SDK, `anthropic-runner.js`; prompt caching of the stable prefix), `codex` (Codex CLI,
-  `codex-runner.js`; run in an empty temp folder with a read-only sandbox and its tools off). A working route is
-  remembered for 10 minutes.
-- **Preflight.** Before paid work starts, `STUDIO_PREFLIGHT` in `index.js` checks the route can run every model the
-  work needs ("Nothing was started." otherwise).
+- **Connections, tasks and routing.** A *connection* is how the studio reaches a vendor (`src/shared/ai-providers.json`):
+  `claude` (Claude Code CLI, the machine's Claude plan sign-in), `claude-api` (Anthropic key), `codex` (Codex CLI, the
+  machine's ChatGPT sign-in, not metered), `openai`, `openrouter` (any model through one key) and `fal` (pictures and
+  videos), plus the pseudo-route `auto` (Claude Code when installed, signed in and new enough, else the Anthropic key;
+  the only automatic fallback). A *task* is one kind of AI work (`src/shared/ai-tasks.json`, every AI job the studio
+  runs). `src/main/ai-routing.js` resolves a task's connection, model and effort: a run's snapshot (`run.ai.routing`,
+  taken when it starts, so a retry never changes provider or price), then a research program's own stage choice
+  (`program.ai.overrides`), then the admin's Settings → Model routing (`settings.aiRouting`), then the inherit chain and
+  the defaults. A studio that never saved routing resolves exactly as before (its newest program's report model still
+  drives channel assets). On the browser studio the subscription connections use the server's sign-in.
+- **One entry point.** Every text call goes through `generateStructuredOutput` in `src/main/index.js` → `text-router.js`,
+  with a strict JSON schema and a `taskId`. Runners: `cli-runners.js` (Claude Code with tools, MCP and session
+  persistence off, prompt on stdin; Codex in an empty temp folder, read-only, tools off, `-m` and the reasoning level
+  only when routed), `anthropic-runner.js` (prompt caching of the stable prefix), `openrouter-runner.js` and
+  `openai-text-runner.js` (strict `json_schema`; schema-in-prompt fallback when a provider refuses it). `onStream`
+  receives the answer field as it is written (`structured-stream.js`) on every route that streams, and the whole field
+  once on the others. Pictures and videos go through `media-router.js` (OpenAI GPT Image or `fal-provider.js`).
+- **Connections status and preflight.** `ai-connections.js` reads Claude Code (`claude auth status --json`), Codex
+  (`codex login status`) and the four keys for Settings → AI connections (free, cached a minute). Before paid work
+  starts, `STUDIO_PREFLIGHT` resolves the tasks the work uses and checks each connection and model ("Nothing was
+  started." otherwise); an OpenRouter or fal.ai model without a known price is refused.
 - **Estimates before spending.** Start research, Write reports, quick scans, channel assets, Finish the rest, Try
   again and prompt test runs show an estimate and caps in a confirmation; Create content shows its spending allowance
   (it has no per-draft estimate yet). The wording is shared between layouts and Ask AI (`studio-actions.js`,
@@ -370,8 +388,10 @@ Everything lives in one data folder: `~/Library/Application Support/apify-scrape
   API route the first question in five minutes costs about $0.35–0.40 (cache write), follow-ups about $0.07–0.10; on the
   Claude app about $0.30 a question; a lookup adds a second call. The app guide is under a 150,000-byte guard
   (`test/docs-consistency.test.js`) because every byte is paid for on every question.
-- **Prices** for estimates: `RESEARCH_MODELS` in `src/shared/research-program.js` (Fable 5.1 $10/$50, Opus 5.5
-  $4/$20, Sonnet 5.5 $2/$10, Haiku 4.5 $1/$5 per million tokens).
+- **Prices** for estimates: `src/shared/ai-models.json` (Fable 5.1 $10/$50, Opus 5.5 $4/$20, Sonnet 5.5 $2/$10, Haiku 5.5
+  $0.10/$0.50 up to 100K prompt tokens and $0.50/$2.50 above, Haiku 4.5 $1/$5 per million tokens; GPT Image per picture;
+  Seedance video per second), refined at runtime by OpenRouter's model list and fal.ai's pricing API
+  (`src/main/ai-catalog.js`, cached in `<data>/ai-catalog/`).
 
 ## Security model
 

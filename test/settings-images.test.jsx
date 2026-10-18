@@ -5,78 +5,64 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsView } from '../src/renderer/src/settings-view.jsx';
 
-const state = (configured = false) => ({ keys: { OPENAI_API_KEY: configured }, settings: { maxItems: 1000, sheets: {} }, sheetRuns: [] });
-const props = (configured = false) => ({ state: state(configured), meta: {}, onSaveKey: vi.fn(async () => true), onClearKey: vi.fn(async () => true), onTestImages: vi.fn(async () => ({ configured: true, model: 'fixture-image-model', accessVerified: true, generationVerified: false, message: 'The selected image model is available.' })) });
+// The key fields in Settings → AI connections (Anthropic, OpenAI, OpenRouter, fal.ai): saved and removed only on an
+// explicit click, never echoed, kept on screen when a save fails, and tested only when someone asks.
+const state = (keys = {}) => ({ keys, settings: { maxItems: 1000, sheets: {} }, sheetRuns: [] });
+const row = (id, label, saved) => ({ id, label, kinds: ['text'], auth: 'api-key', status: saved ? 'ready' : 'no-key', keySaved: saved, detail: saved ? 'Key saved. Stored encrypted in this Mac’s keychain and sent only to OpenAI.' : 'Add a key to use it.', commands: [], usedBy: [] });
+const status = (saved = false) => ({ host: 'mac', serverUser: null, checkedAt: '', connections: [row('openai', 'OpenAI API key', saved), row('fal', 'fal.ai', false), row('openrouter', 'OpenRouter', false), row('claude-api', 'Anthropic API key', false)] });
+const props = (saved = false) => ({
+  state: state({ OPENAI_API_KEY: saved }), meta: {}, onSaveKey: vi.fn(async () => true), onClearKey: vi.fn(async () => true),
+  setupApi: { getAiConnections: vi.fn(async () => status(saved)), testAiConnection: vi.fn(async ({ connection }) => ({ ok: true, connection, detail: 'Works · GPT Image 2.5 Flare', models: [] })) },
+});
 const draft = 'test-only-input'; // Deliberately not a real API credential.
-// Source collection (Apify) has its own Setup needed badge, and the diagnostics cards repeat the last image check, so
-// image assertions look inside the Image generation section.
-const imageSection = () => within(screen.getByRole('region', { name: 'Image generation' }));
+const openai = () => within(screen.getByRole('article', { name: 'OpenAI API key' }));
 afterEach(cleanup);
 
-describe('image provider setup', () => {
-  it('separates image API setup from writing and performs no automatic connection requests', () => {
+describe('AI connection keys', () => {
+  it('keeps key fields as password inputs and sends nothing until someone clicks', async () => {
     const handlers = props(); render(<SettingsView {...handlers} />);
-    expect(screen.getByRole('heading', { name: 'Writing & research' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Image generation' })).toBeVisible();
-    expect(screen.getByLabelText('OpenAI API key')).toHaveAttribute('type', 'password');
-    expect(screen.getByLabelText('OpenAI API key')).toHaveAttribute('autoComplete', 'off');
-    expect(imageSection().getByText('Setup needed')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Save image key' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Check image access' })).toBeDisabled();
-    expect(screen.getByText('The image key is stored on this computer.')).toBeVisible();
-    expect(handlers.onTestImages).not.toHaveBeenCalled();
-    expect(handlers.onSaveKey).not.toHaveBeenCalled();
-    cleanup();
-    render(<SettingsView {...props()} meta={{ runtime: 'web' }} />);
-    expect(screen.getByText('The image key is saved on the studio server and never sent to browsers.')).toBeVisible();
+    const field = await openai().findByLabelText('OpenAI API key');
+    expect(field).toHaveAttribute('type', 'password'); expect(field).toHaveAttribute('autoComplete', 'off');
+    expect(openai().getByRole('button', { name: 'Save key' })).toBeDisabled();
+    expect(openai().getByRole('button', { name: 'Test' })).toBeDisabled();
+    expect(openai().queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument();
+    expect(handlers.setupApi.testAiConnection).not.toHaveBeenCalled(); expect(handlers.onSaveKey).not.toHaveBeenCalled();
+    expect(screen.getByText(/Keys are stored in this Mac’s keychain/)).toBeVisible();
   });
-  it('sends only an explicit credential save and clears the password field after success', async () => {
+  it('saves only on an explicit click, trimmed, and clears the field afterwards', async () => {
     const handlers = props(); render(<SettingsView {...handlers} />);
-    fireEvent.change(screen.getByLabelText('OpenAI API key'), { target: { value: draft } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save image key' }));
+    fireEvent.change(await openai().findByLabelText('OpenAI API key'), { target: { value: `  ${draft} ` } });
+    fireEvent.click(openai().getByRole('button', { name: 'Save key' }));
     await waitFor(() => expect(handlers.onSaveKey).toHaveBeenCalledWith('OPENAI_API_KEY', draft));
-    await waitFor(() => expect(screen.getByLabelText('OpenAI API key')).toHaveValue(''));
-    expect(handlers.onTestImages).not.toHaveBeenCalled();
+    await waitFor(() => expect(openai().getByLabelText('OpenAI API key')).toHaveValue(''));
+    expect(handlers.setupApi.testAiConnection).not.toHaveBeenCalled();
   });
-  it.each(['returned-failure', 'thrown-failure'])('keeps the local entry when a save fails: %s', async mode => {
+  it.each(['returned-failure', 'thrown-failure'])('keeps the entry when a save fails: %s', async (mode) => {
     const handlers = props(); handlers.onSaveKey = mode === 'returned-failure' ? vi.fn(async () => null) : vi.fn(async () => { throw new Error('fixture storage failure'); });
     render(<SettingsView {...handlers} />);
-    fireEvent.change(screen.getByLabelText('OpenAI API key'), { target: { value: draft } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save image key' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Your entry is still here');
-    expect(screen.getByLabelText('OpenAI API key')).toHaveValue(draft);
-    expect(screen.getByRole('alert')).not.toHaveTextContent(draft);
-    expect(handlers.onTestImages).not.toHaveBeenCalled();
+    fireEvent.change(await openai().findByLabelText('OpenAI API key'), { target: { value: draft } });
+    fireEvent.click(openai().getByRole('button', { name: 'Save key' }));
+    expect(await openai().findByRole('alert')).toHaveTextContent('Your entry is still here');
+    expect(openai().getByLabelText('OpenAI API key')).toHaveValue(draft);
+    expect(openai().getByRole('alert')).not.toHaveTextContent(draft);
   });
-  it('shows credential presence separately from an explicit access check and never claims generation was verified', async () => {
+  it('tests a saved key for free on request and removes it only through Clear', async () => {
     const handlers = props(true); render(<SettingsView {...handlers} />);
-    expect(screen.getByText('Credential saved')).toBeVisible();
-    expect(screen.queryByText('Image model access confirmed')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Check image access' }));
-    expect(await screen.findByText('Image model access confirmed')).toBeVisible();
-    expect(handlers.onTestImages).toHaveBeenCalledOnce();
-    expect(handlers.onTestImages).toHaveBeenCalledWith();
-    expect(screen.getByText('Model: fixture-image-model')).toBeVisible();
-    expect(screen.getByText(/No image was generated by this check/)).toBeVisible();
-    expect(screen.queryByText('Generation verified', { exact: true })).not.toBeInTheDocument();
-  });
-  it('shows unsuccessful access and connection errors as real receipts without discarding the credential', async () => {
-    const handlers = props(true); handlers.onTestImages.mockResolvedValueOnce({ configured: true, accessVerified: false, generationVerified: false, message: 'Image access is not enabled for this project.' }).mockRejectedValueOnce(new Error('Connection unavailable.'));
-    render(<SettingsView {...handlers} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Check image access' }));
-    expect(await screen.findByText('Image access needs attention')).toBeVisible();
-    expect(imageSection().getByText('Image access is not enabled for this project.')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Check image access' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Connection unavailable.');
-    expect(screen.getByText('Credential saved')).toBeVisible();
+    await openai().findByText(/Key saved/);
+    expect(openai().getByLabelText('OpenAI API key')).toHaveAttribute('placeholder', 'Enter a replacement key');
+    fireEvent.click(openai().getByRole('button', { name: 'Test' }));
+    expect(await openai().findByText('Works · GPT Image 2.5 Flare')).toBeVisible();
+    expect(handlers.setupApi.testAiConnection).toHaveBeenCalledWith({ connection: 'openai' });
     expect(handlers.onClearKey).not.toHaveBeenCalled();
-  });
-  it('removes credentials only through an explicit action and clears the previous access receipt', async () => {
-    const handlers = props(true); render(<SettingsView {...handlers} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Check image access' }));
-    await screen.findByText('Image model access confirmed');
-    fireEvent.click(screen.getByRole('button', { name: 'Remove saved key' }));
+    fireEvent.click(openai().getByRole('button', { name: 'Clear' }));
     await waitFor(() => expect(handlers.onClearKey).toHaveBeenCalledWith('OPENAI_API_KEY'));
-    await waitFor(() => expect(screen.queryByText('Image model access confirmed')).not.toBeInTheDocument());
+  });
+  it('shows a failed check as a real result without discarding the key', async () => {
+    const handlers = props(true); handlers.setupApi.testAiConnection = vi.fn(async () => { throw new Error('Connection unavailable.'); });
+    render(<SettingsView {...handlers} />);
+    fireEvent.click(await openai().findByRole('button', { name: 'Test' }));
+    expect(await openai().findByRole('status')).toHaveTextContent('Connection unavailable.');
+    expect(handlers.onClearKey).not.toHaveBeenCalled();
+    expect(openai().getByText(/Key saved/)).toBeVisible();
   });
 });

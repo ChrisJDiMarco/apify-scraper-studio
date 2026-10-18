@@ -37,6 +37,8 @@ function createTextRouter({ routing, connections, runners, catalog = null, write
       // API calls register an AbortController under the job id, so Cancel (and quitting) stop them.
       const controller = new AbortController(); if (jobId) apiRequests.set(jobId, controller);
       try {
+        // OpenRouter's list (and OpenAI prices it mirrors) may not be loaded yet in a fresh process: read it once first.
+        if (route !== 'claude-api' && typeof catalog?.openrouterModels === 'function' && !(catalog.profile?.(route, resolved.model, 'text') && catalog.priceFor?.(route, resolved.model, 'text')?.known)) await catalog.openrouterModels().catch(() => null);
         const profile = route === 'claude-api' ? undefined : catalog?.profile?.(route, resolved.model, 'text') || {};
         // A snapshot's price is what the run was estimated with; a live list may know a newer one.
         const live = route === 'claude-api' ? null : catalog?.priceFor?.(route, resolved.model, 'text');

@@ -93,6 +93,17 @@ describe('Create content keeps a handed-over report as an attached report', () =
 });
 
 describe('New › Content from a report', () => {
+  it('opens Create content on the report picker in the Advanced layout, not the paste form', async () => {
+    openStudio();
+    await h1(GREETING);
+    fireEvent.click(document.querySelector('[data-spot="nav.new"]'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Content from a report/ }));
+    await h1('Create content');
+    expect(screen.getByRole('button', { name: /Use a report/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Paste a brief/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByLabelText('Source title')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /AI Overviews eat clicks — Comprehensive Trends Report/ }).length).toBeGreaterThan(0);
+  });
   it('opens Create content on the report picker from Simple too', async () => {
     openStudio({ uiMode: 'simple' });
     await h1(GREETING);

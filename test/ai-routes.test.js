@@ -73,6 +73,14 @@ describe('Claude routes', () => {
     await failing.api.resolve(); await failing.api.resolve();
     expect(failing.spawn).toHaveBeenCalledTimes(2);
   });
+  it('keeps each provider’s route, so auto and the Claude Code runner don’t re-check the CLI on every answer', async () => {
+    // A streamed Ask AI answer on 'auto' resolves 'auto' (the connection check) and then 'claude' (does the CLI stream?).
+    const { api, spawn } = routes();
+    for (let index = 0; index < 3; index++) { await api.resolve('auto'); await api.resolve('claude'); }
+    expect(spawn).toHaveBeenCalledTimes(6); // one detection (3 commands) per provider
+    api.invalidate(); await api.resolve('auto'); await api.resolve('claude');
+    expect(spawn).toHaveBeenCalledTimes(12);
+  });
   it('checks API model access for free and remembers models that answered', async () => {
     const runner = { checkModels: vi.fn(async ({ models }) => ({ ok: false, models: models.map((id) => ({ id, available: id !== 'claude-fable-5-1', error: id === 'claude-fable-5-1' ? 'This API key cannot use claude-fable-5-1.' : '' })) })) };
     const { api, createRunner } = routes({ spawn: cli({ installed: false }), key: 'sk-ant-api03-key', runner });

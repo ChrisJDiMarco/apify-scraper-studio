@@ -129,6 +129,13 @@ export function attentionStarters(state, can = () => true) {
   return out.slice(0, 3);
 }
 
+// What a picture sent besides its prompt: " · 2 style examples and the logo from Semrush campaign graphics" ('' for none).
+function referencesLine(image) {
+  const refs = image?.references; if (!refs || (!refs.style && !refs.logo)) return '';
+  const parts = [refs.style ? `${refs.style} style example${refs.style === 1 ? '' : 's'}` : '', refs.logo ? 'the logo' : ''].filter(Boolean).join(' and ');
+  return ` · ${parts}${refs.label ? ` from ${refs.label}` : ''}`;
+}
+
 function Picture({ image, onRetry, onDownload, onEnlarge, onOpenAssets }) {
   if (image.status === 'creating') return <div className="help-picture help-picture-pending" style={{ aspectRatio: ratio(image.size) }} role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><span>Creating the picture… usually under a minute</span></div>;
   if (image.status === 'loading') return <div className="help-picture help-picture-pending" style={{ aspectRatio: ratio(image.size) }} role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><span>Loading the picture…</span></div>;
@@ -136,7 +143,8 @@ function Picture({ image, onRetry, onDownload, onEnlarge, onOpenAssets }) {
   return <figure className="help-picture">
     <button type="button" className="help-picture-frame" onClick={onEnlarge} aria-label={`Enlarge ${image.title}`}><img src={image.dataUrl} alt={image.title} style={{ aspectRatio: ratio(image.size) }} /></button>
     <figcaption><span>{image.title}</span><button type="button" onClick={onDownload}><Download size={13} aria-hidden="true" />Download</button></figcaption>
-    {(image.costUsd != null || onOpenAssets) && <small className="help-receipt">{image.costUsd != null ? `OpenAI image · ${money(image.costUsd)}` : ''}{onOpenAssets && <>{image.costUsd != null ? ' · ' : ''}Saved to <button type="button" className="help-inline-link" onClick={onOpenAssets}>Assets</button></>}</small>}
+    {(image.costUsd != null || onOpenAssets) && <small className="help-receipt">{image.costUsd != null ? `${image.provider === 'fal' ? 'fal.ai' : 'OpenAI'} image · ${money(image.costUsd)}${referencesLine(image)}` : ''}{onOpenAssets && <>{image.costUsd != null ? ' · ' : ''}Saved to <button type="button" className="help-inline-link" onClick={onOpenAssets}>Assets</button></>}</small>}
+    {image.family && image.family !== 'none' && image.references && !image.references.style && !image.references.logo && <small className="help-receipt">No reference images in {image.references.label || 'this set'} yet, so this picture follows the brand colors only. Reference images in Settings → Brand reference images make pictures match the brand.</small>}
   </figure>;
 }
 
@@ -888,6 +896,9 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   const canRedo = persisted && !viewer.preview && can('askHelp') && Boolean(conversation?.id);
   const title = conversation?.title || '';
   const seesCosts = viewer.base === 'admin' || viewer.role === 'admin' || !Array.isArray(viewer.capabilities) || viewer.capabilities.includes('seeCosts');
+  // What a question costs (main's ask-estimate.js; the amounts are stripped for people without See costs).
+  const estimate = state?.help?.estimate || null;
+  const retryTitle = seesCosts && Number.isFinite(estimate?.followUpUsd) ? `Ask again · about $${estimate.followUpUsd.toFixed(2)}` : 'Ask again';
   const followedUp = conversations.filter((row) => row.id !== conversation?.id && row.lastFollowUpAt && row.lastFollowUpAt > (seenAt[row.id] || '') && row.lastFollowUpAt > (seenAt._since || '')).map((row) => row.id);
   const unreadIds = followedUp.length ? new Set([...unread, ...followedUp]) : unread;
   const answeringIds = new Set(Object.values(inflight).map((request) => (request.viewKey.startsWith('c:') ? request.viewKey.slice(2) : '')).filter(Boolean));
@@ -938,7 +949,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     {panel === 'history' && !inline && <section className="help-sheet" aria-label="Conversations"><div className="help-sheet-head"><h3><History size={16} aria-hidden="true" />Conversations</h3><button type="button" className="help-icon" onClick={closePanel} aria-label="Back to the conversation" title="Back (Esc)"><X size={16} aria-hidden="true" /></button></div>{history}</section>}
     <AskThread messages={messages} store={store} liveStream={liveStream} reduced={reduced} hidden={Boolean(panel)} busy={running || Boolean(opening)} opening={Boolean(opening)} welcome={welcome}
       pinnedKey={pinned.key} pinSignal={pinned.signal} editingKey={editingKey} canEdit={editableUser} onEditStart={(user) => setEditingKey(user.key || user.id)} onEditCancel={() => { setEditingKey(''); requestAnimationFrame(() => inputRef.current?.focus()); }} onEditSend={editQuestion}
-      canRetry={(message, user) => !running && !viewer.preview && (message.failed ? Boolean(message.retry) : canRedo && Boolean(user) && !isLocal(user.id) && !isLocal(message.id))} onRetry={retryAnswer} retryTitle="Ask again"
+      canRetry={(message, user) => !running && !viewer.preview && (message.failed ? Boolean(message.retry) : canRedo && Boolean(user) && !isLocal(user.id) && !isLocal(message.id))} onRetry={retryAnswer} retryTitle={retryTitle}
       renderExtras={renderExtras} renderFollowUps={renderFollowUps} renderFailure={renderFailure} announcement={announcement} />
     {!panel && <>
       {(notice || commandsOpen) && <div className="ask-notices">
@@ -949,7 +960,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
         sendDisabled={viewer.preview || Boolean(opening)} sendTitle={viewer.preview ? PREVIEW_TITLE : undefined} placeholder={placeholder} chips={chipRows} queued={queued && queued.source !== 'seed' ? queued.text : ''} onCancelQueued={() => setQueued(null)}
         slash={slashCommands} onSlash={onSlashPick} attachOptions={attachOptions} picker={picker} onPicker={setPicker} onAttach={addChip}
         onArrowUp={lastUser && editableUser(lastUser) ? () => setEditingKey(lastUser.key || lastUser.id) : undefined} compact={!inline || narrow} spot="ask.box"
-        foot={askCostLine({ persisted, seesCosts, route: state?.capabilities?.aiProvider || '', imagesReady, estimate: state?.help?.estimate || null })} />
+        foot={askCostLine({ persisted, seesCosts, route: state?.capabilities?.aiProvider || '', imagesReady, estimate })} />
     </>}
   </>;
 

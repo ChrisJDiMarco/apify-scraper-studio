@@ -716,14 +716,18 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     if (fs.existsSync(target)) { const bytes = fs.readFileSync(target); if (validPng(bytes)) return bytes; }
     job.keyframeCalls ||= [];
     if (job.keyframeCalls.some(call => call.attempts.some(attempt => ['dispatched', 'unknown'].includes(attempt.status)))) throw new Error('An earlier first-frame request may have been billed but has no saved picture. Automatic repeat is blocked; check the provider receipts before starting a new set.');
-    const references = kitReferences(run, 'brand-image').map(ref => ({ role: ref.role, mime: ref.mime, data: ref.data }));
+    // The campaign set's style examples go with it (the video has no logos, so the approved logo stays out), numbered in
+    // the prompt as every picture's reference images are.
+    const references = kitReferences(run, 'brand-image').filter(ref => ref.role === 'style').map(ref => ({ role: ref.role, mime: ref.mime, data: ref.data }));
+    const editionId = state.workspaces.find(w => w.id === run.workspaceId)?.editionId || 'general';
+    const framePrompt = [plan.keyframePrompt, ...brandImages().referencePromptLines(references, { owner: brandImages().referenceOwner('campaign', editionId), dataRule: true })].join('\n');
     const allowance = Math.min(1, Math.max(.25, Math.floor((run.maxBudgetUsd - run.reservedUsd) * 100) / 100));
     if (run.maxBudgetUsd - run.reservedUsd < .05) throw new Error('Not enough of the budget is left for the video’s first frame. Raise the budget and retry.');
     const call = { id: id('keyframe-call'), status: 'running', allowanceUsd: allowance, attempts: [] }; job.keyframeCalls.push(call);
     run.reservedUsd += allowance; save();
     let spent = null;
     try {
-      const [image] = await generateImage({ task: runTask(run, 'video.keyframe'), deliverable: { id: `${job.id}-keyframe`, kind: 'image', label: `${job.label} · first frame`, variants: 1, size: VIDEO_SIZE[plan.aspectRatio] || '1024x1536', variantPrompts: [plan.keyframePrompt], references }, runId: run.id, maxBudgetUsd: allowance, isCancelled: () => stopped.has(run.id),
+      const [image] = await generateImage({ task: runTask(run, 'video.keyframe'), deliverable: { id: `${job.id}-keyframe`, kind: 'image', label: `${job.label} · first frame`, variants: 1, size: VIDEO_SIZE[plan.aspectRatio] || '1024x1536', variantPrompts: [framePrompt], references }, runId: run.id, maxBudgetUsd: allowance, isCancelled: () => stopped.has(run.id),
         onRequest: async receipt => { check(run); call.attempts.push({ ...copy(receipt), status: 'dispatched' }); save(); } });
       if (!image?.png || !validPng(image.png)) throw new Error('The first frame came back damaged.');
       writeBytes(target, image.png);
@@ -1366,11 +1370,21 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   }
   // A quick scan stops after synthesis, so only discovery and synthesis are priced.
   // With the trends report on, its estimate is part of the total the plan shows (stages.report, report: { on, usd, model }).
+  // Each step is priced with what it will run on (Model routing's quickScans.* tasks with the scan's program), resolved the
+  // way startResearchRun snapshots them, so the plan, the run's estimate and the report's model agree. A step on a route
+  // that isn't metered (Codex) is priced with the program's model as a guide.
   function quickScanAiEstimate(program, { report = false } = {}) {
-    const estimate = research.estimateResearchCost(program);
-    const reportUsd = report ? Math.max(.01, cents(scanReports().scanReportEstimate({ model: program.ai.models.reports, effort: program.ai.effort.reports, themes: program.maxThemes }))) : 0;
+    const routed = routing.snapshot(['quickScans.discovery', 'quickScans.synthesis', 'quickScans.report'], { program });
+    const priced = task => (task?.metered && task.model ? { model: task.model, effort: task.effort, ...(task.price?.known ? { price: task.price } : {}) } : null);
+    const routedStages = { discovery: priced(routed['quickScans.discovery']), synthesis: priced(routed['quickScans.synthesis']) };
+    const estimate = research.estimateResearchCost(program, { stages: Object.fromEntries(Object.entries(routedStages).filter(([, entry]) => entry)) });
+    const reportTask = routed['quickScans.report'] || null;
+    const reportPricing = priced(reportTask) || { model: program.ai.models.synthesis, effort: program.ai.effort.synthesis };
+    const reportUsd = report ? Math.max(.01, cents(scanReports().scanReportEstimate({ ...reportPricing, themes: program.maxThemes }))) : 0;
     const stages = { discovery: estimate.stages.discovery, synthesis: estimate.stages.synthesis, report: reportUsd };
-    return { totalUsd: Math.round((stages.discovery + stages.synthesis + reportUsd) * 100) / 100, stages, capUsd: program.budgets.aiUsd, posts: estimate.posts, models: { discovery: program.ai.models.discovery, synthesis: program.ai.models.synthesis, report: program.ai.models.reports }, effort: { discovery: program.ai.effort.discovery, synthesis: program.ai.effort.synthesis, report: program.ai.effort.reports }, report: { on: Boolean(report), usd: reportUsd, model: program.ai.models.reports }, basis: estimate.basis };
+    const modelOf = (stage, task) => task?.model || program.ai.models[stage]; const effortOf = (stage, task) => (task ? task.effort : program.ai.effort[stage]);
+    const reportModel = reportTask?.model || reportPricing.model;
+    return { totalUsd: Math.round((stages.discovery + stages.synthesis + reportUsd) * 100) / 100, stages, capUsd: program.budgets.aiUsd, posts: estimate.posts, models: { discovery: modelOf('discovery', routed['quickScans.discovery']), synthesis: modelOf('synthesis', routed['quickScans.synthesis']), report: reportModel }, effort: { discovery: effortOf('discovery', routed['quickScans.discovery']), synthesis: effortOf('synthesis', routed['quickScans.synthesis']), report: reportTask ? reportTask.effort : reportPricing.effort }, report: { on: Boolean(report), usd: reportUsd, model: reportModel }, basis: estimate.basis };
   }
   // The AI route the next call takes. The host resolves "auto" (getAiProvider); without it the saved setting decides.
   async function aiRouteNow() {
@@ -1659,7 +1673,13 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     estimateResearchProgram(payload = {}) {
       const program = research.validateResearchProgram(payload);
       let collection = null; try { collection = require('../shared/research-collection').buildCollectionPlan(program, { now: clock() }).receipt; } catch (error) { collection = { error: safeError(error) }; }
-      return { ai: research.estimateResearchCost(program), collection: collection && !collection.error ? { worstCaseUsd: collection.worstCaseUsd, totalBudgetUsd: collection.totalBudgetUsd, jobCount: collection.jobCount, platforms: collection.platforms, window: collection.window, warnings: collection.warnings } : collection, models: research.RESEARCH_MODELS, effortLevels: research.EFFORT_LEVELS };
+      // Each stage priced on what it would run on now (Model routing with this draft's own stage choices); a stage on a
+      // connection that reports no cost (Codex) is named in uncappedTasks and priced at Claude list prices as a guide.
+      let routed = {}; try { routed = routing.snapshot(['research.discovery', 'research.synthesis', 'research.matching', 'research.tagging', 'reports.trends-report'], { program }); } catch (_) { routed = {}; }
+      const stageOf = (stage) => routed[stage === 'reports' ? 'reports.trends-report' : `research.${stage}`];
+      const stages = Object.fromEntries(research.RESEARCH_STAGES.map((stage) => { const task = stageOf(stage); return [stage, task?.metered && task.model ? { model: task.model, effort: task.effort, ...(task.price?.known && task.price.basis === 'tokens' ? { price: task.price } : {}) } : null]; }).filter(([, entry]) => entry));
+      const uncappedTasks = [...new Set(Object.values(routed).filter((task) => task && task.metered === false).map((task) => task.label))];
+      return { ai: research.estimateResearchCost(program, { stages }), ...(uncappedTasks.length ? { uncappedTasks } : {}), routes: Object.fromEntries(research.RESEARCH_STAGES.map((stage) => [stage, stageOf(stage) ? { route: stageOf(stage).route, routeLabel: stageOf(stage).routeLabel, model: stageOf(stage).model, modelLabel: stageOf(stage).modelLabel, effort: stageOf(stage).effort } : null])), collection: collection && !collection.error ? { worstCaseUsd: collection.worstCaseUsd, totalBudgetUsd: collection.totalBudgetUsd, jobCount: collection.jobCount, platforms: collection.platforms, window: collection.window, warnings: collection.warnings } : collection, models: research.RESEARCH_MODELS, effortLevels: research.EFFORT_LEVELS };
     },
     setThemeStatus({ themeId, status } = {}) {
       if (!['active', 'archived'].includes(status)) throw new Error('Choose active or archived.');
@@ -1836,7 +1856,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         kit: { version: 1, sourceKey: picked.key, sourceKind: picked.kind, sourceTitle: picked.source.title, folderName: kit().kitRunFolderName({ title: picked.source.title, editionId: w.editionId, createdAt }), concurrency: ai.concurrency, estimateUsd: estimate.totalUsd, ...(picked.reportAssetId ? { reportAssetId: picked.reportAssetId } : {}), ...(picked.themeId ? { themeId: picked.themeId } : {}), ...(picked.url ? { sourceUrl: picked.url } : {}) },
         ai: { model: ai.model, effort: ai.effort, ...(ai.route === 'codex' ? { route: 'codex' } : {}), version: 2, routing: routing.snapshot(kitTaskIds(plan.deliverables)) }, prompts: promptRecord(input.prompts), status: 'queued', stage: 'content', createdAt, maxBudgetUsd: budget(payload.maxBudgetUsd ?? estimate.capUsd), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, progress: { completed: 0, total: plan.deliverables.length },
         jobs: plan.deliverables.map(d => ({ id: d.id, label: kit().kitFileLabel(d.id, w.editionId), kind: d.kind, folder: kit().kitFolderFor(d.id, w.editionId).name, status: 'queued' })) };
-      try { const references = snapshotKitReferences(run, w, plan.deliverables); if (Object.keys(references).length) run.kit.references = references; }
+      // A short video whose model starts from a picture draws its first frame with the campaign set, so that set is kept
+      // too even when the set's own hero graphic wasn't chosen (only chosen picture sets show in run.kit.references).
+      const keyframeSet = run.ai.routing['video.keyframe'] && !plan.deliverables.some(d => d.id === 'brand-image') ? [{ id: 'brand-image', kind: 'image' }] : [];
+      try { const references = Object.fromEntries(Object.entries(snapshotKitReferences(run, w, [...plan.deliverables, ...keyframeSet])).filter(([deliverableId]) => plan.deliverables.some(d => d.id === deliverableId))); if (Object.keys(references).length) run.kit.references = references; }
       catch (error) { fs.rmSync(path.join(root, 'runs', run.id), { recursive: true, force: true }); throw error; }
       write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save();
       return launch(run, () => performContent(run));
@@ -1946,7 +1969,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       for (const extension of ['md', 'html']) fs.rmSync(editedFile(asset, extension), { force: true });
       return { asset: copy(asset) };
     },
-    async openStudioAsset({ assetId }) { const asset = owned(state.assets, assetId); const target = asset.kind === 'image' ? file(asset.runId, `${asset.id}.png`) : assetFile(asset, 'html'); if (openFile) await openFile(target); return { path: target }; },
+    // A short video opens (or, on the web, downloads) as its MP4.
+    async openStudioAsset({ assetId }) { const asset = owned(state.assets, assetId); const target = asset.kind === 'image' ? file(asset.runId, `${asset.id}.png`) : asset.kind === 'video' ? file(asset.runId, `${asset.id}.mp4`) : assetFile(asset, 'html'); if (openFile) await openFile(target); return { path: target }; },
     async importStudioSource(payload) { if (!importSource) throw new Error('Document import is unavailable on this host. Paste source text instead.'); const source = await importSource(payload); if (!source) return null; content.normalizeSource({ ...source, kind: 'upload' }); return source; },
     async publishStudioRun({ runId }) {
       const run = runRecord(runId);

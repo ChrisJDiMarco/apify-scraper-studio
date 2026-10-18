@@ -207,11 +207,13 @@ function validateScanReport(raw, context = {}) {
 }
 
 // What the report costs, priced before the scan starts (the scan plan's estimate) and again when it runs. The prompt is
-// about 7,000 characters of instructions plus each trend and up to 40 posts.
-function scanReportEstimate({ model, effort, themes = 6, posts } = {}) {
+// about 7,000 characters of instructions plus each trend and up to 40 posts. `price` is the routed task's per-token price
+// when Model routing knows it (an OpenRouter model, say); otherwise the model's catalog price applies.
+function scanReportEstimate({ model, effort, themes = 6, posts, price = null } = {}) {
   const trendCount = Math.max(1, Math.min(MAX_TRENDS, Number(themes) || MAX_TRENDS));
   const postCount = Math.min(MAX_POSTS, Number.isFinite(Number(posts)) && posts !== '' && posts != null ? Number(posts) : trendCount * PER_THEME);
-  return research.callCost(model || research.DEFAULT_RESEARCH_AI.models.synthesis, effort || research.DEFAULT_RESEARCH_AI.effort.synthesis, research.estimateTokens(7000 + trendCount * 600 + postCount * 750), OUTPUT_TOKENS);
+  const priced = price?.basis === 'tokens' && price.known ? { price, reasoning: price.reasoning !== false } : {};
+  return research.callCost(model || research.DEFAULT_RESEARCH_AI.models.synthesis, effort || research.DEFAULT_RESEARCH_AI.effort.synthesis, research.estimateTokens(7000 + trendCount * 600 + postCount * 750), OUTPUT_TOKENS, priced);
 }
 
 // A sample for the Prompt Library's preview and test: a recent scan's saved payload, else the bundled sample's posts and

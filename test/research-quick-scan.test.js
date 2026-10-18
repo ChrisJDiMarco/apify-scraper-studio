@@ -77,8 +77,11 @@ describe('deriveQuickScanProgram', () => {
     const derived = deriveQuickScanProgram(program, scan, { ranking, now });
     expect(derived.sourceGroups).toEqual([expect.objectContaining({ id: 'x', targets: ['gamma'] }), expect.objectContaining({ id: 'ls', targets: ['SEO'] })]);
     expect(selectQuickScanTargets(program, scan, ranking).warnings).toEqual([expect.stringMatching(/no Reddit sources/)]);
-    // Larger scans keep the program's models; stages a scan never runs mirror synthesis.
-    expect(derived.ai.models).toMatchObject({ discovery: 'claude-opus-5-5', tagging: derived.ai.models.synthesis, reports: derived.ai.models.synthesis });
+    // Larger scans keep the program's models; tagging never runs and mirrors synthesis, and the trends report keeps the
+    // program's reports model so Model routing (quickScans.report) decides it unless the program chose one.
+    expect(derived.ai.models).toMatchObject({ discovery: 'claude-opus-5-5', tagging: derived.ai.models.synthesis, reports: 'claude-fable-5-1' });
+    const chosen = deriveQuickScanProgram(saved({ ai: { models: { reports: 'claude-opus-5-5' } } }), scan, { ranking, now });
+    expect(chosen.ai.models.reports).toBe('claude-opus-5-5');
     expect(() => deriveQuickScanProgram(program, normalizeScan({ topic: 'SEO', platforms: ['reddit'] }), { now })).toThrow(/no Reddit sources/);
   });
   it('sizes every preset inside its collection cap and passes each Actor the exact start', () => {

@@ -14,7 +14,7 @@ const mainRequire = createRequire(mainPath);
 const { studioCliEnv } = mainRequire('./studio-host');
 const SECRETS = {
   STUDIO_SECRET_KEY: 'fixture-studio-secret-key-0123456789abcdef', STUDIO_PASSWORD: 'fixture-admin-password', STUDIO_SESSION_SECRET: 'fixture-session',
-  ANTHROPIC_API_KEY: 'sk-ant-fixture', OPENAI_API_KEY: 'sk-fixture', APIFY_API_TOKEN: 'apify_api_fixture', MONDAY_API_TOKEN: 'fixture-monday',
+  ANTHROPIC_API_KEY: 'sk-ant-fixture', OPENAI_API_KEY: 'sk-fixture', OPENROUTER_API_KEY: 'sk-or-fixture', FAL_KEY: 'fixture-fal-key', APIFY_API_TOKEN: 'apify_api_fixture', MONDAY_API_TOKEN: 'fixture-monday',
   GOOGLE_SHEETS_WEBHOOK_URL: 'https://script.google.com/macros/s/fixture/exec', GOOGLE_DOCS_ACCESS_TOKEN: 'ya29.fixture',
 };
 const saved = {};
@@ -40,6 +40,8 @@ describe('AI CLI environment', () => {
       child.stdin = new Writable({ write(chunk, _encoding, done) { call.stdin += chunk.toString(); done(); } }); child.kill = () => true;
       calls.push(call);
       if (args.includes('--help')) { queueMicrotask(() => { child.stdout.write('Options:\n      --ephemeral\n      --ignore-user-config\n'); child.emit('close', 0, null); }); return child; }
+      // The quick checks before a Codex job (Settings → AI connections): its version and `codex login status`.
+      if (!args.includes('--output-last-message')) { queueMicrotask(() => { child.stdout.write(args.includes('status') ? 'Logged in using ChatGPT\n' : 'codex-cli 0.60.0\n'); child.emit('close', 0, null); }); return child; }
       queueMicrotask(() => { fs.writeFileSync(args[args.indexOf('--output-last-message') + 1], JSON.stringify(answer)); child.emit('close', 0, null); });
       return child;
     }
@@ -59,7 +61,7 @@ describe('AI CLI environment', () => {
       const reply = await handlers.get('help:ask')(null, { question: 'Where are my trends?', page: { id: 'simple-mode', label: 'Simple mode', layout: 'simple' } });
       expect(reply.answer).toBe('Open **Trends** in the sidebar.');
       for (const call of calls.filter((entry) => entry.command === 'codex')) for (const name of Object.keys(SECRETS)) expect(call.env, name).not.toHaveProperty(name);
-      const codex = calls.filter((call) => call.command === 'codex' && !call.args.includes('--help'));
+      const codex = calls.filter((call) => call.command === 'codex' && call.args.includes('--output-last-message'));
       expect(codex).toHaveLength(1);
       expect(JSON.stringify(codex[0].env)).not.toMatch(/fixture-studio-secret|sk-ant-fixture|fixture-monday|script\.google\.com/);
       // An empty private folder outside the data folder, gone afterwards: nothing in it to read but the answer schema.

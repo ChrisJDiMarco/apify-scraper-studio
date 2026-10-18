@@ -5,6 +5,7 @@ import AI_TASKS from '../../shared/ai-tasks.json';
 import AI_PROVIDERS from '../../shared/ai-providers.json';
 import { number } from './ui.jsx';
 import { ModelPicker, modelName } from './model-picker.jsx';
+import { uncappedLine } from './cost-lines.js';
 
 // Program form sections for n8n parity: the date window (n8n defaults to the last 7 days),
 // per-stage models and effort (n8n ran Opus for discovery/synthesis/matching and Fable for
@@ -57,7 +58,15 @@ function studioDefault(stage, routing) {
   const effort = chosen.effort ?? task?.default?.effort ?? '';
   return `${modelName(route, 'text', route === 'codex' ? '' : model) || model}${effort && route !== 'codex' ? ` · ${effort}` : ''}, ${ROUTE_LABEL[route] || route}`;
 }
-export function ProgramAiFields({ draft, setDraft, api, routing = null }) {
+export function ProgramAiFields({ draft, setDraft, api, routing: given = null }) {
+  // The studio's saved routing names each stage's default (admins can read it; for others the shipped defaults show).
+  const [loaded, setLoaded] = useState(null);
+  useEffect(() => {
+    if (given || typeof api?.previewAiRouting !== 'function') return undefined;
+    let live = true; Promise.resolve().then(() => api.previewAiRouting({})).then((result) => { if (live) setLoaded(result?.routing || null); }).catch(() => {});
+    return () => { live = false; };
+  }, [api, given]);
+  const routing = given || loaded;
   const ai = { ...DEFAULT_PROGRAM_AI, ...(draft.ai || {}), models: { ...DEFAULT_PROGRAM_AI.models, ...(draft.ai?.models || {}) }, effort: { ...DEFAULT_PROGRAM_AI.effort, ...(draft.ai?.effort || {}) } };
   const overrides = programOverrides(draft.ai);
   const write = (next) => setDraft((current) => ({ ...current, ai: { ...(current.ai || {}), overrides: next, concurrency: ai.concurrency } }));
@@ -134,7 +143,8 @@ export function ProgramEstimate({ draft, api }) {
       {ai && <p className="cs-estimate-stages">{Object.entries(ai.stages).map(([stage, value]) => `${stage} ${money(value)}`).join(' · ')}</p>}
       {aiBlocked && <p className="cs-estimate-warning cs-estimate-blocked"><CircleAlert size={14} aria-hidden="true" />{`A run that collects new posts will not start with this AI budget (${money(draft.budgets?.aiUsd)}). It needs at least ${money(Math.ceil(required * 50) / 100)}, half of the ${money(required)} ${draft.autoApproveThemes ? 'for a full unattended run' : 'to discover themes'}; about ${money(ai.totalUsd)} covers every stage.`}</p>}
       {((aiShort && !aiBlocked) || collectionShort) && <p className="cs-estimate-warning"><CircleAlert size={14} aria-hidden="true" />{aiShort && !aiBlocked ? `The AI budget (${money(draft.budgets.aiUsd)}) is below the estimate; a run stops when it runs out and resumes with a higher budget.` : ''}{aiShort && !aiBlocked && collectionShort ? ' ' : ''}{collectionShort ? `The collection budget (${money(draft.budgets.collectionUsd)}) is below the worst case; busy sources may stop early.` : ''}</p>}
-      <p className="cs-estimate-note">Estimates use list prices; actual Apify and Claude costs are recorded on each run.</p>
+      {uncappedLine(estimate) && <p className="cs-estimate-note">{uncappedLine(estimate)}</p>}
+      <p className="cs-estimate-note">Estimates use list prices; actual Apify and AI costs are recorded on each run.</p>
     </>}
   </div>;
 }

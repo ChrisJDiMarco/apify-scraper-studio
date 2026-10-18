@@ -12,8 +12,10 @@ const list = (value) => (Array.isArray(value) ? value : []);
 
 // The line under the box. Money only for people who see costs, and only what the studio can stand behind: Codex isn't
 // metered, so it shows no amount, and a route without an estimate says how questions are charged instead of guessing.
-// estimate: { route, metered, firstUsd, followUpUsd } when the server sends one.
-const usd = (value) => `$${value < 0.1 ? value.toFixed(2) : value.toFixed(2)}`;
+// estimate: { route, metered, firstUsd, followUpUsd } (main's ask-estimate.js, as state.help.estimate) when the server
+// sends one; the amounts are gone for people without See costs.
+const usd = (value) => `$${value.toFixed(2)}`;
+const ON_ROUTE = { 'claude-api': ' on the Anthropic API', claude: ' on the Claude app', openrouter: ' on OpenRouter', openai: ' on the OpenAI API' };
 export function askCostLine({ persisted = false, seesCosts = true, route = '', imagesReady = false, estimate = null } = {}) {
   const saved = persisted ? 'Saved for you only. ' : '';
   const pictures = imagesReady && seesCosts ? ' Pictures cost a few cents each.' : '';
@@ -21,8 +23,9 @@ export function askCostLine({ persisted = false, seesCosts = true, route = '', i
   const via = estimate?.route || route;
   if (via === 'codex' || estimate?.metered === false) return `${saved}Codex isn’t metered, so the studio can’t show a cost.${pictures} AI can be mistaken.`;
   if (Number.isFinite(estimate?.followUpUsd)) {
+    // The Anthropic API caches the guide, so the first question in five minutes costs more than the ones after it.
     const first = Number.isFinite(estimate.firstUsd) && estimate.firstUsd > estimate.followUpUsd * 1.2 ? ` (${usd(estimate.firstUsd)} for the first in five minutes)` : '';
-    return `${saved}About ${usd(estimate.followUpUsd)} a question${first}.${pictures} AI can be mistaken.`;
+    return `${saved}About ${usd(estimate.followUpUsd)} a question${ON_ROUTE[via] || ''}${first}.${pictures} AI can be mistaken.`;
   }
   return `${saved}Each question is one AI call on the studio’s connection, two when it reads something first.${pictures} AI can be mistaken.`;
 }

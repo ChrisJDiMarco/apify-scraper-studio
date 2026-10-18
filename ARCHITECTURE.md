@@ -82,6 +82,30 @@ See [HANDOFF.md → Data model and storage](HANDOFF.md#data-model-and-storage) f
 
 All JSON writes go through a temp-file + fsync + rename helper; there is no database and no cross-file transaction.
 
+## AI connections and model routing
+
+```
+src/shared/ai-providers.json   connections (claude, claude-api, codex, openai, openrouter, fal; pseudo auto), model id patterns
+src/shared/ai-models.json      curated models and list prices (Claude incl. Haiku 5.5 tiers, GPT Image, fal fallbacks)
+src/shared/ai-tasks.json       every AI task: group, kind (text|image|video), defaults, inherit chain, program stage, presets
+src/main/ai-catalog.js         model lists and prices: the curated file, Codex models_cache.json, OpenRouter /models (6 h),
+                               fal /v1/models + OpenAPI + /v1/models/pricing (24 h); cache in <data>/ai-catalog/
+src/main/ai-routing.js         resolve(taskId, { run, program }): run snapshot → program override → Settings → Model routing
+                               → inherit chain → kind defaults; validate, presets, preview (typical cost, warnings)
+src/main/ai-connections.js     status (claude auth status --json, codex login status, keys), require(route), free tests, preflight
+generateStructuredOutput ──► text-router.js ──► cli-runners.js (Claude Code, Codex) | anthropic-runner.js |
+                                                openrouter-runner.js | openai-text-runner.js
+                             onStream: { type: 'status' } and { type: 'text', delta } (structured-stream.js)
+mediaRouter.generateImage / generateVideo ──► image-provider.js (GPT Image) | fal-provider.js (queue: submit, poll, download)
+```
+
+Runs snapshot what they resolved (`run.ai.routing`), so a retry keeps its provider and price. Every picture request
+lists the brand reference images it sends (`deliverable.references`, an empty list when its set has none);
+`test/brand-references.test.js` fails when a new picture path doesn't. The short social video is a kit deliverable
+(`social-video`): a plan written once (`video.brief`), an optional first frame (`video.keyframe`) and one fal request,
+checkpointed before it is sent and resumed by its request id after an interruption, saved as `<asset>.mp4` with
+`<asset>.srt` and `<asset>.poster.png`.
+
 ## Ask AI pipeline
 
 ```

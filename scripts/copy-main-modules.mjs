@@ -32,6 +32,7 @@ const copies = [
   ['src/main/ask-store.js', 'out/main/ask-store.js'], // Ask AI conversations and memory
   ['src/main/ask-followups.js', 'out/main/ask-followups.js'], // messages a run started from Ask AI posts there
   ['src/main/ask-progress.js', 'out/main/ask-progress.js'], // Ask AI's streamed answers and their steps
+  ['src/main/ask-estimate.js', 'out/main/ask-estimate.js'], // the cost line under Ask AI's question box
   ['src/shared/help-spots.json', 'out/shared/help-spots.json'],
   ['src/shared/ask-actions.json', 'out/shared/ask-actions.json'], // Ask AI's buttons, shared with studio-actions.js
   ['docs/app-guide.md', 'out/main/app-guide.md'], // Ask AI answers from this guide

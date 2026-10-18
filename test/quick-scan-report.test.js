@@ -4,7 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import workspaceModule from '../src/main/content-workspace.js';
 import fixture from './helpers/research-ai-fixture.js';
+import routingModule from '../src/main/ai-routing.js';
 const { createContentWorkspace } = workspaceModule;
+const { createAiRouting } = routingModule;
 const { researchOutput, stageOf } = fixture;
 
 // A quick scan started from Ask AI writes a short trends report when it finds trends (SPEC-3): the report is part of the
@@ -17,12 +19,12 @@ const MESSAGE = 'msg-11111111-2222-3333-4444-555555555555';
 const program = { id: 'program-pulse', name: 'Weekly pulse', query: 'SEO', budgets: { collectionUsd: 5, aiUsd: 10 }, sourceGroups: [{ id: 'x', platform: 'x', targets: ['account0', 'account1', 'account2'] }] };
 const rows = (count) => Array.from({ length: count }, (_, i) => ({ id: `scan-${i}`, externalId: String(i), platform: 'x', author: `account${i % 3}`, type: 'post', text: `Reporting problem ${i}: dashboards take too much manual work for every client this week.`, url: `https://x.com/account${i % 3}/status/${i + 1}`, publishedAt: '2026-10-17T09:00:00Z', raw: { likeCount: 400, replyCount: 80, retweetCount: 40, quoteCount: 12, bookmarkCount: 20, viewCount: 9000 } }));
 
-function harness({ runAI, onRunEvent, count = 30, aiUsd, costOf = () => 0.01 } = {}) {
+function harness({ runAI, onRunEvent, count = 30, aiUsd, costOf = () => 0.01, routing } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'quick-scan-report-')); roots.push(root);
   const calls = [];
   const ai = async (request) => { calls.push(request); const output = runAI ? await runAI(request, calls) : researchOutput(request); return { output, receipt: { costUsd: costOf(request), provider: 'fixture', requestedModel: request.model || '' } }; };
   const collect = vi.fn(async () => ({ items: rows(count), receipt: { warnings: [] }, datasetIds: [] }));
-  const api = createContentWorkspace({ root, runAI: ai, collect, clock: () => NOW, actor: () => ({ id: 'member-editor', name: 'Editor One' }), onRunEvent, getDatasets: () => [], readDataset: async () => ({ items: [] }) });
+  const api = createContentWorkspace({ root, runAI: ai, collect, clock: () => NOW, actor: () => ({ id: 'member-editor', name: 'Editor One' }), onRunEvent, getDatasets: () => [], readDataset: async () => ({ items: [] }), ...(routing ? { routing } : {}) });
   api.saveResearchProgram({ ...program, ...(aiUsd ? { budgets: { ...program.budgets, aiUsd } } : {}) });
   return { api, calls, root, collect };
 }
@@ -88,6 +90,27 @@ describe('quick scan trends report', () => {
     expect(run.scanReport).toBeUndefined();
     expect(run.status).toBe('succeeded');
     expect(h.calls.some((call) => stageOf(call) === 'scan-report')).toBe(false);
+  });
+
+  it('writes the report with the model Model routing chooses for it, and prices the plan with that model', async () => {
+    const studio = createAiRouting({ getSettings: () => ({ aiRouting: { tasks: { 'quickScans.report': { model: 'claude-fable-5-1', effort: 'medium' } } } }) });
+    const routing = { resolve: studio.resolve, snapshot: studio.snapshot, current: studio.current, taskIdForPrompt: studio.taskIdForPrompt, priceFor: () => ({ basis: 'none', known: false }), unitsFor: () => 1, mediaProblem: () => '' };
+    const routed = harness({ onRunEvent: () => ({ messageId: MESSAGE }), routing });
+    const plain = harness({ onRunEvent: () => ({ messageId: MESSAGE }) });
+    const { estimate, started, run } = await startScan(routed);
+    const unrouted = await plain.api.estimateQuickScan(scanPayload());
+    // The admin's choice for the report, not the scan's synthesis model, prices the plan and writes the report.
+    expect(estimate.ai.report).toMatchObject({ on: true, model: 'claude-fable-5-1' });
+    expect(estimate.ai.effort.report).toBe('medium');
+    expect(unrouted.ai.report.model).toBe(unrouted.ai.models.synthesis);
+    expect(estimate.ai.report.usd).not.toBe(unrouted.ai.report.usd);
+    expect(started.quickScan.reportUsd).toBe(estimate.ai.report.usd);
+    expect(run.ai.routing['quickScans.report']).toMatchObject({ model: 'claude-fable-5-1', effort: 'medium' });
+    const reportCalls = routed.calls.filter((call) => stageOf(call) === 'scan-report');
+    expect(reportCalls.map((call) => [call.model, call.effort])).toEqual([['claude-fable-5-1', 'medium']]);
+    // Discovery and synthesis keep the program's models.
+    expect(routed.calls.filter((call) => stageOf(call) === 'synthesis').every((call) => call.model === estimate.ai.models.synthesis)).toBe(true);
+    expect(run.scanReport.status).toBe('succeeded');
   });
 
   it('keeps the scan done with a clear message and Retry report when the report fails, and retries only the report', async () => {
@@ -179,6 +202,12 @@ describe('quick scan trends report', () => {
 });
 
 describe('the report as a source and as a prompt', () => {
+  it('is the prompt Model routing’s “Quick scan trends report” job runs and tests with', () => {
+    const routing = createAiRouting({ getSettings: () => ({}) });
+    const task = routing.task('quickScans.report');
+    expect(task.promptIds).toEqual(['reports.quick-scan']);
+    expect(routing.taskIdForPrompt({ id: 'reports.quick-scan', ai: { modelSource: 'research', stage: 'synthesis' } })).toBe('quickScans.report');
+  });
   it('previews “Quick scan trends report” in Prompts on the newest scan or the bundled sample', async () => {
     const h = harness({ onRunEvent: () => ({ messageId: MESSAGE }) });
     const bundled = await h.api.previewPrompt({ id: 'reports.quick-scan', sample: 'bundled' });

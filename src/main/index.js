@@ -422,6 +422,8 @@ function publicState() {
     monday: publicMonday(),
     jobs: Array.from(jobs.values()),
     v5,
+    // What one Ask AI question costs, for the line under its question box (amounts stripped without See costs).
+    help: { estimate: helpCostEstimate() },
   });
 }
 
@@ -1787,6 +1789,8 @@ function spawnCodex(command, args, cwd, options = {}) {
 
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
+      // A streamed Claude Code answer (stream-json) is read as it arrives (cli-runners.js); a listener's failure never stops it.
+      if (options.onStdout) { try { options.onStdout(chunk); } catch (_) { /* a display courtesy */ } }
     });
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString();
@@ -2193,7 +2197,9 @@ const aiConnections = require('./ai-connections').createAiConnections({
   probeCli: async (command, args) => { await loginShellPathReady; return cliProbe(command, args); },
   catalog: aiCatalog, getRouting: () => { try { return aiRouting.preview(); } catch (_) { return null; } },
   runners: { openrouter: openRouterRunner, openaiCheck: (model) => (/^gpt-image-/.test(model) ? imageProvider.checkAccess({ model }) : openAiTextRunner.checkModel(model)) },
-  onChecked: (lastAiCheck) => { try { const data = loadData(); data.settings = { ...data.settings, lastAiCheck }; saveData(); emitState(); } catch (error) { console.warn(`The AI check result could not be saved: ${error?.message || error}`); } },
+  // Home's checklist reads lastAiCheck for the studio's text route, so only a test of the connection behind it ('auto' is
+  // Claude Code or the Anthropic key) is recorded there, under that route; testing another connection leaves it alone.
+  onChecked: (check) => { try { const data = loadData(); const text = aiRouting.current().defaults.text.route; if (!(check.provider === text || (text === 'auto' && ['claude', 'claude-api'].includes(check.provider)))) return; data.settings = { ...data.settings, lastAiCheck: { ...check, provider: text, connection: check.provider } }; saveData(); emitState(); } catch (error) { console.warn(`The AI check result could not be saved: ${error?.message || error}`); } },
 });
 const cliRunners = require('./cli-runners');
 const textRouter = require('./text-router').createTextRouter({
@@ -2313,8 +2319,6 @@ const contentWorkspace = createContentWorkspace({
   collect: studioHost.collect,
   generateImage: request => mediaRouter.generateImage(request),
   generateVideo: request => mediaRouter.generateVideo(request),
-  // A task's routing for content-workspace code that asks by id (the quick scan report's model, 'quickScans.report').
-  taskAi: (taskId, context) => aiRouting.resolve(taskId, context),
   // Model routing (ai-routing.js): runs snapshot what they resolve when they start; previews price with the same prices.
   routing: { resolve: (taskId, context) => aiRouting.resolve(taskId, context), snapshot: (taskIds, context) => aiRouting.snapshot(taskIds, context), current: () => aiRouting.current(), taskIdForPrompt: (entry) => aiRouting.taskIdForPrompt(entry), priceFor: (route, model, kind, options) => aiCatalog.priceFor(route, model, kind, options), unitsFor: (price, request) => aiCatalog.unitsFor(price, request), mediaProblem: (taskId) => mediaRouter.problem(taskId) },
   getDatasets: () => [...loadData().datasets, ...studioHost.getDatasets()],
@@ -2750,8 +2754,9 @@ function helpContext(page, role = 'admin', promptAccess = null, scope = {}) {
     channels: channels.slice(0, 12).map(({ id, name }) => ({ id, name })),
     programs: programs.slice(0, 10).map((program) => { const last = fullRuns.find((run) => run.programId === program.id); return { name: program.name, sources: helpSources(program), window: helpWindow(program), targetPerPlatform: program.targetPerPlatform, budgetsUsd: program.budgets, stageModels: program.ai?.models, approveThemesAutomatically: Boolean(program.autoApproveThemes), schedule: helpSchedule(program), ...(program.schedule?.enabled && program.schedule.nextRunAt ? { nextRun: program.schedule.nextRunAt } : {}), ...(last ? { lastRun: { started: helpDay(last.createdAt), status: last.status, aiCostUsd: helpMoney(last.ownCostUsd ?? last.costUsd) } } : {}), reddit: { communitiesPerRun: program.collection?.redditSubsPerJob, scrollSeconds: program.collection?.redditScrollTimeoutSecs } }; }),
     recentResearchRuns: fullRuns.slice(0, 4).map((run) => ({ title: run.title, status: run.status, stage: run.stage, message: String(run.message || '').slice(0, 400), started: run.createdAt, aiCostUsd: helpMoney(run.costUsd), aiBudgetUsd: run.maxBudgetUsd, postsKept: run.counts?.platforms || null, themes: helpThemes(run).length, warnings: (run.warnings || []).slice(0, 3).map((line) => String(line).slice(0, 300)) })),
-    // Small, hour-level runs started from Ask AI: collect, find themes, stop (no review, tagging or reports).
-    quickScans: researchRuns.filter(isQuickScan).slice(0, 5).map((run) => ({ title: run.title, topic: run.quickScan?.topic || '', status: run.status, stage: run.stage, window: run.quickScan?.lookbackHours ? `last ${run.quickScan.lookbackHours} hours` : run.window?.startAt ? `since ${run.window.startAt}` : '', platforms: run.quickScan?.platforms || [], started: run.createdAt, aiCostUsd: helpMoney(run.costUsd), postsKept: run.counts?.platforms || null, themes: helpThemes(run).slice(0, 6).map((theme) => String(theme.name || '').slice(0, 120)), message: String(run.message || '').slice(0, 300) })),
+    // Small, hour-level runs started from Ask AI: collect, find themes, then (unless turned off) write a short trends
+    // report; no review or tagging. report / reportStatus: that report's title and how it went.
+    quickScans: researchRuns.filter(isQuickScan).slice(0, 5).map((run) => ({ title: run.title, topic: run.quickScan?.topic || '', status: run.status, stage: run.stage, window: run.quickScan?.lookbackHours ? `last ${run.quickScan.lookbackHours} hours` : run.window?.startAt ? `since ${run.window.startAt}` : '', platforms: run.quickScan?.platforms || [], started: run.createdAt, aiCostUsd: helpMoney(run.costUsd), postsKept: run.counts?.platforms || null, themes: helpThemes(run).slice(0, 6).map((theme) => String(theme.name || '').slice(0, 120)), message: String(run.message || '').slice(0, 300), ...(run.scanReport ? { report: String(run.scanReport.title || '').slice(0, 160), reportStatus: run.scanReport.reason === 'budget' ? 'skipped (AI cap)' : String(run.scanReport.status || '') } : run.quickScan?.report === false ? { reportStatus: 'off' } : {}) })),
     workingNow: activeWorkSummary(),
     trends: {
       // run tells two runs' trends of the same name apart; history is what was decided about the trend before.
@@ -3120,7 +3125,7 @@ function helpPromptView(detail = {}, promptAccess = {}) {
 }
 
 const HELP_MOMENTUM = ['new', 'rising', 'steady', 'fading'];
-const HELP_DOC_KINDS = { 'evidence-report': 'Trends report', 'editorial-toolkit': 'Editorial toolkit' };
+const HELP_DOC_KINDS = { 'evidence-report': 'Trends report', 'editorial-toolkit': 'Editorial toolkit', 'scan-report': 'Quick scan report' };
 // A trend's stage in the one vocabulary (Needs your OK · Approved · Being written · Ready · Skipped), placed the way the
 // Trend board places it. Quick scans have no review gate, so their trends have no stage.
 // The same rules as src/shared/trend-board.js buildTrendBoard (test/live-workflow-integration.test.js compares them): a run
@@ -3419,6 +3424,18 @@ function askFollowUpPost(event) {
   return askFollowUps.post(event);
 }
 const askProgress = require('./ask-progress').createAskProgress({ send: (target, event) => pushAskEvent(target?.identityId, event, { session: target?.session || null }) });
+// The cost line under Ask AI's question box (state.help.estimate, ask-estimate.js): the routed connection and model's
+// price over the prompt's size. askCost remembers the last answer's cached prefix and the connection it really used (an
+// 'auto' route picks Claude Code or the Anthropic key per call); before any answer the app guide plus the instructions
+// (about 43,000 characters) stand in for the prefix. Null when nothing is known yet.
+const askCost = { prefixChars: 0, route: '' };
+function helpCostEstimate() {
+  try {
+    const task = aiRouting.resolve('assistant.ask-ai');
+    const route = task.route === 'auto' ? (['claude', 'claude-api'].includes(askCost.route) ? askCost.route : 'claude') : task.route;
+    return require('./ask-estimate').askEstimate({ route, price: task.price || null, fallback: task.model ? modelPrice(task.model) : null, prefixChars: askCost.prefixChars || appGuide().length + 43000 });
+  } catch (_) { return null; } // the line then says how questions are charged instead
+}
 const ASK_MESSAGE_ID = /^msg-[0-9a-f-]{36}$/;
 const ASK_BUSY_LIMIT = 2; // questions one person may have going at once (two conversations side by side)
 // What a person attached to a question (a report, folder, trend or run dragged into the chat): read before the answer.
@@ -3493,8 +3510,12 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
         if (stop.aborted) throw new Error('Job cancelled.');
         const key = `${jobId}::${round}`; calls.add(key); used.push(key);
         const streaming = progress ? { onStream, streamField: 'answer', onWait: (ahead) => progress.step({ id: 'queue', kind: 'queue', label: `Waiting for a free AI slot (${ahead} ahead)`, status: 'running' }), onStart: () => progress.step({ id: 'queue', kind: 'queue', label: 'Got an AI slot', status: 'done' }) } : {};
-        try { return await generateStructuredOutput({ schema, prompt: body, cachePrefix: prefix, workspaceDir: dir, outputPath: path.join(dir, round ? 'answer-read.json' : 'answer.json'), jobId: key, maxBudgetUsd: helpBudgetUsd, task, timeoutMs: 180000, ...streaming }); }
-        finally { calls.delete(key); }
+        try {
+          const result = await generateStructuredOutput({ schema, prompt: body, cachePrefix: prefix, workspaceDir: dir, outputPath: path.join(dir, round ? 'answer-read.json' : 'answer.json'), jobId: key, maxBudgetUsd: helpBudgetUsd, task, timeoutMs: 180000, ...streaming });
+          // The cost line's next estimate (helpCostEstimate): this prompt's cached prefix and the connection it used.
+          askCost.prefixChars = String(prefix || '').length || askCost.prefixChars; askCost.route = String(result?.receipt?.route || askCost.route || '');
+          return result;
+        } finally { calls.delete(key); }
       },
     });
     if (stop.aborted) throw new Error('Job cancelled.');

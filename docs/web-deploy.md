@@ -314,7 +314,10 @@ stop-then-start update.
 - **Uploads** are up to 30 MB: nginx `client_max_body_size 30m;`. Node allows 300 seconds to receive a request body.
 - **Outbound.** The server calls `api.anthropic.com`, `api.apify.com` (and Apify's dataset storage), `api.openai.com`,
   `docs.googleapis.com`, `www.googleapis.com` and `docs.google.com`/`script.google.com` (Google delivery and the Sheets
-  bridge), and `api.monday.com`. Allow them through the egress firewall.
+  bridge), and `api.monday.com`. With OpenRouter or fal.ai connected (Settings → AI connections) it also calls
+  `openrouter.ai`, `queue.fal.run`, `api.fal.ai` and fal's media hosts (`fal.media` and its subdomains;
+  `STUDIO_FAL_MEDIA_HOSTS` changes the list). Allow them through the egress firewall. Claude Code and Codex, when used,
+  run with the sign-in of the server's user, so every person's work counts against that one plan.
 - **Corporate proxies.** Node 24 uses `HTTPS_PROXY`/`NO_PROXY` when `NODE_USE_ENV_PROXY=1` is set (check this against
   the Node patch release you deploy). For TLS inspection, add the inspecting CA with `NODE_EXTRA_CA_CERTS=/path/ca.pem`.
 
