@@ -22,7 +22,10 @@ describe('the Ask AI action catalog', () => {
       expect(Object.keys(ASK.targets), kind).toContain(row.target);
       expect(['none', 'dialog', 'estimate', 'handoff', 'card'], kind).toContain(row.confirm);
       expect(['always', 'params', 'never'], kind).toContain(row.form);
-      expect(row.layouts, kind).toEqual(['simple', 'classic']);
+      // Every kind works in both layouts; the ones a channel owner's Ask AI offers say so, with a channel line when theirs differs.
+      expect(row.layouts.slice(0, 2), kind).toEqual(['simple', 'classic']);
+      expect(row.layouts.slice(2).every((layout) => layout === 'channel'), kind).toBe(true);
+      if (row.channelPrompt !== undefined) { expect(row.layouts, kind).toContain('channel'); expect(row.channelPrompt, kind).toMatch(/^target = /); }
       expect(typeof row.spends, kind).toBe('boolean');
       expect(typeof row.destructive, kind).toBe('boolean');
       for (const type of Object.values(row.params)) expect(TYPES, `${kind}: ${type}`).toContain(String(type).split(':')[0]);
@@ -60,6 +63,22 @@ describe('the Ask AI action catalog', () => {
     // Kinds that also need a Prompt Library right or a connection are left out on the server until those are there.
     for (const kind of kinds) expect(aiActionAllowed(kind, (method) => allowed.includes(method)) && !ASK.actions[kind].needs, kind).toBe(offered.includes(kind));
   });
+  it('offers a channel owner only the channel layout’s buttons, each calling only channel-safe methods its role holds', () => {
+    const channelKinds = kinds.filter((kind) => ASK.actions[kind].layouts.includes('channel'));
+    expect(channelKinds.sort()).toEqual(['ask', 'finish-assets', 'make-assets', 'mark-used', 'open', 'open-tab', 'save-folder', 'stop-run']);
+    for (const kind of channelKinds) for (const method of ASK.actions[kind].methods) expect(ROLES.channelSafeMethods, `${kind}: ${method}`).toContain(method);
+    const channelAllowed = require('../src/main/roles.js').allowedMethods('channel');
+    const offered = help.actionsFor(help.promptRights(), help.reachOf({ allowed: channelAllowed }), 'channel');
+    expect(Object.keys(offered).sort()).toEqual([...channelKinds].sort());
+    for (const kind of Object.keys(offered)) expect(offered[kind]).toBe(ASK.actions[kind].channelPrompt || ASK.actions[kind].prompt);
+    // Even a caller that passes every method can't offer a channel owner research, approvals or report edits.
+    const everything = help.actionsFor(help.promptRights({ view: true, edit: true }), help.reachOf({ allowed: Object.keys(API_METHODS), drive: true }), 'channel');
+    for (const kind of ['start-research', 'quick-scan', 'approve-trend', 'write-reports', 'set-status', 'edit-report', 'edit-prompt', 'invite-people', 'view-as', 'copy']) expect(everything).not.toHaveProperty(kind);
+    // A channel role without Make channel assets or Mark trends used isn't offered those buttons.
+    const reviewer = help.actionsFor(help.promptRights(), help.reachOf({ allowed: ['askHelp', 'readStudioAsset', 'setTrendAdoption'] }), 'channel');
+    expect(Object.keys(reviewer).sort()).toEqual(['ask', 'mark-used', 'open', 'open-tab']);
+  });
+
   it('keeps admin-only buttons from editors even when the caller passes no access', () => {
     const editor = Object.keys(help.actionsFor(help.promptRights(), help.reachOf(), 'editor'));
     for (const kind of ['invite-people', 'view-as', 'lock-prompt', 'draft-program', 'mark-used']) expect(editor).not.toContain(kind);

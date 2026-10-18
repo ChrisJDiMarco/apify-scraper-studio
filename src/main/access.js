@@ -34,7 +34,11 @@ const REPORTED = new Set(['saveMember', 'removeMember', 'createSignInLink', 'set
 const AUDITED = new Set(['saveMember', 'removeMember', 'createSignInLink', 'revokeSignInLink', 'saveRolePolicy', 'saveRole', 'deleteRole', 'saveMemberAccess', 'inviteMembers']);
 // What a channel-based role may send, method by method (the SCOPES below); roles.json channelSafeMethods is these
 // plus the core methods, and test/roles.test.js keeps the two in step.
-const SCOPE_METHODS = Object.freeze({ channel: Object.freeze(['planAssetKit', 'createAssetKit', 'readStudioAsset', 'openStudioAsset', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption', 'setViewPrefs', 'openReportDoc', 'closeReportDoc', 'listReportNotes', 'saveReportNote', 'resolveReportNote', 'deleteReportNote']), editor: Object.freeze(['saveResearchReview']) });
+// Ask AI (roles.json askAi) for a channel-based role: each method's payload is rebuilt from what it reads, and index.js
+// answers from the channel projection only (src/main/ask-channel.js), in that person's channel space of conversations
+// and memory (ask-store.js), with pictures only for a role that makes channel assets.
+const ASK_METHODS = Object.freeze(['readAskProgress', 'cancelAsk', 'askHelp', 'listAskConversations', 'readAskConversation', 'renameAskConversation', 'deleteAskConversation', 'recordAskOutcome', 'listAskMemory', 'saveAskMemory', 'forgetAskMemory', 'createHelpImage', 'saveHelpImage', 'listHelpImages', 'readHelpImage']);
+const SCOPE_METHODS = Object.freeze({ channel: Object.freeze(['planAssetKit', 'createAssetKit', 'readStudioAsset', 'openStudioAsset', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption', 'setViewPrefs', 'openReportDoc', 'closeReportDoc', 'listReportNotes', 'saveReportNote', 'resolveReportNote', 'deleteReportNote', ...ASK_METHODS]), editor: Object.freeze(['saveResearchReview']) });
 // The methods that read a file the browser uploads first (web-api.js FILE_PICKERS), for studio-server's upload check.
 const UPLOAD_METHODS = Object.freeze(['importStudioSource', 'importWorkbook', 'pickImportFile', 'openSetupFile', 'applySetup', 'addBrandImage']);
 const osName = () => { try { return os.userInfo().username || 'You'; } catch (_) { return 'You'; } };
@@ -173,6 +177,31 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     // On the web a review is signed by the person who saved it.
     saveResearchReview: { editor: (payload, viewer) => (web ? { ...payload, reviewer: viewer.name } : payload) },
   };
+  // Ask AI for a channel-based role: only these fields reach the handler, which reads the person's channel from the
+  // viewer, never from the payload. A question always goes into their stored conversations (no `history` of the
+  // caller's own), and a picture needs Make channel assets, the capability that makes their channel's pictures.
+  const keep = (payload, keys) => Object.fromEntries(keys.filter((key) => payload[key] !== undefined).map((key) => [key, payload[key]]));
+  const ASK_SCOPES = {
+    readAskProgress: (payload) => keep(payload, ['requestId']),
+    cancelAsk: (payload) => keep(payload, ['requestId']),
+    askHelp: (payload) => ({ ...keep(payload, ['question', 'requestId', 'page', 'context', 'mode', 'replaces', 'attachments']), conversationId: text(payload.conversationId) }),
+    listAskConversations: (payload) => keep(payload, ['limit']),
+    readAskConversation: (payload) => keep(payload, ['conversationId', 'id']),
+    renameAskConversation: (payload) => keep(payload, ['conversationId', 'id', 'title', 'pinned']),
+    deleteAskConversation: (payload) => keep(payload, ['conversationId', 'id']),
+    recordAskOutcome: (payload) => keep(payload, ['conversationId', 'id', 'messageId', 'index', 'outcome', 'imageId']),
+    listAskMemory: (payload) => keep(payload, ['includeForgotten']),
+    saveAskMemory: (payload) => keep(payload, ['id', 'text', 'kind', 'scope', 'pinned', 'status']),
+    forgetAskMemory: (payload) => keep(payload, ['id']),
+    createHelpImage: (payload, viewer) => {
+      if (!list(viewer?.capabilities).includes('makeAssets')) { let admins = []; try { admins = teamStore.admins(); } catch (_) { /* "an admin" */ } throw policy.refusal('capabilityOff', { what: policy.capLabel('makeAssets'), admin: policy.askWho(admins) }); }
+      return keep(payload, ['prompt', 'size', 'title', 'family']);
+    },
+    saveHelpImage: (payload) => keep(payload, ['id']),
+    listHelpImages: () => ({}),
+    readHelpImage: (payload) => keep(payload, ['id']),
+  };
+  for (const method of ASK_METHODS) SCOPES[method] = { channel: ASK_SCOPES[method] };
   for (const base of Object.keys(SCOPE_METHODS)) {
     const scoped = Object.keys(SCOPES).filter((method) => SCOPES[method][base]);
     if (scoped.join() !== SCOPE_METHODS[base].join()) throw new Error(`SCOPE_METHODS.${base} is out of step with the access gate's scopes.`);
@@ -258,6 +287,10 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     openStudioAsset: () => ({ opened: true }),
     saveAssetKitFolder: (result) => { const value = record(result); return value.cancelled ? { cancelled: true } : { folderName: text(value.folderName), assetCount: Number(value.assetCount) || 0, ...(value.savedTo ? { savedTo: value.savedTo } : {}) }; },
   };
+  // Ask AI's answers, conversations, progress and pictures: never a cost or a receipt. A new picture also names the
+  // model and the connection that drew it (for the caption beside its cost), which a channel owner doesn't see either.
+  for (const method of ASK_METHODS) RESULTS[method] = (result) => policy.stripMoney(result);
+  RESULTS.createHelpImage = (result) => { const { model: _model, provider: _provider, ...rest } = record(policy.stripMoney(result)); return rest; };
 
   // ---------- rewriteError ----------
   // Editors and channel owners never get sent to Settings, keys or connections they can't open, and never read a provider's
@@ -326,4 +359,4 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
   return { identityForCall, sessionForCall, viewerFor, currentViewer, actorForCall, check, after, projectResult, rewriteError, project, canUpload, effectiveFor, viewKeyFor, allows, canIdentityCall, policy: policyNow };
 }
 
-module.exports = { createAccess, SYSTEM, SCOPE_METHODS, UPLOAD_METHODS, AUDITED };
+module.exports = { createAccess, SYSTEM, SCOPE_METHODS, UPLOAD_METHODS, AUDITED, ASK_METHODS };

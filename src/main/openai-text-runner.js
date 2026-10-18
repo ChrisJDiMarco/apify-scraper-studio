@@ -4,7 +4,8 @@
 // resolved price (the studio's table, or OpenRouter's public list for the same model); a model without a known price is
 // refused before anything is sent. A 400 about the schema retries once with the schema written in the prompt.
 const { STUDIO_SYSTEM_PROMPT } = require('../shared/claude-runner');
-const { answerFormat, jsonFrom, planBudget, toApiSchema, GRAMMAR_REFUSED, RAISE_BUDGET, usd } = require('../shared/anthropic-runner');
+const { answerFormat, planBudget, toApiSchema, GRAMMAR_REFUSED, RAISE_BUDGET, RAW_TEXT_BYTES, usd } = require('../shared/anthropic-runner');
+const { parseJsonReply, schemaAccept, clipText } = require('../shared/json-reply');
 const { toStrictSchema, stripNulls } = require('./openrouter-runner');
 const { readSse, httpError, fetchJson } = require('./ai-http');
 
@@ -106,11 +107,15 @@ function createOpenAiTextRunner({ getKey, fetchImpl = globalThis.fetch, clock = 
       throw runnerError(`OpenAI stopped before finishing (${reason || 'incomplete'}).`, reason === 'content_filter' ? 'AI_REFUSED' : 'AI_INVALID_RESULT', fields);
     }
     if (reply.final.status === 'failed') throw runnerError(`OpenAI couldn’t finish: ${redact(reply.final.error?.message || 'unknown error')}`, 'OPENAI_ERROR', fields);
-    let output;
-    try { output = inPrompt ? jsonFrom(reply.text) : JSON.parse(reply.text); } catch (_) { throw runnerError('The model’s answer wasn’t valid JSON. No unvalidated answer was saved.', 'AI_INVALID_RESULT', fields); }
+    // The strict schema's answer is JSON as sent; the schema-in-prompt retry's is read leniently (json-reply.js), and only
+    // an object shaped like the answer counts (schemaAccept). An answer that can't be read keeps its text (redacted, 200 KB
+    // at most) for the local diagnostic and Ask AI.
+    let output; let parse = 'none';
+    try { ({ value: output, repaired: parse } = parseJsonReply(reply.text, { lenient: inPrompt, accept: schemaAccept(schema) })); }
+    catch (_) { throw runnerError('The model’s answer wasn’t valid JSON. No unvalidated answer was saved.', 'AI_INVALID_RESULT', { ...fields, rawText: clipText(redact(reply.text), RAW_TEXT_BYTES), rawTextLength: reply.text.length, schemaInPrompt: inPrompt, stopReason: String(reply.final.status || '') }); }
     if (!isObject(output)) throw runnerError('The model’s answer wasn’t a JSON object. No unvalidated answer was saved.', 'AI_INVALID_RESULT', fields);
     if (!inPrompt) output = stripNulls(output, toApiSchema(schema));
-    return { output, receipt: { provider: 'openai', requestedModel: model, actualModel: reply.final.model || model, effort: chosenEffort, ...(effort && !chosenEffort ? { effortNote: `${model} doesn’t offer ${effort} reasoning here, so it ran at its default.` } : {}), costUsd, costBasis: 'OpenAI list prices from the studio’s table', usage, durationMs: Math.max(0, clock() - startedAt), requestId: reply.final.id || null, structuredOutput: inPrompt ? 'schema in prompt' : 'native', maxTokens } };
+    return { output, receipt: { provider: 'openai', requestedModel: model, actualModel: reply.final.model || model, effort: chosenEffort, ...(effort && !chosenEffort ? { effortNote: `${model} doesn’t offer ${effort} reasoning here, so it ran at its default.` } : {}), costUsd, costBasis: 'OpenAI list prices from the studio’s table', usage, durationMs: Math.max(0, clock() - startedAt), requestId: reply.final.id || null, structuredOutput: inPrompt ? 'schema in prompt' : 'native', maxTokens, ...(parse !== 'none' ? { parse } : {}) } };
   }
   // Free: whether this key can see a model (GET /v1/models/{id}).
   async function checkModel(model) {

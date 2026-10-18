@@ -7,7 +7,7 @@
 
 export const SLASH_COMMANDS = Object.freeze([
   { id: 'scan', usage: '/scan topic', label: 'Plan a quick scan', hint: 'You see the plan and its cost before anything runs.', arg: 'topic', needs: ['startQuickScan'] },
-  { id: 'summarize', usage: '/summarize', label: 'Summarize what changed since the last research run' },
+  { id: 'summarize', usage: '/summarize', label: 'Summarize what changed since the last research run', needs: ['readStudioRun'] },
   { id: 'report', usage: '/report title', label: 'Ask about a report', hint: 'Attaches the report to your question.', arg: 'title', attach: 'report' },
   { id: 'trend', usage: '/trend name', label: 'Ask about a trend', hint: 'Attaches the trend to your question.', arg: 'name', attach: 'trend' },
   { id: 'draft', usage: '/draft kind', label: 'Draft a Slack, email, LinkedIn or X post', hint: 'Add “about …”, or attach a report first.', arg: 'kind' },

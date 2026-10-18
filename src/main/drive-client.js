@@ -155,6 +155,11 @@ function createDriveClient({ getToken, refresh = () => {}, who = '', fetchImpl =
     async folder(folderId, { signal } = {}) {
       return request(`/drive/v3/files/${encodeURIComponent(folderId)}?supportsAllDrives=true&fields=${encodeURIComponent('id,name,mimeType,driveId,trashed,webViewLink,capabilities(canAddChildren,canEdit)')}`, { signal });
     },
+    // Whether a file the studio made is gone: deleted, or in the trash (by itself or with its folder).
+    async gone(fileId, { signal } = {}) {
+      try { const file = await request(`/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=${encodeURIComponent('id,trashed')}`, { signal }); return Boolean(file?.trashed); }
+      catch (error) { if (error.code === 'driveNotFound') return true; throw error; }
+    },
     // Folders and files named `name` directly inside `parentId` (not in the trash).
     async findByName(parentId, name, { folder = true, driveId = '', signal } = {}) {
       const q = `'${quote(parentId)}' in parents and name = '${quote(name)}' and trashed = false${folder ? ` and mimeType = '${FOLDER_MIME}'` : ''}`;

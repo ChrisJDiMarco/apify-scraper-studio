@@ -1,5 +1,6 @@
-/* Settings → Google Drive (drive-settings.jsx) and Open in Drive on reports. Token-only (--s-*, set by the studio frame in
-   both layouts); the fallbacks keep a bare mount readable. Everything wraps, so it fits a phone-width column. */
+/* Settings → Google Drive (drive-settings.jsx), and Open in Drive and Save to Drive on reports. Token-only (--s-*, set
+   by the studio frame in both layouts); the fallbacks keep a bare mount readable. Everything wraps, so it fits a
+   phone-width column. */
 .gd-settings { display: grid; gap: 14px; min-width: 0; }
 .gd-muted { margin: 0; color: var(--s-muted, #62685e); font-size: 12px; line-height: 1.45; }
 .gd-message { display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: 8px 10px; border-radius: var(--s-radius-control, 12px); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
@@ -42,6 +43,19 @@
 .gd-log-what .gd-log-error { color: var(--s-danger, #8a2f1c); }
 .gd-log-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 :is(.gd-check input, .gd-details summary, .gd-log a, .gd-help a, .gd-open-drive):focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 2px; }
+/* Save to Drive on a report (simple-reports.jsx DriveSaveButton). Greyed is aria-disabled, so it still takes hover and
+   focus; the reason shows in a tip like the sidebar's (.sb-tip), under the button and kept inside the window. */
+.gd-save { position: relative; display: inline-flex; }
+.gd-save-button[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.gd-save-button[aria-busy="true"] { cursor: progress; }
+.gd-save-button:focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 2px; }
+.simple-shell .simple-reader-tools .gd-save > button.gd-save-button[aria-disabled="true"]:hover { background: var(--s-card, #fff); }
+.content-studio .gd-save > button.cs-quiet[aria-disabled="true"]:hover { text-decoration: none; }
+.gd-tip { position: absolute; top: calc(100% + 8px); z-index: 30; width: max-content; max-width: min(300px, calc(100vw - 32px)); padding: 6px 10px; font-size: 12.5px; font-weight: 600; line-height: 1.35; text-align: left; white-space: normal; overflow-wrap: anywhere; color: var(--s-card, #fff); background: var(--s-ink, #181e15); border-radius: 7px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); animation: studio-fade 120ms ease both; }
+.gd-tip[hidden] { display: none; }
+/* The gap between the button and the tip still counts as over it, so the pointer can move onto the tip. */
+.gd-tip::before { content: ''; position: absolute; left: 0; right: 0; top: -8px; height: 8px; }
+@media (prefers-reduced-motion: reduce) { .gd-tip { animation: none; } }
 @media (max-width: 560px) {
   .gd-facts div { grid-template-columns: 1fr; gap: 2px; }
   .gd-log-when { flex-basis: 100%; }

@@ -80,7 +80,10 @@ On Windows the commands are the same in PowerShell (install Node 24 first: nvm-w
 ### A new capability
 
 Add it to `roles.json` `capabilities` with `id`, `group`, `label`, `description`, `defaults` (built-in role ids),
-`bases`, `methods`, and `requires`/`spends`/`lock` as needed. Give it `since` above `policyVersion` and raise
+`bases`, `methods`, and `requires`/`spends`/`lock` as needed (`requiresByBase` when one kind of role needs less, as
+Ask AI on a channel base does; `costsOptional` only for small, capped paid work a role may use without See costs). A
+capability a channel base may hold needs every method in `channelSafeMethods` with a channel scope in `access.js`, and
+a handler that reads only that person's channel view. Give it `since` above `policyVersion` and raise
 `policyVersion`, so existing custom roles show it as New and off. Pages it shows go in `pages`. Update the capability
 table in `docs/roles-and-access.md` and the capability list in `docs/app-guide.md` (Roles and access).
 
@@ -98,7 +101,10 @@ table in `docs/roles-and-access.md` and the capability list in `docs/app-guide.m
 1. One entry in `src/shared/ask-actions.json` `actions`: `label`, `target` (the kind of item), `params` (flat
    `key=value` inputs and their types), `methods` (a role needs all of them), optional `needs` (prompt view or edit,
    Google Drive), `spends`, `destructive`, `confirm`, `form`, `layouts` and the `prompt` line. Old names go in `aliases`.
-2. An executor in `src/renderer/src/studio-actions.js` (`executors`); paid kinds confirm with an estimate.
+2. An executor in `src/renderer/src/studio-actions.js` (`executors`); paid kinds confirm with an estimate. For a channel
+   owner's Ask AI too, add `channel` to `layouts`, a `channelPrompt` when its line differs, an executor in
+   `src/renderer/src/channel-ask.jsx` and its target in `channelResolve` (`src/main/ask-channel.js`); every method it
+   calls must be channel-safe.
 3. If it targets a new kind of item, resolve it in `helpResolveActions` (`src/main/index.js`).
 4. The ACTIONS prompt changes, so regenerate `node scripts/prompt-goldens.mjs --only assistant.ask-ai`.
 5. **Never add objects to the answer schema**: inputs travel as `params` strings (see the schema rule below).
@@ -108,7 +114,10 @@ table in `docs/roles-and-access.md` and the capability list in `docs/app-guide.m
 
 Add it to `CARD_TYPES` (and `MODEL_CARDS` if the model fills it) in `src/main/help-assistant.js` and to the CARDS rules
 in the prompt; parse its `items` lines (model cards) or build it in `hydrateCards` (studio cards, `index.js`); render it
-in `chat-cards.jsx` and style it in `chat-cards.css`; add a case to `test/chat-cards.test.jsx`. The card wire shape stays
+in `chat-cards.jsx` inside the shared card shell (`ReplyCard`; the shell, chips, badges, progress and buttons are styled
+once in `ask-reply.css`, and only what that card draws itself goes in `chat-cards.css`; a reply has one primary button at
+most, see `primaryCard`, whose `wantsPrimary` case for the card must follow the same rules the card uses to draw its
+buttons, permissions included); add a case to `test/chat-cards.test.jsx`. The card wire shape stays
 `{ type, ref, title, note, items: [string], actionIndexes }`; never a nested `data` object.
 
 **The schema rule.** The Anthropic API refuses a structured-output schema whose compiled grammar is too large. Keep

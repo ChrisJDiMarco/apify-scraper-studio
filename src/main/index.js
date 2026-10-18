@@ -443,11 +443,13 @@ function workflowsInto(studio) {
   return { ...studio, ...extra };
 }
 
-// { [assetId]: url } of the active workspace's reports the Google Drive folder sync has copied, for Open in Drive
-// (roles.js empties it without Read reports and assets).
+// { [assetId]: url } of the active workspace's reports the Google Drive folder sync has copied, for Open in Drive, and
+// driveStale, those of them changed since their Doc was written, for Save to Drive's Update in Drive (roles.js empties
+// both without Read reports and assets).
 function driveLinksInto(studio) {
-  let links = {}; try { links = driveSync ? driveSync.links((studio.assets || []).map((asset) => asset.id)) : {}; } catch (error) { console.warn(`Google Drive links could not be read: ${error.message}`); }
-  return { ...studio, driveLinks: links };
+  let links = {}; let stale = [];
+  try { links = driveSync ? driveSync.links((studio.assets || []).map((asset) => asset.id)) : {}; stale = driveSync ? driveSync.staleIds(studio.assets || []) : []; } catch (error) { console.warn(`Google Drive links could not be read: ${error.message}`); }
+  return { ...studio, driveLinks: links, driveStale: stale };
 }
 
 // { [assetId]: { open, total } } for the active workspace's reports and assets with notes (report-notes.js).
@@ -1719,9 +1721,14 @@ const aiConnections = require('./ai-connections').createAiConnections({
   onChecked: (check) => { try { const data = loadData(); const text = aiRouting.current().defaults.text.route; if (!(check.provider === text || (text === 'auto' && ['claude', 'claude-api'].includes(check.provider)))) return; data.settings = { ...data.settings, lastAiCheck: { ...check, provider: text, connection: check.provider } }; saveData(); emitState(); } catch (error) { console.warn(`The AI check result could not be saved: ${error?.message || error}`); } },
 });
 const cliRunners = require('./cli-runners');
+// An answer a runner couldn't read as JSON leaves one local file in content-studio/diagnostics (the reply's text, keys
+// redacted, newest 10 kept, none past 30 days; ai-diagnostics.js), so the cause can be read afterwards without another
+// paid call.
+const aiDiagnostics = require('./ai-diagnostics').createAiDiagnostics({ dir: () => dataPath('content-studio', 'diagnostics') });
 const textRouter = require('./text-router').createTextRouter({
   routing: aiRouting, connections: aiConnections, catalog: aiCatalog, writeJson, apiRequests,
   maxBudgetUsd: () => aiRouting.current().maxBudgetUsd,
+  onInvalidResult: (event) => aiDiagnostics.record(event),
   runners: {
     'claude-api': { run: (args) => aiRoutes.runner().run(args) },
     claude: cliRunners.createClaudeCliRunner({ spawnCli: (command, args, cwd, options) => spawnCodex(command, args, cwd, options), writeJson, cliInfo: async () => (await aiRoutes.resolve('claude')).cli || {} }),
@@ -2280,6 +2287,8 @@ handle('ai:test-task', (_, payload = {}) => contentWorkspace.testAiTask(aiInput(
 // when a question needs it. No keys or tokens are ever included. Each person's conversations and memory live in
 // askStore and travel only through the help:* methods, never in the broadcast state.
 const helpAssistant = require('./help-assistant');
+// A channel owner's Ask AI reads only their channel's projected view (ask-channel.js); see helpChannelOf below.
+const askChannel = require('./ask-channel');
 const promptTemplate = require('../shared/prompt-template'); // prompt-change cards: the checks and line diffs a save uses
 const { askHistory, MAX_ACTIVE_MEMORY, tokens: askTokens, bm25: askBm25 } = require('./ask-store');
 const HELP_IMAGE_SIZES = require('./help-images').HELP_IMAGE_SIZES;
@@ -2351,6 +2360,25 @@ const helpAssetStatus = (asset) => (HELP_ASSET_STATUSES.includes(asset?.reviewSt
 function helpRunLabel(run, programs = []) {
   const program = programs.find((row) => row.id === run?.programId);
   return `${program?.name || run?.title || 'Research run'} · ${helpDay(run?.createdAt)}`;
+}
+// "9:42 AM EDT": a time of day with its zone, so it reads the same wherever the studio runs ('' when there is none). The
+// dates beside it (helpDay) are the stored day, in UTC; when the local day differs, it says so: "11:30 PM EDT on
+// 2026-10-16", so a run started late in the evening isn't read as the next day. A day with no time ('2026-10-16') has
+// no time of day to tell.
+function helpClock(value) {
+  const ms = Date.parse(value || ''); if (!Number.isFinite(ms) || !/\d:\d{2}/.test(String(value))) return '';
+  const date = new Date(ms);
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return day === helpDay(value) ? time : `${time} on ${day}`;
+}
+const HELP_RUN_STATUS = { queued: 'queued', running: 'running', 'awaiting-review': 'trends need your OK', succeeded: 'done', partial: 'partly done', failed: 'didn’t finish', cancelled: 'stopped' };
+// What tells two runs of the same name apart on a choice card, most telling first: when it started, its status, what it
+// found and kept, and the program it read from (help-assistant.js distinctChoices adds only the ones that differ).
+function helpRunFacts(run, programs = []) {
+  const themes = helpThemes(run).length; const posts = Number(run?.counts?.retained) || 0;
+  const program = programs.find((row) => row.id === run?.programId)?.name || '';
+  return [helpClock(run?.createdAt) && `started ${helpClock(run.createdAt)}`, HELP_RUN_STATUS[run?.status] || '', themes ? helpPlural(themes, 'theme') : '', posts ? helpPlural(posts, 'post') : '', program && `from “${program}”`];
 }
 // What was decided about a trend in earlier runs, from its history: "approved once (last 2026-10-01), skipped 2× (last
 // 2026-10-08), report 2026-10-02". "" when nothing was.
@@ -2535,18 +2563,23 @@ const helpTrendView = (record) => ({ name: record.name, aliases: (record.aliases
 // Every named thing Ask AI can point at, newest first: { kind, id, title, where, date, aliases? } plus the id field a
 // button reads (assetId, folderKey, themeId, runId, programId, promptId, page). kind is a studio: link kind (report,
 // folder, trend, run, prompt, page) or program. Pages are the Advanced pages (help-assistant.js HELP_PAGES).
+// `at` (the full time) and `facts` (more about it, most telling first) tell two items of the same name apart on a choice
+// card (help-assistant.js distinctChoices).
+const HELP_DOC_KIND = { 'evidence-report': 'trends report', 'editorial-toolkit': 'editorial toolkit', 'scan-report': 'quick scan report' };
+const HELP_STATUS_WORD = { draft: 'draft', 'in-review': 'in review', approved: 'approved', scheduled: 'scheduled', published: 'published' };
 function helpItems(studio = contentWorkspace.publicState(), { prompts = false, role = 'admin' } = {}) {
-  const researchRuns = studio.researchRuns || []; const contentRuns = studio.contentRuns || []; const assets = studio.assets || [];
+  const researchRuns = studio.researchRuns || []; const contentRuns = studio.contentRuns || []; const assets = studio.assets || []; const programs = studio.programs || [];
   const kitRuns = contentRuns.filter((run) => run.kit); const kitIds = new Set(kitRuns.map((run) => run.id));
+  const at = (value) => (helpClock(value) ? value : '');
   const items = [];
-  for (const asset of assets.filter((row) => row.kind === 'text' && !kitIds.has(row.runId))) items.push({ kind: 'report', id: asset.id, title: asset.title || '', where: 'Reports', date: helpDay(asset.createdAt), assetId: asset.id });
+  for (const asset of assets.filter((row) => row.kind === 'text' && !kitIds.has(row.runId))) items.push({ kind: 'report', id: asset.id, title: asset.title || '', where: 'Reports', date: helpDay(asset.createdAt), at: at(asset.createdAt), facts: [helpClock(asset.createdAt) && `made ${helpClock(asset.createdAt)}`, HELP_STATUS_WORD[helpAssetStatus(asset)], HELP_DOC_KIND[asset.deliverableId] || '', asset.edited?.at ? `edited ${helpDay(asset.edited.at)}${asset.edited.by?.name ? ` by ${asset.edited.by.name}` : ''}` : ''], assetId: asset.id });
   const folders = new Set();
-  for (const run of kitRuns) { if (folders.has(run.kit.sourceKey)) continue; folders.add(run.kit.sourceKey); items.push({ kind: 'folder', id: run.kit.sourceKey, title: run.kit.sourceTitle || run.title || '', where: 'Assets', date: helpDay(run.createdAt), folderKey: run.kit.sourceKey }); }
+  for (const run of kitRuns) { if (folders.has(run.kit.sourceKey)) continue; folders.add(run.kit.sourceKey); const jobs = run.jobs || []; items.push({ kind: 'folder', id: run.kit.sourceKey, title: run.kit.sourceTitle || run.title || '', where: 'Assets', date: helpDay(run.createdAt), at: at(run.createdAt), facts: [helpClock(run.createdAt) && `started ${helpClock(run.createdAt)}`, HELP_RUN_STATUS[run.status] || '', jobs.length ? `${jobs.filter((job) => job.status === 'succeeded').length} of ${jobs.length} ready` : '', run.kit.folderName || ''], folderKey: run.kit.sourceKey }); }
   const trends = new Map();
-  for (const run of researchRuns) for (const theme of helpThemes(run)) if (theme?.id && !trends.has(theme.id)) trends.set(theme.id, { kind: 'trend', id: theme.id, title: theme.name || '', aliases: (theme.aliases || []).slice(0, 8), where: isQuickScan(run) ? 'Quick scans' : 'Trends', date: helpDay(run.createdAt), themeId: theme.id, runId: run.id });
+  for (const run of researchRuns) for (const theme of helpThemes(run)) if (theme?.id && !trends.has(theme.id)) trends.set(theme.id, { kind: 'trend', id: theme.id, title: theme.name || '', aliases: (theme.aliases || []).slice(0, 8), where: isQuickScan(run) ? 'Quick scans' : 'Trends', date: helpDay(run.createdAt), at: at(run.createdAt), facts: [helpRunLabel(run, programs), helpClock(run.createdAt) && `started ${helpClock(run.createdAt)}`, String(theme.category || '').slice(0, 80)], themeId: theme.id, runId: run.id });
   items.push(...trends.values());
-  for (const program of studio.programs || []) items.push({ kind: 'program', id: program.id, title: program.name || '', where: 'Research programs', date: helpDay(program.updatedAt || program.createdAt), programId: program.id });
-  for (const run of [...researchRuns, ...contentRuns.filter((row) => !row.kit)]) items.push({ kind: 'run', id: run.id, title: run.title || '', where: 'Activity', date: helpDay(run.createdAt), runId: run.id });
+  for (const program of programs) items.push({ kind: 'program', id: program.id, title: program.name || '', where: 'Research programs', date: helpDay(program.updatedAt || program.createdAt), at: at(program.updatedAt || program.createdAt), facts: [helpSchedule(program), helpClock(program.updatedAt) && `saved ${helpClock(program.updatedAt)}`], programId: program.id });
+  for (const run of [...researchRuns, ...contentRuns.filter((row) => !row.kit)]) items.push({ kind: 'run', id: run.id, title: run.title || '', where: 'Activity', date: helpDay(run.createdAt), at: at(run.createdAt), facts: helpRunFacts(run, programs), runId: run.id });
   if (prompts) for (const row of helpSafe(() => contentWorkspace.listPrompts().prompts, [])) items.push({ kind: 'prompt', id: row.id, title: row.name || row.id, where: 'Prompts', date: helpDay(row.updatedAt), promptId: row.id });
   for (const [id, name] of Object.entries(helpAssistant.HELP_PAGES)) if (role !== 'editor' || !['settings', 'knowledge'].includes(id)) if (id !== 'prompts' || prompts) items.push({ kind: 'page', id, title: name, where: 'Pages', date: '', page: id });
   return items.filter((item) => item.title);
@@ -2603,7 +2636,7 @@ function helpResolveActions({ actions = [], answer = '' } = {}, scope = {}) {
   const items = helpItems(studio, { prompts: Boolean(scope.promptAccess?.view), role: scope.role });
   const programs = studio.programs || []; const researchRuns = studio.researchRuns || []; const contentRuns = studio.contentRuns || [];
   const runLabel = (run) => helpRunLabel(run, programs);
-  const reviewThemes = (keep) => researchRuns.filter((run) => !isQuickScan(run) && run.status === 'awaiting-review').flatMap((run) => helpThemes(run).filter((theme) => keep(run.decisions?.[theme.id])).map((theme) => ({ run, theme, title: theme.name || '', aliases: theme.aliases || [], detail: runLabel(run) })));
+  const reviewThemes = (keep) => researchRuns.filter((run) => !isQuickScan(run) && run.status === 'awaiting-review').flatMap((run) => helpThemes(run).filter((theme) => keep(run.decisions?.[theme.id])).map((theme) => ({ run, theme, title: theme.name || '', aliases: theme.aliases || [], detail: runLabel(run), at: run.createdAt || '', facts: [helpClock(run.createdAt) && `started ${helpClock(run.createdAt)}`, String(theme.category || '').slice(0, 80), Number(theme.evidenceCount) > 0 ? helpPlural(Number(theme.evidenceCount), 'post') : ''] })));
   const unresolved = [];
   // The rows a name matches: helpMatches, else a trend alias; narrowed by a hint ("<name> · <run>" or params run=).
   const matching = (rows, ref, hint = '') => {
@@ -2613,9 +2646,12 @@ function helpResolveActions({ actions = [], answer = '' } = {}, scope = {}) {
     return hits;
   };
   const split = (target) => { const at = String(target || '').indexOf(' · '); return at > 0 ? [target.slice(0, at).trim(), target.slice(at + 3).trim()] : [String(target || '').trim(), '']; };
+  // One hit (or the same item found twice) is the button's item; two or more distinct ones become a choice whose rows
+  // never read the same (help-assistant.js distinctChoices: the same item once, and what tells the others apart).
   const settle = (action, hits, idsOf, titleOf = (row) => row.title, detailOf = (row) => row.detail || '') => {
-    if (hits.length === 1) return { ...action, ...idsOf(hits[0]), title: titleOf(hits[0]) };
-    if (hits.length > 1) return { ...action, candidates: hits.slice(0, 5).map((row) => ({ ids: idsOf(row), title: String(titleOf(row)).slice(0, 160), detail: String(detailOf(row)).slice(0, 160) })) };
+    const rows = helpAssistant.distinctChoices(hits.map((row) => ({ ids: idsOf(row), title: String(titleOf(row)), detail: String(detailOf(row)), facts: Array.isArray(row.facts) ? row.facts : [], at: row.at || '' })));
+    if (rows.length === 1) return { ...action, ...rows[0].ids, title: rows[0].title };
+    if (rows.length > 1) return { ...action, candidates: rows.map((row) => ({ ids: row.ids, title: row.title.slice(0, 160), detail: row.detail.slice(0, 160) })) };
     unresolved.push(action.target || action.label); return null;
   };
   const trendIds = (row) => ({ runId: row.run.id, themeId: row.theme.id });
@@ -2626,7 +2662,7 @@ function helpResolveActions({ actions = [], answer = '' } = {}, scope = {}) {
     try {
       switch (spec.target) {
         case 'program': {
-          const hits = matching(programs.map((program) => ({ program, title: program.name || '', detail: helpSchedule(program) })), action.target);
+          const hits = matching(programs.map((program) => ({ program, title: program.name || '', detail: helpSchedule(program), at: program.updatedAt || program.createdAt || '', facts: [helpClock(program.updatedAt) && `saved ${helpClock(program.updatedAt)}`] })), action.target);
           if (!hits.length && programs.length === 1) return { ...action, programId: programs[0].id, title: programs[0].name };
           return settle(action, hits, (row) => ({ programId: row.program.id }));
         }
@@ -2636,20 +2672,20 @@ function helpResolveActions({ actions = [], answer = '' } = {}, scope = {}) {
           return settle(action, matching(rows, name, params.run || hint), trendIds);
         }
         case 'trend.ready': {
-          const rows = helpReadyTrends().map((trend) => ({ trend, title: trend.name || '', detail: `ready ${helpDay(trend.readyAt)}` }));
+          const rows = helpReadyTrends().map((trend) => ({ trend, title: trend.name || '', detail: `ready ${helpDay(trend.readyAt)}`, at: trend.readyAt || '', facts: [helpClock(trend.readyAt) && `ready ${helpClock(trend.readyAt)}`, String((trend.reportAssets || []).find((asset) => asset.id === trend.primaryReportId)?.title || trend.reportAssets?.[0]?.title || '').slice(0, 120), String(trend.category || '').slice(0, 80)] }));
           return settle(action, matching(rows, action.target), (row) => ({ themeId: row.trend.themeId }));
         }
         case 'report': return settle(action, matching(items.filter((item) => item.kind === 'report'), action.target).map((item) => ({ ...item, detail: item.date })), (item) => ({ assetId: item.assetId }));
         case 'asset': {
           const reports = matching(items.filter((item) => item.kind === 'report'), action.target);
           if (reports.length) return settle(action, reports.map((item) => ({ ...item, detail: item.date })), (item) => ({ assetId: item.assetId }));
-          const files = helpKitFiles(studio).map((row) => ({ ...row, aliases: [row.asset.title || ''] }));
+          const files = helpKitFiles(studio).map((row) => ({ ...row, aliases: [row.asset.title || ''], at: row.run.createdAt || '', facts: [row.channel, helpClock(row.run.createdAt) && `made ${helpClock(row.run.createdAt)}`, HELP_STATUS_WORD[helpAssetStatus(row.asset)]] }));
           return settle(action, matching(files, action.target), (row) => ({ assetId: row.asset.id }));
         }
         case 'folder': return settle(action, matching(items.filter((item) => item.kind === 'folder'), action.target).map((item) => ({ ...item, detail: item.date })), (item) => ({ folderKey: item.folderKey }));
         case 'run.live': case 'run.stopped': {
           const wanted = spec.target === 'run.live' ? ['queued', 'running'] : ['failed', 'partial', 'cancelled'];
-          const rows = [...researchRuns, ...contentRuns].filter((run) => wanted.includes(run.status)).map((run) => ({ run, title: run.kit ? run.kit.sourceTitle || run.title || '' : run.title || '', detail: helpDay(run.createdAt) }));
+          const rows = [...researchRuns, ...contentRuns].filter((run) => wanted.includes(run.status)).map((run) => ({ run, title: run.kit ? run.kit.sourceTitle || run.title || '' : run.title || '', detail: helpDay(run.createdAt), at: run.createdAt || '', facts: helpRunFacts(run, programs) }));
           return settle(action, matching(rows, action.target), (row) => ({ runId: row.run.id }));
         }
         case 'prompt': {
@@ -3091,9 +3127,29 @@ function helpReportChange(card, action, index, lookups = []) {
 const ASK_REQUEST_ID = /^[A-Za-z0-9-]{8,100}$/; // the job id is help-<requestId>, which cancel-job accepts
 const askFail = (message, status = 400) => Object.assign(new Error(message), { status });
 const askInput = (payload) => (payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {});
-const askingNow = new Map(); // `${identityId} ${requestId}` → { question, work }: a repeat of a request in flight joins it
+const askingNow = new Map(); // `${identityId} ${requestId}` → { question, work, space }: a repeat of a request in flight joins it
 const askingIn = new Set(); // conversations with a question in progress
 function askIdentityId() { const id = access.identityForCall()?.id; if (!id) throw askFail('Sign in to use Ask AI.', 403); return id; }
+// ── Ask AI for channel owners ──
+// A channel-based role's Ask AI (roles.json askAi on the channel base) answers from what that person's channel view
+// shows and nothing else: the state roles.js projects for them (access.project, exactly what their `state` call gets),
+// read at the question's entry. Its conversations and memory live in their channel's own space in askStore
+// (channelId), and its pictures are theirs only. helpChannelOf → { viewer, channelId } for a channel viewer (in an
+// admin's preview, the previewed one), else null.
+function helpChannelOf(viewer) {
+  if ((viewer?.base ?? viewer?.role) !== 'channel') return null;
+  return { viewer, channelId: viewer.channelId || 'none' };
+}
+// The space a help:* call reads and writes: the caller's channel for a channel role, else everything they have.
+const askSpace = () => helpChannelOf(access.currentViewer())?.channelId;
+const helpChannelState = (channel) => access.project(publicState(), channel.viewer);
+// The files a channel owner's Ask AI may read the text of: the briefs of the trends their view lists and their channel's
+// drafts, the same files the gate's channel scope lets them open.
+function helpChannelFiles(view) {
+  return new Set([...(view?.trends || []).flatMap((trend) => (trend.reportAssets || []).map((asset) => asset.id)), ...(view?.assets || []).map((asset) => asset.id)].filter(Boolean));
+}
+// Pictures in a channel owner's Ask AI need Make channel assets, the capability that makes their channel's pictures.
+const helpChannelPictures = (channel) => (Array.isArray(channel?.viewer?.capabilities) && channel.viewer.capabilities.includes('makeAssets'));
 // Ask AI events for one person: a streamed answer's progress and text (ask-progress.js) and follow-up messages the
 // studio posts into a conversation ({ type: 'followup', conversationId, messageId }, from ask-followups.js). On the Mac
 // they go to the window over IPC (help:stream); on the web to that person's own live-update streams (studio-server.js),
@@ -3178,7 +3234,9 @@ function askNames() {
 // earlier conversations that match the question.
 // `progress` (ask-progress.js) shows the person each step and streams the answer as it is written; `attached` is what
 // they attached to the question (read before the first round).
-async function answerHelp({ question, page, history = [], role, jobId, identityId = '', workspaceId = '', conversationId = '', memory = [], summary = '', pending = [], promptAccess = null, reach = null, checkModel = false, related = [], progress = null, attached = [] }) {
+// `channel` (helpChannelOf, for a channel-based role): the answer is built from that person's channel view only
+// (ask-channel.js), with its `state` read once here unless askInConversation already read it.
+async function answerHelp({ question, page, history = [], role, jobId, identityId = '', workspaceId = '', conversationId = '', memory = [], summary = '', pending = [], promptAccess = null, reach = null, checkModel = false, related = [], progress = null, attached = [], channel = null }) {
   // Settings → Model routing chooses Ask AI's connection, model and effort (task assistant.ask-ai).
   const task = aiRouting.resolve('assistant.ask-ai'); const model = task.model;
   // The per-call cap grows with the model's input price, so the app guide in the prefix fits on Fable or Mythos as it
@@ -3200,19 +3258,48 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
       await aiConnections.preflight([task], { needs: taskNeeds }); if (stop.aborted) throw new Error('Job cancelled.');
       progress?.step({ id: 'route', kind: 'route', label: 'Checked the AI connection', status: 'done' });
     }
-    const programs = (contentWorkspace.publicState().programs || []).map(({ id, name, updatedAt, createdAt }) => ({ id, name, updatedAt: updatedAt || createdAt || '' }));
     // Ask AI's own prompt as this workspace saved it in Prompts (assistant.ask-ai; null = the defaults). The API route caches
     // the prefix by its text, so a saved change starts a new cache entry by itself.
     const blocks = helpSafe(() => contentWorkspace.promptEffective('assistant.ask-ai').blocks);
-    const admin = Boolean(reach?.admin) || !reach;
+    const admin = !channel && (Boolean(reach?.admin) || !reach);
+    const brandSets = helpSafe(() => contentWorkspace.publicState().workspaces.find((row) => row.id === workspaceId)?.brandImageSets || [], []);
+    // A role without See costs never reads a money figure in LIVE CONTEXT or a lookup either (roles.js stripMoney).
+    const costs = reach?.costs !== false;
+    const plain = (value) => (costs ? value : roles.stripMoney(value));
+    let sources;
+    if (channel) {
+      // A channel owner: everything from the projected channel view, nothing from the studio-wide state.
+      const projected = channel.state || helpChannelState(channel); const studio = projected?.contentStudio || {}; const view = studio.channelView || {};
+      const files = helpChannelFiles(view); const pictures = mediaRouter.ready('pictures.ask-ai') && helpChannelPictures(channel);
+      const own = helpChannels().filter((row) => row.id === channel.viewer.channelId);
+      const workspaceName = (studio.workspaces || []).find((row) => row.id === studio.activeWorkspaceId)?.name || '';
+      sources = {
+        role: 'channel', guide: askChannel.channelGuide(appGuide()), programs: [], promptAccess: null, imagesOn: pictures, imageFamilies: brandSets.map((set) => set.id),
+        context: (where) => askChannel.channelContext({ view, noteMentions: studio.noteMentions || [], viewer: channel.viewer, page: where || {}, workspaceName, appVersion: app.getVersion(), edition: WEB_RUNTIME ? 'browser studio (shared, on a server)' : process.platform === 'win32' ? 'Windows app' : 'Mac app', pictures: { available: pictures, families: brandSets.map((set) => ({ family: set.id, set: set.label })) } }),
+        params: { channels: own, roles: [], today: new Date() },
+        readLookup: (lookup) => askChannel.channelLookup(lookup, {
+          view, readText: (assetId) => (files.has(assetId) ? String(contentWorkspace.readStudioAsset({ assetId })?.markdown || '') : ''),
+          conversations: (query, limit) => (identityId ? askStore.searchConversations(identityId, query, limit, { workspaceId, exclude: conversationId, channelId: channel.channelId }) : []),
+          memory: (query) => (identityId ? askStore.searchMemory(identityId, { workspaceId, query, exclude: memory.map((item) => item.id), limit: 12, channelId: channel.channelId }) : []),
+        }),
+        resolve: ({ actions, answer }) => askChannel.channelResolve({ actions, answer }, { view, channelId: channel.viewer.channelId || '' }),
+        hydrate: ({ cards, actions, lookups }) => askChannel.channelHydrate({ cards, actions, lookups }, { view }),
+      };
+    } else {
+      sources = {
+        role, guide: appGuide(), programs: (contentWorkspace.publicState().programs || []).map(({ id, name, updatedAt, createdAt }) => ({ id, name, updatedAt: updatedAt || createdAt || '' })), promptAccess, imagesOn: mediaRouter.ready('pictures.ask-ai'), imageFamilies: brandSets.map((set) => set.id),
+        context: (view) => plain(helpContext(view, role, promptAccess, { admin })),
+        // What action params are checked against: this workspace's channels, the studio's roles (admins), and today.
+        params: { channels: helpChannels(), roles: admin ? helpRoleOptions() : [], today: new Date() },
+        readLookup: (lookup) => Promise.resolve(helpLookup(lookup, { identityId, workspaceId, conversationId, recalled: memory.map((item) => item.id), promptAccess, role, costs })).then(plain),
+        resolve: ({ actions, answer }) => helpResolveActions({ actions, answer }, { promptAccess, admin, role }),
+        hydrate: ({ cards, actions, lookups }) => hydrateCards(cards, { actions, lookups, promptAccess }),
+      };
+    }
     const reply = await helpAssistant.askHelp({ question, history, page }, {
       singleWorkspace: workspacePolicy.mode === 'single' ? { name: workspacePolicy.name } : null,
-      guide: appGuide(), context: (view) => helpContext(view, role, promptAccess, { admin }), role, imagesOn: mediaRouter.ready('pictures.ask-ai'), imageFamilies: helpSafe(() => (contentWorkspace.publicState().workspaces.find((row) => row.id === workspaceId)?.brandImageSets || []).map((set) => set.id), []), imageSizes: HELP_IMAGE_SIZES, memory, summary, pending, programs, blocks, promptAccess, access: reach, related,
-      // What action params are checked against: this workspace's channels, the studio's roles (admins), and today.
-      params: { channels: helpChannels(), roles: admin ? helpRoleOptions() : [], today: new Date() },
-      readLookup: (lookup) => helpLookup(lookup, { identityId, workspaceId, conversationId, recalled: memory.map((item) => item.id), promptAccess, role, costs: reach?.costs !== false }),
-      resolve: ({ actions, answer }) => helpResolveActions({ actions, answer }, { promptAccess, admin, role }),
-      hydrate: ({ cards, actions, lookups }) => hydrateCards(cards, { actions, lookups, promptAccess }),
+      guide: sources.guide, context: sources.context, role: sources.role, imagesOn: sources.imagesOn, imageFamilies: sources.imageFamilies, imageSizes: HELP_IMAGE_SIZES, memory, summary, pending, programs: sources.programs, blocks, promptAccess: sources.promptAccess, access: reach, related,
+      params: sources.params, readLookup: sources.readLookup, resolve: sources.resolve, hydrate: sources.hydrate,
       progress, attached,
       // Medium effort reads the guide and live context carefully; a question that needs a lookup makes a second call.
       // The instructions, spots and guide are the cached prefix on the API route.
@@ -3253,9 +3340,12 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
 // that question's id, and the history stops before it. The answer streams to the person's windows as it is written
 // (askProgress; `target` and `project` were read at help:ask's entry). Stop keeps what was written so far: it is saved
 // as a stopped answer and returned like any other reply.
-async function askInConversation({ identityId, role, promptAccess, reach, question, requestId, conversationId, page, context, history, mode = '', replaces = '', attachments = [], target = null, project = (event) => event, viewer = null }) {
+// `channel` (helpChannelOf): a channel owner's question, answered from their channel view and kept in their channel's
+// space of conversations and memory.
+async function askInConversation({ identityId, role, promptAccess, reach, question, requestId, conversationId, page, context, history, mode = '', replaces = '', attachments = [], target = null, project = (event) => event, viewer = null, channel = null }) {
   const workspaceId = contentWorkspace.activeWorkspaceId();
-  const conversation = conversationId ? askStore.readConversation(identityId, conversationId) : null;
+  const space = channel?.channelId; // undefined: everything this person has
+  const conversation = conversationId ? askStore.readConversation(identityId, conversationId, { channelId: space }) : null;
   if (conversationId && !conversation) throw askFail('That conversation isn’t available anymore. Start a new one.', 404);
   if (conversation && conversation.workspaceId !== workspaceId) throw askFail('This conversation belongs to another workspace. Switch back to it, or start a new conversation here.', 409);
   if (conversation && askingIn.has(conversation.id)) throw askFail('Ask AI is still answering in this conversation. Wait for it, or stop it first.', 409);
@@ -3266,19 +3356,22 @@ async function askInConversation({ identityId, role, promptAccess, reach, questi
   }
   const past = conversation ? askHistory(conversation, mode ? { before: replaces } : {}) : { summary: '', turns: Array.isArray(history) ? history : [], pending: [], coverThrough: '' };
   if (conversation) askingIn.add(conversation.id);
-  const progress = askProgress.begin({ requestId, identityId, target, conversationId: conversation?.id || '', question, mode, project });
+  const progress = askProgress.begin({ requestId, identityId, target, conversationId: conversation?.id || '', question, mode, project, space: space || '' });
   const save = (assistant, extra = {}) => {
     const turn = { user: { content: question, context, page, requestId, ...(attachments.length || mode !== 'regenerate' ? { attachments } : {}) }, assistant, remember: extra.remember || [], summary: extra.summary || null };
-    return mode ? askStore.replaceLastTurn(identityId, { conversationId: conversation.id, replaces, mode, ...turn }) : askStore.appendTurn(identityId, { conversationId: conversation?.id || '', workspaceId, ...turn, title: conversation ? '' : extra.title || '' });
+    return mode ? askStore.replaceLastTurn(identityId, { conversationId: conversation.id, replaces, mode, channelId: space, ...turn }) : askStore.appendTurn(identityId, { conversationId: conversation?.id || '', workspaceId, channelId: space, ...turn, title: conversation ? '' : extra.title || '' });
   };
   try {
-    progress.step({ id: 'context', kind: 'context', label: 'Looking at your studio', status: 'running' });
-    const memory = askStore.recall(identityId, { workspaceId, query: [question, page.tab, page.report, page.folder, page.trend, page.prompt].filter(Boolean).join(' '), names: askNames(), limit: 12, maxChars: 2500 });
+    progress.step({ id: 'context', kind: 'context', label: channel ? 'Looking at your channel' : 'Looking at your studio', status: 'running' });
+    // A channel owner's names come from their own view, which their answer is built from too (read once, here).
+    const scoped = channel ? { ...channel, state: helpChannelState(channel) } : null;
+    const names = scoped ? askChannel.channelNames(scoped.state?.contentStudio?.channelView) : askNames();
+    const memory = askStore.recall(identityId, { workspaceId, query: [question, page.tab, page.report, page.folder, page.trend, page.prompt].filter(Boolean).join(' '), names, limit: 12, maxChars: 2500, channelId: space });
     // Earlier conversations about the same thing, found for free (BM25 over this person's own messages), so a decision
     // made last week comes up without a lookup.
-    const related = helpSafe(() => askStore.searchConversations(identityId, [question, page.trend, page.report].filter(Boolean).join(' '), 2, { workspaceId, exclude: conversation?.id || '', minScore: 3 }), []);
-    progress.step({ id: 'context', kind: 'context', label: 'Looked at your studio', status: 'done' });
-    const reply = await answerHelp({ question, page, history: [...past.turns, ...(context ? [{ role: 'user', content: context }] : [])], role, promptAccess, reach, checkModel: true, jobId: `help-${requestId}`, identityId, workspaceId, conversationId: conversation?.id || '', memory, summary: past.summary, pending: past.pending, related, progress, attached: attachments });
+    const related = helpSafe(() => askStore.searchConversations(identityId, [question, page.trend, page.report].filter(Boolean).join(' '), 2, { workspaceId, exclude: conversation?.id || '', minScore: 3, channelId: space }), []);
+    progress.step({ id: 'context', kind: 'context', label: channel ? 'Looked at your channel' : 'Looked at your studio', status: 'done' });
+    const reply = await answerHelp({ question, page, history: [...past.turns, ...(context ? [{ role: 'user', content: context }] : [])], role, promptAccess, reach, checkModel: true, jobId: `help-${requestId}`, identityId, workspaceId, conversationId: conversation?.id || '', memory, summary: past.summary, pending: past.pending, related, progress, attached: attachments, channel: scoped });
     const saved = save({ content: reply.answer, pages: reply.pages, followUps: reply.followUps, actions: reply.actions, show: reply.show, image: reply.image ? { ...reply.image, status: 'creating' } : null, cards: reply.cards, read: reply.read, receipt: reply.receipt, ...(reply.unresolved?.length ? { unresolved: reply.unresolved } : {}) },
       { remember: reply.remember, summary: past.pending.length && reply.summary ? { text: reply.summary, through: past.coverThrough } : null, title: reply.title });
     progress.done(saved);
@@ -3304,17 +3397,20 @@ async function askInConversation({ identityId, role, promptAccess, reach, questi
 handle('help:ask', async (_, payload = {}) => {
   // Read at entry: an editor's answer never points at admin-only places, and prompt edits are offered only to people
   // who may save prompts.
-  const viewer = access.currentViewer(); const role = viewer.role; const promptAccess = helpPromptAccess(viewer);
+  const viewer = access.currentViewer(); const role = viewer.role;
+  // A channel-based role: their channel's view only (helpChannelOf), no prompts, no costs, no Drive.
+  const channel = helpChannelOf(viewer);
+  const promptAccess = channel ? null : helpPromptAccess(viewer);
   // Buttons and page links only for what this role opens (an admin: everything). In a preview, the previewed role's
   // methods, so the admin sees what that person would (the buttons then say it's a preview).
   // costs: whether they may see costs (the spend lookup); drive: whether Google Drive publishing is connected; admin:
   // the team in LIVE CONTEXT and the admin-only buttons (View as, invites) resolve.
   const admin = viewer.base === 'admin';
-  const reach = { allowed: admin ? null : viewer.preview ? viewer.roleAllowed || viewer.allowed : viewer.allowed, hiddenPages: admin ? [] : viewer.hiddenPages, costs: admin || (Array.isArray(viewer.capabilities) && viewer.capabilities.includes('seeCosts')), drive: Boolean(helpSafe(() => contentWorkspace.publicState().capabilities?.googlePublishConfigured)), admin };
+  const reach = { allowed: admin ? null : viewer.preview ? viewer.roleAllowed || viewer.allowed : viewer.allowed, hiddenPages: admin ? [] : viewer.hiddenPages, costs: !channel && (admin || (Array.isArray(viewer.capabilities) && viewer.capabilities.includes('seeCosts'))), drive: !channel && Boolean(helpSafe(() => contentWorkspace.publicState().capabilities?.googlePublishConfigured)), admin };
   const input = askInput(payload);
   if (input.requestId == null && input.conversationId == null) {
     const question = askQuestion(input.question);
-    const reply = await answerHelp({ question, page: input.page, history: input.history, role, promptAccess, reach, jobId: `help-${randomUUID()}`, identityId: access.identityForCall()?.id || '', workspaceId: contentWorkspace.activeWorkspaceId() });
+    const reply = await answerHelp({ question, page: input.page, history: input.history, role, promptAccess, reach, jobId: `help-${randomUUID()}`, identityId: access.identityForCall()?.id || '', workspaceId: contentWorkspace.activeWorkspaceId(), channel });
     const { answer, pages, followUps, actions, image, show, read, receipt } = reply;
     return { answer, pages, followUps, actions, image, show, read, receipt };
   }
@@ -3325,10 +3421,11 @@ handle('help:ask', async (_, payload = {}) => {
   const mode = ['regenerate', 'edit'].includes(input.mode) ? input.mode : '';
   const replaces = mode ? String(input.replaces ?? '') : '';
   if (mode && (!ASK_MESSAGE_ID.test(replaces) || !input.conversationId)) throw askFail('Only your last question can be asked again.', 409);
-  // The same request never pays twice: one still running is joined, one already answered returns its stored reply.
+  // The same request never pays twice: one still running is joined, one already answered returns its stored reply. A
+  // running one asked from another space (before a move from Editor to a channel role, or to another channel) isn't.
   const key = `${identityId} ${requestId}`; const running = askingNow.get(key);
-  if (running) { if (running.question !== question) throw askFail('Use a new request ID for a different question.'); return running.work; }
-  const stored = askStore.findByRequest(identityId, requestId);
+  if (running) { if (running.question !== question || (running.space || '') !== (channel?.channelId || '')) throw askFail('Use a new request ID for a different question.'); return running.work; }
+  const stored = askStore.findByRequest(identityId, requestId, { channelId: channel?.channelId });
   if (stored) { if (stored.userMessage.content !== question && !mode) throw askFail('Use a new request ID for a different question.'); return stored; }
   // Two questions at once per person (two conversations side by side); a third waits for one of them.
   if ([...askingNow.keys()].filter((entry) => entry.startsWith(`${identityId} `)).length >= ASK_BUSY_LIMIT) throw Object.assign(askFail('You have two questions going. Wait for one to finish, or stop it.', 429), { code: 'askBusy' });
@@ -3336,8 +3433,8 @@ handle('help:ask', async (_, payload = {}) => {
   // stripped for roles without See costs), read here at the entry like everything else about the asker.
   const target = { identityId, session: access.sessionForCall() };
   const project = (event) => access.projectResult('askHelp', event, viewer);
-  const work = askInConversation({ identityId, role, promptAccess, reach, question, requestId, conversationId: String(input.conversationId || ''), page: askPage(input.page), context: String(input.context || '').slice(0, 3900), history: input.history, mode, replaces, attachments: askAttachments(input.attachments), target, project, viewer }).finally(() => askingNow.delete(key));
-  askingNow.set(key, { question, work });
+  const work = askInConversation({ identityId, role, promptAccess, reach, question, requestId, conversationId: String(input.conversationId || ''), page: askPage(input.page), context: String(input.context || '').slice(0, 3900), history: input.history, mode, replaces, attachments: askAttachments(input.attachments), target, project, viewer, channel }).finally(() => askingNow.delete(key));
+  askingNow.set(key, { question, work, space: channel?.channelId || '' });
   return work;
 });
 // Stop for an answer still being written: only the person who asked can stop it. Named cancel*, so a server draining for
@@ -3354,33 +3451,35 @@ handle('help:cancel', (_, payload = {}) => {
 });
 // An answer's live progress, read back by a window that missed events (a reload, a dropped stream, a second tab): with
 // a requestId, { progress: snapshot | null }; without, { active: [snapshot] } (running, or finished in the last minute).
-// Only the caller's own answers.
+// Only the caller's own answers, and for a channel owner only those asked from their channel (askSpace).
 handle('help:progress', (_, payload = {}) => {
-  const identityId = askIdentityId(); const input = askInput(payload);
-  if (input.requestId == null || input.requestId === '') return { active: askProgress.active(identityId) };
+  const identityId = askIdentityId(); const input = askInput(payload); const space = askSpace();
+  if (input.requestId == null || input.requestId === '') return { active: askProgress.active(identityId, { space }) };
   const requestId = String(input.requestId);
   if (!ASK_REQUEST_ID.test(requestId)) throw askFail('Invalid question request ID.');
-  return { progress: askProgress.snapshot(identityId, requestId) };
+  return { progress: askProgress.snapshot(identityId, requestId, { space }) };
 });
 const askConversationId = (input) => String(input.conversationId ?? input.id ?? '');
+// A channel owner's calls read and write their channel's space only (askSpace): their conversations and memory from
+// that channel role, never what they kept before as an editor or for another channel.
 handle('help:conversations', (_, payload = {}) => {
   const identityId = askIdentityId(); const input = askInput(payload); const workspaceId = contentWorkspace.activeWorkspaceId();
-  return { workspaceId, conversations: askStore.listConversations(identityId, { workspaceId: input.allWorkspaces === true ? '' : workspaceId, limit: input.limit }) };
+  return { workspaceId, conversations: askStore.listConversations(identityId, { workspaceId: input.allWorkspaces === true ? '' : workspaceId, limit: input.limit, channelId: askSpace() }) };
 });
 handle('help:conversation', (_, payload = {}) => {
-  const conversation = askStore.readConversation(askIdentityId(), askConversationId(askInput(payload)));
+  const conversation = askStore.readConversation(askIdentityId(), askConversationId(askInput(payload)), { channelId: askSpace() });
   if (!conversation) throw askFail('That conversation isn’t available anymore.', 404);
   const { version, summaryThrough, ...rest } = conversation;
   return { conversation: rest };
 });
-handle('help:rename-conversation', (_, payload = {}) => { const input = askInput(payload); return { conversation: askStore.renameConversation(askIdentityId(), { conversationId: askConversationId(input), title: input.title, pinned: input.pinned }) }; });
-handle('help:delete-conversation', (_, payload = {}) => askStore.deleteConversation(askIdentityId(), askConversationId(askInput(payload))));
+handle('help:rename-conversation', (_, payload = {}) => { const input = askInput(payload); return { conversation: askStore.renameConversation(askIdentityId(), { conversationId: askConversationId(input), title: input.title, pinned: input.pinned, channelId: askSpace() }) }; });
+handle('help:delete-conversation', (_, payload = {}) => askStore.deleteConversation(askIdentityId(), askConversationId(askInput(payload)), { channelId: askSpace() }));
 // What happened after an answer: { conversationId, messageId, index, outcome:{ status:'done'|'failed'|'cancelled', text } }
 // for a button, or { conversationId, messageId, outcome:{ kind:'image', imageId, status } } once its picture is drawn.
-handle('help:outcome', (_, payload = {}) => { const input = askInput(payload); return { message: askStore.recordOutcome(askIdentityId(), { conversationId: askConversationId(input), messageId: input.messageId, index: input.index, outcome: input.outcome, imageId: input.imageId }) }; });
-handle('help:memory', (_, payload = {}) => ({ items: askStore.listMemory(askIdentityId(), { workspaceId: contentWorkspace.activeWorkspaceId(), includeForgotten: askInput(payload).includeForgotten === true }), limit: MAX_ACTIVE_MEMORY }));
-handle('help:save-memory', (_, payload = {}) => ({ item: askStore.saveMemory(askIdentityId(), askInput(payload), { workspaceId: contentWorkspace.activeWorkspaceId() }) }));
-handle('help:forget-memory', (_, payload = {}) => ({ item: askStore.forgetMemory(askIdentityId(), String(askInput(payload).id || '')) }));
+handle('help:outcome', (_, payload = {}) => { const input = askInput(payload); return { message: askStore.recordOutcome(askIdentityId(), { conversationId: askConversationId(input), messageId: input.messageId, index: input.index, outcome: input.outcome, imageId: input.imageId, channelId: askSpace() }) }; });
+handle('help:memory', (_, payload = {}) => ({ items: askStore.listMemory(askIdentityId(), { workspaceId: contentWorkspace.activeWorkspaceId(), includeForgotten: askInput(payload).includeForgotten === true, channelId: askSpace() }), limit: MAX_ACTIVE_MEMORY }));
+handle('help:save-memory', (_, payload = {}) => ({ item: askStore.saveMemory(askIdentityId(), askInput(payload), { workspaceId: contentWorkspace.activeWorkspaceId(), channelId: askSpace() }) }));
+handle('help:forget-memory', (_, payload = {}) => ({ item: askStore.forgetMemory(askIdentityId(), String(askInput(payload).id || ''), { channelId: askSpace() }) }));
 
 // Pictures from the Ask AI drawer (help-images.js), through the media router (Model routing's pictures.ask-ai) with the
 // brand reference images of the family Ask AI chose for the picture (read from Settings when the request starts).
@@ -3391,11 +3490,13 @@ const helpImages = () => (helpImageStore ||= require('./help-images').createHelp
   references: (family) => contentWorkspace.brandReferenceSet({ family }),
   edition: () => contentWorkspace.activeEditionId(), workspaceId: () => contentWorkspace.activeWorkspaceId(),
 }));
-handle('help:image', (_, payload = {}) => helpImages().create({ prompt: payload.prompt, size: payload.size, title: payload.title, family: typeof payload.family === 'string' ? payload.family : 'none' }));
-handle('help:images', () => helpImages().list());
-handle('help:read-image', (_, payload = {}) => helpImages().read(payload.id));
+// Each picture keeps who asked for it (ownerId); a channel owner lists, opens and saves only their own.
+const helpImageOwner = () => (helpChannelOf(access.currentViewer()) ? String(access.identityForCall()?.id || 'nobody') : '');
+handle('help:image', (_, payload = {}) => helpImages().create({ prompt: payload.prompt, size: payload.size, title: payload.title, family: typeof payload.family === 'string' ? payload.family : 'none', ownerId: String(access.identityForCall()?.id || '') }));
+handle('help:images', () => helpImages().list({ ownerId: helpImageOwner() }));
+handle('help:read-image', (_, payload = {}) => helpImages().read(payload.id, { ownerId: helpImageOwner() }));
 handle('help:save-image', async (_, payload = {}) => {
-  const { path: source, title } = helpImages().pngPath(payload.id);
+  const { path: source, title } = helpImages().pngPath(payload.id, { ownerId: helpImageOwner() });
   const fileName = `${title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Ask AI picture'}.png`;
   const choice = await dialog.showSaveDialog(mainWindow, { title: 'Save picture', buttonLabel: 'Save', defaultPath: path.join(app.getPath('downloads'), fileName), filters: [{ name: 'PNG image', extensions: ['png'] }] });
   if (choice.canceled || !choice.filePath) return { cancelled: true };
@@ -3750,6 +3851,9 @@ handle('drive:backfill', () => driveSync.startBackfill());
 handle('drive:retry', (_, payload) => driveSync.retry(drivePayload(payload)));
 handle('drive:disconnect', () => driveSync.disconnect());
 handle('drive:log', (_, payload) => driveSync.readLog(drivePayload(payload)));
+// Save to Drive on a report (roles.json exportPublish, so admins and editors): the report on screen into the same folder
+// now, while "Add every new report to Drive" is off. Refused (409) while that switch is on or before Drive is connected.
+handle('drive:save-report', (_, payload) => driveSync.saveNow(drivePayload(payload).assetId));
 handle('archive-and-clear-sheets', (_, payload) => archiveAndClearSheets(payload));
 handle('import-working-sheets', () => importWorkingSheets());
 handle('export-dataset-to-sheets', (_, payload) => exportDatasetToSheets(payload));
@@ -3828,6 +3932,7 @@ app.whenReady().then(() => {
   }
   recoverInterruptedJobs();
   contentWorkspace.recoverInterrupted();
+  aiDiagnostics.prune(); // AI replies the studio couldn't read: files older than 30 days go (ai-diagnostics.js; never throws)
   // Browser studio: export copies left by downloads made before they were temporary (STUDIO_EXPORT_DAYS, default 7).
   if (WEB_RUNTIME) {
     const raw = String(process.env.STUDIO_EXPORT_DAYS ?? '').trim(); const days = raw === '' ? 7 : Number(raw); const keepDays = Number.isFinite(days) && days >= 0 ? days : 7;

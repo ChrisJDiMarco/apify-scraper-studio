@@ -80,6 +80,18 @@ export function streamDisplay(raw) {
     .replace(/\[([^\]\n]*)\]\((?:https?:\/\/)[^)\s]*\)/g, '$1');
 }
 
+// The line the server adds under an answer whose reply couldn't be read as JSON (src/main/help-assistant.js SALVAGE_NOTE;
+// test/ask-reply.test.jsx keeps the two the same). The answer shows it as a quiet note with an icon, not as text, and
+// Copy answer leaves it out.
+export const SALVAGE_NOTE = 'Some extras (cards and buttons) couldn’t be read this time.';
+// → { text: the answer without the note, salvaged: whether it ended with it }.
+export function splitSalvage(content) {
+  const text = String(content ?? '');
+  const trimmed = text.trimEnd();
+  if (!trimmed.endsWith(SALVAGE_NOTE)) return { text, salvaged: false };
+  return { text: trimmed.slice(0, -SALVAGE_NOTE.length).trimEnd(), salvaged: true };
+}
+
 // The answer as people copy it: studio links become their plain titles (they only work inside the studio).
 export function copyableMarkdown(content) {
   return String(content ?? '').replace(/\[([^\]\n]{1,160})\]\(studio:[^)\s]*\)/g, '$1').replace(/\[\[([^[\]\n]{1,160})\]\]/g, '$1').trim();

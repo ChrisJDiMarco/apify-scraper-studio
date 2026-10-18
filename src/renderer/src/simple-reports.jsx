@@ -1,5 +1,5 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, CloudUpload, Download, ExternalLink, FileText, FolderOpen, Images, Link2, ListOrdered, Megaphone, MessageSquareText, PenLine, Presentation, ScrollText, Search, Share2, Sparkles, X } from 'lucide-react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, CloudCheck, CloudUpload, Download, ExternalLink, FileText, FolderOpen, Images, Link2, ListOrdered, LoaderCircle, Megaphone, MessageSquareText, PenLine, Presentation, ScrollText, Search, Share2, Sparkles, X } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import { studioRefDragProps } from './ask-slash.js';
 import { AssetEditor, AssetStatusMenu, canEditAsset, statusLabel, statusOf, useUnsavedGuard } from './asset-editor.jsx';
@@ -7,7 +7,7 @@ import { ReportDocument } from './report-editor/ReportDocument.jsx';
 import { NoteCount, liveDocsOn } from './report-editor/NoteCount.jsx';
 import { linkLabel } from './channel-owner.jsx';
 import { MoreMenu, copyText, useToast } from './role-screens.jsx';
-import { formatDay, useCan, useViewer, writeProps } from './viewer.js';
+import { PREVIEW_TITLE, formatDay, useCan, useViewer, writeProps } from './viewer.js';
 import { formatDate, modelLabel, number, withViewTransition } from './ui.jsx';
 import { LINK_COPIED, linkFor, shareOrigin } from './deep-links.js';
 import { copyForGoogleDocs, slackSummary, slideOutline } from './report-handoff.js';
@@ -15,6 +15,7 @@ import { brandFrom } from './brand-check.js';
 import { readJsonChoice, saveJsonChoice } from './choices.js';
 import { dateGroup, groupReports, pathTo } from '../../shared/library-tree.js';
 import './library.css';
+import './drive-settings.css'; // Open in Drive and Save to Drive
 
 // Reports in Simple mode, filed as the Library is (src/shared/library-tree.js): one row per trend, holding its Trends
 // report and Editorial toolkit, grouped by the research run that reported it; then each quick scan's short trends report
@@ -139,19 +140,126 @@ export function ReportShareMenu({ api, studio = null, asset, markdown = '', shar
 }
 
 // Open in Drive, for any reader: the report's copy in the admin's Drive folder (Settings → Google Drive), from
-// studio.driveLinks (the Google Drive folder sync's file ids; roles.js empties it for roles that can't read reports).
-export function DriveOpenButton({ api, studio = null, assetId = '', className = '' }) {
-  const url = assetId ? String(studio?.driveLinks?.[assetId] || '') : '';
+// studio.driveLinks (the Google Drive folder sync's file ids; roles.js empties it for roles that can't read reports), or
+// `url` when the reader has just saved it there.
+const openDriveUrl = (api, url) => (api?.openSourceUrl ? api.openSourceUrl(url) : window.open(url, '_blank', 'noopener'));
+export function DriveOpenButton({ api, studio = null, assetId = '', url: given = '', className = '' }) {
+  const url = String(given || (assetId ? studio?.driveLinks?.[assetId] || '' : ''));
   if (!/^https:\/\//.test(url)) return null;
-  const open = () => (api?.openSourceUrl ? api.openSourceUrl(url) : window.open(url, '_blank', 'noopener'));
-  return <button type="button" className={['gd-open-drive', className].filter(Boolean).join(' ')} data-spot="report.drive" title="Open this report’s copy in Google Drive" onClick={open}><ExternalLink size={15} aria-hidden="true" />Open in Drive</button>;
+  return <button type="button" className={['gd-open-drive', className].filter(Boolean).join(' ')} data-spot="report.drive" title="Open this report’s copy in Google Drive" onClick={() => openDriveUrl(api, url)}><ExternalLink size={15} aria-hidden="true" />Open in Drive</button>;
+}
+
+// The documents the folder sync carries (drive-sync.js REPORTS), so the ones Save to Drive offers.
+const DRIVE_REPORTS = new Set(['evidence-report', 'editorial-toolkit', 'scan-report']);
+// When a report last changed (written, edited or restored), as drive-sync.js changedAt reads it.
+function reportVersion(asset) {
+  const times = [asset?.createdAt, asset?.edited?.at, asset?.restored?.at].filter((value) => Number.isFinite(Date.parse(value || '')));
+  return times.reduce((latest, value) => (!latest || Date.parse(value) > Date.parse(latest) ? value : latest), '');
+}
+
+// Save to Drive, for any reader, right after Share: the report on screen into the admin's Drive folder now
+// (saveReportToDrive), as a Google Doc in the folder the folder sync would use; once the report changes it reads Update in
+// Drive and updates that same Doc. `drive` is state.driveSync (drive-sync.js publicState); studio.driveLinks says the Doc
+// exists and studio.driveStale that the report changed after it was written. Saved to Drive can be pressed again: the
+// state can lag an edit by up to a minute, and a Doc deleted in Drive is made again. While "Add every new report to
+// Drive" is on it is greyed out, since new reports go there by themselves; before Drive is connected it opens Settings →
+// Google Drive for someone who may change Settings (`onOpenSettings`) and is greyed out for everyone else. `blocked`
+// greys it with that reason (the Library's older editor is open). Greyed means aria-disabled, not disabled, so hover and
+// keyboard focus still show the reason (aria-describedby reads it out). Open in Drive follows it once the Doc exists;
+// for anything Save to Drive doesn't offer, Open in Drive alone. `onToast(text, options)` confirms.
+export function DriveSaveButton({ api, studio = null, drive = null, asset = null, onOpenSettings, onToast, blocked = '', className = '' }) {
+  const can = useCan();
+  const viewer = useViewer();
+  const tipId = useId();
+  const wrapRef = useRef(null);
+  const tipRef = useRef(null);
+  const [saving, setSaving] = useState(''); // the report being saved
+  const [saved, setSaved] = useState(null); // this reader's last save: { assetId, link, version }
+  // The tip shows while the pointer is over it or the button has focus, until Esc (WCAG 1.4.13).
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const tipOpen = (hovered || focused) && !dismissed;
+  const [tipLeft, setTipLeft] = useState(0);
+  const assetId = asset?.id || '';
+  const run = asset ? list(studio?.contentRuns).find((row) => row.id === asset.runId) : null;
+  const offered = Boolean(assetId && asset.kind === 'text' && DRIVE_REPORTS.has(asset.deliverableId) && !run?.kit) && can('saveReportToDrive') && typeof api?.saveReportToDrive === 'function';
+  const mine = saved?.assetId === assetId ? saved : null;
+  const link = [mine?.link, studio?.driveLinks?.[assetId]].map((value) => String(value || '')).find((value) => /^https:\/\//.test(value)) || '';
+  const version = reportVersion(asset);
+  // The state can lag a save by a moment, so a save made here, of this version, counts as up to date.
+  const behind = list(studio?.driveStale).includes(assetId) && !(mine && mine.version === version);
+  const folder = drive?.folder?.name ? `“${drive.folder.name}”` : 'the Drive folder';
+  const ready = Boolean(drive?.connected && drive?.folder);
+  const idle = link && !behind ? 'saved' : link ? 'update' : 'save';
+  const step = !ready ? (onOpenSettings ? 'connect' : 'not-connected') : drive.autoAdd ? 'auto' : viewer.preview ? 'preview' : saving === assetId ? 'saving' : blocked ? 'blocked' : idle;
+  const looks = {
+    connect: { label: 'Save to Drive', Icon: CloudUpload, tip: 'Connect Google Drive in Settings first.' },
+    'not-connected': { label: 'Save to Drive', Icon: CloudUpload, tip: 'An admin needs to connect Google Drive in Settings → Google Drive.' },
+    // Turning the switch on sends new and edited reports only, so an older one may not be there yet.
+    auto: { label: 'Save to Drive', Icon: CloudUpload, tip: link ? `Google Drive sync is on. Every report is added to ${folder} automatically, and edits update the same Doc.` : `Google Drive sync is on. New reports are added to ${folder} automatically, and edits update the same Doc. This one isn’t there yet: it goes there after its next edit, or an admin can add older reports with Copy existing reports in Settings → Google Drive.` },
+    preview: { label: 'Save to Drive', Icon: CloudUpload, tip: PREVIEW_TITLE },
+    saving: { label: 'Saving…', Icon: LoaderCircle, tip: `Saving this report to ${folder}…` },
+    saved: { label: 'Saved to Drive', Icon: CloudCheck, tip: `This report is in ${folder}. Saving again updates the same Doc if anything changed.` },
+    update: { label: 'Update in Drive', Icon: CloudUpload, tip: `The report changed after it was saved. This updates the same Google Doc in ${folder}.` },
+    save: { label: 'Save to Drive', Icon: CloudUpload, tip: `Adds this report to ${folder} as a Google Doc.` },
+  };
+  const { label, Icon, tip } = step === 'blocked' ? { ...looks[idle], tip: blocked } : looks[step];
+  const greyed = ['not-connected', 'auto', 'preview', 'saving', 'blocked'].includes(step);
+  useEffect(() => { setHovered(false); setFocused(false); setDismissed(false); }, [assetId]);
+  // Open from hover alone, Esc hides the tip before anything else hears it (the reader would go back to the list).
+  useEffect(() => {
+    if (!tipOpen || focused) return undefined;
+    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); setDismissed(true); } };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [tipOpen, focused]);
+  // The tip sits under the button, kept 16px inside the window (an absolute box, since the reader's sticky bar can be the
+  // containing block a fixed one would use).
+  useLayoutEffect(() => {
+    if (!tipOpen || !wrapRef.current || !tipRef.current) return;
+    const box = wrapRef.current.getBoundingClientRect(); const width = tipRef.current.offsetWidth || 0;
+    const room = window.innerWidth || document.documentElement.clientWidth || 0;
+    const left = Math.max(16, Math.min(box.left + box.width / 2 - width / 2, room - 16 - width));
+    setTipLeft(Math.round(left - box.left));
+  }, [tipOpen, tip]);
+  if (!offered) return <DriveOpenButton api={api} studio={studio} assetId={assetId} className={className} />;
+  async function save() {
+    const id = assetId; const at = version;
+    setSaving(id);
+    try {
+      const result = await api.saveReportToDrive({ assetId: id });
+      const url = /^https:\/\//.test(String(result?.link || '')) ? result.link : '';
+      setSaved({ assetId: id, link: url, version: at });
+      const where = result?.folderName ? `“${result.folderName}”` : folder;
+      onToast?.(result?.unchanged ? `Already up to date in ${where}.` : result?.updated ? `Updated the Google Doc in ${where}.` : `Saved to Google Drive, in ${where}.`, url ? { actionLabel: 'Open in Drive', onAction: () => openDriveUrl(api, url) } : {});
+    } catch (failure) {
+      onToast?.(failure?.message || 'The report couldn’t be saved to Google Drive. Try again.', { tone: 'error' });
+    } finally { setSaving((current) => (current === id ? '' : current)); }
+  }
+  function press(event) {
+    if (step === 'connect') { onOpenSettings(); return; }
+    if (greyed) { event.preventDefault(); return; }
+    save();
+  }
+  return <>
+    <span ref={wrapRef} className="gd-save" onMouseEnter={() => { setHovered(true); setDismissed(false); }} onMouseLeave={() => setHovered(false)}>
+      <button type="button" className={['gd-save-button', className].filter(Boolean).join(' ')} data-spot="report.drive-save" aria-describedby={tipId} aria-disabled={greyed ? 'true' : undefined} aria-busy={step === 'saving' ? 'true' : undefined}
+        onClick={press} onFocus={() => { setFocused(true); setDismissed(false); }} onBlur={() => setFocused(false)} onKeyDown={(event) => { if (event.key === 'Escape' && tipOpen) { event.stopPropagation(); setDismissed(true); } }}>
+        <Icon size={15} className={step === 'saving' ? 'spin' : undefined} aria-hidden="true" />{label}
+      </button>
+      <span ref={tipRef} id={tipId} role="tooltip" className="gd-tip" hidden={!tipOpen} style={{ left: tipLeft }}>{tip}</span>
+    </span>
+    <DriveOpenButton api={api} url={link} className={className} />
+  </>;
 }
 
 // Props as SimpleMode's earlier SimpleReports, plus `tree` (buildLibraryTree) and `onOpenAssets(folderKey)`, which
 // opens a trend's folder in Assets. `studio` (state.contentStudio) adds the run facts (How this was made), the Google
 // Docs option and the brand check; `linkOrigin` is the address share links use (deep-links.js shareOrigin; on the web
-// this page's own); `onOpenPrompt(promptId)` opens a prompt on the Prompts page.
-export function SimpleReports({ api, web, reports, selectedId, onSelect, action, busy, onAsk, onFindTrends, onMakeAssets, usesOf, tree, onOpenAssets, studio = null, linkOrigin, onOpenPrompt }) {
+// this page's own); `onOpenPrompt(promptId)` opens a prompt on the Prompts page. `drive` (state.driveSync) and
+// `onOpenDriveSettings` (only for people who may change Settings) are for Save to Drive.
+export function SimpleReports({ api, web, reports, selectedId, onSelect, action, busy, onAsk, onFindTrends, onMakeAssets, usesOf, tree, onOpenAssets, studio = null, linkOrigin, onOpenPrompt, drive = null, onOpenDriveSettings }) {
   const can = useCan();
   const viewer = useViewer();
   // With the live report editor the reader is the editor: the report is edited in place and saved as people type.
@@ -294,8 +402,8 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
           <button type="button" data-spot="report.copy" disabled={!markdown} onClick={copy}>{copied ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}{copied ? 'Copied' : 'Copy text'}</button>
           <button type="button" data-spot="report.file" disabled={busy} onClick={() => action(() => api.openStudioAsset({ assetId: selected.id }), web ? 'Download started.' : '')}>{web ? <Download size={15} aria-hidden="true" /> : <FolderOpen size={15} aria-hidden="true" />}{web ? 'Download' : 'Open file'}</button>
           {shareLink && <button type="button" data-spot="report.link" onClick={copyLink}><Link2 size={15} aria-hidden="true" />Copy link</button>}
-          <DriveOpenButton api={api} studio={studio} assetId={selected.id} />
           <ReportShareMenu api={api} studio={studio} asset={selected} markdown={markdown} shareLink={shareLink} action={action} busy={busy} disabled={loading} onToast={showToast} />
+          <DriveSaveButton api={api} studio={studio} drive={drive} asset={selected} onOpenSettings={onOpenDriveSettings} onToast={showToast} />
           {can('createAssetKit') && <button type="button" data-spot="report.make-assets" {...writeProps(viewer, busy)} onClick={() => onMakeAssets(selected)}><Images size={15} aria-hidden="true" />Make channel assets</button>}
           {onAsk && <span className="simple-split" role="group" aria-label="Ask AI about this report"><button type="button" data-spot="report.ask" className="simple-primary" {...writeProps(viewer, !markdown)} onClick={() => ask('next')}><Sparkles size={15} aria-hidden="true" />Ask AI about this</button>
             <MoreMenu label="More questions for Ask AI" icon={ChevronDown} disabled={!markdown || viewer.preview} align="end" items={MARKETER_ASKS.map(([id, label, icon]) => ({ label, icon, onSelect: () => ask(id) }))} /></span>}

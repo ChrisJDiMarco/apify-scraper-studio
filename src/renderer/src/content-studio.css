@@ -639,7 +639,7 @@
 .content-studio[data-edition="semrush"] .cs-asset-list > button strong { font-size: 12px; }
 .content-studio[data-edition="semrush"] .cs-asset-list > button small { font-size: 11px; }
 .content-studio[data-edition="semrush"] .cs-asset-tools { gap: 12px; }
-.content-studio[data-edition="semrush"] .cs-asset-tools > button { border: 1px solid var(--cs-border); border-radius: 999px; padding: 7px 12px; }
+.content-studio[data-edition="semrush"] .cs-asset-tools > :is(button, .gd-save > button) { border: 1px solid var(--cs-border); border-radius: 999px; padding: 7px 12px; }
 .content-studio[data-edition="semrush"] .cs-knowledge-group + .cs-knowledge-group { border-top: 1px solid var(--cs-border); padding-top: 25px; margin-top: 6px; }
 .cs-knowledge-group-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 23px; }
 .cs-knowledge-group-heading > span { display: grid; place-items: center; flex-shrink: 0; width: 31px; height: 31px; background: #dceeeb; color: #181e15; font-size: 11px; font-weight: 600; border-radius: 9px; }

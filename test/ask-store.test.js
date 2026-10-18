@@ -323,3 +323,39 @@ describe('asking the last question again', () => {
     expect(askHistory(stored, { before: stored.messages[0].id }).turns).toEqual([]);
   });
 });
+
+// A channel owner's Ask AI keeps its own space (channelId): what the same person kept as an editor, or for another
+// channel, never comes back while they ask from a channel role, and the reverse isn't hidden from an editor.
+describe('a channel owner’s space', () => {
+  it('lists, reads, searches and recalls only the conversations and memory made for that channel', () => {
+    const h = harness();
+    const asEditor = h.store.appendTurn(ALEX, turn('Which programs cost the most?', { remember: [{ kind: 'fact', text: 'Budget for research is tight this quarter.', scope: 'workspace', replaces: '' }] }));
+    const asBlog = h.store.appendTurn(ALEX, turn('What’s new for the blog?', { channelId: 'blog', remember: [{ kind: 'preference', text: 'Keep blog drafts under 800 words.', scope: 'me', replaces: '' }] }));
+    const asSocial = h.store.appendTurn(ALEX, turn('What’s new for social?', { channelId: 'social' }));
+    expect(h.store.readConversation(ALEX, asBlog.conversation.id)).toMatchObject({ channelId: 'blog' });
+    // The channel asker sees their channel's space only.
+    expect(h.store.listConversations(ALEX, { channelId: 'blog' }).map((row) => row.id)).toEqual([asBlog.conversation.id]);
+    expect(h.store.readConversation(ALEX, asEditor.conversation.id, { channelId: 'blog' })).toBeNull();
+    expect(h.store.readConversation(ALEX, asSocial.conversation.id, { channelId: 'blog' })).toBeNull();
+    expect(h.store.searchConversations(ALEX, 'programs cost', 5, { channelId: 'blog' })).toEqual([]);
+    const editorRequest = h.store.readConversation(ALEX, asEditor.conversation.id).messages[0].requestId;
+    expect(h.store.findByRequest(ALEX, editorRequest, { channelId: 'blog' })).toBeNull();
+    expect(h.store.findByRequest(ALEX, editorRequest)).not.toBeNull();
+    expect(h.store.listMemory(ALEX, { workspaceId: 'general', channelId: 'blog' }).map((item) => item.text)).toEqual(['Keep blog drafts under 800 words.']);
+    expect(h.store.recall(ALEX, { workspaceId: 'general', query: 'budget research blog drafts', channelId: 'blog' }).map((item) => item.text)).toEqual(['Keep blog drafts under 800 words.']);
+    expect(h.store.searchMemory(ALEX, { workspaceId: 'general', query: 'budget', channelId: 'blog' })).toEqual([]);
+    // Writes outside the space read as gone.
+    expect(() => h.store.renameConversation(ALEX, { conversationId: asEditor.conversation.id, title: 'Mine now', channelId: 'blog' })).toThrow('That conversation isn’t available anymore.');
+    expect(() => h.store.deleteConversation(ALEX, asSocial.conversation.id, { channelId: 'blog' })).toThrow('That conversation isn’t available anymore.');
+    expect(() => h.store.appendTurn(ALEX, turn('Follow up', { conversationId: asEditor.conversation.id, channelId: 'blog' }))).toThrow(/deleted while Ask AI was answering/);
+    const editorMemory = h.store.listMemory(ALEX, { workspaceId: 'general' }).find((item) => item.text.startsWith('Budget'));
+    expect(() => h.store.forgetMemory(ALEX, editorMemory.id, { channelId: 'blog' })).toThrow('Ask AI doesn’t remember that anymore.');
+    expect(() => h.store.saveMemory(ALEX, { id: editorMemory.id, pinned: true }, { workspaceId: 'general', channelId: 'blog' })).toThrow('Ask AI doesn’t remember that anymore.');
+    // Something saved by hand from the channel role stays in its space.
+    expect(h.store.saveMemory(ALEX, { text: 'Our readers are SEO leads.', scope: 'workspace' }, { workspaceId: 'general', channelId: 'blog' })).toMatchObject({ channelId: 'blog' });
+    // Without a channel (an admin or editor) everything the person has is there, as before.
+    expect(h.store.listConversations(ALEX).map((row) => row.id).sort()).toEqual([asEditor.conversation.id, asBlog.conversation.id, asSocial.conversation.id].sort());
+    expect(h.store.listMemory(ALEX, { workspaceId: 'general' })).toHaveLength(3);
+    expect(h.store.renameConversation(ALEX, { conversationId: asBlog.conversation.id, title: 'Blog' })).toMatchObject({ title: 'Blog', channelId: 'blog' });
+  });
+});

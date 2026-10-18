@@ -1,0 +1,135 @@
+/* One look for every Ask AI reply (ask-thread.jsx, help-assistant.jsx, chat-cards.jsx), in Simple's Ask AI page and in
+   the Advanced drawer. A reply reads top to bottom as: the answer text, cards, references (links to studio items), the
+   actions row, the meta row (copy, retry, time · model · cost) and Ask next, every group on the answer's own column.
+   Groups sit 16px apart and items inside a group 8 to 10px apart; an empty group isn't drawn.
+   Colors are the studio's tokens (studio-frame.css), so both themes follow. Buttons are the studio's own studio-primary
+   and studio-quiet, always small, and a reply has at most one primary (chat-cards.jsx primaryCard decides which).
+   Clickable pieces are scoped to .help-drawer (the Ask AI aside in both layouts) so the app's global button colors
+   never show through. */
+
+/* ── The reply and its groups ── */
+.ask-reply { display: grid; align-content: start; gap: 16px; min-width: 0; }
+.ask-reply > * { min-width: 0; max-width: 100%; margin: 0; }
+.ask-reply-text { display: grid; gap: 8px; min-width: 0; }
+.ask-reply-text .markdown-content { font-size: 14px; line-height: 1.7; color: var(--s-ink); }
+.ask-reply-text .markdown-content p { margin: .5em 0; color: inherit; }
+.ask-reply-text .markdown-content :is(h1, h2, h3) { margin: 14px 0 6px; font-size: 15px; color: var(--s-ink); }
+/* The text's first and last block keep no outer margin, so the 16px between groups is the gap people see. */
+.ask-reply-text .markdown-content > :first-child, .ask-reply-text .markdown-content > :first-child > li:first-child { margin-top: 0; }
+.ask-reply-text .markdown-content > :last-child, .ask-reply-text .markdown-content > :last-child > li:last-child { margin-bottom: 0; }
+/* On purpose: Simple's wide reading column sets the answer's prose a step larger (15px, like its question bubble and
+   question box); cards keep the 14px body in both layouts, so a card reads the same wherever it shows. */
+.help-page .ask-reply-text .markdown-content { font-size: 15px; line-height: 1.75; }
+.help-page .ask-reply-text .markdown-content :is(h1, h2, h3) { font-size: 16px; }
+.ask-reply > .help-read { margin: 0; }
+.ask-reply-cards { display: grid; gap: 10px; min-width: 0; }
+/* Cards that drew nothing (a card with no rows to show) leave no gap behind. */
+.chat-cards:empty, .ask-reply-cards:has(> .chat-cards:only-child:empty) { display: none; }
+.ask-reply-refs, .ask-reply-actions, .ask-reply-next-list { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; min-width: 0; }
+.ask-reply-next { display: grid; gap: 8px; min-width: 0; }
+.reply-label { font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--s-muted); }
+
+/* A quiet line in the reply's rhythm: the salvage note, "Stopped", an earlier version. */
+.reply-note { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 13px; line-height: 1.45; color: var(--s-muted); overflow-wrap: anywhere; }
+.reply-note > svg { flex: none; margin-top: 2px; }
+
+/* ── One card shell for every card ── */
+.reply-card { display: grid; gap: 10px; min-width: 0; padding: 14px 16px; font-size: 14px; line-height: 1.5; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 14px; box-shadow: none; }
+.reply-card p { margin: 0; }
+.reply-card-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.reply-card-icon { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 8px; color: var(--s-muted); background: var(--s-bg); }
+.reply-card-icon.is-mint { color: var(--s-mint-ink); background: var(--s-mint); }
+.reply-card-icon.is-soft { color: var(--s-soft-ink); background: var(--s-soft); }
+.reply-card-icon.is-warm { color: var(--s-warm-ink); background: var(--s-warm); }
+.reply-card-icon.is-neutral { color: var(--s-muted); background: var(--s-bg); }
+.reply-card-heading { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.reply-card-eyebrow { font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--s-muted); overflow-wrap: anywhere; }
+.reply-card .reply-card-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -.1px; color: var(--s-ink); overflow-wrap: anywhere; }
+.reply-body { font-size: 14px; line-height: 1.55; color: var(--s-ink); overflow-wrap: anywhere; }
+.reply-muted { font-size: 13px; line-height: 1.5; color: var(--s-muted); overflow-wrap: anywhere; }
+.reply-muted > svg { margin-right: 4px; vertical-align: -2px; }
+small.reply-muted { display: block; }
+/* The card's own buttons: small, quiet (one may be the reply's primary), left-aligned, wrapping. */
+.reply-card-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; min-width: 0; }
+.reply-action { display: inline-grid; gap: 4px; justify-items: start; max-width: 100%; min-width: 0; }
+.studio-frame .help-drawer :is(.studio-primary, .studio-quiet).small { max-width: 100%; padding-block: 6px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.reply-done { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--s-mint-ink); }
+.reply-done > svg { flex: none; }
+.reply-failed { margin: 0; font-size: 13px; line-height: 1.45; color: var(--s-danger); overflow-wrap: anywhere; }
+.help-drawer .reply-text-button { display: inline-flex; align-items: center; gap: 4px; min-height: 0; padding: 0; font: inherit; font-size: 13px; font-weight: 600; color: var(--s-soft-ink); background: none; border: 0; border-radius: 4px; text-decoration: underline; text-underline-offset: 2px; box-shadow: none; transform: none; }
+.help-drawer .reply-text-button:hover:not(:disabled) { color: var(--s-ink); background: none; }
+
+/* Chips: one style everywhere a card lists names (channels, themes found), with an optional count. */
+.reply-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.reply-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 26px; padding: 3px 10px; font-size: 12.5px; font-weight: 500; line-height: 1.3; color: var(--s-ink); background: var(--s-bg); border-radius: 13px; overflow-wrap: anywhere; }
+.reply-chip-count { font-weight: 600; color: var(--s-muted); font-variant-numeric: tabular-nums; }
+.reply-chip.is-more { color: var(--s-muted); }
+/* Progress: thin, rounded, the accent's ink (General's lime accent would all but vanish on the grey track). */
+.reply-progress { height: 4px; overflow: hidden; border-radius: 2px; background: var(--s-line); }
+.reply-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--s-soft-ink); transition: width 300ms ease; }
+/* Badges in a card's header (momentum, run status, stage): a word and an icon, never color alone. */
+.reply-badge { display: inline-flex; align-items: center; gap: 4px; flex: none; min-height: 22px; padding: 2px 8px; font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--s-ink); background: var(--s-bg); border-radius: 11px; white-space: nowrap; }
+.reply-badge.is-ok { color: var(--s-mint-ink); background: var(--s-mint); }
+/* Warnings use the studio's one warning amber (as the cost meters and warning lists do), not the choice cards' warm. */
+.reply-badge.is-warn { color: var(--s-warn-ink); background: var(--s-warn); }
+.reply-badge.is-danger { color: var(--s-danger); background: var(--s-danger-soft); }
+.reply-badge.is-live { color: var(--s-soft-ink); background: var(--s-soft); }
+.reply-badge.is-outline { background: var(--s-card); box-shadow: inset 0 0 0 1px var(--s-line-strong); }
+
+/* ── Choice: full-width rows (what it is, and what tells it apart), with hover, focus and arrow keys ── */
+.reply-choices { display: grid; gap: 6px; min-width: 0; }
+.help-drawer .reply-choice { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 8px 12px; font: inherit; text-align: left; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 10px; box-shadow: none; transform: none; }
+.help-drawer .reply-choice:hover:not(:disabled) { color: var(--s-ink); background: var(--s-bg); border-color: var(--s-line-strong); }
+.help-drawer .reply-choice:focus-visible { outline: 2px solid var(--s-focus, var(--s-ink)); outline-offset: 2px; }
+.help-drawer .reply-choice.is-on { background: var(--s-soft); border-color: var(--s-accent); }
+/* The answer picked stays at full strength (the others dim), though every row is off once one is picked. */
+.help-drawer .reply-choice.is-on:disabled { opacity: 1; cursor: default; }
+.help-drawer .reply-choice:disabled:not(.is-on) { opacity: .55; cursor: not-allowed; }
+.reply-choice-text { display: grid; gap: 2px; min-width: 0; }
+.reply-choice-title { font-size: 14px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.reply-choice-detail { font-size: 13px; font-weight: 500; line-height: 1.4; color: var(--s-muted); overflow-wrap: anywhere; }
+.reply-choice > svg { flex: none; color: var(--s-muted); }
+
+/* ── References: links to studio items, one row of chips with the item's kind and an arrow ── */
+.help-drawer .reply-ref { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 26px; padding: 3px 9px 3px 8px; font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.3; text-align: left; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 13px; box-shadow: none; transform: none; }
+.help-drawer .reply-ref:hover:not(:disabled) { color: var(--s-ink); background: var(--s-card); border-color: var(--s-line-strong); }
+.reply-ref > svg { flex: none; color: var(--s-muted); }
+.reply-ref > span { min-width: 0; overflow-wrap: anywhere; }
+.help-drawer .reply-ref:hover:not(:disabled) > svg:last-child { color: var(--s-ink); }
+/* A reference that couldn't open says why on its own line under the chips. */
+.ask-reply-refs > .reply-failed { flex-basis: 100%; }
+
+/* ── Ask next: suggestions to ask, quiet text chips (no border, no icon), clearly not links ── */
+/* The fill is the page tone, shaded a touch so it shows on the Simple page (itself --s-bg) and on the drawer's white. */
+.help-drawer .reply-suggest { display: inline-flex; align-items: center; max-width: 100%; min-height: 26px; padding: 4px 11px; font: inherit; font-size: 13px; font-weight: 500; line-height: 1.35; text-align: left; color: var(--s-ink); background: color-mix(in srgb, var(--s-ink) 5%, var(--s-bg)); border: 0; border-radius: 13px; box-shadow: none; transform: none; overflow-wrap: anywhere; }
+.help-drawer .reply-suggest:hover:not(:disabled) { color: var(--s-ink); background: color-mix(in srgb, var(--s-ink) 11%, var(--s-bg)); }
+
+/* ── Meta: copy and retry, then time · model · cost, all one muted grey (the tools' --ask-tool-ink) ── */
+.ask-reply-meta { font-size: 12px; --ask-tool-ink: var(--s-muted); }
+.ask-reply-meta .reply-meta-text { padding: 0 4px; font-size: 12px; line-height: 1.4; color: var(--ask-tool-ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ask-reply-meta .reply-meta-text .help-receipt { padding: 0; font-size: inherit; color: inherit; }
+
+/* ── An answer that didn't come: the reason and the way back, in the same rhythm ── */
+.reply-error { display: grid; gap: 10px; min-width: 0; padding: 14px 16px; font-size: 13px; line-height: 1.5; color: var(--s-danger); background: var(--s-danger-soft); border: 1px solid color-mix(in srgb, var(--s-danger) 22%, var(--s-danger-soft)); border-radius: 14px; }
+.reply-error p { margin: 0; overflow-wrap: anywhere; }
+.reply-error .reply-card-foot:empty { display: none; }
+
+/* ── Pictures, inside the card shell ── */
+.reply-picture-pending { display: grid; place-items: center; align-content: center; gap: 8px; width: 100%; padding: 16px; font-size: 13px; text-align: center; color: var(--s-muted); background: var(--s-bg); border: 1px dashed var(--s-line-strong); border-radius: 10px; }
+.help-drawer .reply-picture-frame { display: block; width: 100%; min-height: 0; padding: 0; overflow: hidden; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 10px; cursor: zoom-in; box-shadow: none; }
+.help-drawer .reply-picture-frame:hover:not(:disabled) { background: var(--s-bg); border-color: var(--s-line-strong); }
+.reply-picture-frame img { display: block; width: 100%; height: auto; object-fit: cover; }
+.help-drawer .reply-muted .help-inline-link { display: inline; min-height: 0; padding: 0; font: inherit; font-weight: 600; color: var(--s-soft-ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 2px; box-shadow: none; transform: none; }
+.help-drawer .reply-muted .help-inline-link:hover:not(:disabled) { color: var(--s-ink); background: none; }
+
+/* ── Remembered: one row per thing kept, each with Undo ── */
+.reply-memory { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.reply-memory li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; padding: 6px 6px 6px 12px; background: var(--s-bg); border-radius: 10px; }
+.reply-memory li > span { flex: 1 1 160px; min-width: 0; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.reply-memory li.is-forgotten > span { color: var(--s-muted); text-decoration: line-through; }
+
+/* Touch: chips and references a thumb taps are a little taller. */
+@media (pointer: coarse) {
+  .help-drawer :is(.reply-ref, .reply-suggest) { min-height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) { .reply-progress > span { transition: none; } }

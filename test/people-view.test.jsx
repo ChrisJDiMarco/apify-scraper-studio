@@ -316,7 +316,10 @@ describe('The Roles tab', () => {
     expect(within(table).getByRole('columnheader', { name: /Admin/ })).toHaveTextContent('Everything. Can’t be changed.');
     expect(within(table).getByRole('switch', { name: /^Admin: Start research\. On\./ })).toHaveAttribute('aria-disabled', 'true');
     expect(within(table).getByRole('switch', { name: /^Editor: Settings and connections\. Off\. Only admins can have/ })).toHaveAttribute('aria-disabled', 'true');
-    expect(within(table).getByRole('switch', { name: /^Channel owner: Use Ask AI\. Off\. Channel owners see only their channel/ })).toBeInTheDocument();
+    expect(within(table).getByRole('switch', { name: /^Channel owner: See research and evidence\. Off\. Channel owners see only their channel/ })).toBeInTheDocument();
+    // Ask AI is on for Channel owner by default, and the admin can switch it like any other row.
+    expect(within(table).getByRole('switch', { name: 'Channel owner: Use Ask AI' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(table).getByRole('row', { name: /Use Ask AI/ })).toHaveTextContent('Ask questions, find things and make drafts, within this role’s access.');
     const research = within(table).getByRole('switch', { name: 'Editor: See research and evidence' });
     expect(research).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(research);
@@ -331,6 +334,23 @@ describe('The Roles tab', () => {
     fireEvent.click(within(screen.getByRole('region', { name: 'Unsaved role changes' })).getByRole('button', { name: 'Review and save' }));
     await waitFor(() => expect(services.saveRolePolicy).toHaveBeenCalledWith({ rev: ACCESS.rev, builtIn: { editor: { grant: ['seeAnalytics'], deny: [] } } }));
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Editor: turns on See team analytics'));
+  });
+
+  it('turns Ask AI off for Channel owner with one switch, alone, and saves it as an Off on the role', async () => {
+    const services = api();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<PeopleView api={services} web viewer={sam} />);
+    await screen.findByRole('table');
+    openTab('Roles');
+    const ask = screen.getByRole('switch', { name: 'Channel owner: Use Ask AI' });
+    fireEvent.click(ask);
+    expect(ask).toHaveAttribute('aria-checked', 'false');
+    // Nothing else depends on it, so nothing else turns off with it.
+    expect(screen.queryByText(/Channel owner: also turned off/)).not.toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Channel owner: Read reports and assets' })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(within(screen.getByRole('region', { name: 'Unsaved role changes' })).getByRole('button', { name: 'Review and save' }));
+    await waitFor(() => expect(services.saveRolePolicy).toHaveBeenCalledWith({ rev: ACCESS.rev, builtIn: { channel: { grant: [], deny: ['askAi'] } } }));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Channel owner: turns off Use Ask AI'));
   });
 
   it('says who saved first when the policy changed underneath, with Reload', async () => {
@@ -443,14 +463,43 @@ describe('People & access on the Mac', () => {
   it('explains that only you use this Mac and offers previews, while Roles and the access log still work', async () => {
     const onPreview = vi.fn();
     render(<PeopleView api={api()} web={false} viewer={{ ...sam, channels }} onPreview={onPreview} />);
-    expect(await screen.findByText('People sign in to the browser version of the studio. On this Mac you’re the only user and always an admin. To check what someone else sees, use View as in the sidebar.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Invite people/ })).not.toBeInTheDocument();
+    expect(await screen.findByText(/This app is a studio for you alone: its work stays on this Mac\. Your team shares one studio in the browser version/)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Preview what Semrush Blog’s owner sees' }));
     expect(onPreview).toHaveBeenCalledWith({ role: 'channel', channelId: 'blog' });
     fireEvent.click(screen.getByRole('button', { name: /Preview as an editor/ }));
     expect(onPreview).toHaveBeenLastCalledWith({ role: 'editor' });
     openTab('Roles');
     expect(screen.getByRole('table', { name: 'What each role can do' })).toBeInTheDocument();
+  });
+
+  it('shows Invite people greyed out, explains why on hover and focus, and says how to set up the browser studio', async () => {
+    const services = api({ openDataFolder: vi.fn(async () => true) });
+    render(<PeopleView api={services} web={false} viewer={{ ...sam, channels }} onPreview={vi.fn()} />);
+    const invite = await screen.findByRole('button', { name: /Invite people/ });
+    expect(invite).toHaveAttribute('aria-disabled', 'true');
+    expect(invite).toHaveAccessibleDescription(/People join through the browser version of the studio, where your team shares one studio\. Invite them there once it’s set up; this app on this Mac is for you alone\./);
+    fireEvent.click(invite);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); // greyed: nothing opens
+    expect(services.inviteMembers).not.toHaveBeenCalled();
+    const toggle = screen.getByRole('button', { name: /How to set up the browser studio/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText(/Your dev or IT team hosts the browser studio on a company server/)).toBeInTheDocument();
+    expect(screen.getByText(/copy this app’s data folder to the server while both are stopped/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Open data folder/ }));
+    await waitFor(() => expect(services.openDataFolder).toHaveBeenCalledTimes(1));
+  });
+
+  it('says "this PC" on Windows', async () => {
+    const original = Object.getOwnPropertyDescriptor(navigator, 'platform');
+    Object.defineProperty(navigator, 'platform', { value: 'Win32', configurable: true });
+    try {
+      render(<PeopleView api={api()} web={false} viewer={{ ...sam, channels }} onPreview={vi.fn()} />);
+      expect(await screen.findByRole('heading', { name: 'Only you use the studio on this PC' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Invite people/ })).toHaveAccessibleDescription(/this app on this PC is for you alone/);
+    } finally { if (original) Object.defineProperty(navigator, 'platform', original); else Object.defineProperty(navigator, 'platform', { value: 'MacIntel', configurable: true }); }
   });
 });
 
@@ -489,7 +538,13 @@ describe('people helpers', () => {
     expect(undone.denies).not.toContain('readResearch');
     const context = { roleCaps: editor.capabilities, grants: [], denies: [], base: 'editor', byId: rules.byId };
     const off = setPersonState(context, 'seeCosts', 'off');
-    expect(off.denies).toEqual(expect.arrayContaining(['seeCosts', 'startResearch', 'askAi', 'dataTools']));
+    expect(off.denies).toEqual(expect.arrayContaining(['seeCosts', 'startResearch', 'dataTools']));
+    // Ask AI doesn't need See costs: it stays, with no cost line.
+    expect(off.denies).not.toContain('askAi');
     expect(off.note).toMatch(/^Also turned off: /);
+    // On a channel role it needs only Read reports and assets.
+    const owner = { roleCaps: ['core', 'readAssets'], grants: [], denies: [], base: 'channel', byId: rules.byId };
+    expect(setPersonState(owner, 'askAi', 'on')).toEqual({ grants: ['askAi'], denies: [], note: '' });
+    expect(setPersonState({ ...owner, roleCaps: ['core'] }, 'askAi', 'on')).toEqual({ grants: ['askAi', 'readAssets'], denies: [], note: 'Also turned on: Read reports and assets' });
   });
 });

@@ -54,6 +54,24 @@ describe('OpenRouter runner', () => {
     expect(retried.output).toEqual({ answer: 'second try' });
     expect(refused.calls[1].json.response_format).toBeUndefined(); expect(refused.calls[1].json.messages.at(-1).content).toContain('ANSWER FORMAT');
   });
+  it('reads a prompt-written answer leniently, and keeps an unreadable one’s text (redacted) with the same error', async () => {
+    const repaired = fakeFetch([sse(reply('Here it is: {"answer":"Line one\nLine two",}', { model: 'meta/llama-5' }))]);
+    const loose = await runner(repaired.fetchImpl).run({ ...base, model: 'meta/llama-5', profile: { ...profile, structured: 'prompt' } });
+    expect(loose.output).toEqual({ answer: 'Line one\nLine two' }); expect(loose.receipt).toMatchObject({ structuredOutput: 'schema in prompt', parse: 'repaired' });
+    const text = `{"answer":"Your key ${KEY} runs a "quick scan"."}`;
+    const broken = fakeFetch([sse(reply(text, { model: 'meta/llama-5' }))]);
+    const error = await runner(broken.fetchImpl).run({ ...base, model: 'meta/llama-5', profile: { ...profile, structured: 'json-mode' } }).catch((failure) => failure);
+    expect(error).toMatchObject({ code: 'AI_INVALID_RESULT', message: 'The model’s answer wasn’t valid JSON. No unvalidated answer was saved.', costUsd: 0.0123, schemaInPrompt: true, stopReason: 'stop', rawTextLength: text.length });
+    expect(error.rawText).toBe('{"answer":"Your key sk-or-… runs a "quick scan"."}');
+    // The early-closed stub before a quoted brace isn't taken for the answer when it holds too few of the schema's keys.
+    const wide = { ...schema, required: ['answer', 'tip', 'note'], properties: { ...schema.properties, note: { type: 'object', properties: { tip: { type: 'string' } } } } };
+    const stub = '{"answer":"Type "}" to close.","tip":"x","note":{"tip":"y"}}';
+    const nested = await runner(fakeFetch([sse(reply(stub, { model: 'meta/llama-5' }))]).fetchImpl).run({ ...base, schema: wide, model: 'meta/llama-5', profile: { ...profile, structured: 'prompt' } }).catch((failure) => failure);
+    expect(nested).toMatchObject({ code: 'AI_INVALID_RESULT', schemaInPrompt: true, rawText: stub });
+    // A strict schema's answer is taken as sent: no lenient reading, but the text is kept the same way.
+    const strict = await runner(fakeFetch([sse(reply('```json\n{"answer":"x"}\n```'))]).fetchImpl).run(base).catch((failure) => failure);
+    expect(strict).toMatchObject({ code: 'AI_INVALID_RESULT', schemaInPrompt: false, rawText: '```json\n{"answer":"x"}\n```' });
+  });
   it('maps OpenRouter errors to plain messages and never shows the key', async () => {
     const cases = [[401, 'OPENROUTER_AUTH', /key was rejected/], [402, 'OPENROUTER_CREDITS', /out of credits/], [403, 'AI_REFUSED', /moderation declined/], [404, 'OPENROUTER_MODEL_UNAVAILABLE', /can’t find/], [502, 'OPENROUTER_UNAVAILABLE', /No provider/]];
     for (const [status, code, message] of cases) {

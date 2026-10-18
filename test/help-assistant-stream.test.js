@@ -93,6 +93,13 @@ describe('Ask AI streaming', () => {
     expect(log).toContainEqual(['step', 'route-0', 'Connected', 'done']);
   });
 
+  it('never names the model or connection to a channel owner while it writes', async () => {
+    const { progress, log } = recorder();
+    await help.askHelp({ question: 'Hi' }, base({ role: 'channel', context: () => ({ layout: 'channel', role: 'channel owner' }), progress, generate: async ({ onStream }) => { onStream({ type: 'status', text: 'Writing with Claude Opus 5.5 · Anthropic API' }); onStream({ type: 'text', delta: 'Hello.' }); return { output: output('Hello.'), receipt: {} }; } }));
+    expect(log).toContainEqual(['step', 'route-0', 'Writing the answer', 'running']);
+    expect(JSON.stringify(log)).not.toMatch(/Opus|Anthropic|Writing with/);
+  });
+
   it('keeps what was shown when the answer stops, with [[links]] as words and unknown web links made inert', async () => {
     const { progress } = recorder();
     const failure = await help.askHelp({ question: 'Summarize' }, base({

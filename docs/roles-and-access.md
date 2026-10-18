@@ -13,14 +13,46 @@ capability is granted per role, and each person can be adjusted on top with thei
 | Built-in role | id | Who | What they get by default |
 | --- | --- | --- | --- |
 | Admin | `admin` | The studio's owners | Every capability, always. Can't be adjusted, and there is no second admin type. |
-| Editor | `editor` | The content and research leads | Finds trends, writes and edits reports, makes assets for any channel, sees and edits AI prompts, sees costs. No Settings, Brand knowledge, People & access, Analytics, research programs or schedules. |
-| Channel owner | `channel` | One owner per channel (several may share one) | Sees new trends and their own channel's assets, says which trends they used and where. Never sees money, models or other channels. |
+| Editor | `editor` | The content and research leads | Finds trends, writes and edits reports, makes assets for any channel, uses Ask AI, sees and edits AI prompts, sees costs. No Settings, Brand knowledge, People & access, Analytics, research programs or schedules. |
+| Channel owner | `channel` | One owner per channel (several may share one) | Sees new trends and their own channel's assets, says which trends they used and where, and uses Ask AI scoped to their channel. Never sees money, models or other channels. |
 
 **Custom roles** (People & access › Roles › New role) are built on a **base**, Editor or Channel owner, which never
 changes. A channel-based role gets the channel owner's shell, scopes and projection and can only ever call
-`channelSafeMethods`. Templates: Viewer (reads reports, trends and evidence; no costs), Analyst (quick scans, Ask AI,
-Sheets and data tools, with costs) and Channel reviewer (reads and marks trends used), plus the current Editor and
-Channel owner. A studio has up to 12 custom roles.
+`channelSafeMethods`. Templates: Viewer (reads reports, trends and evidence, and Ask AI; no costs), Analyst (quick
+scans, Ask AI, Sheets and data tools, with costs) and Channel reviewer (reads and marks trends used, and Ask AI), plus
+the current Editor and Channel owner. A studio has up to 12 custom roles.
+
+**Ask AI for every role.** `askAi` (Use Ask AI) is on by default for Admin, Editor, Channel owner and every template,
+and an admin can switch it off or on for any other role (Roles tab) or person (Access tab). It is one capability with
+the same 15 methods for every base, made role-aware rather than split in two:
+
+- `requiresByBase: { channel: ['readAssets'] }` replaces `requires` (`readAssets, readResearch`) on a channel base, so
+  holding it never brings See research and evidence (or anything else studio-wide) to a channel role. Its methods are
+  in `channelSafeMethods`, each with a channel scope in `access.js` (`ASK_SCOPES`) that rebuilds the payload, and every
+  result goes through `stripMoney` (`RESULTS`).
+- `costsOptional: true`: it spends but doesn't need See costs on an editor base. Each answer is small and capped
+  (`ai-limits.js` still applies, and spend is recorded as usual). A role without See costs gets no cost line under the
+  composer ("Saved for you only. AI can be mistaken.") and a LIVE CONTEXT and lookups with money stripped.
+- A channel asker's answer is built only from their projected state (`access.project`, exactly what their `state` call
+  returns): `src/main/ask-channel.js` turns `contentStudio.channelView` and their `noteMentions` into the LIVE CONTEXT,
+  the lookups (a trend's brief, their drafts, find, their own conversations and memory), the button resolver, the
+  cards and the [[Trend]] links. File text is read only for files that view lists (`helpChannelFiles`). The prompt is
+  its own (`help-assistant.js` `channelPromptParts`), with the guide's channel owner sections only (`channelGuide`).
+  Prompts, settings, people, analytics, research runs, posts, other channels and money never reach it.
+- Its buttons are the `ask-actions.json` kinds whose `layouts` include `channel` (Generate for my channel, Yes, I'm
+  using this trend / Not for us, Stop and Finish the rest on a set made for their channel only, Save folder, open a
+  trend, drafts, plan or inbox), offered only when the role holds every method, run by `channel-ask.jsx` through the
+  same API and gate as the channel screens' buttons. Asset status isn't one: channel roles can't set it.
+- Conversations and memory made from a channel role carry that `channelId` in `ask-store.js`, and a channel asker reads
+  and writes only those (`askSpace` in `index.js`). Live progress (`ask-progress.js`) keeps the same space: a channel
+  asker's `readAskProgress` returns only answers asked from their channel, and a repeated request id from another space
+  isn't joined. Pictures need Make channel assets; each picture keeps its `ownerId`, and a channel owner lists and opens
+  only their own.
+- No model or connection names either: a channel asker's progress step reads "Writing the answer" instead of the
+  route's "Writing with <model> · <connection>", and a new picture's result drops `model` and `provider` (`RESULTS`).
+- A preview (View as) reads the previewed role's Ask AI page but never asks: `askHelp` isn't a read method, so the gate
+  refuses it with the preview copy and the composer is off with "Buttons that change things are off in a preview." (the
+  established preview rule, kept as it is for Ask AI everywhere).
 
 Someone signed in who isn't in People (or is disabled, or whose role no longer exists) has role `null` and sees only
 the No access screen.
@@ -33,11 +65,12 @@ the No access screen.
 4. Only capabilities the base may hold survive (`bases`), and never a `lock: 'admin'` one, so a hand-edited team.json
    can't grant Settings or People & access.
 5. `core` (lock `always`) is added.
-6. A capability whose requirements are missing is removed, repeatedly: its `requires`, plus See costs for paid work
-   (`spends`) on an editor base, because paid work shows its estimate first. A channel base never needs costs.
+6. A capability whose requirements are missing is removed, repeatedly: its `requires` (or `requiresByBase[base]`),
+   plus See costs for paid work (`spends`) on an editor base, because paid work shows its estimate first, unless it is
+   `costsOptional` (Ask AI). A channel base never needs costs.
 
 The methods are the union of the capabilities' methods (a channel base: intersected with `channelSafeMethods`). With
-no policy edits this is exactly the old fixed matrix: admin 187 methods, editor 116, channel owner 19
+no policy edits this is exactly the old fixed matrix plus Ask AI for channel owners: admin 188 methods, editor 117, channel owner 34
 (`test/roles.test.js` and `test/docs-consistency.test.js` check these numbers).
 
 Channels are the ten asset-kit folders in `src/shared/kit-folders.json` `folders` (main reads them through
@@ -170,7 +203,8 @@ screens as the editor does.
 
 `capabilities` in `src/shared/roles.json` is the source of truth; `test/roles.test.js` checks every method in
 `studio-api-channels.json` sits in exactly one. Defaults: A = Admin, E = Editor, C = Channel owner. Bases: which kinds
-of role may ever hold it. “Spends” marks paid work (it needs See costs on an editor base).
+of role may ever hold it. “Spends” marks paid work (it needs See costs on an editor base, except Ask AI, which is
+`costsOptional`).
 
 | Group | Capability | Defaults | Bases | Requires | Methods |
 | --- | --- | --- | --- | --- | --- |
@@ -188,13 +222,13 @@ of role may ever hold it. “Spends” marks paid work (it needs See costs on an
 | | `markTrendsUsed` Mark trends used | A C | editor, channel | readAssets | `setTrendAdoption` |
 | Automation | `readWorkflows` See workflows and playbooks (since policy 2) | A E | editor | readResearch | `estimateWorkflow, readWorkflowRun, previewPlaybook` |
 | | `manageWorkflows` Build and run workflows (spends, since policy 2) | A E | editor | readWorkflows, startResearch, quickScans, approveTrends, writeReports, makeAssets, manageRuns, seeCosts | `saveWorkflow, setWorkflowStatus, deleteWorkflow, runWorkflow, cancelWorkflowRun, retryWorkflowRun` |
-| AI and prompts | `askAi` Use Ask AI (spends) | A E | editor | readAssets, readResearch | `askHelp`, the conversation and memory methods, `createHelpImage, saveHelpImage, listHelpImages, readHelpImage` |
+| AI and prompts | `askAi` Use Ask AI (spends, `costsOptional`) | A E C | editor, channel | readAssets, readResearch; on a channel base readAssets only (`requiresByBase`) | `askHelp`, the conversation and memory methods, `createHelpImage, saveHelpImage, listHelpImages, readHelpImage` (all channel-scoped for a channel base; pictures there also need Make channel assets) |
 | | `viewPrompts` See AI prompts | A E | editor | | `listPrompts, readPrompt, previewPrompt, diffPromptVersions, estimatePromptTest` |
 | | `editPrompts` Edit AI prompts (spends) | A E | editor | viewPrompts | `savePromptVersion, revertPrompt, testPrompt` |
 | Data and exports | `sheets` Use Sheets | A E | editor | | workbooks, including `exportWorkbookXlsx, exportWorkbookToGoogle` |
 | | `dataTools` Use data tools (spends) | A E | editor | manageRuns | imports, datasets, dataset reports, scrapers, brief starters, brand profiles, `exportDatasetToSheets` |
 | | `deleteScrapers` Delete scrapers | A | editor | dataTools | `deleteRecipe` |
-| | `exportPublish` Export and publish | A E | editor | readAssets, readResearch | `publishStudioRun, exportStudioRun, exportResearchReview, syncTrendBoardToMonday, readMondaySyncLog` |
+| | `exportPublish` Export and publish | A E | editor | readAssets, readResearch | `publishStudioRun, saveReportToDrive, exportStudioRun, exportResearchReview, syncTrendBoardToMonday, readMondaySyncLog` |
 | Studio setup | `seeCosts` See costs and budgets (projection `money`) | A E | editor | | none |
 | | `managePrograms` Manage research programs | A | editor | readResearch, seeCosts | `listAiModels, saveResearchProgram`; workflow budgets and playbooks: `approveWorkflowBudget, applyPlaybook, savePlaybook, deletePlaybook` |
 | | `editBrand` Edit brand knowledge | A | editor | | taxonomy, reference docs, brand images, product registry, `deleteBrandProfile` |
@@ -316,12 +350,22 @@ as an admin.
 
 ## Data model and member lifecycle
 
-`content-studio/team.json` (next to `state.json`, in the folder the owner lock protects), version 2. A version 1 file is
+`content-studio/team.json` (next to `state.json`, in the folder the owner lock protects), version 3. A version 1 file is
 upgraded on load (`MIGRATIONS[1]`): members get empty `grants` and `denies`, and empty `roles`, `rolePolicy` and
-`audit` are added, so everyone keeps exactly the access they had.
+`audit` are added, so everyone keeps exactly the access they had. A version 2 file then gets Ask AI on by default
+(`MIGRATIONS[2]`, `askAiForEveryRole`): each custom role that lacks `askAi` gets it, once, when it already holds what
+Ask AI needs on its base and the access log doesn't show an admin turning it off for that role; each change is an
+Automatic `policy-changed` row in the access log. The built-in roles need no step: Channel owner gets it from the new
+`roles.json` default, and an admin's own Off (`rolePolicy.builtIn.<role>.deny`) is kept. One kind of Off isn't an
+admin's choice: before v3, Ask AI on an editor base needed See costs, so turning See costs off turned Ask AI off in the
+same save (one access-log row with both, or rows with the same `at`). v3 ignores that Off when it reads the log, and
+removes it from `builtIn.editor.deny` and from a person's own `denies` when See costs is denied there too and the role
+or person still has what Ask AI needs (Automatic `policy-changed` and `member-access` rows). The admin role, other
+capabilities and people's other access are never touched. The version reached is written with the next change, so an
+admin who later turns Ask AI off for a role keeps it off through restarts and upgrades (`test/team-store.test.js`).
 
 ```json
-{ "version": 2,
+{ "version": 3,
   "members": [{ "id": "member-<uuid>", "name": "", "email": "", "role": "admin|editor|channel|role-<slug>-<4hex>", "channelId": null,
                 "grants": ["<capability>"], "denies": ["<capability>"], "accessUpdatedAt": "", "accessUpdatedBy": { "id": "", "name": "" },
                 "disabled": false, "createdAt": "", "updatedAt": "", "createdBy": { "id": "", "name": "" }, "lastSeenAt": "",
@@ -488,7 +532,8 @@ A channel owner's kit run message comes from a fixed set: "Starting…", "Writin
 | Gate logic, refusals, scopes by base, previews, audit, result projection, error rewriting | `test/access.test.js` |
 | The real main process on the web runtime and the Mac (sync gate, View as pushes, Codex env) | `test/roles-gate.test.js` |
 | Provider errors through the real gate (scripted Claude CLI) | `test/roles-errors.test.js` |
-| team.json (v2, role policy, custom roles, member access, invites, the access log, prefs) | `test/team-store.test.js` |
+| team.json (v2 and v3, role policy, custom roles, member access, invites, the access log, prefs, Ask AI on once for every role) | `test/team-store.test.js` |
+| Ask AI for channel owners (the context, lookups, buttons and cards from the channel view only; the gate's scopes; their own conversations, memory and pictures; the sidebar entry; previews) | `test/ask-channel.test.js`, `test/ask-channel-web.test.js`, `test/channel-ask.test.jsx` |
 | Channel view and `readyTrends` parity with the trend board | `test/channel-view.test.js` |
 | Analytics definitions | `test/team-analytics.test.js` |
 | Workflow owners' access and the workflows' share of the state | `test/access-workflow.test.js` |

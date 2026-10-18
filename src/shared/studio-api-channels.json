@@ -207,6 +207,7 @@
     "retryDriveSync": "drive:retry",
     "disconnectDriveSync": "drive:disconnect",
     "readDriveSyncLog": "drive:log",
+    "saveReportToDrive": "drive:save-report",
     "archiveAndClearSheets": "archive-and-clear-sheets",
     "importWorkingSheets": {
       "channel": "import-working-sheets",

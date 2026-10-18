@@ -30,6 +30,17 @@ Design record: [docs/design-review/SPEC-3.md](docs/design-review/SPEC-3.md).
   channel assets) is saved as a Google Doc in folders that mirror the Library and updated after edits, with
   backfill, a sync log and Retry (`src/main/drive-client.js`, `src/main/drive-sync.js`).
 - **docs/how-it-works.pdf**: a one-page diagram of the studio for the handoff.
+- **Ask AI for every role**: **Use Ask AI** is on by default for Admin, Editor, Channel owner and every role template,
+  and an admin can switch it off or on per role (People & access › Roles) or per person. Channel owners get an Ask AI
+  entry (⌘J / Ctrl+J) in their sidebar and phone bar, scoped to their channel: it answers, reads briefs and drafts,
+  generates their channel's drafts, saves their "using / not for us" answers and opens their pages, all from their
+  channel's projected view (`src/main/ask-channel.js`, `src/renderer/src/channel-ask.jsx`), with no costs. `askAi` gains
+  `requiresByBase` (a channel base needs only Read reports and assets) and `costsOptional`; team.json v3 turns it on
+  once for custom roles that lack it, keeping an admin's Off, and gives it back where it went off only because See
+  costs went off under the old rule (the built-in Editor, a custom role or one person).
+  **Upgrade note for testers:** once this build has written `team.json` (v3), an older build (0.3.0 and earlier)
+  refuses to start on that data folder. Back up `content-studio/team.json` before trying it, and restore the backup
+  to go back.
 
 ### Fixed
 - A logic sweep fixed about 55 lost hand-offs and illogical flows, including Trend board → Create content opening

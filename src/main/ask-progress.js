@@ -123,14 +123,17 @@ function createAskProgress({ send = () => {}, now = Date.now, frameMs = 50, keep
   }
 
   // `target` is who the events go to ({ identityId, session }); `project(event)` shapes each event and snapshot for the
-  // person who asked (money stripped for roles without See costs). A finished record under the same request id is
-  // replaced; a running one is joined (help:ask joins a repeated request rather than asking twice).
-  function begin({ requestId, identityId, target = null, conversationId = '', question = '', mode = '', project = (event) => event } = {}) {
+  // person who asked (money stripped for roles without See costs). `space` is the channel a channel owner asked from
+  // ('' for everything else), the same space as their conversations (ask-store.js): snapshot() and active() given a
+  // space return only that space's answers, so a person moved from Editor to a channel role, or to another channel,
+  // never reads back an answer written for the old one. A finished record under the same request id is replaced; a
+  // running one is joined (help:ask joins a repeated request rather than asking twice).
+  function begin({ requestId, identityId, target = null, conversationId = '', question = '', mode = '', project = (event) => event, space = '' } = {}) {
     if (!requestId || !identityId) throw new Error('Ask AI progress needs a request and a person.');
     const key = keyOf(identityId, requestId); const existing = records.get(key);
     if (existing && !FINAL.has(existing.status)) return handleFor(existing);
     const record = {
-      key, identityId: String(identityId), requestId: String(requestId), target: target || { identityId }, project: typeof project === 'function' ? project : (event) => event,
+      key, identityId: String(identityId), requestId: String(requestId), target: target || { identityId }, project: typeof project === 'function' ? project : (event) => event, space: String(space || ''),
       conversationId: String(conversationId || ''), question: String(question || '').slice(0, 2000), mode: mode === 'regenerate' || mode === 'edit' ? mode : '',
       status: 'starting', steps: [], text: '', sent: 0, title: '', seq: 0, startedAt: iso(), finishedAt: 0, final: null, error: null, timer: null,
     };
@@ -138,11 +141,13 @@ function createAskProgress({ send = () => {}, now = Date.now, frameMs = 50, keep
     changed(record); prune();
     return handleFor(record);
   }
-  const snapshot = (identityId, requestId) => { const record = records.get(keyOf(identityId, requestId)); return record ? projected(record) : null; };
+  // `space` (a channel owner's channel): only answers asked from that space. None (admins and editors): all of theirs.
+  const inSpace = (space) => { const wanted = typeof space === 'string' && space ? space : null; return (record) => !wanted || record.space === wanted; };
+  const snapshot = (identityId, requestId, { space } = {}) => { const record = records.get(keyOf(identityId, requestId)); return record && inSpace(space)(record) ? projected(record) : null; };
   // This person's answers still running, and those that finished in the last minute.
-  function active(identityId) {
-    const at = now();
-    return [...records.values()].filter((record) => record.identityId === identityId && (!record.finishedAt || at - record.finishedAt <= RECENT_MS)).map(projected).filter(Boolean);
+  function active(identityId, { space } = {}) {
+    const at = now(); const keep = inSpace(space);
+    return [...records.values()].filter((record) => record.identityId === identityId && keep(record) && (!record.finishedAt || at - record.finishedAt <= RECENT_MS)).map(projected).filter(Boolean);
   }
   const running = (identityId) => [...records.values()].filter((record) => record.identityId === identityId && !record.finishedAt).length;
   return { begin, snapshot, active, running, size: () => records.size };

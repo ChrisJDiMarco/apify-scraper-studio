@@ -133,4 +133,46 @@ function fieldStreamer(onStream, field = 'answer') {
   };
 }
 
-module.exports = { createFieldStream, fieldStreamer };
+// One string field read from a finished reply that isn't valid JSON (Ask AI keeps its answer when the rest of the reply
+// can't be read). The first `"field": "` is the field (the answer is the schema's first property, and no nested object
+// uses the name). Escapes decode as above and a raw line break stays one. A quote ends the string only when what follows
+// it continues the object (`, "key":`, `}` or the end of the text); any other quote is one the model forgot to escape and
+// is kept, so `Press "Run" to start` isn't cut short. `keys` (optional) are the schema's own property names: then only
+// `, "<one of them>":` continues the object (so `Pick "Lite", "Standard": both` stays whole), and a `}` ends the string
+// only when no later quote could (an inline {"url": "…"} example is followed by the rest of the answer and its real end).
+// null when the field isn't there or never ends.
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function readStringField(text, field = 'answer', { keys } = {}) {
+  const source = String(text ?? ''); const name = JSON.stringify(String(field));
+  const key = new RegExp(`${escapeRegExp(name)}\\s*:\\s*"`).exec(source);
+  if (!key) return null;
+  const names = Array.isArray(keys) ? keys.filter((entry) => typeof entry === 'string' && entry && entry !== field) : [];
+  const next = names.length ? `"(?:${names.map(escapeRegExp).join('|')})"` : '"[^"\\\\\\n]{1,80}"';
+  const keyEnd = new RegExp(`\\s*,\\s*${next}\\s*:`, 'y');
+  const braceEnd = /\s*(?:,?\s*\}|$)/y;
+  const laterEnd = names.length ? new RegExp(`"\\s*(?:,\\s*${next}\\s*:|,?\\s*\\})`, 'g') : null;
+  let out = '';
+  for (let at = key.index + key[0].length; at < source.length; at++) {
+    const char = source[at];
+    if (char === '\\') {
+      const following = source[at + 1];
+      if (following === 'u' && /^[0-9a-fA-F]{4}$/.test(source.slice(at + 2, at + 6))) { out += String.fromCharCode(parseInt(source.slice(at + 2, at + 6), 16)); at += 5; continue; }
+      if (following === undefined) return null;
+      out += ESCAPES[following] ?? following; at++; continue;
+    }
+    if (char === '"') {
+      keyEnd.lastIndex = at + 1;
+      if (keyEnd.test(source)) return out;
+      braceEnd.lastIndex = at + 1;
+      if (braceEnd.test(source)) {
+        if (!laterEnd) return out;
+        laterEnd.lastIndex = at + 1;
+        if (!laterEnd.test(source)) return out;
+      }
+    }
+    out += char;
+  }
+  return null;
+}
+
+module.exports = { createFieldStream, fieldStreamer, readStringField };

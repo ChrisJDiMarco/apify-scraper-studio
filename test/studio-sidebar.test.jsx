@@ -373,6 +373,23 @@ describe('StudioSidebar under 860px', () => {
     expect(onNavigate).toHaveBeenCalledWith('assets');
   });
 
+  it('shows a channel owner Ask AI with its key when their role has it, and nothing when it doesn’t', () => {
+    const asker = { ...owner, allowed: ['setViewPrefs', 'askHelp'], nav: { main: ['trends', 'assets', 'plan', 'inbox', 'ask'] } };
+    const onAsk = vi.fn();
+    const { unmount } = sidebar({ viewer: asker, mode: 'channel', nav: buildNav({ viewer: asker, layout: 'channel', state: {}, edition: 'semrush' }), activeId: 'trends', onAsk, askCurrent: false });
+    const ask = screen.getByRole('button', { name: 'Ask AI' });
+    expect(ask).toHaveAttribute('data-spot', 'nav.ask');
+    expect(ask).toHaveAttribute('aria-keyshortcuts', expect.stringMatching(/^(Meta|Control)\+J$/));
+    expect(ask.querySelector('kbd')).toHaveTextContent(/^(⌘J|Ctrl\+J)$/);
+    expect(screen.queryByRole('button', { name: /^New/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Search/ })).not.toBeInTheDocument();
+    fireEvent.click(ask);
+    expect(onAsk).toHaveBeenCalled();
+    unmount();
+    sidebar({ viewer: owner, mode: 'channel', nav: buildNav({ viewer: owner, layout: 'channel', state: {}, edition: 'semrush' }), activeId: 'trends' });
+    expect(screen.queryByRole('button', { name: 'Ask AI' })).not.toBeInTheDocument();
+  });
+
   it('renders neither the top bar nor the bottom nav on a wide window', () => {
     const { container } = render(<><StudioTopBar title="Trends" onMenu={() => {}} /><ChannelBottomNav items={[{ id: 'trends', label: 'Trends' }]} /></>);
     expect(container).toBeEmptyDOMElement();

@@ -1,5 +1,5 @@
-import React, { useId, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Brain, Check, ChevronDown, Circle, CircleCheck, Copy, ExternalLink, FileText, FolderOpen, Gauge, HelpCircle, Images, Info, Link2, ListChecks, ListOrdered, LoaderCircle, Lock, MessageSquareQuote, Minus, PenLine, Plus, Radar, RotateCcw, ScanSearch, ScrollText, SkipForward, Sparkles, Square, Table2, TrendingDown, TrendingUp, TriangleAlert, Undo2, UserPlus, Eye } from 'lucide-react';
+import React, { createContext, useContext, useId, useMemo, useRef, useState } from 'react';
+import { ArrowRight, Brain, Check, ChevronDown, ChevronRight, Circle, CircleCheck, Copy, ExternalLink, FileText, FolderOpen, Gauge, HelpCircle, Images, Info, Link2, ListChecks, ListOrdered, LoaderCircle, Lock, MessageSquareQuote, Minus, PenLine, Plus, Radar, RotateCcw, ScanSearch, ScrollText, SkipForward, Sparkles, Square, Table2, TrendingDown, TrendingUp, TriangleAlert, Undo2, UserPlus, Eye } from 'lucide-react';
 import QUICK_SCAN from '../../shared/quick-scan.json';
 import { safeMarkdownUrl } from './markdown-content.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
@@ -9,6 +9,7 @@ import { PromptDiff, diffCounts } from './prompt-library.jsx';
 import { copyText } from './role-screens.jsx';
 import { routingChannels } from './trend-decision-sheet.jsx';
 import { brandFrom, checkBrand, checkSummary } from './brand-check.js';
+import './ask-reply.css';
 import './chat-cards.css';
 
 // Cards under an Ask AI answer: structured, grounded blocks. The server hydrates each card from the studio's state
@@ -49,7 +50,11 @@ const DEPTHS = Object.keys(PRESETS);
 const PLATFORM_MARK = { x: 'X', linkedin: 'in', reddit: 'r/' };
 const platformName = (id) => PLATFORM_LABELS[id] || sentence(id);
 const STAGES = { waiting: 'Needs your OK', approved: 'Approved', writing: 'Being written', ready: 'Ready', passed: 'Skipped' };
-const MOMENTUM = { new: { label: 'New', Icon: Sparkles }, rising: { label: 'Rising', Icon: TrendingUp }, steady: { label: 'Steady', Icon: Minus }, fading: { label: 'Fading', Icon: TrendingDown } };
+const MOMENTUM = { new: { label: 'New', Icon: Sparkles, tone: 'is-live' }, rising: { label: 'Rising', Icon: TrendingUp, tone: 'is-ok' }, steady: { label: 'Steady', Icon: Minus, tone: '' }, fading: { label: 'Fading', Icon: TrendingDown, tone: 'is-warn' } };
+// Badge tones (ask-reply.css .reply-badge): a stage, a run's status.
+const STAGE_TONE = { waiting: 'is-warn', approved: 'is-ok', writing: 'is-live', ready: 'is-ok', passed: '' };
+const STATUS_TONE = { succeeded: 'is-ok', partial: 'is-warn', 'awaiting-review': 'is-warn', failed: 'is-danger', running: 'is-live', queued: 'is-live', cancelled: '' };
+const badge = (tone) => `reply-badge${tone ? ` ${tone}` : ''}`;
 const DOC_KIND = { 'evidence-report': 'Trends report', 'editorial-toolkit': 'Editorial toolkit', 'scan-report': 'Quick scan report' };
 const RUN_STATUS = { queued: 'Queued', running: 'Running', 'awaiting-review': 'Trends need your OK', succeeded: 'Done', partial: 'Partly done', failed: 'Didn’t finish', cancelled: 'Stopped' };
 const RUN_STAGE = { collecting: 'Collecting posts', discovery: 'Finding trends', synthesis: 'Combining what it found', matching: 'Matching to trends you track', 'theme-review': 'Trends found', classification: 'Tagging posts', reports: 'Writing reports', 'scan-report': 'Writing the trends report', 'scan-complete': 'Scan complete', content: 'Writing' };
@@ -59,10 +64,11 @@ const windowLabel = (hours) => (WINDOWS.find(([value]) => value === hours)?.[1])
 const when = (value) => { const date = new Date(value || 0); if (!value || Number.isNaN(date.getTime())) return ''; return date.toDateString() === new Date().toDateString() ? formatTime(value) : formatDay(value); };
 
 const studioOf = (state) => state?.contentStudio || {};
+// A channel owner's state has only their channel's sets (channelView.runs), so a folder card follows those.
 function findRun(state, runId) {
   if (!runId) return null;
   const studio = studioOf(state);
-  return [...list(studio.researchRuns), ...list(studio.contentRuns)].find((row) => row.id === runId) || null;
+  return [...list(studio.researchRuns), ...list(studio.contentRuns), ...list(studio.channelView?.runs)].find((row) => row.id === runId) || null;
 }
 const progressOf = (value) => (value && finite(value.total) && Number(value.total) > 0 ? { done: Number(value.done ?? value.completed) || 0, total: Number(value.total) } : null);
 // A run as the run card shows it, from the pushed state (live) or the hydrated card (until the state has it).
@@ -105,39 +111,137 @@ const reportActionIndex = (card, actions) => { const named = list(card.actionInd
 // An open button for this kind of item (open with type=report, or the older open-report).
 const opensAs = (row, type) => row?.kind === `open-${type}` || (row?.kind === 'open' && (row.params?.type === type || row.ref?.kind === type));
 
-export function ChatCards({ cards, actions = [], actionState = {}, onAction, onRunAction, onOutcome, onAsk, onNav = {}, api, state, conversationId = '', messageId = '' }) {
+// primary: whether these cards may hold the reply's one primary button (help-assistant.jsx gives it to the first card
+// that has open work, else to the actions row under the cards; see primaryCard).
+export function ChatCards({ cards, actions = [], actionState = {}, onAction, onRunAction, onOutcome, onAsk, onNav = {}, api, state, conversationId = '', messageId = '', primary = true }) {
+  const can = useCan();
   const rows = list(cards).filter((card) => card && RENDERERS[card.type]);
   if (!rows.length) return null;
   const shared = { actions: list(actions), actionState: actionState || {}, onAction, onRunAction, onOutcome, onAsk, onNav: onNav || {}, api, state, conversationId, messageId };
-  return <div className="chat-cards">{rows.map((card, index) => { const Card = RENDERERS[card.type]; return <Card key={`${card.type}-${index}`} card={card} {...shared} />; })}</div>;
+  const lead = primary ? primaryCard(rows, shared.actions, shared.actionState, state, { canAct: Boolean(onAction), canRunAction: Boolean(onRunAction), canAsk: Boolean(onAsk), can, api }) : -1;
+  return <div className="chat-cards">{rows.map((card, index) => { const Card = RENDERERS[card.type]; return <PrimaryContext.Provider key={`${card.type}-${index}`} value={index === lead}><Card card={card} {...shared} /></PrimaryContext.Provider>; })}</div>;
 }
 
-function CardShell({ type, kicker, title, icon: Icon, note, aside, children }) {
+// Every card is one shell (ask-reply.css): a 28px icon tile tinted by family, an eyebrow and a title, the body, and the
+// card's own buttons in a footer row. Families: research and trends are mint, assets and reports soft, questions and
+// choices warm, numbers neutral.
+const FAMILY = { trend: 'mint', run: 'mint', program: 'mint', posts: 'mint', 'scan-plan': 'mint', report: 'soft', 'asset-folder': 'soft', 'report-change': 'soft', 'prompt-change': 'soft', draft: 'soft', picture: 'soft', choice: 'warm', plan: 'warm', action: 'warm', checklist: 'warm', metric: 'neutral', chart: 'neutral', table: 'neutral', compare: 'neutral', memory: 'neutral' };
+// `label` names the card for screen readers when its title alone wouldn't (the memory card: "Remembered from this
+// answer"); otherwise the card is named by its title. The card's type is data-card, never a class: chat-cards.css names
+// parts after their card (.cc-compare is the two columns, .cc-draft the text box), and a class would restyle the shell.
+export function ReplyCard({ type, family = '', kicker, title, label = '', icon: Icon, note, aside, children }) {
   const id = useId();
-  return <article className={`cc-card cc-${type}`} aria-labelledby={id} data-spot={type === 'scan-plan' ? 'ask.scan-plan' : undefined}>
-    <header className="cc-head">{Icon && <span className="cc-icon" aria-hidden="true"><Icon size={15} /></span>}<div className="cc-head-text">{kicker && <span className="cc-kicker">{kicker}</span>}<h4 id={id}>{title || kicker}</h4></div>{aside}</header>
-    {note && <p className="cc-note">{note}</p>}
+  return <article className="reply-card" data-card={type} aria-labelledby={label ? undefined : id} aria-label={label || undefined} data-spot={type === 'scan-plan' ? 'ask.scan-plan' : undefined}>
+    <header className="reply-card-head">{Icon && <span className={`reply-card-icon is-${family || FAMILY[type] || 'neutral'}`} aria-hidden="true"><Icon size={15} /></span>}<div className="reply-card-heading">{kicker && <span className="reply-card-eyebrow">{kicker}</span>}<h4 id={id} className="reply-card-title">{title || kicker}</h4></div>{aside}</header>
+    {note && <p className="reply-body">{note}</p>}
     {children}
   </article>;
 }
+const CardShell = ReplyCard;
+
+// A reply has at most one primary button. The reply's own buttons that only open, copy, stop, skip or ask are always
+// quiet; the first button in the chosen card (or in the actions row, when no card has open work) that does the work is
+// the primary. Inside a card, its own main step can be that work: Copy on a draft (the draft is what it's for), and
+// Summarize what changed on a finished run.
+const QUIET_ACTIONS = new Set(['pass-trend', 'undo-trend', 'open-report', 'open-folder', 'open', 'open-tab', 'open-tracker', 'stop-run', 'copy', 'ask', 'view-as', 'save-folder', 'export-run']);
+export const isQuietAction = (kind) => QUIET_ACTIONS.has(kind);
+export const BUTTON = { primary: 'studio-primary small', quiet: 'studio-quiet small' };
+const PrimaryContext = createContext(true);
+// Hands out this card's share: the first button that asks for the primary gets it (when the reply gave it to this card),
+// every other one is quiet. Called while rendering, in reading order.
+export function primaryPicker(allowed = true) { let spent = !allowed; return (wants) => { if (wants && !spent) { spent = true; return BUTTON.primary; } return BUTTON.quiet; }; }
+const usePrimary = () => primaryPicker(useContext(PrimaryContext));
+const isDone = (status) => status?.status === 'done';
+// A plan step is settled once done or skipped (a skip is recorded as cancelled with its words; a plain "no" is not).
+const planSettled = (status) => ['done', 'skipped'].includes(status?.status) || (status?.status === 'cancelled' && Boolean(status.text));
+// The run a quick-scan start recorded: its id when the outcome kept it, else the newest quick scan its result line names.
+function startedRunId(outcome, state) {
+  if (!isDone(outcome)) return '';
+  if (outcome.runId) return outcome.runId;
+  const named = /“([^”]+)”/.exec(outcome.text || '')?.[1];
+  return (named && list(studioOf(state).researchRuns).filter((row) => row.origin === 'quick-scan' && row.title === named).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0]?.id) || '';
+}
+// Whether a card has open work for the reply's primary: a form to save, a change to apply, a step to run, a trend to
+// decide, a run to try again or summarize, a draft to copy, or a button of the reply's that does the work. Judged the
+// way the card draws its buttons, who may press them included, so the card given the primary always shows it.
+// ways: { canAct (reply actions run), canRunAction (a card runs its own request), canAsk (a card asks a question),
+// can (the person's methods), api (what this studio offers) }.
+function wantsPrimary(card, actions, actionState, state, ways) {
+  const { canAct = true, can = () => true, api = null } = ways;
+  const data = card.data || {};
+  const open = (index) => Number.isInteger(index) && Boolean(actions[index]) && !isDone(actionState[index]);
+  // A reply action the card draws (CardActions) that does the work; `skip` leaves out the ones the card doesn't draw.
+  const doing = (skip = () => false) => canAct && list(card.actionIndexes).some((index) => open(index) && !isQuietAction(actions[index].kind) && !skip(actions[index], index));
+  switch (card.type) {
+    case 'scan-plan': {
+      const index = scanActionIndex(card, actions); const outcome = index >= 0 ? actionState[index] : null;
+      // Started: the card is now the run it started (or a done line).
+      if (isDone(outcome)) { const runId = startedRunId(outcome, state); return Boolean(runId) && wantsPrimary({ type: 'run', actionIndexes: [], data: { runId, kind: 'quick-scan', status: 'queued' } }, actions, {}, state, ways); }
+      if (!can('estimateQuickScan') && !can('startQuickScan')) return false;
+      // Check cost leads until the plan is priced (Start scan takes over after); without Check cost, Start scan never
+      // gets a fresh price, so it stays quiet.
+      return (typeof api?.estimateQuickScan === 'function' && can('estimateQuickScan')) || doing((row) => row.kind === 'quick-scan');
+    }
+    case 'action': return open(list(card.actionIndexes)[0]);
+    case 'prompt-change': { const index = promptActionIndex(card, actions); return Boolean(data.canApply) && typeof api?.savePromptVersion === 'function' && can('savePromptVersion') && !(index >= 0 && isDone(actionState[index])); }
+    case 'report-change': { const index = reportActionIndex(card, actions); return Boolean(data.canApply) && typeof api?.editStudioAsset === 'function' && can('editStudioAsset') && !(index >= 0 && isDone(actionState[index])); }
+    case 'plan': { const steps = list(data.steps).filter((step) => Number.isInteger(step?.index) && actions[step.index]); return canAct && steps.length >= 2 && steps.some((step) => !planSettled(actionState[step.index])); }
+    case 'trend': {
+      // Once decided, the card leaves out Yes and Skip (TrendCard), unless one has an outcome to show.
+      const stage = liveTrendStage(state, data) || data.stage; const decided = Boolean(stage) && stage !== 'waiting';
+      return doing((row, index) => decided && ['approve-trend', 'pass-trend'].includes(row.kind) && !actionState[index]);
+    }
+    case 'run': {
+      const { canRunAction = canAct, canAsk = true } = ways;
+      const live = findRun(state, data.runId); const run = live ? runView(live) : data;
+      const quick = run.kind === 'quick-scan'; const report = quick ? run.scanReport || null : null;
+      const indexes = list(card.actionIndexes);
+      const reportRetry = report?.runId ? indexes.find((index) => actions[index]?.kind === 'retry-run' && actions[index].runId === report.runId) : undefined;
+      const indexOf = (kind) => (kind === 'retry-report' ? reportRetry : indexes.find((index) => actions[index]?.kind === kind && index !== reportRetry));
+      // RunCard's own Try again and Retry report: drawn when allowed and something can run them, and not yet done.
+      const offers = (kind, allowed) => { const index = indexOf(kind); return allowed && !(index != null && isDone(actionState[index])) && (canRunAction || (index != null && canAct)); };
+      const found = ['succeeded', 'awaiting-review', 'partial'].includes(run.status) && (run.kind === 'research' || quick);
+      return offers('retry-run', ['failed', 'partial', 'cancelled'].includes(run.status) && can('retryStudioRun'))
+        || offers('retry-report', run.status === 'succeeded' && ['failed', 'cancelled'].includes(report?.status) && Boolean(report?.runId) && can('retryStudioRun'))
+        || (found && canAsk)
+        || doing((row) => ['stop-run', 'retry-run'].includes(row.kind) || (row.kind === 'start-research' && quick && run.status === 'succeeded'));
+    }
+    case 'draft': return Boolean(text(data.text).trim());
+    case 'choice': case 'memory': return false;
+    // Cards that draw nothing without their rows have no buttons either.
+    case 'metric': return list(data.items).some((row) => row && (row.label || row.value)) && doing();
+    case 'table': return list(data.columns).length > 0 && list(data.rows).some(Array.isArray) && doing();
+    case 'checklist': return list(data.items).some((row) => row?.text) && doing();
+    case 'compare': return [data.left, data.right].filter((side) => side && (side.title || list(side.points).length)).length >= 2 && doing();
+    case 'posts': return list(data.posts).some((post) => post?.text) && doing();
+    default: return doing();
+  }
+}
+// The index (among the cards that render) of the card that holds the reply's one primary, or -1 for none. `ways` as
+// wantsPrimary takes it; ChatCards and the reply's actions row (help-assistant.jsx) pass the same, so they agree.
+export function primaryCard(cards, actions = [], actionState = {}, state = null, ways = {}) {
+  return list(cards).filter((card) => card && RENDERERS[card.type]).findIndex((card) => wantsPrimary(card, list(actions), actionState || {}, state, ways || {}));
+}
 
 // The reply's actions a card points at, as buttons in reading order. `skip` leaves out the ones the card draws itself;
-// children are the card's own navigation buttons, shown first.
-const ACTION_TONE = { 'approve-trend': 'is-yes', 'pass-trend': 'is-quiet', 'undo-trend': 'is-quiet', 'open-report': 'is-quiet', 'open-folder': 'is-quiet', open: 'is-quiet', 'open-tab': 'is-quiet', 'open-tracker': 'is-quiet', 'stop-run': 'is-quiet', copy: 'is-quiet', ask: 'is-quiet', 'view-as': 'is-quiet' };
+// children are the card's own navigation buttons, shown first. `pick` is the card's primary picker when it draws its
+// own buttons too, so the card still has one primary at most.
 const ACTION_ICON = { 'approve-trend': Check, 'undo-trend': Undo2, 'open-report': FileText, 'open-folder': FolderOpen, open: ArrowRight, 'make-assets': Images, 'retry-run': RotateCcw, 'finish-assets': RotateCcw, 'stop-run': Square, 'start-research': Radar, 'quick-scan': ScanSearch, 'open-tracker': Table2, copy: Link2, 'set-status': Check, 'mark-used': Check, 'edit-report': PenLine, ask: Sparkles, 'invite-people': UserPlus, 'view-as': Eye, 'lock-prompt': Lock };
-function CardActions({ card, actions, actionState, onAction, skip, children }) {
+export const actionIcon = (kind) => ACTION_ICON[kind] || Sparkles;
+function CardActions({ card, actions, actionState, onAction, skip, pick, children }) {
+  const fallback = usePrimary(); const tone = pick || fallback;
   const rows = onAction ? list(card.actionIndexes).filter((index, at, all) => Number.isInteger(index) && actions[index] && all.indexOf(index) === at && !(skip && skip(actions[index]))) : [];
   const own = React.Children.toArray(children).filter(Boolean);
   if (!rows.length && !own.length) return null;
-  return <div className="cc-actions">{own}{rows.map((index) => {
-    const row = actions[index]; const status = actionState[index]; const Icon = ACTION_ICON[row.kind] || Sparkles;
-    return <div className="cc-action" key={index}>{status?.status === 'done'
-      ? <span className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</span>
-      : <button type="button" className={`cc-btn ${ACTION_TONE[row.kind] || 'is-primary'}`} disabled={status?.status === 'running'} onClick={() => onAction(index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}{row.label}</button>}
-      {status?.status === 'failed' && <small className="cc-failed" role="alert">{status.text}</small>}</div>;
+  return <div className="reply-card-foot">{own}{rows.map((index) => {
+    const row = actions[index]; const status = actionState[index]; const Icon = actionIcon(row.kind);
+    return <div className="reply-action" key={index}>{status?.status === 'done'
+      ? <span className="reply-done" role="status"><Check size={14} aria-hidden="true" />{status.text}</span>
+      : <button type="button" className={tone(!isQuietAction(row.kind))} disabled={status?.status === 'running'} onClick={() => onAction(index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Icon size={14} aria-hidden="true" />}{row.label}</button>}
+      {status?.status === 'failed' && <small className="reply-failed" role="alert">{status.text}</small>}</div>;
   })}</div>;
 }
-const NavButton = ({ icon: Icon = ArrowRight, label, onClick }) => <button type="button" className="cc-btn is-quiet" onClick={onClick}><Icon size={13} aria-hidden="true" />{label}</button>;
+const NavButton = ({ icon: Icon = ArrowRight, label, onClick }) => <button type="button" className={BUTTON.quiet} onClick={onClick}><Icon size={14} aria-hidden="true" />{label}</button>;
 
 function Sparkline({ points, label }) {
   const values = list(points).map(Number).filter(Number.isFinite).slice(-24);
@@ -152,7 +256,7 @@ function Sparkline({ points, label }) {
 }
 function Progress({ done, total, label }) {
   const percent = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
-  return <div className="cc-progress" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-valuetext={`${done} of ${total}`}><span style={{ width: `${percent}%` }} /></div>;
+  return <div className="reply-progress" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-valuetext={`${done} of ${total}`}><span style={{ width: `${percent}%` }} /></div>;
 }
 
 // Trend: momentum, how it moved across runs, where it is, and Yes / Skip / Open report.
@@ -171,10 +275,11 @@ export function TrendCard({ card, actions, actionState, onAction, onNav, state }
   const seen = [finite(data.runsSeen) && Number(data.runsSeen) > 0 ? `Seen in ${plural(data.runsSeen, 'run')}` : '', data.firstSeen ? `first ${formatDay(data.firstSeen)}` : '', data.lastSeen && data.lastSeen !== data.firstSeen ? `last ${formatDay(data.lastSeen)}` : ''].filter(Boolean).join(' · ');
   // Once decided, Yes and Skip give way to what was chosen.
   const decided = stage && stage !== 'waiting';
-  return <CardShell type="trend" kicker="Trend" title={card.title || data.name} icon={TrendingUp} note={card.note} aside={momentum && <span className={`cc-momentum is-${data.momentum}`}><momentum.Icon size={12} aria-hidden="true" />{momentum.label}</span>}>
-    {meta.length > 0 && <p className="cc-meta">{meta.join(' · ')}</p>}
-    {data.summary && <p className="cc-text cc-clamp">{data.summary}</p>}
-    {(spark.length > 1 || seen || STAGES[stage]) && <div className="cc-trend-foot">{spark.length > 1 && <Sparkline points={spark} label={`Posts across runs: ${spark.join(', ')}`} />}{seen && <small>{seen}</small>}{STAGES[stage] && <span className={`cc-stage is-${stage}`}>{STAGES[stage]}</span>}</div>}
+  return <CardShell type="trend" kicker="Trend" title={card.title || data.name} icon={TrendingUp} note={card.note} aside={momentum && <span className={badge(momentum.tone)}><momentum.Icon size={12} aria-hidden="true" />{momentum.label}</span>}>
+    {meta.length > 0 && <p className="reply-muted">{meta.join(' · ')}</p>}
+    {data.summary && <p className="reply-body cc-clamp">{data.summary}</p>}
+    {data.answer && <p className="reply-muted">Your channel: {data.answer}</p>}
+    {(spark.length > 1 || seen || STAGES[stage]) && <div className="cc-trend-foot">{spark.length > 1 && <Sparkline points={spark} label={`Posts across runs: ${spark.join(', ')}`} />}{seen && <small className="reply-muted">{seen}</small>}{STAGES[stage] && <span className={badge(STAGE_TONE[stage])}>{STAGES[stage]}</span>}</div>}
     <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => decided && ['approve-trend', 'pass-trend'].includes(row.kind) && !actionState[actions.indexOf(row)]}>
       {data.reportAssetId && typeof onNav.openReport === 'function' && <NavButton key="open" icon={FileText} label="Open report" onClick={() => onNav.openReport(data.reportAssetId)} />}
     </CardActions>
@@ -186,8 +291,8 @@ export function ReportCard({ card, actions, actionState, onAction, onNav }) {
   const kind = DOC_KIND[data.kind] || (data.kind ? sentence(data.kind) : 'Report');
   const opens = Boolean(data.assetId) && typeof onNav.openReport === 'function'; // else a reply's own Open button stays
   return <CardShell type="report" kicker={kind} title={card.title || data.title || 'Report'} icon={FileText} note={card.note}>
-    {(data.trendName || data.date) && <p className="cc-meta">{[data.trendName && `Trend: ${data.trendName}`, formatDay(data.date)].filter(Boolean).join(' · ')}</p>}
-    {data.excerpt && <p className="cc-text cc-clamp">{data.excerpt}</p>}
+    {(data.trendName || data.date) && <p className="reply-muted">{[data.trendName && `Trend: ${data.trendName}`, formatDay(data.date)].filter(Boolean).join(' · ')}</p>}
+    {data.excerpt && <p className="reply-body cc-clamp">{data.excerpt}</p>}
     <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => opensAs(row, 'report') && opens}>
       {opens && <NavButton key="open" icon={FileText} label="Open" onClick={() => onNav.openReport(data.assetId)} />}
     </CardActions>
@@ -205,9 +310,9 @@ export function AssetFolderCard({ card, actions, actionState, onAction, onNav, s
   const channels = list(data.channels).filter((row) => row?.name);
   const opens = Boolean(data.sourceKey) && typeof onNav.openFolder === 'function';
   return <CardShell type="asset-folder" kicker="Channel assets" title={card.title || data.title || 'Asset folder'} icon={FolderOpen} note={card.note}>
-    <p className="cc-meta">{ACTIVE.has(status) && <LoaderCircle className="spin" size={12} aria-hidden="true" />}{[FOLDER_STATUS[status] || sentence(status), total ? `${ready} of ${total} ready` : ''].filter(Boolean).join(' · ')}</p>
+    <p className="reply-muted">{ACTIVE.has(status) && <LoaderCircle className="spin" size={12} aria-hidden="true" />}{[FOLDER_STATUS[status] || sentence(status), total ? `${ready} of ${total} ready` : ''].filter(Boolean).join(' · ')}</p>
     {total > 0 && <Progress done={ready} total={total} label={`${card.title || data.title || 'Folder'}: ${ready} of ${total} assets ready`} />}
-    {channels.length > 0 && <ul className="cc-chips" aria-label="Channels">{channels.slice(0, 12).map((row) => <li key={row.name}>{row.name}{finite(row.count) && <span>{row.count}</span>}</li>)}</ul>}
+    {channels.length > 0 && <ul className="reply-chips" aria-label="Channels">{channels.slice(0, 12).map((row) => <li key={row.name} className="reply-chip">{row.name}{finite(row.count) && <span className="reply-chip-count">{row.count}</span>}</li>)}</ul>}
     <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => opensAs(row, 'folder') && opens}>
       {opens && <NavButton key="open" icon={FolderOpen} label="Open folder" onClick={() => onNav.openFolder(data.sourceKey)} />}
     </CardActions>
@@ -222,7 +327,7 @@ export function AssetFolderCard({ card, actions, actionState, onAction, onNav, s
 // A quick scan writes a short trends report when it finishes: Open the report when it's ready, Retry report (the report
 // alone; the scan stays done) when it didn't finish.
 export function RunCard({ card, actions, actionState, onAction, onRunAction, onAsk, onNav, state, conversationId = '', messageId = '' }) {
-  const can = useCan(); const viewer = useViewer();
+  const can = useCan(); const viewer = useViewer(); const pick = usePrimary();
   const data = card.data || {};
   const live = findRun(state, data.runId);
   const run = live ? runView(live) : { ...data, progress: progressOf(data.progress), themes: list(data.themes) };
@@ -256,25 +361,25 @@ export function RunCard({ card, actions, actionState, onAction, onRunAction, onA
   const own = (kind, label, Icon, allowed) => {
     const status = stateOf(kind);
     if (status?.status !== 'done' && (!allowed || !(onRunAction || (indexOf(kind) != null && onAction)))) return null;
-    if (status?.status === 'done') return <span key={kind} className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</span>;
-    return <span key={kind} className="cc-action"><button type="button" className={`cc-btn ${kind === 'retry-run' || kind === 'retry-report' ? 'is-primary' : 'is-quiet'}`} {...writeProps(viewer, status?.status === 'running')} onClick={() => act(kind)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}{label}</button>{status?.status === 'failed' && <small className="cc-failed" role="alert">{status.text}</small>}</span>;
+    if (status?.status === 'done') return <span key={kind} className="reply-done" role="status"><Check size={14} aria-hidden="true" />{status.text}</span>;
+    return <span key={kind} className="reply-action"><button type="button" className={pick(kind === 'retry-run' || kind === 'retry-report')} {...writeProps(viewer, status?.status === 'running')} onClick={() => act(kind)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Icon size={14} aria-hidden="true" />}{label}</button>{status?.status === 'failed' && <small className="reply-failed" role="alert">{status.text}</small>}</span>;
   };
   const cost = finite(run.costUsd) && Number(run.costUsd) > 0 ? `${money(run.costUsd)} AI so far${finite(run.budgetUsd) && Number(run.budgetUsd) > 0 ? ` of ${money(run.budgetUsd)}` : ''}` : finite(run.budgetUsd) && Number(run.budgetUsd) > 0 ? `AI budget ${money(run.budgetUsd)}` : '';
   const kicker = quick ? 'Quick scan' : run.kind === 'kit' ? 'Channel assets' : run.kind === 'content' ? 'Report run' : 'Research run';
   const status = quick && run.status === 'succeeded' ? 'Scan complete' : RUN_STATUS[run.status] || sentence(run.status);
-  return <CardShell type="run" kicker={kicker} title={card.title || run.title} icon={quick ? ScanSearch : run.kind === 'kit' ? Images : Radar} note={card.note} aside={status && <span className={`cc-status is-${run.status || 'unknown'}`}>{active && <LoaderCircle className="spin" size={12} aria-hidden="true" />}{status}</span>}>
-    <div aria-live="polite">
-      {runLine(run) && <p className="cc-meta">{runLine(run)}</p>}
+  return <CardShell type="run" family={run.kind === 'kit' || run.kind === 'content' ? 'soft' : 'mint'} kicker={kicker} title={card.title || run.title} icon={quick ? ScanSearch : run.kind === 'kit' ? Images : Radar} note={card.note} aside={status && <span className={badge(STATUS_TONE[run.status])}>{active && <LoaderCircle className="spin" size={12} aria-hidden="true" />}{status}</span>}>
+    <div className="cc-run-live" aria-live="polite">
+      {runLine(run) && <p className="reply-muted">{runLine(run)}</p>}
       {run.progress && <Progress done={run.progress.done} total={run.progress.total} label={`${run.title}: ${run.progress.done} of ${run.progress.total}`} />}
     </div>
-    {(cost || run.startedAt) && <p className="cc-meta cc-faint">{[run.startedAt && `Started ${when(run.startedAt)}`, cost, run.codex ? 'Codex (not metered)' : ''].filter(Boolean).join(' · ')}</p>}
-    {run.themes.length > 0 && <ul className="cc-chips" aria-label={quick ? 'Themes found' : 'Trends found'}>{run.themes.slice(0, 6).map((name) => <li key={name}>{name}</li>)}{run.themes.length > 6 && <li className="cc-more">+{run.themes.length - 6} more</li>}</ul>}
-    <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => ['stop-run', 'retry-run'].includes(row.kind) || (row.kind === 'start-research' && quick && run.status === 'succeeded')}>
+    {(cost || run.startedAt) && <p className="reply-muted">{[run.startedAt && `Started ${when(run.startedAt)}`, cost, run.codex ? 'Codex (not metered)' : ''].filter(Boolean).join(' · ')}</p>}
+    {run.themes.length > 0 && <ul className="reply-chips" aria-label={quick ? 'Themes found' : 'Trends found'}>{run.themes.slice(0, 6).map((name) => <li key={name} className="reply-chip">{name}</li>)}{run.themes.length > 6 && <li className="reply-chip is-more">+{run.themes.length - 6} more</li>}</ul>}
+    <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} pick={pick} skip={(row) => ['stop-run', 'retry-run'].includes(row.kind) || (row.kind === 'start-research' && quick && run.status === 'succeeded')}>
       {own('stop-run', 'Stop', Square, active && can('cancelStudioRun'))}
       {own('retry-run', 'Try again', RotateCcw, stopped && can('retryStudioRun'))}
       {own('retry-report', 'Retry report', RotateCcw, run.status === 'succeeded' && ['failed', 'cancelled'].includes(report?.status) && Boolean(report?.runId) && can('retryStudioRun'))}
       {report?.status === 'succeeded' && report.assetId && typeof onNav.openReport === 'function' && <NavButton key="report" icon={FileText} label="Open the report" onClick={() => onNav.openReport(report.assetId)} />}
-      {found && onAsk && <button key="summarize" type="button" className="cc-btn is-primary" {...writeProps(viewer)} onClick={() => onAsk(quick ? `Summarize what the quick scan “${topic}” found: what people are saying, and which trends are new, rising or fading.` : `Summarize what changed in “${run.title}”: which trends are new, rising or fading since the last run.`)}><Sparkles size={13} aria-hidden="true" />Summarize what changed</button>}
+      {found && onAsk && <button key="summarize" type="button" className={pick(true)} {...writeProps(viewer)} onClick={() => onAsk(quick ? `Summarize what the quick scan “${topic}” found: what people are saying, and which trends are new, rising or fading.` : `Summarize what changed in “${run.title}”: which trends are new, rising or fading since the last run.`)}><Sparkles size={14} aria-hidden="true" />Summarize what changed</button>}
       {own('start-research', programName ? `Full research with “${programName}”` : 'Start full research', Radar, quick && run.status === 'succeeded' && Boolean(programId) && can('startResearchRun'))}
       {run.status === 'awaiting-review' && typeof onNav.openTab === 'function' && <NavButton key="review" icon={TrendingUp} label="Review the trends" onClick={() => onNav.openTab('trends')} />}
     </CardActions>
@@ -307,7 +412,7 @@ export function ProgramCard({ card, actions, actionState, onAction, onNav }) {
   const see = data.programId && typeof onNav.openTarget === 'function' ? () => onNav.openTarget({ kind: 'program', id: String(data.programId) })
     : typeof onNav.openPage === 'function' ? () => onNav.openPage('research') : null;
   return <CardShell type="program" kicker="Research program" title={card.title || data.name || 'Research program'} icon={Radar} note={card.note}>
-    {sources.length > 0 && <p className="cc-meta">{sources.join(' · ')}</p>}
+    {sources.length > 0 && <p className="reply-muted">{sources.join(' · ')}</p>}
     {facts.length > 0 && <dl className="cc-facts">{facts.map(([label, value]) => <React.Fragment key={label}><dt>{label}</dt><dd>{value}</dd></React.Fragment>)}</dl>}
     <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction}>
       {see && <NavButton key="see" icon={ArrowRight} label="See the program" onClick={see} />}
@@ -355,7 +460,7 @@ function Chart({ kind, unit, series, title }) {
     const seen = []; for (const row of rows) for (const point of row.points) { const key = text(point.x); if (!seen.includes(key)) seen.push(key); }
     return seen.every(isDateLike) ? seen.sort((a, b) => Date.parse(a) - Date.parse(b)) : seen;
   }, [series]);
-  if (!rows.length || !xs.length) return <p className="cc-meta">No numbers to chart yet.</p>;
+  if (!rows.length || !xs.length) return <p className="reply-muted">No numbers to chart yet.</p>;
   const valueAt = (row, x) => { const point = row.points.find((item) => text(item.x) === x); return point && finite(point.y) ? Number(point.y) : null; };
   const all = rows.flatMap((row) => xs.map((x) => valueAt(row, x))).filter((value) => value != null);
   const high = Math.max(0, ...all); const low = Math.min(0, ...all);
@@ -447,9 +552,9 @@ function Post({ post, api }) {
   const long = body.length > 280;
   const meta = [post.publishedAt && when(post.publishedAt), finite(post.engagement) && Number(post.engagement) > 0 ? `${compact(post.engagement)} engagements` : ''].filter(Boolean).join(' · ');
   return <li className="cc-post">
-    <div className="cc-post-head"><span className={`cc-mark is-${post.platform || 'web'}`} role="img" aria-label={platformName(post.platform || 'web')}>{PLATFORM_MARK[post.platform] || '•'}</span><strong>{post.author || 'Someone'}</strong>{meta && <small>{meta}</small>}</div>
+    <div className="cc-post-head"><span className={`cc-mark is-${post.platform || 'web'}`} role="img" aria-label={platformName(post.platform || 'web')}>{PLATFORM_MARK[post.platform] || '•'}</span><strong>{post.author || 'Someone'}</strong>{meta && <small className="reply-muted">{meta}</small>}</div>
     <blockquote className={long && !open ? 'cc-clamp' : ''}>{body}</blockquote>
-    <div className="cc-post-foot">{long && <button type="button" className="cc-text-button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? 'Show less' : 'Show more'}</button>}<SourceLink url={post.url} api={api} /></div>
+    <div className="cc-post-foot">{long && <button type="button" className="reply-text-button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? 'Show less' : 'Show more'}</button>}<SourceLink url={post.url} api={api} /></div>
   </li>;
 }
 export function PostsCard({ card, actions, actionState, onAction, api }) {
@@ -473,14 +578,13 @@ export function MemoryCard({ card, api }) {
     try { await api.forgetAskMemory({ id }); setStates((current) => ({ ...current, [id]: { status: 'done' } })); }
     catch (failure) { setStates((current) => ({ ...current, [id]: { status: 'failed', text: messageOf(failure) } })); }
   }
-  return <article className="cc-memory" aria-label={card.title ? `${card.title} from this answer` : 'Remembered from this answer'}>
-    <span className="cc-memory-label"><Brain size={13} aria-hidden="true" />{card.title || 'Remembered'}</span>
-    <ul>{items.map((row) => { const status = states[row.id]; return <li key={row.id} className={status?.status === 'done' ? 'is-forgotten' : ''}>
+  return <CardShell type="memory" kicker="Memory" title={card.title || 'Remembered'} label={card.title ? `${card.title} from this answer` : 'Remembered from this answer'} icon={Brain}>
+    <ul className="reply-memory">{items.map((row) => { const status = states[row.id]; return <li key={row.id} className={status?.status === 'done' ? 'is-forgotten' : ''}>
       <span>{row.text}</span>
-      {status?.status === 'done' ? <small role="status">Forgotten</small> : canForget && <button type="button" {...writeProps(viewer, status?.status === 'running')} aria-label={`Undo: forget “${row.text}”`} onClick={() => forget(row.id)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={12} aria-hidden="true" /> : <Undo2 size={12} aria-hidden="true" />}Undo</button>}
-      {status?.status === 'failed' && <small className="cc-failed" role="alert">{status.text}</small>}
+      {status?.status === 'done' ? <small className="reply-muted" role="status">Forgotten</small> : canForget && <button type="button" className={BUTTON.quiet} {...writeProps(viewer, status?.status === 'running')} aria-label={`Undo: forget “${row.text}”`} onClick={() => forget(row.id)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Undo2 size={14} aria-hidden="true" />}Undo</button>}
+      {status?.status === 'failed' && <small className="reply-failed" role="alert">{status.text}</small>}
     </li>; })}</ul>
-  </article>;
+  </CardShell>;
 }
 
 // Scan plan: the quick scan Ask AI proposed, as controls the person can change. Check cost prices the plan exactly as
@@ -523,7 +627,7 @@ function Meter({ label, value, cap, words, tone }) {
   </div>;
 }
 export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction, onOutcome, onAsk, onNav, api, state, conversationId = '', messageId = '' }) {
-  const can = useCan(); const viewer = useViewer(); const confirm = useConfirm();
+  const can = useCan(); const viewer = useViewer(); const confirm = useConfirm(); const pick = usePrimary();
   const formId = useId();
   const index = scanActionIndex(card, actions);
   const offered = index >= 0 ? actions[index] : null;
@@ -600,17 +704,16 @@ export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction
   }
 
   // A start recorded in an earlier session: its run id when the store kept it, else the run named in the result line.
-  const named = !started && outcome?.status === 'done' && !outcome.runId ? /“([^”]+)”/.exec(outcome.text || '')?.[1] : '';
-  const runId = started?.runId || outcome?.runId || (named && list(studio.researchRuns).filter((row) => row.origin === 'quick-scan' && row.title === named).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0]?.id) || '';
+  const runId = started?.runId || outcome?.runId || (!started ? startedRunId(outcome, state) : '') || '';
   if (runId) {
     const row = started?.row || {};
     return <RunCard card={{ type: 'run', title: '', note: '', actionIndexes: [], data: { runId, kind: 'quick-scan', title: started?.title || `Quick scan · ${scan.topic}`, status: row.status || 'queued', stage: row.stage || 'collecting', message: row.message || '', startedAt: row.createdAt || '', costUsd: row.costUsd || 0, budgetUsd: row.maxBudgetUsd, progress: null, themes: [] } }} actions={actions} actionState={{}} onAction={onAction} onRunAction={onRunAction} onAsk={onAsk} onNav={onNav} state={state} conversationId={conversationId} messageId={messageId} />;
   }
-  if (outcome?.status === 'done') return <p className="cc-done" role="status"><Check size={13} aria-hidden="true" />{outcome.text}</p>;
+  if (outcome?.status === 'done') return <p className="reply-done" role="status"><Check size={14} aria-hidden="true" />{outcome.text}</p>;
   // Quick scans can be turned off for one person (Access): no planner they can't check or start, just who to ask.
   if (!can('estimateQuickScan') && !can('startQuickScan')) {
     return <CardShell type="scan-plan" kicker="Quick scan plan" title={card.title || (scan.topic ? `Quick scan · ${scan.topic}` : 'Quick scan')} icon={ScanSearch} note={card.note}>
-      <p className="cc-note-line"><Lock size={13} aria-hidden="true" />Quick scans are off for you. Ask {adminNames(state, 'an admin')} to turn them on.</p>
+      <p className="reply-note"><Lock size={13} aria-hidden="true" />Quick scans are off for you. Ask {adminNames(state, 'an admin')} to turn them on.</p>
     </CardShell>;
   }
 
@@ -627,11 +730,11 @@ export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction
   const planLines = list(estimate?.lines).map(String).filter((line) => !/^(AI|Apify)\b/.test(line));
   return <CardShell type="scan-plan" kicker="Quick scan plan" title={card.title || (scan.topic ? `Quick scan · ${scan.topic}` : 'Quick scan')} icon={ScanSearch} note={card.note}>
     <form className="cc-plan" aria-describedby={`${formId}-hint`} onSubmit={(event) => { event.preventDefault(); check(); }}>
-      <p id={`${formId}-hint`} className="cc-meta">Change anything, then check the cost. Nothing is collected or spent until you press Start scan and confirm.</p>
+      <p id={`${formId}-hint`} className="reply-muted">Change anything, then check the cost. Nothing is collected or spent until you press Start scan and confirm.</p>
       <label className="cc-field"><span>Look for</span><input value={scan.topic} maxLength={500} onChange={(event) => edit({ topic: event.target.value })} placeholder="A topic, like “AI Overviews”" /></label>
       {programs.length > 1
         ? <label className="cc-field"><span>Accounts from</span><select value={programId} onChange={(event) => setProgramId(event.target.value)}>{programs.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
-        : programName ? <p className="cc-meta">Accounts from “{programName}”. The saved program isn’t changed.</p> : null}
+        : programName ? <p className="reply-muted">Accounts from “{programName}”. The saved program isn’t changed.</p> : null}
       {DEPTHS.length > 0 && <fieldset className="cc-segment"><legend>How deep</legend>{DEPTHS.map((depth) => <label key={depth} className={scan.depth === depth ? 'is-on' : ''}><input type="radio" name={`${formId}-depth`} value={depth} checked={scan.depth === depth} onChange={() => chooseDepth(depth)} /><span>{PRESETS[depth]?.label || sentence(depth)}</span></label>)}</fieldset>}
       <fieldset className="cc-toggles"><legend>Platforms</legend>{PLATFORMS.map((id) => { const on = scan.platforms.includes(id); return <label key={id} className={on ? 'is-on' : ''}><input type="checkbox" checked={on} disabled={on && scan.platforms.length === 1} onChange={() => togglePlatform(id)} /><span>{platformName(id)}</span></label>; })}</fieldset>
       <div className="cc-steppers">
@@ -649,10 +752,10 @@ export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction
         <Stepper label="Apify cap" prefix="$" decimals={2} step={0.25} value={shown('collectionBudgetUsd')} min={apifyMin} max={apifyMax} onChange={(value) => edit({ collectionBudgetUsd: value })} />
       </div>
       <label className="cc-plan-toggle"><input type="checkbox" checked={scan.report !== false} onChange={(event) => edit({ report: event.target.checked })} /><span>Write a short trends report when it finds trends<small>Posted here in Ask AI. Its cost is part of the check.</small></span></label>
-      {uncapped && !estimate && <p className="cc-note-line"><Info size={13} aria-hidden="true" />{CODEX_UNCAPPED}</p>}
+      {uncapped && !estimate && <p className="reply-note"><Info size={13} aria-hidden="true" />{CODEX_UNCAPPED}</p>}
 
       {estimate && <section className={`cc-estimate${stale ? ' is-stale' : ''}`} aria-label="Cost check" aria-busy={checking}>
-        {stale && <p className="cc-note-line" role="status"><Info size={13} aria-hidden="true" />You changed the plan. Check the cost again before starting.</p>}
+        {stale && <p className="reply-note" role="status"><Info size={13} aria-hidden="true" />You changed the plan. Check the cost again before starting.</p>}
         {planLines.length > 0 && <ul className="cc-plan-lines">{planLines.map((line, at) => <li key={at}>{line}</li>)}</ul>}
         <Meter label="AI" value={ai.totalUsd} cap={uncapped ? null : aiCap} words={finite(ai.totalUsd) ? `about ${money(ai.totalUsd)}${uncapped ? ' (not capped on Codex)' : ` of ${money(aiCap)} cap`}` : 'No estimate'} />
         {ai.report?.on && <p className="cc-meter-note">{finite(ai.report.usd) && Number(ai.report.usd) > 0 && !uncapped ? `Includes a short trends report, about ${money(ai.report.usd)}.` : 'Includes a short trends report.'}</p>}
@@ -661,18 +764,18 @@ export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction
           {PLATFORMS.filter((id) => targets.some((row) => row.platform === id)).map((id) => <div key={id} className="cc-target-group"><h5>{platformName(id)}</h5><ul>{targets.filter((row) => row.platform === id).map((row, at) => <li key={`${row.target}-${at}`}><strong>{row.target}</strong><small>{list(row.reasons).join(' · ') || 'In the program’s saved order'}</small></li>)}</ul></div>)}
         </details>}
         {warnings.length > 0 && <ul className="cc-warnings">{warnings.slice(0, 5).map((line) => <li key={line}><TriangleAlert size={13} aria-hidden="true" />{line}</li>)}</ul>}
-        {uncapped && <p className="cc-note-line"><Info size={13} aria-hidden="true" />{CODEX_UNCAPPED}</p>}
-        {blocked && <p className="cc-failed" role="status">This scan can’t start as planned. Change what the warnings point at, then check again.</p>}
+        {uncapped && <p className="reply-note"><Info size={13} aria-hidden="true" />{CODEX_UNCAPPED}</p>}
+        {blocked && <p className="reply-failed" role="status">This scan can’t start as planned. Change what the warnings point at, then check again.</p>}
       </section>}
-      {(error || (outcome?.status === 'failed' && outcome.text)) && <p className="cc-failed" role="alert">{error || outcome.text}</p>}
-      <div className="cc-actions">
-        {canCheck && <button type="submit" className={`cc-btn ${fresh ? 'is-quiet' : 'is-primary'}`} disabled={busy || !scan.topic.trim()}>{checking ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Gauge size={13} aria-hidden="true" />}{checking ? 'Checking…' : estimate ? 'Check again' : 'Check cost'}</button>}
-        {canStart && <button type="button" className={`cc-btn ${fresh ? 'is-primary' : 'is-quiet'}`} {...writeProps(viewer, !fresh || blocked || busy)} title={viewer.preview ? undefined : fresh ? undefined : 'Check the cost first'} onClick={start}>{starting ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <ScanSearch size={13} aria-hidden="true" />}{starting ? 'Starting…' : 'Start scan'}</button>}
-        {canStart && !fresh && !viewer.preview && <small className="cc-faint">{stale ? 'Check the cost again to start.' : 'Check the cost first.'}</small>}
-        {!canStart && <small className="cc-faint">{can('startQuickScan') ? 'Quick scans aren’t available in this version of the studio.' : 'Quick scans are off for you.'}</small>}
+      {(error || (outcome?.status === 'failed' && outcome.text)) && <p className="reply-failed" role="alert">{error || outcome.text}</p>}
+      <div className="reply-card-foot">
+        {canCheck && <button type="submit" className={pick(!fresh)} disabled={busy || !scan.topic.trim()}>{checking ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Gauge size={13} aria-hidden="true" />}{checking ? 'Checking…' : estimate ? 'Check again' : 'Check cost'}</button>}
+        {canStart && <button type="button" className={pick(fresh)} {...writeProps(viewer, !fresh || blocked || busy)} title={viewer.preview ? undefined : fresh ? undefined : 'Check the cost first'} onClick={start}>{starting ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <ScanSearch size={13} aria-hidden="true" />}{starting ? 'Starting…' : 'Start scan'}</button>}
+        {canStart && !fresh && !viewer.preview && <small className="reply-muted">{stale ? 'Check the cost again to start.' : 'Check the cost first.'}</small>}
+        {!canStart && <small className="reply-muted">{can('startQuickScan') ? 'Quick scans aren’t available in this version of the studio.' : 'Quick scans are off for you.'}</small>}
       </div>
     </form>
-    <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => row.kind === 'quick-scan'} />
+    <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} pick={pick} skip={(row) => row.kind === 'quick-scan'} />
   </CardShell>;
 }
 
@@ -681,7 +784,7 @@ export function ScanPlanCard({ card, actions, actionState, onAction, onRunAction
 // outcome on its edit-prompt button, so a reopened conversation shows it was applied. Nothing saves without the click.
 // A newer save since the suggestion (state.contentStudio.promptChanges) turns Apply off; the server refuses it anyway.
 export function PromptChangeCard({ card, actions, actionState, onOutcome, onNav, api, state, conversationId }) {
-  const can = useCan(); const viewer = useViewer();
+  const can = useCan(); const viewer = useViewer(); const pick = usePrimary();
   const data = card.data || {};
   const index = promptActionIndex(card, actions);
   const recorded = index >= 0 ? actionState[index] : null;
@@ -708,23 +811,23 @@ export function PromptChangeCard({ card, actions, actionState, onOutcome, onNav,
     }
   }
   const lockedOut = data.locked && !data.canApply && !problems.length;
-  return <CardShell type="prompt-change" kicker="Suggested prompt change" title={card.title || data.promptName || 'Prompt'} icon={ScrollText} note={card.note} aside={<span className={`cc-status ${data.locked ? 'is-locked' : 'is-running'}`}>{data.locked ? <><Lock size={12} aria-hidden="true" />Locked</> : `v${Number(data.version) || 0} → v${next}`}</span>}>
-    <p className="cc-meta">{[data.blockLabel, `${plural(counts.added, 'line')} added`, `${plural(counts.removed, 'line')} removed`].filter(Boolean).join(' · ')}</p>
-    {data.note && <p className="cc-text">{data.note}</p>}
+  return <CardShell type="prompt-change" kicker="Suggested prompt change" title={card.title || data.promptName || 'Prompt'} icon={ScrollText} note={card.note} aside={<span className={badge(data.locked ? 'is-outline' : 'is-live')}>{data.locked ? <><Lock size={12} aria-hidden="true" />Locked</> : `v${Number(data.version) || 0} → v${next}`}</span>}>
+    <p className="reply-muted">{[data.blockLabel, `${plural(counts.added, 'line')} added`, `${plural(counts.removed, 'line')} removed`].filter(Boolean).join(' · ')}</p>
+    {data.note && <p className="reply-body">{data.note}</p>}
     <PromptDiff lines={lines} label={`Changes to ${data.blockLabel || 'the prompt'}`} className="cc-diff" />
-    {finite(data.diffShortened) && <p className="cc-meta cc-faint">Showing the first {plural(lines.length, 'line')} of {Number(data.diffShortened)}. Open it in Prompts to see the rest.</p>}
+    {finite(data.diffShortened) && <p className="reply-muted">Showing the first {plural(lines.length, 'line')} of {Number(data.diffShortened)}. Open it in Prompts to see the rest.</p>}
     {problems.length > 0 && <ul className="cc-warnings" aria-label="Why it can’t be applied yet">{problems.map((line) => <li key={line}><TriangleAlert size={13} aria-hidden="true" />{line}</li>)}</ul>}
-    {lockedOut && <p className="cc-note-line"><Lock size={13} aria-hidden="true" />An admin locked this prompt, so only an admin can apply the change. Ask {askAdmin}.</p>}
-    {newer && status?.status !== 'done' && <p className="cc-note-line" role="status"><Info size={13} aria-hidden="true" />{newer.byName || 'Someone'} saved version {newer.version} after this suggestion. Ask again for one based on it, or open it in Prompts.</p>}
-    {data.canApply && !canSave && <p className="cc-meta cc-faint">Your role can see prompts but not change them.</p>}
-    {status?.status === 'failed' && <p className="cc-failed" role="alert">{status.text}</p>}
-    <div className="cc-actions">
+    {lockedOut && <p className="reply-note"><Lock size={13} aria-hidden="true" />An admin locked this prompt, so only an admin can apply the change. Ask {askAdmin}.</p>}
+    {newer && status?.status !== 'done' && <p className="reply-note" role="status"><Info size={13} aria-hidden="true" />{newer.byName || 'Someone'} saved version {newer.version} after this suggestion. Ask again for one based on it, or open it in Prompts.</p>}
+    {data.canApply && !canSave && <p className="reply-muted">Your role can see prompts but not change them.</p>}
+    {status?.status === 'failed' && <p className="reply-failed" role="alert">{status.text}</p>}
+    <div className="reply-card-foot">
       {status?.status === 'done'
-        ? <span className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</span>
-        : data.canApply && canSave && <span className="cc-action"><button type="button" className="cc-btn is-primary" {...writeProps(viewer, !ready || running)} onClick={apply}>{running ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}{running ? 'Saving…' : `Apply as version ${next}`}</button></span>}
+        ? <span className="reply-done" role="status"><Check size={14} aria-hidden="true" />{status.text}</span>
+        : data.canApply && canSave && <span className="reply-action"><button type="button" className={pick(true)} {...writeProps(viewer, !ready || running)} onClick={apply}>{running ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}{running ? 'Saving…' : `Apply as version ${next}`}</button></span>}
       {typeof onNav.openPrompt === 'function' && data.promptId && <NavButton icon={ScrollText} label="Open in Prompts" onClick={() => onNav.openPrompt(data.promptId)} />}
     </div>
-    {!status && ready && <p className="cc-meta cc-faint">Free. Runs already going keep the version they started with, and History in Prompts can restore the one before.</p>}
+    {!status && ready && <p className="reply-muted">Free. Runs already going keep the version they started with, and History in Prompts can restore the one before.</p>}
   </CardShell>;
 }
 
@@ -756,7 +859,7 @@ export function paramsLine(params = {}, channels = []) {
 // "using it", a status and live link), as fields the person changes before anything is saved. The button runs the same
 // action through the shared runner with the edited params; nothing is saved until it is pressed.
 export function ActionFormCard({ card, actions, actionState, onRunAction, onOutcome, state }) {
-  const viewer = useViewer(); const formId = useId();
+  const viewer = useViewer(); const formId = useId(); const pick = usePrimary();
   const data = card.data || {}; const index = list(card.actionIndexes)[0];
   const offered = Number.isInteger(index) ? actions[index] : null;
   const fields = list(data.fields).filter((field) => field?.key);
@@ -766,7 +869,7 @@ export function ActionFormCard({ card, actions, actionState, onRunAction, onOutc
   const channels = channelsOf(state);
   const set = (key, value) => setValues((current) => ({ ...current, [key]: value }));
   if (!offered) return null;
-  if (status?.status === 'done') return <p className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</p>;
+  if (status?.status === 'done') return <p className="reply-done" role="status"><Check size={14} aria-hidden="true" />{status.text}</p>;
   const running = status?.status === 'running';
   async function save(event) {
     event.preventDefault();
@@ -795,7 +898,7 @@ export function ActionFormCard({ card, actions, actionState, onRunAction, onOutc
     }
     if (row.type === 'text') {
       const max = Number(row.max) || 280;
-      return <label key={row.key} className="cc-field" htmlFor={id}><span>{row.label}<small className="cc-faint">{String(value || '').length} / {max}</small></span><textarea id={id} rows={2} maxLength={max} value={value} onChange={(event) => set(row.key, event.target.value)} /></label>;
+      return <label key={row.key} className="cc-field" htmlFor={id}><span>{row.label}<small className="reply-muted">{String(value || '').length} / {max}</small></span><textarea id={id} rows={2} maxLength={max} value={value} onChange={(event) => set(row.key, event.target.value)} /></label>;
     }
     if (row.key === 'link' && offered.kind === 'set-status' && values.status !== 'published') return null;
     return <label key={row.key} className="cc-field" htmlFor={id}><span>{row.label}</span><input id={id} type={row.type === 'date' ? 'date' : row.type === 'url' ? 'url' : 'text'} inputMode={row.type === 'url' ? 'url' : undefined} placeholder={row.type === 'url' ? 'https://' : undefined} value={value} onChange={(event) => set(row.key, event.target.value)} /></label>;
@@ -804,39 +907,67 @@ export function ActionFormCard({ card, actions, actionState, onRunAction, onOutc
     <form className="cc-plan" onSubmit={save}>
       {fields.map(field)}
       {list(data.problems).length > 0 && <ul className="cc-warnings">{list(data.problems).map((line) => <li key={line}><TriangleAlert size={13} aria-hidden="true" />{line}</li>)}</ul>}
-      {status?.status === 'failed' && <p className="cc-failed" role="alert">{status.text}</p>}
-      <div className="cc-actions">
-        <button type="submit" className="cc-btn is-primary" {...writeProps(viewer, running || missing || !onRunAction)}>{running ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}{running ? 'Saving…' : card.title || 'Save'}</button>
-        <small className="cc-faint">{data.spends ? 'You’ll see the cost before anything is spent.' : 'Free. Nothing is saved until you press it.'}</small>
+      {status?.status === 'failed' && <p className="reply-failed" role="alert">{status.text}</p>}
+      <div className="reply-card-foot">
+        <button type="submit" className={pick(true)} {...writeProps(viewer, running || missing || !onRunAction)}>{running ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}{running ? 'Saving…' : card.title || 'Save'}</button>
+        <small className="reply-muted">{data.spends ? 'You’ll see the cost before anything is spent.' : 'Free. Nothing is saved until you press it.'}</small>
       </div>
     </form>
   </CardShell>;
 }
 
+// The answers a choice card shows, none of them reading the same: the same item (or the same words, for a question)
+// once, and answers that still read alike (a conversation saved before the server told them apart) numbered.
+// Two lines read the same when they match with case and spacing aside (the server's help-assistant.js sameText).
+const sameText = (value) => text(value).trim().toLowerCase().replace(/\s+/g, ' ');
+export function choiceOptions(options, { pick = false } = {}) {
+  const seen = new Set(); const rows = [];
+  for (const row of list(options)) {
+    if (!row?.label) continue;
+    const key = pick ? JSON.stringify(Object.entries(row.ids || {}).sort(([a], [b]) => a.localeCompare(b))) : sameText(row.label);
+    if (seen.has(key)) continue; seen.add(key); rows.push({ ...row });
+    if (rows.length >= 5) break;
+  }
+  const reads = (row) => `${sameText(row.label)}\n${sameText(row.detail)}`;
+  const groups = new Map(); for (const row of rows) groups.set(reads(row), [...(groups.get(reads(row)) || []), row]);
+  for (const group of groups.values()) if (group.length > 1) group.forEach((row, at) => { row.detail = [text(row.detail).trim(), `${at + 1} of ${group.length}`].filter(Boolean).join(' · '); });
+  return rows;
+}
+// Up, Down, Home and End move between the answers (Tab and Enter work as usual).
+function moveBetween(event) {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+  const rows = [...event.currentTarget.querySelectorAll('button:not(:disabled)')]; if (!rows.length) return;
+  const at = rows.indexOf(document.activeElement);
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : event.key === 'ArrowDown' ? (at + 1) % rows.length : (at - 1 + rows.length) % rows.length;
+  event.preventDefault(); rows[next].focus();
+}
 // Choice: a question with a few answers. Picking one either sends its follow-up question (onAsk), or, when the server
 // found two things a button could mean (data.pick), runs that button on the one picked, with no AI call.
 export function ChoiceCard({ card, actions, actionState, onRunAction, onOutcome, onAsk }) {
   const viewer = useViewer();
   const data = card.data || {}; const index = list(card.actionIndexes)[0];
   const offered = data.pick && Number.isInteger(index) ? actions[index] : null;
-  const options = list(data.options).filter((row) => row?.label).slice(0, 5);
+  const options = choiceOptions(data.options, { pick: Boolean(data.pick) });
   const [local, setLocal] = useState(null);
-  const [asked, setAsked] = useState('');
+  const [chosen, setChosen] = useState(-1); // the row picked: its question was asked, or its button is running
   const status = local || (offered && index != null ? actionState[index] : null);
   if (!options.length || (data.pick && !offered)) return null;
-  if (status?.status === 'done') return <p className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</p>;
+  if (status?.status === 'done') return <p className="reply-done" role="status"><Check size={14} aria-hidden="true" />{status.text}</p>;
   const running = status?.status === 'running';
-  function choose(option) {
-    if (offered) { if (onRunAction && !running) { const { candidates, ...rest } = offered; settle(() => onRunAction({ ...rest, ...(option.ids || {}), title: option.label }), index, onOutcome, setLocal); } return; }
+  const asked = !offered && chosen >= 0;
+  // The row picked stays marked (and says so to screen readers) while its question is asked or its button runs.
+  const picked = (at) => chosen === at && (offered ? running : true);
+  function choose(option, at) {
+    if (offered) { if (onRunAction && !running) { setChosen(at); const { candidates, ...rest } = offered; settle(() => onRunAction({ ...rest, ...(option.ids || {}), title: option.label }), index, onOutcome, setLocal); } return; }
     if (!onAsk || asked) return;
-    setAsked(option.label); onAsk(option.question || option.label);
+    setChosen(at); onAsk(option.question || option.label);
   }
   return <CardShell type="choice" kicker={offered ? offered.label : 'A quick question'} title={card.title} icon={HelpCircle} note={card.note}>
-    <div className="cc-choices" role="group" aria-label={card.title}>
-      {options.map((option) => <button key={`${option.label}-${option.detail || ''}`} type="button" className={`cc-choice${asked === option.label ? ' is-on' : ''}`} {...writeProps(viewer, running || Boolean(asked) || (offered ? !onRunAction : !onAsk))} onClick={() => choose(option)}><span>{option.label}</span>{option.detail && <small>{option.detail}</small>}</button>)}
+    <div className="reply-choices" role="group" aria-label={card.title} onKeyDown={moveBetween}>
+      {options.map((option, at) => <button key={at} type="button" className={`reply-choice${picked(at) ? ' is-on' : ''}`} aria-current={picked(at) ? 'true' : undefined} {...writeProps(viewer, running || asked || (offered ? !onRunAction : !onAsk))} onClick={() => choose(option, at)}><span className="reply-choice-text"><span className="reply-choice-title">{option.label}</span>{option.detail && <small className="reply-choice-detail">{option.detail}</small>}</span><ChevronRight size={16} aria-hidden="true" /></button>)}
     </div>
-    {running && <p className="cc-meta" role="status"><LoaderCircle className="spin" size={12} aria-hidden="true" />Working on it…</p>}
-    {status?.status === 'failed' && <p className="cc-failed" role="alert">{status.text}</p>}
+    {running && <p className="reply-muted" role="status"><LoaderCircle className="spin" size={12} aria-hidden="true" />Working on it…</p>}
+    {status?.status === 'failed' && <p className="reply-failed" role="alert">{status.text}</p>}
   </CardShell>;
 }
 
@@ -844,12 +975,12 @@ export function ChoiceCard({ card, actions, actionState, onRunAction, onOutcome,
 // estimate). A step opens once every earlier one is done or skipped; a failed step stops the plan until it's tried
 // again. Outcomes are recorded per button, so a reopened conversation picks up where it stopped.
 export function PlanCard({ card, actions, actionState, onAction, onOutcome, state }) {
-  const viewer = useViewer();
+  const viewer = useViewer(); const pick = usePrimary();
   const steps = list(card.data?.steps).filter((step) => Number.isInteger(step?.index) && actions[step.index]);
   const channels = channelsOf(state);
   if (steps.length < 2) return null;
   const stateOf = (step) => actionState[step.index];
-  const settled = (step) => ['done', 'skipped'].includes(stateOf(step)?.status) || (stateOf(step)?.status === 'cancelled' && stateOf(step).text);
+  const settled = (step) => planSettled(stateOf(step));
   const current = steps.findIndex((step) => !settled(step));
   const finished = current < 0;
   return <CardShell type="plan" kicker={finished ? 'Plan done' : `Step ${current + 1} of ${steps.length}`} title={card.title || 'Plan'} icon={ListOrdered} note={card.note}>
@@ -861,13 +992,13 @@ export function PlanCard({ card, actions, actionState, onAction, onOutcome, stat
         <div className="cc-step-body">
           <strong>{row.label}</strong>
           {step.why && <small>{step.why}</small>}
-          {details && <small className="cc-faint">{details}</small>}
-          {status?.status === 'done' && <span className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</span>}
-          {status?.status === 'skipped' || (status?.status === 'cancelled' && status.text) ? <small className="cc-faint">Skipped</small> : null}
-          {status?.status === 'failed' && <small className="cc-failed" role="alert">{status.text}</small>}
-          {open && onAction && <div className="cc-actions">
-            <button type="button" className="cc-btn is-primary" {...writeProps(viewer, status?.status === 'running')} onClick={() => onAction(step.index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : status?.status === 'failed' ? <RotateCcw size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}{status?.status === 'failed' ? 'Try again' : row.label}</button>
-            <button type="button" className="cc-text-button" disabled={status?.status === 'running'} onClick={() => onOutcome?.(step.index, { status: 'cancelled', text: 'Skipped.' })}><SkipForward size={12} aria-hidden="true" />Skip</button>
+          {details && <small className="reply-muted">{details}</small>}
+          {status?.status === 'done' && <span className="reply-done" role="status"><Check size={14} aria-hidden="true" />{status.text}</span>}
+          {status?.status === 'skipped' || (status?.status === 'cancelled' && status.text) ? <small className="reply-muted">Skipped</small> : null}
+          {status?.status === 'failed' && <small className="reply-failed" role="alert">{status.text}</small>}
+          {open && onAction && <div className="reply-card-foot">
+            <button type="button" className={pick(true)} {...writeProps(viewer, status?.status === 'running')} onClick={() => onAction(step.index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : status?.status === 'failed' ? <RotateCcw size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}{status?.status === 'failed' ? 'Try again' : row.label}</button>
+            <button type="button" className="reply-text-button" disabled={status?.status === 'running'} onClick={() => onOutcome?.(step.index, { status: 'cancelled', text: 'Skipped.' })}><SkipForward size={12} aria-hidden="true" />Skip</button>
           </div>}
         </div>
       </li>;
@@ -881,7 +1012,7 @@ const DRAFT_KIND = { slack: 'Slack message', email: 'Email', linkedin: 'LinkedIn
 // Slack's own Markdown: *bold*, • bullets and <url|label> links.
 export const forSlack = (value) => text(value).split('\n').map((line) => line.replace(/^(\s*)[-*+]\s+/, '$1• ').replace(/\*\*(.+?)\*\*/g, '*$1*').replace(/__(.+?)__/g, '*$1*').replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<$2|$1>').replace(/^#{1,6}\s+(.+)$/, '*$1*')).join('\n');
 export function DraftCard({ card, onAsk }) {
-  const viewer = useViewer(); const id = useId();
+  const viewer = useViewer(); const id = useId(); const pick = usePrimary();
   const data = card.data || {}; const kind = DRAFT_KIND[data.kind] ? data.kind : 'note';
   const [value, setValue] = useState(text(data.text));
   const [note, setNote] = useState('');
@@ -893,11 +1024,11 @@ export function DraftCard({ card, onAsk }) {
   return <CardShell type="draft" kicker={`Draft · ${DRAFT_KIND[kind]}`} title={data.subject || card.title || DRAFT_KIND[kind]} icon={PenLine} note={card.note}>
     <label className="cc-sr-only" htmlFor={id}>Draft text</label>
     <textarea id={id} className="cc-draft" rows={Math.min(12, Math.max(4, value.split('\n').length + 1))} value={value} onChange={(event) => { setValue(event.target.value); setNote(''); }} />
-    <div className="cc-actions">
-      <button type="button" className="cc-btn is-primary" onClick={() => copy(false)}><Copy size={13} aria-hidden="true" />Copy</button>
-      {kind === 'slack' || kind === 'note' ? <button type="button" className="cc-btn is-quiet" onClick={() => copy(true)}><Copy size={13} aria-hidden="true" />Copy for Slack</button> : null}
-      {onAsk && <button type="button" className="cc-btn is-quiet" {...writeProps(viewer)} onClick={() => onAsk(`Make the ${DRAFT_KIND[kind].toLowerCase()} draft${data.subject ? ` “${data.subject}”` : ''} shorter.`)}><Sparkles size={13} aria-hidden="true" />Ask for a shorter one</button>}
-      <small className="cc-faint" role="status">{note || 'Not sent. Copy it and send it yourself.'}</small>
+    <div className="reply-card-foot">
+      <button type="button" className={pick(true)} onClick={() => copy(false)}><Copy size={14} aria-hidden="true" />Copy</button>
+      {kind === 'slack' || kind === 'note' ? <button type="button" className={BUTTON.quiet} onClick={() => copy(true)}><Copy size={14} aria-hidden="true" />Copy for Slack</button> : null}
+      {onAsk && <button type="button" className={BUTTON.quiet} {...writeProps(viewer)} onClick={() => onAsk(`Make the ${DRAFT_KIND[kind].toLowerCase()} draft${data.subject ? ` “${data.subject}”` : ''} shorter.`)}><Sparkles size={13} aria-hidden="true" />Ask for a shorter one</button>}
+      <small className="reply-muted" role="status">{note || 'Not sent. Copy it and send it yourself.'}</small>
     </div>
   </CardShell>;
 }
@@ -906,7 +1037,7 @@ export function DraftCard({ card, onAsk }) {
 // lines. Apply saves the whole report through editStudioAsset with the edit it was based on, so a save someone made in
 // between is refused (and says who) instead of being overwritten. Open the report opens it in the reader instead.
 export function ReportChangeCard({ card, actions, actionState, onOutcome, onNav, api, state }) {
-  const can = useCan(); const viewer = useViewer();
+  const can = useCan(); const viewer = useViewer(); const pick = usePrimary();
   const data = card.data || {}; const index = reportActionIndex(card, actions);
   const [local, setLocal] = useState(null);
   const status = local || (index >= 0 ? actionState[index] : null);
@@ -925,22 +1056,22 @@ export function ReportChangeCard({ card, actions, actionState, onOutcome, onNav,
     await settle(async () => { await api.editStudioAsset({ assetId: data.assetId, markdown: data.markdown, baseEditedAt: text(data.baseEditedAt) }); return `Saved the new “${data.section}” in “${data.title}”.`; }, index >= 0 ? index : null, onOutcome, setLocal);
   }
   return <CardShell type="report-change" kicker="Suggested report change" title={card.title || data.title || 'Report'} icon={PenLine} note={card.note}>
-    <p className="cc-meta">{[data.section && `Section: ${data.section}`, `${plural(counts.added, 'line')} added`, `${plural(counts.removed, 'line')} removed`].filter(Boolean).join(' · ')}</p>
-    {data.note && <p className="cc-text">{data.note}</p>}
+    <p className="reply-muted">{[data.section && `Section: ${data.section}`, `${plural(counts.added, 'line')} added`, `${plural(counts.removed, 'line')} removed`].filter(Boolean).join(' · ')}</p>
+    {data.note && <p className="reply-body">{data.note}</p>}
     <PromptDiff lines={lines} label={`Changes to ${data.section || 'the report'}`} className="cc-diff" />
-    {finite(data.diffShortened) && <p className="cc-meta cc-faint">Showing the first {plural(lines.length, 'line')} of {Number(data.diffShortened)}. Open the report to see the rest.</p>}
+    {finite(data.diffShortened) && <p className="reply-muted">Showing the first {plural(lines.length, 'line')} of {Number(data.diffShortened)}. Open the report to see the rest.</p>}
     {findings.length > 0 && <details className="cc-targets"><summary>Brand check · {checkSummary(findings)}<ChevronDown size={13} aria-hidden="true" /></summary><ul className="cc-warnings">{findings.slice(0, 5).map((row) => <li key={row.id}><Info size={13} aria-hidden="true" />{row.message}</li>)}</ul></details>}
     {problems.length > 0 && <ul className="cc-warnings" aria-label="Why it can’t be applied yet">{problems.map((line) => <li key={line}><TriangleAlert size={13} aria-hidden="true" />{line}</li>)}</ul>}
-    {newer && <p className="cc-note-line" role="status"><Info size={13} aria-hidden="true" />{newer.by?.name || 'Someone'} changed this report after the suggestion. Ask again for one based on it, or open the report.</p>}
-    {data.canApply && !canSave && <p className="cc-meta cc-faint">Your role can read reports but not edit them.</p>}
-    {status?.status === 'failed' && <p className="cc-failed" role="alert">{status.text}</p>}
-    <div className="cc-actions">
+    {newer && <p className="reply-note" role="status"><Info size={13} aria-hidden="true" />{newer.by?.name || 'Someone'} changed this report after the suggestion. Ask again for one based on it, or open the report.</p>}
+    {data.canApply && !canSave && <p className="reply-muted">Your role can read reports but not edit them.</p>}
+    {status?.status === 'failed' && <p className="reply-failed" role="alert">{status.text}</p>}
+    <div className="reply-card-foot">
       {status?.status === 'done'
-        ? <span className="cc-done" role="status"><Check size={13} aria-hidden="true" />{status.text}</span>
-        : data.canApply && canSave && <span className="cc-action"><button type="button" className="cc-btn is-primary" {...writeProps(viewer, !ready || running)} onClick={apply}>{running ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}{running ? 'Saving…' : 'Apply'}</button></span>}
+        ? <span className="reply-done" role="status"><Check size={14} aria-hidden="true" />{status.text}</span>
+        : data.canApply && canSave && <span className="reply-action"><button type="button" className={pick(true)} {...writeProps(viewer, !ready || running)} onClick={apply}>{running ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}{running ? 'Saving…' : 'Apply'}</button></span>}
       {typeof onNav.openReport === 'function' && data.assetId && <NavButton icon={FileText} label="Open the report" onClick={() => onNav.openReport(data.assetId)} />}
     </div>
-    {!status && ready && <p className="cc-meta cc-faint">Free. Everything made from the report afterwards uses the new text, and Restore the original undoes all edits.</p>}
+    {!status && ready && <p className="reply-muted">Free. Everything made from the report afterwards uses the new text, and Restore the original undoes all edits.</p>}
   </CardShell>;
 }
 

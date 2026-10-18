@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-const { createFieldStream, fieldStreamer } = require('../src/shared/structured-stream.js');
+const { createFieldStream, fieldStreamer, readStringField } = require('../src/shared/structured-stream.js');
 
 // Ask AI shows its answer field while the model writes the JSON; these pieces arrive at any boundary.
 const pieces = (text, size) => Array.from({ length: Math.ceil(text.length / size) }, (_, index) => text.slice(index * size, (index + 1) * size));
@@ -49,5 +49,36 @@ describe('fieldStreamer (the runner side of the streaming contract)', () => {
     const live = fieldStreamer(vi.fn(() => { throw new Error('display gone'); }));
     expect(() => { live.push('{"answer":"x"}'); live.status('s'); live.flush({ answer: 'x' }); }).not.toThrow();
     expect(fieldStreamer(null)).toBeNull();
+  });
+});
+
+describe('readStringField', () => {
+  it('reads a valid answer exactly as JSON.parse does', () => {
+    const answer = 'Line one\nwith "quotes", a tab\t, a backslash \\ and é ☃ 😀';
+    expect(readStringField(JSON.stringify({ answer, cards: [] }))).toBe(answer);
+    expect(readStringField(`{"title":"t","answer":${JSON.stringify(answer)}}`)).toBe(answer);
+  });
+  it('keeps quotes the model forgot to escape and raw line breaks, past prose and fences', () => {
+    expect(readStringField('{"answer":"Press "Run" to start, then "Save".","followUps":[]}')).toBe('Press "Run" to start, then "Save".');
+    expect(readStringField('Here you go:\n```json\n{\n  "answer": "Two\nlines with "quotes"",\n  "cards": []\n}\n```')).toBe('Two\nlines with "quotes"');
+    expect(readStringField('{"answer":"Last field "here"" }')).toBe('Last field "here"');
+    expect(readStringField('{"answer":"Trailing comma "ok"",}')).toBe('Trailing comma "ok"');
+    expect(readStringField('{"summary":"s","title":"Hi \\u00e9"}', 'title')).toBe('Hi é');
+  });
+  it('ends the string only where the reply object really goes on, given the schema’s keys', () => {
+    const keys = ['answer', 'pages', 'followUps', 'cards'];
+    expect(readStringField('{"answer":"Pick "Lite", "Standard": both work.","pages":[],"followUps":[]}', 'answer', { keys })).toBe('Pick "Lite", "Standard": both work.');
+    expect(readStringField('{"answer":"Use {"url": "https://example.com"} as the source config, then press Run.","pages":[]}', 'answer', { keys })).toBe('Use {"url": "https://example.com"} as the source config, then press Run.');
+    expect(readStringField('{"answer":"Use {"url": "https://example.com"} as the source, then Run."}', 'answer', { keys })).toBe('Use {"url": "https://example.com"} as the source, then Run.');
+    // A brace that does end the object still ends the string, with prose (and braces) after it.
+    expect(readStringField('{"answer":"Press "Run"."}\nUse {name} next time.', 'answer', { keys })).toBe('Press "Run".');
+    expect(readStringField('{"answer":"Press "Run".","cards":[]}', 'answer', { keys })).toBe('Press "Run".');
+  });
+  it('returns null when the field is missing, isn’t a string or never ends', () => {
+    expect(readStringField('{"title":"x"}')).toBeNull();
+    expect(readStringField('{"answer":42}')).toBeNull();
+    expect(readStringField('{"answer":"cut off mid')).toBeNull();
+    expect(readStringField('{"answer":"ends in a backslash \\')).toBeNull();
+    expect(readStringField(null)).toBeNull();
   });
 });

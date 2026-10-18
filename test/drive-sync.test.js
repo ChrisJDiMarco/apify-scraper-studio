@@ -355,8 +355,217 @@ describe('the old per-program setting, and disconnecting', () => {
   });
 });
 
+describe('Save to Drive on a report (saveNow)', () => {
+  const manual = async (options) => { const env = await connected(options); await env.engine.save({ autoAdd: false }); return env; };
+  const assetOf = (env, id) => env.workspace.source.assets.find((asset) => asset.id === id);
+  const uploads = (env) => env.drive.calls.filter((call) => call.method === 'POST' && call.path.startsWith('/upload'));
+  const patches = (env) => env.drive.calls.filter((call) => call.method === 'PATCH');
+
+  it('adds the Doc once, then updates that same Doc after an edit, never a second copy', async () => {
+    const env = await manual();
+    const first = await env.engine.saveNow('asset-a-report');
+    const doc = env.drive.named('AI Overviews — Trends report')[0];
+    expect(first).toEqual({ ok: true, link: doc.webViewLink, folderName: 'Studio reports', updated: false, unchanged: false });
+    expect(doc).toMatchObject({ mimeType: DOC, parents: [env.drive.named('AI Overviews')[0].id], appProperties: { studioAsset: 'asset-a-report' } });
+    expect(env.drive.named('2026-10-14 · Weekly SEO pulse')[0].parents).toEqual(['ROOT_FOLDER_1']); // the folders the sync uses
+    expect(env.engine.links()).toEqual({ 'asset-a-report': doc.webViewLink });
+    expect(env.engine.staleIds(env.workspace.source.assets)).toEqual([]);
+    expect(env.engine.readLog().rows[0]).toMatchObject({ kind: 'added', assetId: 'asset-a-report', reason: 'manual' });
+    expect(env.emitState).toHaveBeenCalled();
+    // Riley edits the report: it now reads as ahead of its Doc (Update in Drive), and saving again updates the same Doc.
+    assetOf(env, 'asset-a-report').edited = { at: '2026-10-18T12:30:00.000Z', by: { id: 'member-riley', name: 'Riley' } };
+    env.workspace.pages['asset-a-report'] = page('AI Overviews', 'Edited by Riley.');
+    expect(env.engine.staleIds(env.workspace.source.assets)).toEqual(['asset-a-report']);
+    const second = await env.engine.saveNow('asset-a-report');
+    expect(second).toEqual({ ok: true, link: doc.webViewLink, folderName: 'Studio reports', updated: true, unchanged: false });
+    expect(env.drive.named('AI Overviews — Trends report')).toHaveLength(1);
+    expect(doc.content).toContain('Edited by Riley.');
+    expect(uploads(env)).toHaveLength(1);
+    expect(patches(env)).toEqual([expect.objectContaining({ fileId: doc.id })]);
+    expect(env.engine.staleIds(env.workspace.source.assets)).toEqual([]);
+    // Restoring the original makes the report newer again; its Doc is behind until the next save.
+    assetOf(env, 'asset-a-report').restored = { at: '2026-10-18T12:45:00.000Z', by: { id: 'member-riley', name: 'Riley' } };
+    expect(env.engine.staleIds(env.workspace.source.assets)).toEqual(['asset-a-report']);
+  });
+
+  it('counts an edit that changed nothing as up to date without writing to Drive', async () => {
+    const env = await manual();
+    await env.engine.saveNow('asset-scan');
+    const writes = env.drive.writes().length;
+    assetOf(env, 'asset-scan').edited = { at: '2026-10-18T12:30:00.000Z', by: { id: 'member-sam', name: 'Sam' } }; // the same text saved again
+    expect(env.engine.staleIds(env.workspace.source.assets)).toEqual(['asset-scan']);
+    expect(await env.engine.saveNow('asset-scan')).toMatchObject({ ok: true, updated: false, unchanged: true });
+    expect(env.drive.writes()).toHaveLength(writes);
+    expect(env.engine.staleIds(env.workspace.source.assets)).toEqual([]);
+    // Kept across a restart: the version the Doc was made from is in drive-sync.json.
+    const again = setup({ workspace: env.workspace, root: env.root, saved: env.saved, drive: env.drive });
+    expect(again.engine.staleIds(env.workspace.source.assets)).toEqual([]);
+  });
+
+  it('makes the Doc again when it was deleted or put in the trash in Drive, still only one', async () => {
+    const env = await manual();
+    await env.engine.saveNow('asset-a-report');
+    const doc = env.drive.named('AI Overviews — Trends report')[0];
+    // Unchanged and still there: Drive is asked, nothing is written.
+    const writes = env.drive.writes().length;
+    expect(await env.engine.saveNow('asset-a-report')).toMatchObject({ ok: true, link: doc.webViewLink, unchanged: true });
+    expect(env.drive.calls.filter((call) => call.method === 'GET' && call.path === `/drive/v3/files/${doc.id}`)).toHaveLength(1);
+    expect(env.drive.writes()).toHaveLength(writes);
+    // Jordan puts it in the trash: Save to Drive adds a new Doc (not an update of the trashed one) and links to it.
+    doc.trashed = true;
+    const again = await env.engine.saveNow('asset-a-report');
+    const live = env.drive.named('AI Overviews — Trends report').filter((file) => !file.trashed);
+    expect(live).toHaveLength(1);
+    expect(live[0].id).not.toBe(doc.id);
+    expect(again).toEqual({ ok: true, link: live[0].webViewLink, folderName: 'Studio reports', updated: false, unchanged: false });
+    expect(env.engine.links()['asset-a-report']).toBe(live[0].webViewLink);
+    expect(patches(env).filter((call) => call.fileId === doc.id)).toHaveLength(0);
+    // Deleted outright (Drive answers 404): made again too.
+    env.drive.files.delete(live[0].id);
+    expect(await env.engine.saveNow('asset-a-report')).toMatchObject({ ok: true, updated: false, unchanged: false });
+    expect(env.drive.named('AI Overviews — Trends report').filter((file) => !file.trashed)).toHaveLength(1);
+    // The folders it sits in went to the trash with it: new ones are made, and the Doc goes in those.
+    const [current] = env.drive.named('AI Overviews — Trends report').filter((file) => !file.trashed);
+    const trend = env.drive.files.get(current.parents[0]); trend.trashed = true; current.trashed = true;
+    await env.engine.saveNow('asset-a-report');
+    const [last] = env.drive.named('AI Overviews — Trends report').filter((file) => !file.trashed);
+    expect(env.drive.files.get(last.parents[0])).toMatchObject({ name: 'AI Overviews', trashed: false });
+    expect(last.parents[0]).not.toBe(trend.id);
+  });
+
+  it('marks a toolkit saved before its trends report, so Update in Drive adds the Full evidence link', async () => {
+    const env = await manual();
+    await env.engine.saveNow('asset-a-kit');
+    expect(env.engine.staleIds(env.workspace.source.assets)).toEqual([]);
+    await env.engine.saveNow('asset-a-report');
+    expect(env.engine.staleIds(env.workspace.source.assets)).toEqual(['asset-a-kit']);
+    const toolkit = env.drive.named('AI Overviews — Editorial toolkit')[0];
+    expect(toolkit.content).not.toContain('Full evidence');
+    expect(await env.engine.saveNow('asset-a-kit')).toMatchObject({ ok: true, updated: true });
+    expect(toolkit.content).toContain('Full evidence');
+    expect(env.drive.named('AI Overviews — Editorial toolkit')).toHaveLength(1);
+    expect(env.engine.staleIds(env.workspace.source.assets)).toEqual([]);
+  });
+
+  it('warns on quit while a Save to Drive or a Retry is sending', async () => {
+    const drive = fakeDrive(); const real = drive.fetchImpl; let release = null;
+    drive.fetchImpl = vi.fn(async (url, options) => {
+      if (!release && options?.method === 'POST' && url.includes('/upload/')) return new Promise((resolve) => { release = () => resolve(real(url, options)); });
+      return real(url, options);
+    });
+    const env = await manual({ drive });
+    expect(env.engine.activeLine()).toBe('');
+    const pending = env.engine.saveNow('asset-scan');
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    expect(env.engine.activeLine()).toBe('Google Drive: saving a report');
+    release(); await pending;
+    expect(env.engine.activeLine()).toBe('');
+    release = null;
+    const retry = env.engine.retry({ assetId: 'asset-b-report' });
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    expect(env.engine.activeLine()).toBe('Google Drive: saving a report');
+    release(); await retry;
+    expect(env.engine.activeLine()).toBe('');
+  });
+
+  it('finds the Doc it made after the id map is lost, instead of adding another', async () => {
+    const env = await manual();
+    await env.engine.saveNow('asset-b-report');
+    const fresh = setup({ workspace: env.workspace, drive: env.drive, saved: env.saved }); // a new data folder: no id map
+    await fresh.engine.save({ folder: 'ROOT_FOLDER_1', autoAdd: false });
+    expect(await fresh.engine.saveNow('asset-b-report')).toMatchObject({ ok: true, updated: true });
+    expect(env.drive.named('Zero-click search — Trends report')).toHaveLength(1);
+  });
+
+  it('is refused while every report is added by itself, and before Drive is connected', async () => {
+    const auto = await connected(); // "Add every new report to Drive" on
+    await expect(auto.engine.saveNow('asset-a-report')).rejects.toMatchObject({ status: 409, code: 'driveAutoAdd', message: 'Google Drive sync is already on for every report.' });
+    expect(auto.drive.writes()).toHaveLength(0);
+    const none = setup();
+    await expect(none.engine.saveNow('asset-a-report')).rejects.toMatchObject({ status: 409, code: 'driveNotConnected', message: 'Google Drive isn’t connected yet. An admin connects it in Settings → Google Drive.' });
+    const noFolder = setup(); await noFolder.engine.connect({ serviceAccountKey: KEY });
+    await expect(noFolder.engine.saveNow('asset-a-report')).rejects.toMatchObject({ status: 409, code: 'driveNotConnected' });
+    // The switch on without a folder sends nothing by itself, so "not connected" is the reason given.
+    const waiting = setup(); await waiting.engine.connect({ serviceAccountKey: KEY }); await waiting.engine.save({ autoAdd: true });
+    await expect(waiting.engine.saveNow('asset-a-report')).rejects.toMatchObject({ code: 'driveNotConnected' });
+  });
+
+  it('saves only reports: not drafts, channel assets or something that isn’t there', async () => {
+    const env = await manual();
+    await env.engine.save({ includeChannelAssets: true });
+    await expect(env.engine.saveNow('asset-draft')).rejects.toMatchObject({ status: 400, code: 'driveNotReport' });
+    await expect(env.engine.saveNow('asset-social')).rejects.toMatchObject({ status: 400, code: 'driveNotReport' });
+    await expect(env.engine.saveNow('asset-gone')).rejects.toMatchObject({ status: 404 });
+    await expect(env.engine.saveNow('../x')).rejects.toMatchObject({ status: 400 });
+    await expect(env.engine.saveNow(undefined)).rejects.toMatchObject({ status: 400 });
+    expect(env.drive.writes()).toHaveLength(0);
+  });
+
+  it('gives up after a minute with a plain message, and the next save still adds only one Doc', async () => {
+    const drive = fakeDrive(); const real = drive.fetchImpl; let hang = true; let hanging = false;
+    drive.fetchImpl = vi.fn(async (url, options) => {
+      if (hang && options?.method === 'POST' && url.includes('/upload/')) { hanging = true; return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))); }
+      return real(url, options);
+    });
+    const env = await manual({ drive });
+    const pending = env.engine.saveNow('asset-scan');
+    await vi.waitFor(() => expect(hanging).toBe(true));
+    env.timers.filter((timer) => timer.ms === sync.SAVE_NOW_MS).at(-1).fn();
+    await expect(pending).rejects.toMatchObject({ status: 504, code: 'driveSlow', message: 'Google Drive is taking too long to answer. Try again in a minute.' });
+    hang = false;
+    expect(await env.engine.saveNow('asset-scan')).toMatchObject({ ok: true, updated: false });
+    expect(env.drive.named('Quick scan report · local SEO')).toHaveLength(1);
+  });
+
+  it('gives up on time while waiting behind another send, and then sends nothing', async () => {
+    const drive = fakeDrive(); const real = drive.fetchImpl; let release = null;
+    drive.fetchImpl = vi.fn(async (url, options) => {
+      if (!release && options?.method === 'POST' && url.includes('/upload/')) return new Promise((resolve) => { release = () => resolve(real(url, options)); });
+      return real(url, options);
+    });
+    const env = await manual({ drive });
+    const first = env.engine.retry({ assetId: 'asset-b-report' }); // holds the one Drive conversation
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const pending = env.engine.saveNow('asset-scan');
+    env.timers.filter((timer) => timer.ms === sync.SAVE_NOW_MS).at(-1).fn();
+    await expect(pending).rejects.toMatchObject({ status: 504, code: 'driveSlow' });
+    release(); await first; await env.engine.flush();
+    expect(env.drive.named('Zero-click search — Trends report')).toHaveLength(1);
+    expect(env.drive.named('Quick scan report · local SEO')).toHaveLength(0); // the timed-out save never went
+  });
+});
+
 describe('who may use it', () => {
   const methods = ['connectDriveSync', 'saveDriveSync', 'testDriveSync', 'startDriveBackfill', 'retryDriveSync', 'disconnectDriveSync', 'readDriveSyncLog'];
+  it('lets admins and editors save one report (Export and publish), never channel owners, and never in a preview', () => {
+    expect(channels.methods.saveReportToDrive).toBe('drive:save-report');
+    expect(roles.CAP_OF_METHOD.saveReportToDrive).toBe('exportPublish');
+    expect(roles.canCall('admin', 'saveReportToDrive')).toBe(true);
+    expect(roles.canCall('editor', 'saveReportToDrive')).toBe(true);
+    expect(roles.canCall('channel', 'saveReportToDrive')).toBe(false);
+    expect(policy.channelSafeMethods).not.toContain('saveReportToDrive');
+    expect(policy.readMethods).not.toContain('saveReportToDrive'); // it writes to Drive, so a preview shows it greyed out
+    // The Viewer template (reads only) can't, and an editor with Export and publish denied can't either.
+    const viewerTemplate = policy.roleTemplates.find((template) => template.id === 'viewer');
+    expect(roles.methodsFor('editor', roles.settle(viewerTemplate.capabilities, 'editor'))).not.toContain('saveReportToDrive');
+    expect(roles.methodsFor('editor', roles.capabilitiesFor({ roleId: 'editor', denies: ['exportPublish'] }))).not.toContain('saveReportToDrive');
+    const editor = roles.subjectFor({ roleId: 'editor' });
+    expect(roles.allowedFor(editor)).toContain('saveReportToDrive');
+    expect(roles.allowedFor(editor, { preview: true, realSubject: roles.subjectFor({ roleId: 'admin' }) })).not.toContain('saveReportToDrive');
+  });
+
+  it('marks reports changed since their Doc only for roles that read reports', () => {
+    const base = { contentStudio: { activeWorkspaceId: 'w', workspaces: [{ id: 'w', editionId: 'semrush' }], assets: [], driveLinks: { 'asset-1': 'https://docs.google.com/document/d/x/edit' }, driveStale: ['asset-1'] } };
+    const viewer = (capabilities) => ({ id: 'p', role: 'editor', base: 'editor', capabilities });
+    expect(roles.projectState(base, { id: 'a', role: 'admin', base: 'admin' }).contentStudio.driveStale).toEqual(['asset-1']);
+    expect(roles.projectState(base, viewer(['core', 'readAssets'])).contentStudio.driveStale).toEqual(['asset-1']);
+    expect(roles.projectState(base, viewer(['core', 'readResearch'])).contentStudio.driveStale).toEqual([]);
+    expect(roles.projectState(base, { id: 'c', role: 'channel', base: 'channel', channelId: 'social', capabilities: ['core', 'readAssets'] }).contentStudio.driveStale).toBeUndefined();
+    // A base without the key (an older host) gets none added.
+    const { driveStale: _gone, ...older } = base.contentStudio;
+    expect(roles.projectState({ contentStudio: older }, viewer(['core', 'readAssets'])).contentStudio).not.toHaveProperty('driveStale');
+  });
+
   it('is admin-only Settings, with the log as a read', () => {
     for (const method of methods) {
       expect(channels.methods[method]).toMatch(/^drive:/);

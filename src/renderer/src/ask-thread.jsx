@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDown, Check, ChevronLeft, ChevronRight, Copy, FileText, Folder, Pencil, RotateCcw, TrendingUp, Activity, BellRing } from 'lucide-react';
+import { ArrowDown, Check, ChevronLeft, ChevronRight, CircleStop, Copy, FileText, Folder, History, Info, Pencil, RotateCcw, TrendingUp, Activity, BellRing } from 'lucide-react';
 import { MarkdownBlocks, MarkdownContent } from './markdown-content.jsx';
-import { copyableMarkdown, splitBlocks, stabilizeTail, streamDisplay, studioLinks } from './ask-markdown.js';
+import { SALVAGE_NOTE, copyableMarkdown, splitBlocks, splitSalvage, stabilizeTail, streamDisplay, studioLinks } from './ask-markdown.js';
 import { isFinal, useAskProgress, useSmoothText } from './ask-stream.js';
 import { AskSteps, AskTypingDots } from './ask-steps.jsx';
 import { formatDay, formatTime } from './viewer.js';
@@ -13,6 +13,8 @@ import { formatDay, formatTime } from './viewer.js';
 // "Jump to latest" pill takes them back. help-assistant.jsx keeps the conversations, memory and buttons; this file only
 // lays the thread out. Class names the rest of the app and its tests know (.help-messages, .help-question,
 // .help-answer, .help-read, .help-receipt) are kept.
+// Every answer has the same anatomy (ask-reply.css), each group marked with data-reply-group: the answer text (with its
+// quiet notes), then what help-assistant.jsx draws under it (cards, references, actions), the meta row and Ask next.
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const money = (value) => (Number.isFinite(value) ? `$${value < 0.01 ? value.toFixed(3) : value.toFixed(2)}` : '');
@@ -90,7 +92,7 @@ function CopyButton({ text, label = 'Copy', copiedLabel = 'Copied' }) {
       try { const area = Object.assign(document.createElement('textarea'), { value }); area.style.position = 'fixed'; area.style.opacity = '0'; document.body.appendChild(area); area.select(); document.execCommand?.('copy'); area.remove(); setCopied(true); } catch { /* nothing to copy with */ }
     }
   }
-  return <button type="button" className="ask-tool" aria-label={copied ? copiedLabel : label} title={copied ? copiedLabel : label} onClick={copy}>{copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}{copied && <span className="ask-tool-note" aria-hidden="true">{copiedLabel}</span>}</button>;
+  return <button type="button" className="ask-tool" aria-label={copied ? copiedLabel : label} title={copied ? copiedLabel : label} onClick={copy}>{copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}{copied && <span className="ask-tool-note" aria-hidden="true">{copiedLabel}</span>}</button>;
 }
 
 function AskUserMessage({ message, editing, canEdit, onEditStart, onEditCancel, onEditSend }) {
@@ -116,7 +118,7 @@ function AskUserMessage({ message, editing, canEdit, onEditStart, onEditCancel, 
     <div className="ask-tools ask-user-tools">
       {message.editedAt && <span className="ask-tool-meta">Edited</span>}
       <CopyButton text={message.content} label="Copy question" />
-      {canEdit && <button type="button" className="ask-tool" aria-label="Edit question" title="Edit question (↑)" onClick={onEditStart}><Pencil size={13} aria-hidden="true" /></button>}
+      {canEdit && <button type="button" className="ask-tool" aria-label="Edit question" title="Edit question (↑)" onClick={onEditStart}><Pencil size={14} aria-hidden="true" /></button>}
       {message.createdAt && <time className="ask-tool-meta" dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>}
     </div>
   </div>;
@@ -137,39 +139,45 @@ function AskAssistantMessage({ message, store, liveStream, reduced, last, canRet
   const revealed = useRef(false);
   const settled = !message.pending && !message.failed;
   const animate = Boolean(message.requestId) && liveStream && (message.pending || message.failed || message.streamed);
-  const goal = settled ? streamDisplay(message.content) : streamDisplay(progress?.text || '');
+  // The salvage note (a reply whose extras couldn't be read) shows as a quiet note under the text, never as the text.
+  const goal = streamDisplay(splitSalvage(settled ? message.content : progress?.text || '').text);
   const smooth = useSmoothText(animate ? goal : '', { live: message.pending && !isFinal(progress?.status), reduced });
   if (settled && (!animate || smooth.done)) revealed.current = true;
   const showFinal = settled && revealed.current;
   const versions = list(message.versions);
   const older = version > 0 ? versions[version - 1] : null;
   const shown = showFinal ? studioLinks(older ? older.content : message.content) : null;
+  const body = shown ? splitSalvage(shown.text) : null;
+  const time = older?.createdAt || message.createdAt; const receipt = receiptText(older ? older.receipt : message.receipt);
   const streamingNow = !showFinal && !message.failed && Boolean(smooth.text);
   const live = Boolean(message.requestId) && (message.pending || message.failed || !revealed.current || progress?.steps?.length);
   const status = message.failed ? (message.stoppedEmpty ? 'stopped' : 'failed') : message.pending ? (liveStream ? progress?.status || 'sending' : 'thinking') : (message.stopped ? 'stopped' : 'done');
   const reads = list(message.read).map((row) => `“${row.title}”`);
   const readLabel = reads.length ? `Read ${reads.join(', ')}` : '';
-  return <article className={`help-answer${streamingNow ? ' ask-streaming' : ''}${message.failed ? ' is-failed' : ''}${message.stopped ? ' is-stopped' : ''}${message.followUp ? ' is-followup' : ''}`} aria-label={message.pending || (!showFinal && !message.failed) ? 'Answering' : 'Answer'} aria-busy={message.pending ? true : undefined} data-request={message.requestId || undefined}>
+  const writing = !showFinal && !message.failed && !smooth.text;
+  return <article className={`help-answer ask-reply${streamingNow ? ' ask-streaming' : ''}${message.failed ? ' is-failed' : ''}${message.stopped ? ' is-stopped' : ''}${message.followUp ? ' is-followup' : ''}`} aria-label={message.pending || (!showFinal && !message.failed) ? 'Answering' : 'Answer'} aria-busy={message.pending ? true : undefined} data-request={message.requestId || undefined}>
     {message.followUp && <small className="help-followup-kicker"><BellRing size={12} aria-hidden="true" />From the studio{message.createdAt ? ` · ${formatTime(message.createdAt)}` : ''}</small>}
     {live ? <AskSteps status={status} steps={progress?.steps || []} startedAt={message.startedMs || 0} doneLabel={readLabel} />
       : readLabel && <small className="help-read ask-read">{readLabel}</small>}
-    {!showFinal && !message.failed && !smooth.text && <AskTypingDots />}
-    {!showFinal && smooth.text && <div className={message.failed ? 'ask-partial' : undefined}><StreamingAnswer text={smooth.text} /></div>}
-    {showFinal && <MarkdownContent>{shown.text}</MarkdownContent>}
-    {showFinal && older && <p className="ask-note">An earlier answer. Its buttons are off; follow-ups use the newest answer.</p>}
-    {showFinal && !older && renderExtras?.(message, { last, links: shown.links })}
-    {showFinal && message.stopped && <p className="ask-note">Stopped. What was written so far is kept.</p>}
+    {(writing || smooth.text || showFinal) && <div className="ask-reply-text" data-reply-group="text">
+      {writing && <AskTypingDots />}
+      {!showFinal && smooth.text && <div className={message.failed ? 'ask-partial' : undefined}><StreamingAnswer text={smooth.text} /></div>}
+      {showFinal && body.text.trim() && <MarkdownContent>{body.text}</MarkdownContent>}
+      {showFinal && body.salvaged && <p className="reply-note"><Info size={14} aria-hidden="true" />{SALVAGE_NOTE}</p>}
+      {showFinal && older && <p className="reply-note"><History size={14} aria-hidden="true" />An earlier answer. Its buttons are off; follow-ups use the newest answer.</p>}
+      {showFinal && message.stopped && <p className="reply-note"><CircleStop size={14} aria-hidden="true" />Stopped. What was written so far is kept.</p>}
+    </div>}
     {message.failed && renderFailure?.(message)}
-    {showFinal && <div className={`ask-tools${last ? ' is-last' : ''}`}>
-      <CopyButton text={older ? older.content : message.content} label="Copy answer" />
-      {last && canRetry && !older && <button type="button" className="ask-tool" aria-label="Retry" title={retryTitle || 'Ask again'} onClick={() => onRetry(message)}><RotateCcw size={13} aria-hidden="true" /></button>}
+    {showFinal && !older && renderExtras?.(message, { last, links: shown.links })}
+    {showFinal && <div className={`ask-tools ask-reply-meta${last ? ' is-last' : ''}`} data-reply-group="meta">
+      <CopyButton text={splitSalvage(older ? older.content : message.content).text} label="Copy answer" />
+      {last && canRetry && !older && <button type="button" className="ask-tool" aria-label="Retry" title={retryTitle || 'Ask again'} onClick={() => onRetry(message)}><RotateCcw size={14} aria-hidden="true" /></button>}
       {versions.length > 0 && <span className="ask-versions" role="group" aria-label="Versions of this answer">
-        <button type="button" className="ask-tool" aria-label="Earlier answer" disabled={version >= versions.length} onClick={() => setVersion((value) => Math.min(versions.length, value + 1))}><ChevronLeft size={13} aria-hidden="true" /></button>
+        <button type="button" className="ask-tool" aria-label="Earlier answer" disabled={version >= versions.length} onClick={() => setVersion((value) => Math.min(versions.length, value + 1))}><ChevronLeft size={14} aria-hidden="true" /></button>
         <span className="ask-tool-meta">{versions.length + 1 - version} of {versions.length + 1}</span>
-        <button type="button" className="ask-tool" aria-label="Newer answer" disabled={version === 0} onClick={() => setVersion((value) => Math.max(0, value - 1))}><ChevronRight size={13} aria-hidden="true" /></button>
+        <button type="button" className="ask-tool" aria-label="Newer answer" disabled={version === 0} onClick={() => setVersion((value) => Math.max(0, value - 1))}><ChevronRight size={14} aria-hidden="true" /></button>
       </span>}
-      {(older?.createdAt || message.createdAt) && <time className="ask-tool-meta" dateTime={older?.createdAt || message.createdAt}>{formatTime(older?.createdAt || message.createdAt)}</time>}
-      {(older ? older.receipt : message.receipt) && receiptText(older ? older.receipt : message.receipt) && <small className="help-receipt">{receiptText(older ? older.receipt : message.receipt)}</small>}
+      {(time || receipt) && <span className="reply-meta-text">{time && <time dateTime={time}>{formatTime(time)}</time>}{time && receipt ? ' · ' : ''}{receipt && <span className="help-receipt">{receipt}</span>}</span>}
     </div>}
     {showFinal && !older && last && renderFollowUps?.(message)}
   </article>;

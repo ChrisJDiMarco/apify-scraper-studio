@@ -21,8 +21,9 @@ export function capabilityRules(access) {
   const groups = list(access?.groups).map((group) => ({ ...group, caps: caps.filter((cap) => cap.group === group.id) })).filter((group) => group.caps.length);
   return { caps, byId, groups };
 }
-// What a capability needs besides itself: its requirements, plus See costs for paid work on an editor-based role.
-export const requirementsOf = (cap, base) => [...list(cap?.requires), ...(base === 'editor' && cap?.spends ? ['seeCosts'] : [])];
+// What a capability needs besides itself: its requirements (or this kind of role's own, requiresByBase), plus See costs
+// for paid work on an editor-based role unless that work is costsOptional (Ask AI).
+export const requirementsOf = (cap, base) => [...list(cap?.requiresByBase?.[base] || cap?.requires), ...(base === 'editor' && cap?.spends && !cap?.costsOptional ? ['seeCosts'] : [])];
 // 'admin' (an admin has it), 'always' (everyone has it), 'locked' (admins only), 'unavailable' (not for this kind of
 // role) or 'open'.
 export function availability(cap, base) {

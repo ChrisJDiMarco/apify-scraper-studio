@@ -21,17 +21,91 @@ const crypto = require('crypto');
 const { writeFileDurable } = require('../shared/durable-write');
 const roles = require('./roles');
 
-const TEAM_VERSION = 2;
+const TEAM_VERSION = 3;
+const AUDIT_LIMIT = 2000;
+// Ask AI on by default for every role (v3). The built-in roles follow roles.json's defaults, so Channel owner gets it
+// from there and an admin's own Off (builtIn.<role>.deny) stays. Custom roles keep their own lists, so v3 adds Ask AI to
+// each one that lacks it, once, when the role already has what Ask AI needs on its base and the access log doesn't show
+// an admin turning it off for that role. Each change is written to the access log as Automatic. Nothing else changes:
+// the admin role, other capabilities and people's own access are left as they are, with one exception below.
+// Before v3, Ask AI on an editor-based role needed See costs, so turning See costs off turned Ask AI off with it in the
+// same save (one access-log row with both, or rows written at the same moment), and wrote that Off into the built-in
+// Editor's deny list and a person's own denies. That Off was the old rule's, not an admin's choice about Ask AI, so it
+// isn't kept: v3 removes it, also logged as Automatic, when the role or person still has what Ask AI needs.
+function askAiForEveryRole(data, { now = () => new Date() } = {}) {
+  const cap = roles.CAPABILITIES.find((entry) => entry.id === 'askAi');
+  const audit = Array.isArray(data.audit) ? data.audit : [];
+  const members = Array.isArray(data.members) ? data.members : [];
+  const at = new Date(now()).toISOString();
+  const SYSTEM_BY = { id: 'system', name: 'Automatic' };
+  const isOff = (value) => value === false || value === 'off';
+  // Every change the access log holds about one role or person at one moment (a save writes its rows together).
+  const changesAt = (target, when) => audit.filter((row) => row?.target?.type === target.type && row.target.id === target.id && row.at === when).flatMap((row) => list(row.changes));
+  const cascaded = (row) => changesAt(row.target, row.at).some((entry) => entry?.field === 'capability' && entry.capability === 'seeCosts' && isOff(entry.to));
+  // The latest access-log change to Ask AI for a role or a person, skipping an Off that came with See costs going off:
+  // true (turned on, or back to the role's default), false (turned off) or undefined (none).
+  const lastSaid = (type, id, kinds) => {
+    for (let index = audit.length - 1; index >= 0; index--) {
+      const row = audit[index];
+      if (!row || row.target?.type !== type || row.target.id !== id || !kinds.includes(row.kind)) continue;
+      const change = list(row.changes).find((entry) => entry?.field === 'capability' && entry.capability === 'askAi');
+      if (!change) continue;
+      if (isOff(change.to) && cascaded(row)) continue;
+      return !isOff(change.to);
+    }
+    return undefined;
+  };
+  const ROLE_KINDS = ['role-changed', 'policy-changed', 'role-created'];
+  const rows = [];
+  const roleRow = (id, name) => ({ id: `audit-${crypto.randomUUID()}`, at, by: SYSTEM_BY, kind: 'policy-changed', target: { type: 'role', id: String(id || ''), name: String(name || '') }, changes: [{ field: 'capability', capability: 'askAi', from: false, to: true }], affected: members.filter((member) => member?.role === id && !member.disabled).length });
+  const customRoles = Array.isArray(data.roles) ? data.roles.map((role) => {
+    if (!cap || !role || typeof role !== 'object' || !roles.ROLE_BASES.includes(role.base) || !cap.bases.includes(role.base)) return role;
+    const held = Array.isArray(role.capabilities) ? role.capabilities : [];
+    if (held.includes('askAi') || lastSaid('role', role.id, ROLE_KINDS) === false || roles.requirementsOf(cap, role.base).some((need) => !held.includes(need))) return role;
+    rows.push(roleRow(role.id, role.label));
+    return { ...role, capabilities: [...new Set([...held, 'askAi'])].sort() };
+  }) : data.roles;
+  // The built-in Editor's Off that came only with See costs.
+  const policy = data.rolePolicy && typeof data.rolePolicy === 'object' ? data.rolePolicy : null;
+  const builtIn = policy?.builtIn && typeof policy.builtIn === 'object' && !Array.isArray(policy.builtIn) ? policy.builtIn : {};
+  const editorDeny = list(builtIn.editor?.deny);
+  let nextBuiltIn = builtIn;
+  if (cap && editorDeny.includes('askAi') && editorDeny.includes('seeCosts') && lastSaid('role', 'editor', ROLE_KINDS) !== false) {
+    const editor = { ...builtIn.editor, deny: editorDeny.filter((id) => id !== 'askAi') };
+    const candidate = { ...builtIn, editor };
+    if (roles.compilePolicy({ builtIn: candidate, roles: customRoles }).roles.get('editor').capabilities.includes('askAi')) {
+      nextBuiltIn = candidate;
+      rows.push(roleRow('editor', roles.ROLES.find((role) => role.id === 'editor')?.label || 'Editor'));
+    }
+  }
+  // A person's own Off that came only with their own See costs Off.
+  const compiled = roles.compilePolicy({ builtIn: nextBuiltIn, roles: customRoles });
+  const nextMembers = Array.isArray(data.members) ? data.members.map((member) => {
+    if (!cap || !member || typeof member !== 'object' || roles.baseOf(member.role, compiled) !== 'editor') return member;
+    const denies = list(member.denies);
+    if (!denies.includes('askAi') || !denies.includes('seeCosts') || lastSaid('member', member.id, ['member-access', 'member-added']) === false) return member;
+    const without = denies.filter((id) => id !== 'askAi');
+    if (!roles.capabilitiesFor({ roleId: member.role, grants: list(member.grants), denies: without }, compiled).includes('askAi')) return member;
+    rows.push({ id: `audit-${crypto.randomUUID()}`, at, by: SYSTEM_BY, kind: 'member-access', target: { type: 'member', id: String(member.id || ''), name: String(member.name || '') }, changes: [{ field: 'capability', capability: 'askAi', from: 'off', to: 'default' }], affected: 1 });
+    return { ...member, denies: without };
+  }) : data.members;
+  return {
+    ...data, version: 3, roles: customRoles,
+    ...(nextBuiltIn !== builtIn ? { rolePolicy: { ...policy, builtIn: nextBuiltIn } } : {}),
+    ...(nextMembers !== data.members ? { members: nextMembers } : {}),
+    ...(rows.length ? { audit: [...audit, ...rows].slice(-AUDIT_LIMIT) } : {}),
+  };
+}
 // Upgrades keyed on the version they start from. v2 adds per-person access, custom roles, the role policy and the
-// access log; an existing team keeps exactly the access it had.
+// access log; an existing team keeps exactly the access it had. v3 turns Ask AI on for custom roles (above).
 const MIGRATIONS = Object.freeze({
   1: (data) => ({ ...data, version: 2, members: Array.isArray(data.members) ? data.members.map((member) => (member && typeof member === 'object' ? { ...member, grants: [], denies: [] } : member)) : data.members, roles: [], rolePolicy: { rev: 0, updatedAt: '', updatedBy: null, builtIn: {} }, audit: [] }),
+  2: askAiForEveryRole,
 });
 // workflow-run / workflow-changed: written by the workflow engine itself (its decisions never pass the gate).
 const ACTIVITY_KINDS = Object.freeze(['trend-decision', 'adoption', 'kit-created', 'report-edited', 'report-restored', 'member-changed', 'link-issued', 'research-started', 'workflow-run', 'workflow-changed']);
 const AUDIT_KINDS = Object.freeze(['member-added', 'member-changed', 'member-disabled', 'member-enabled', 'member-removed', 'member-access', 'link-issued', 'link-revoked', 'role-created', 'role-changed', 'role-deleted', 'policy-changed']);
 const ACTIVITY_LIMIT = 5000;
-const AUDIT_LIMIT = 2000;
 const ROLE_LIMIT = 12;
 const INVITE_LIMIT = 50;
 const TOUCH_MS = 5 * 60 * 1000;
@@ -67,12 +141,14 @@ function nameFromEmail(email) {
 // "Weekly SEO reviewers" → "weekly-seo-reviewers" for a custom role id.
 const slug = (text) => cleanName(text).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'role';
 
-function migrate(data) {
+// Each step runs once: the file keeps the version it reached at its next write, so a later admin change (Ask AI turned
+// off for a role) is never undone by a restart or an upgrade. A step run again before that write gives the same result.
+function migrate(data, context = {}) {
   let next = data;
   while (next.version < TEAM_VERSION) {
     const step = MIGRATIONS[next.version];
     if (!step) throw new Error('Team data could not be read (content-studio/team.json). Restore it from a backup before starting.');
-    next = step(next);
+    next = step(next, context);
   }
   return next;
 }
@@ -120,7 +196,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     const version = parsed.version ?? 1;
     if (!Number.isInteger(version) || version < 1) throw unreadable();
     if (version > TEAM_VERSION) throw new Error('This team file is from a newer Scraper Studio. Update the app or server.');
-    const result = migrate({ ...parsed, version });
+    const result = migrate({ ...parsed, version }, { now });
     for (const key of ['members', 'roles', 'adoptions', 'activity', 'audit']) { if (result[key] == null) result[key] = []; else if (!Array.isArray(result[key])) throw unreadable(); }
     if (result.prefs == null) result.prefs = {}; else if (typeof result.prefs !== 'object' || Array.isArray(result.prefs)) throw unreadable();
     if (result.rolePolicy == null) result.rolePolicy = emptyPolicy(); else if (typeof result.rolePolicy !== 'object' || Array.isArray(result.rolePolicy)) throw unreadable();
@@ -202,7 +278,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     return {
       rev: data.rolePolicy.rev, updatedAt: data.rolePolicy.updatedAt || '', updatedBy: data.rolePolicy.updatedBy ? copy(data.rolePolicy.updatedBy) : null,
       groups: roles.CAPABILITY_GROUPS.map((group) => ({ ...group })),
-      capabilities: roles.CAPABILITIES.map((cap) => ({ id: cap.id, group: cap.group, label: cap.label, description: cap.description, lock: cap.lock, spends: cap.spends, projection: cap.projection, requires: [...cap.requires], bases: [...cap.bases], defaults: [...cap.defaults], since: cap.since })),
+      capabilities: roles.CAPABILITIES.map((cap) => ({ id: cap.id, group: cap.group, label: cap.label, description: cap.description, lock: cap.lock, spends: cap.spends, costsOptional: cap.costsOptional, projection: cap.projection, requires: [...cap.requires], requiresByBase: Object.fromEntries(Object.entries(cap.requiresByBase).map(([base, ids]) => [base, [...ids]])), bases: [...cap.bases], defaults: [...cap.defaults], since: cap.since })),
       roles: policy.list.map((role) => ({
         id: role.id, label: role.label, description: role.description, base: role.base, builtIn: role.builtIn, template: role.template || '',
         capabilities: [...role.capabilities], memberCount: counts.get(role.id) || 0,

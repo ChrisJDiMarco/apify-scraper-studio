@@ -4,7 +4,8 @@
 //   <date> · <program>/<trend>/<trend> — Trends report, <trend> — Editorial toolkit
 //   Quick scan · <topic>/Quick scan report · <topic>
 //   (channel assets, when that option is on) …/<trend>/Channel assets · <date>/<channel team>/<files>
-// An edited report updates the same Doc (a minute after the last change). Bookkeeping lives in
+// An edited report updates the same Doc (a minute after the last change). With the studio-wide switch off, Save to Drive
+// on a report (saveNow) sends that one report the same way, at once. Bookkeeping lives in
 // content-studio/drive-sync.json: the settings, an id map per chosen folder (folders by logical key, files by asset id,
 // so nothing is ever added twice), the queue and the sync log (newest 200 rows). The service account key itself is an
 // encrypted key in config.json (index.js); this file never sees it at rest. Nothing here spends AI money.
@@ -21,6 +22,7 @@ const LOG_ROWS = 200;
 const REPORTS = { 'evidence-report': 'Trends report', 'editorial-toolkit': 'Editorial toolkit', 'scan-report': 'Quick scan report' };
 const RETRYABLE_AGAIN_MS = 5 * 60 * 1000;
 const BLOCKED_RECHECK_MS = 60 * 1000;
+const SAVE_NOW_MS = 60 * 1000; // how long Save to Drive on a report waits for Drive (a wait behind Copy existing reports included)
 const copy = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 const record = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -30,6 +32,12 @@ const freshSettings = () => ({ folderId: '', folderName: '', folderUrl: '', driv
 const fresh = () => ({ version: VERSION, settings: freshSettings(), account: null, maps: {}, pending: {}, log: [], lastSyncAt: '', lastError: '' });
 const day = (value) => { const ms = Date.parse(value || ''); return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : 'Undated'; };
 const minute = (value) => { const ms = Date.parse(value || ''); return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 16).replace('T', ' ') : 'Undated'; };
+// When a report last changed (written, edited or restored to the original), from its asset record: the version a Doc
+// was made from, so Save to Drive can tell when the Doc is behind the report.
+function changedAt(asset) {
+  const times = [asset?.createdAt, asset?.edited?.at, asset?.restored?.at].map((value) => ({ value, ms: Date.parse(value || '') })).filter((row) => Number.isFinite(row.ms));
+  return times.length ? times.reduce((latest, row) => (row.ms > latest.ms ? row : latest)).value : '';
+}
 // Research reports carry "TREND:" and "— Comprehensive Trends Report" around the trend's name (library-tree.js cleanTitle).
 const cleanTitle = (value) => clip(String(value || '').replace(/^\s*TREND:\s*/i, '').replace(/\s+—\s+Comprehensive Trends Report\s*$/i, ''), 160);
 // A channel asset's team folder, from its deliverable id (library-tree.js channelOf / channelName).
@@ -44,6 +52,7 @@ function createDriveSync({ root, workspace, credentials, saveServiceAccount, cle
   const target = path.join(root, 'drive-sync.json');
   let data = load();
   let timer = null; let pumping = false; let stopped = false; let backfill = null; let lastBackfill = null; let authCache = null;
+  let manualSends = 0; // Save to Drive and Retry sends under way, for the quit warning (activeLine)
   const attempts = new Map(); // assetId → automatic retries of a temporary failure
   const iso = () => new Date(now()).toISOString();
 
@@ -171,10 +180,14 @@ function createDriveSync({ root, workspace, credentials, saveServiceAccount, cle
     if (!asset || !place) { delete data.pending[assetId]; return { kind: 'skipped' }; }
     const folderId = data.settings.folderId; const map = mapFor(folderId);
     const title = clip(asset.title || place.name, 200);
+    // The version this send carries, read before the page is: an edit saved while it is on its way is newer, so the
+    // report still reads as ahead of its Doc (Update in Drive).
+    const sourceAt = changedAt(asset);
     try {
       // A toolkit links its trends report's Doc once that is in Drive (n8n's "Full evidence" line).
       const sibling = asset.deliverableId === 'editorial-toolkit' ? list(source.assets).find((row) => row.runId === asset.runId && row.deliverableId === 'evidence-report') : null;
-      const doc = workspace.driveDocument(assetId, { trendsDocUrl: sibling ? map.files[sibling.id]?.url || '' : '' });
+      const trendsDocUrl = sibling ? map.files[sibling.id]?.url || '' : '';
+      const doc = workspace.driveDocument(assetId, { trendsDocUrl });
       if (!doc) { delete data.pending[assetId]; return { kind: 'skipped' }; }
       const image = asset.kind === 'image';
       const media = image ? doc.png : Buffer.from(safeGoogleDocHtml(doc.html));
@@ -182,14 +195,23 @@ function createDriveSync({ root, workspace, credentials, saveServiceAccount, cle
       const folderKey = place.folders[place.folders.length - 1].key;
       const hash = sha(Buffer.concat([Buffer.from(`${place.name}\n${folderKey}\n`), media]));
       const existing = map.files[assetId];
-      if (existing?.id && existing.hash === hash) { delete data.pending[assetId]; return { kind: 'unchanged', url: existing.url }; }
+      // Save to Drive asks Drive whether an unchanged Doc is still there, so one deleted or put in the trash in Drive is
+      // made again instead of reported as saved (with its folders looked up again, in case they went to the trash too).
+      const gone = reason === 'manual' && existing?.id && existing.hash === hash ? await conn.client.gone(existing.id, { signal }) : false;
+      if (gone) for (const folder of place.folders) delete map.folders[folder.key];
+      if (existing?.id && existing.hash === hash && !gone) {
+        delete data.pending[assetId];
+        // The same page as the Doc (an edit undone, say): the Doc is up to date with this version too.
+        if (sourceAt && existing.sourceAt !== sourceAt) { try { change(() => { mapFor(folderId).files[assetId].sourceAt = sourceAt; }); } catch (_) { /* only the Update in Drive hint */ } }
+        return { kind: 'unchanged', url: existing.url };
+      }
       const update = async (fileId) => {
         try { const result = await conn.client.updateFile(fileId, { name: place.name, media, mediaType: spec.mediaType }, { signal }); return result?.trashed ? null : result; }
         catch (error) { if (error.code === 'driveNotFound') return null; throw error; }
       };
       const put = async () => {
         const parentId = await ensureFolders(conn.client, place, map, signal);
-        if (existing?.id) { const updated = await update(existing.id); if (updated) return { file: updated, kind: 'updated' }; }
+        if (existing?.id && !gone) { const updated = await update(existing.id); if (updated) return { file: updated, kind: 'updated' }; }
         // Not in the map (or deleted in Drive): look for the copy this studio made before adding one.
         const tagged = (await conn.client.findTagged(parentId, 'studioAsset', assetId, { driveId: data.settings.driveId, signal }))[0];
         const updated = tagged ? await update(tagged.id) : null;
@@ -202,7 +224,8 @@ function createDriveSync({ root, workspace, credentials, saveServiceAccount, cle
       const { file, kind } = outcome;
       const url = conn.client.fileUrl(file);
       change(() => {
-        mapFor(folderId).files[assetId] = { id: file.id, url, name: place.name, mimeType: spec.mimeType, hash, folderKey, syncedAt: iso() };
+        // trendsLinked: whether a toolkit's Doc carries its trends report's link, so staleIds can tell when it could.
+        mapFor(folderId).files[assetId] = { id: file.id, url, name: place.name, mimeType: spec.mimeType, hash, folderKey, syncedAt: iso(), ...(sourceAt ? { sourceAt } : {}), ...(sibling ? { trendsLinked: Boolean(trendsDocUrl) } : {}) };
         settle(); data.lastSyncAt = iso(); data.lastError = '';
         logRow({ kind, assetId, title, where: where(place), url, reason });
       });
@@ -371,9 +394,47 @@ function createDriveSync({ root, workspace, credentials, saveServiceAccount, cle
   async function retry(payload = {}) {
     const assetId = String(record(payload).assetId || '');
     if (!/^[a-zA-Z0-9._~@-]{1,180}$/.test(assetId)) throw Object.assign(new Error('Choose a file from the sync log to retry.'), { status: 400 });
-    const result = await serial(() => syncAsset(assetId, { reason: 'retry' }));
+    let result;
+    manualSends += 1;
+    try { result = await serial(() => syncAsset(assetId, { reason: 'retry' })); } finally { manualSends -= 1; }
     emitState();
     return { ...result, driveSync: publicState() };
+  }
+
+  // ---------- Save to Drive (one report, from its reader; roles.json exportPublish) ----------
+  // While "Add every new report to Drive" is off, the report on screen goes to the folder now: one send through
+  // syncAsset, so it lands where the sync would put it, and the id map (with the studioAsset tag behind it) makes the first
+  // save add the Doc and every later one update that same Doc. Waits for Drive up to SAVE_NOW_MS, a wait behind another
+  // send included. Returns { ok, link, folderName, updated, unchanged } (unchanged: the Doc already had this version).
+  const refuse = (message, status, code) => Object.assign(new Error(message), { status, code });
+  async function saveNow(assetId, { timeoutMs = SAVE_NOW_MS } = {}) {
+    const id = String(assetId ?? '');
+    if (!/^[a-zA-Z0-9._~@-]{1,180}$/.test(id)) throw refuse('Open a report to save it to Google Drive.', 400, 'driveNoReport');
+    if (!ready()) throw refuse('Google Drive isn’t connected yet. An admin connects it in Settings → Google Drive.', 409, 'driveNotConnected');
+    if (data.settings.autoAdd) throw refuse('Google Drive sync is already on for every report.', 409, 'driveAutoAdd');
+    const source = workspace.driveSource();
+    const asset = list(source.assets).find((row) => row.id === id);
+    if (!asset) throw refuse('That report isn’t in this workspace anymore.', 404, 'driveNoReport');
+    if (!REPORTS[asset.deliverableId] || asset.kind !== 'text' || !placeFor(asset, source, { channelAssets: false })) throw refuse('Only trends reports, editorial toolkits and quick scan reports can be saved to Google Drive.', 400, 'driveNotReport');
+    const tooSlow = () => refuse('Google Drive is taking too long to answer. Try again in a minute.', 504, 'driveSlow');
+    // The limit covers the whole call: on time out the send in flight is stopped, and one still waiting its turn is skipped.
+    const controller = new AbortController();
+    let expire = () => {};
+    const expired = new Promise((_, reject) => { expire = () => { controller.abort(); reject(tooSlow()); }; });
+    expired.catch(() => {});
+    const timer = setTimer(() => expire(), timeoutMs);
+    manualSends += 1; // until it settles or times out, quitting warns (activeLine)
+    const sending = serial(() => { if (controller.signal.aborted) throw tooSlow(); return syncAsset(id, { reason: 'manual', signal: controller.signal }); });
+    sending.catch(() => {}); // after a time out its answer goes nowhere
+    let result;
+    try {
+      result = await Promise.race([sending, expired]);
+    } catch (error) {
+      if (controller.signal.aborted && error.code === 'driveCancelled') throw tooSlow();
+      throw error;
+    } finally { manualSends -= 1; clearTimer(timer); emitState(); }
+    if (result.kind === 'skipped') throw refuse('That report has nothing to save to Google Drive.', 400, 'driveNotReport');
+    return { ok: true, link: result.url || linkFor(id), folderName: data.settings.folderName || '', updated: result.kind === 'updated', unchanged: result.kind === 'unchanged' };
   }
 
   // ---------- State and host hooks ----------
@@ -400,6 +461,25 @@ function createDriveSync({ root, workspace, credentials, saveServiceAccount, cle
     return Object.fromEntries(Object.entries(map.files || {}).filter(([assetId, file]) => file?.url && (!keep || keep.has(assetId))).map(([assetId, file]) => [assetId, file.url]));
   }
   const linkFor = (assetId) => links([assetId])[assetId] || '';
+  // The reports whose Doc in the chosen folder is older than the report (edited or restored after the Doc was written),
+  // for Update in Drive. `assets` are asset records ({ id, runId, deliverableId, createdAt, edited, restored }). A file
+  // copied before the Doc's version was recorded is compared by when it was sent. A toolkit whose Doc was made before its
+  // trends report's is behind too: saving it again adds the "Full evidence" link.
+  function staleIds(assets) {
+    const map = data.settings.folderId ? data.maps[data.settings.folderId] : null; if (!map) return [];
+    const rows = list(assets);
+    const unlinked = (asset, file) => {
+      if (asset.deliverableId !== 'editorial-toolkit' || file.trendsLinked !== false) return false;
+      const sibling = rows.find((row) => row?.runId === asset.runId && row?.deliverableId === 'evidence-report');
+      return Boolean(sibling && map.files?.[sibling.id]?.url);
+    };
+    return rows.filter((asset) => {
+      const file = typeof asset?.id === 'string' ? map.files?.[asset.id] : null;
+      if (!file?.url) return false;
+      const docAt = Date.parse(file.sourceAt || file.syncedAt || '');
+      return (Number.isFinite(docAt) && Date.parse(changedAt(asset) || '') > docAt) || unlinked(asset, file);
+    }).map((asset) => asset.id);
+  }
   // The per-program "Publish reports to Google Drive" (before this sync) still runs while no folder is connected; once one
   // is, the studio-wide switch decides and the old route stays off, so a report never lands in Drive twice.
   const legacyPublish = (program) => !ready() && Boolean(program?.delivery?.publishToDrive);
@@ -412,9 +492,9 @@ function createDriveSync({ root, workspace, credentials, saveServiceAccount, cle
   }
   function start() { stopped = false; try { migratePrograms(); } catch (error) { console.warn(`Google Drive program settings couldn’t be read: ${error.message}`); } arm(); }
   function stop() { stopped = true; if (timer) { clearTimer(timer); timer = null; } backfill?.job?.abort?.(); }
-  const activeLine = () => (pumping ? 'Google Drive: adding reports' : '');
+  const activeLine = () => (pumping ? 'Google Drive: adding reports' : manualSends ? 'Google Drive: saving a report' : '');
 
-  return { connect, save, test, disconnect, readLog, retry, startBackfill, publicState, links, linkFor, legacyPublish, assetChanged, start, stop, activeLine, placeFor, syncAsset, pump, flush: () => chain };
+  return { connect, save, test, disconnect, readLog, retry, saveNow, startBackfill, publicState, links, linkFor, staleIds, legacyPublish, assetChanged, start, stop, activeLine, placeFor, syncAsset, pump, flush: () => chain };
 }
 
-module.exports = { createDriveSync, LOG_ROWS };
+module.exports = { createDriveSync, LOG_ROWS, SAVE_NOW_MS };

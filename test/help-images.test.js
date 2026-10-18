@@ -41,6 +41,18 @@ describe('Ask AI pictures', () => {
     expect(() => images.read('../secrets')).toThrow('no longer available');
   });
 
+  it('keeps who asked for each picture, and gives a channel owner only their own', async () => {
+    const { images } = setup();
+    const alex = await images.create({ prompt: 'A blog hero', title: 'Blog hero', ownerId: 'member-alex' });
+    const sam = await images.create({ prompt: 'A social graphic', title: 'Social graphic', ownerId: 'member-sam' });
+    expect(images.list().map((row) => row.id).sort()).toEqual([alex.id, sam.id].sort()); // admins and editors: every picture, as before
+    expect(images.list({ ownerId: 'member-alex' }).map((row) => row.title)).toEqual(['Blog hero']);
+    expect(images.read(alex.id, { ownerId: 'member-alex' }).dataUrl).toBe(alex.dataUrl);
+    expect(() => images.read(sam.id, { ownerId: 'member-alex' })).toThrow('That picture is no longer available.');
+    expect(() => images.pngPath(sam.id, { ownerId: 'member-alex' })).toThrow('That picture is no longer available.');
+    expect(images.pngPath(sam.id).title).toBe('Social graphic');
+  });
+
   it('refuses empty, oversized or oddly sized requests before anything is paid for', async () => {
     const { calls, images } = setup();
     await expect(images.create({ prompt: '   ' })).rejects.toThrow('Describe the picture first.');

@@ -18,13 +18,17 @@ const freezeList = (value) => Object.freeze([...value]);
 const ROLES = Object.freeze(POLICY.roles.map((role) => Object.freeze({ ...role })));
 const ROLE_IDS = freezeList(ROLES.map((role) => role.id));
 const BASES = freezeList(['admin', 'editor', 'channel']);
+const BASE_NAMES = new Set(BASES);
 const ROLE_BASES = freezeList(['editor', 'channel']); // what a custom role may be built on
 const COPY = Object.freeze({ ...POLICY.copy });
 const POLICY_VERSION = Number(POLICY.policyVersion) || 1;
 const CAPABILITY_GROUPS = Object.freeze(POLICY.capabilityGroups.map((group) => Object.freeze({ ...group })));
+// requiresByBase: { base: [ids] } replaces `requires` for that base (Ask AI on a channel role needs only Read reports and
+// assets). costsOptional: paid work an editor-based role may hold without See costs (Ask AI; it shows no cost line then).
+const byBase = (value) => Object.freeze(Object.fromEntries(Object.entries(value && typeof value === 'object' && !Array.isArray(value) ? value : {}).filter(([base]) => BASE_NAMES.has(base)).map(([base, ids]) => [base, freezeList(list(ids))])));
 const CAPABILITIES = Object.freeze(POLICY.capabilities.map((cap) => Object.freeze({
-  id: cap.id, group: cap.group, label: cap.label, description: cap.description, lock: cap.lock || '', spends: Boolean(cap.spends), projection: cap.projection || '',
-  since: Number(cap.since) || 1, requires: freezeList(list(cap.requires)), defaults: freezeList(list(cap.defaults)), bases: freezeList(list(cap.bases)), methods: freezeList(list(cap.methods)),
+  id: cap.id, group: cap.group, label: cap.label, description: cap.description, lock: cap.lock || '', spends: Boolean(cap.spends), costsOptional: Boolean(cap.costsOptional), projection: cap.projection || '',
+  since: Number(cap.since) || 1, requires: freezeList(list(cap.requires)), requiresByBase: byBase(cap.requiresByBase), defaults: freezeList(list(cap.defaults)), bases: freezeList(list(cap.bases)), methods: freezeList(list(cap.methods)),
 })));
 const CAPABILITY_IDS = freezeList(CAPABILITIES.map((cap) => cap.id));
 const CAP_BY_ID = new Map(CAPABILITIES.map((cap) => [cap.id, cap]));
@@ -54,9 +58,10 @@ function refusal(copyKey, vars, status = 403) {
 }
 
 // ---------- Capabilities ----------
-// What a capability needs besides itself: its own requirements, plus See costs for paid work on an editor base (paid
-// work shows its estimate before it starts). A channel base never needs costs: its sheets show minutes, never money.
-const requirementsOf = (cap, base) => [...cap.requires, ...(base === 'editor' && cap.spends ? ['seeCosts'] : [])];
+// What a capability needs besides itself: its own requirements (or the base's own list, requiresByBase), plus See costs
+// for paid work on an editor base (paid work shows its estimate before it starts) unless the work is costsOptional. A
+// channel base never needs costs: its sheets show minutes, never money.
+const requirementsOf = (cap, base) => [...(cap.requiresByBase?.[base] || cap.requires), ...(base === 'editor' && cap.spends && !cap.costsOptional ? ['seeCosts'] : [])];
 // Whether a base may ever hold a capability: admins hold everything; locked admin capabilities never leave admins.
 const baseMayHold = (cap, base) => base === 'admin' || (cap.lock !== 'admin' && cap.bases.includes(base));
 function close(set, base) {
@@ -315,7 +320,7 @@ function adoptionsByTheme(adoptions, workspaceId, editionId) {
   return result;
 }
 // Money, for a role without See costs: these keys (and any key ending in Usd) are removed wherever they appear.
-const MONEY_KEYS = new Set(['receipts', 'receipt', 'estimate', 'budgets', 'imageCalls']);
+const MONEY_KEYS = new Set(['receipts', 'receipt', 'estimate', 'budgets', 'imageCalls', 'costByStage']);
 // Any key ending in usd (estimateUsd, unitUsd, a plan item's usd) is money, whatever its case.
 const isMoneyKey = (key) => MONEY_KEYS.has(key) || /usd$/i.test(key);
 // Run status text can quote a budget or an estimate ("The AI budget ($2.00) is below the estimate of $3.40…"), and a
@@ -413,11 +418,15 @@ function notesView(studio, noteInbox, viewer, keep = null) {
   return { noteCounts: Object.fromEntries(Object.entries(counts).filter(([id]) => !keep || keep.has(id))), noteMentions: items };
 }
 
-// Open in Drive (drive-sync.js): contentStudio.driveLinks { [assetId]: Google Doc or Drive file url } from the base,
-// emptied for a role without Read reports and assets. Channel owners' view never carries it.
+// Open in Drive and Save to Drive (drive-sync.js): contentStudio.driveLinks { [assetId]: Google Doc or Drive file url }
+// and driveStale [assetId] (reports changed since their Doc was written) from the base, emptied for a role without Read
+// reports and assets. Channel owners' view never carries either.
 function driveLinksView(studio, viewer) {
-  if (!own(studio, 'driveLinks')) return {};
-  return { driveLinks: holds(viewer, 'readAssets') && isRecord(studio.driveLinks) ? studio.driveLinks : {} };
+  const reads = holds(viewer, 'readAssets');
+  return {
+    ...(own(studio, 'driveLinks') ? { driveLinks: reads && isRecord(studio.driveLinks) ? studio.driveLinks : {} } : {}),
+    ...(own(studio, 'driveStale') ? { driveStale: reads ? list(studio.driveStale).filter((id) => typeof id === 'string') : [] } : {}),
+  };
 }
 
 // The state a viewer receives. Always a new object; never writes `key: undefined`. Admin and editor bases get the full

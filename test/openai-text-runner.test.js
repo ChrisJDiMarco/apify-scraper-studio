@@ -36,6 +36,20 @@ describe('OpenAI text runner', () => {
     expect(calls[1].json.text.format).toEqual({ type: 'json_object' }); expect(calls[1].json.input).toContain('"answer"');
     expect(output).toEqual({ answer: 'Loose' }); expect(receipt).toMatchObject({ structuredOutput: 'schema in prompt', effortNote: 'gpt-5.6-terra doesn’t offer max reasoning here, so it ran at its default.' });
   });
+  it('reads the schema-in-prompt retry leniently, and keeps an unreadable answer’s text (redacted) with the same error', async () => {
+    const refusedSchema = () => json({ error: { message: "Invalid schema for response_format 'studio_answer'" } }, { status: 400 });
+    const fixed = await runner(fakeFetch([refusedSchema(), sse(completed('{"answer":"Tabs\tand\nbreaks","tip":"x",}'), { done: false })]).fetchImpl).run(base);
+    expect(fixed.output).toEqual({ answer: 'Tabs\tand\nbreaks', tip: 'x' }); expect(fixed.receipt).toMatchObject({ structuredOutput: 'schema in prompt', parse: 'repaired' });
+    const text = `{"answer":"Key ${KEY} and a "quote"."}`;
+    const error = await runner(fakeFetch([refusedSchema(), sse(completed(text), { done: false })]).fetchImpl).run(base).catch((failure) => failure);
+    expect(error).toMatchObject({ code: 'AI_INVALID_RESULT', message: 'The model’s answer wasn’t valid JSON. No unvalidated answer was saved.', schemaInPrompt: true, stopReason: 'completed', rawTextLength: text.length });
+    expect(error.costUsd).toBeGreaterThan(0);
+    expect(error.rawText).toBe('{"answer":"Key sk-… and a "quote"."}');
+    const wide = { ...schema, required: ['answer', 'tip', 'note'], properties: { ...schema.properties, note: { type: 'object', properties: { tip: { type: 'string' } } } } };
+    const stub = '{"answer":"Type "}" to close.","tip":"x","note":{"tip":"y"}}';
+    const nested = await runner(fakeFetch([refusedSchema(), sse(completed(stub), { done: false })]).fetchImpl).run({ ...base, schema: wide }).catch((failure) => failure);
+    expect(nested).toMatchObject({ code: 'AI_INVALID_RESULT', schemaInPrompt: true, rawText: stub });
+  });
   it('refuses a model without a known price before sending anything, and maps errors to plain messages without the key', async () => {
     const never = vi.fn();
     await expect(runner(never).run({ ...base, price: null, profile: {} })).rejects.toMatchObject({ code: 'AI_PRICE_UNKNOWN', costUsd: 0 });

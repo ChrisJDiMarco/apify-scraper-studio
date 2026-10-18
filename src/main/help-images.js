@@ -18,7 +18,8 @@ const NO_SET = Object.freeze({ family: 'none', label: '', images: [] });
 // edition() → its edition id; workspaceId() → its id. problem() (optional) → why pictures can't be made now ('' when they can).
 function createHelpImages({ generateImage, dir, isConfigured = () => true, problem = null, references = () => NO_SET, edition = () => 'general', workspaceId = () => '', now = () => new Date() }) {
   const file = (id, extension) => path.join(dir, `${id}.${extension}`);
-  async function create({ prompt, size = HELP_IMAGE_SIZES[0], title = '', family = 'none' } = {}) {
+  // ownerId: who asked for it (their identity id), kept in the receipt so a channel owner lists and opens only their own.
+  async function create({ prompt, size = HELP_IMAGE_SIZES[0], title = '', family = 'none', ownerId = '' } = {}) {
     const text = String(prompt || '').trim();
     if (!text) throw new Error('Describe the picture first.');
     if (text.length > MAX_PROMPT_CHARS) throw new Error('Keep the picture description under 4,000 characters.');
@@ -43,7 +44,7 @@ function createHelpImages({ generateImage, dir, isConfigured = () => true, probl
     });
     const receipt = image?.receipt || {};
     const summary = { label: set.label || '', ...referenceSummary(images) };
-    fs.writeFileSync(file(id, 'json'), JSON.stringify({ id, title: label, prompt: text, size, family: set.family || 'none', referenceSet: set.label || '', references: images.map(({ id: imageId, name, role, sha256 }) => ({ id: imageId, name, role, sha256 })), workspaceId: workspaceId(), createdAt: now().toISOString(), receipt }, null, 2));
+    fs.writeFileSync(file(id, 'json'), JSON.stringify({ id, title: label, prompt: text, size, family: set.family || 'none', referenceSet: set.label || '', references: images.map(({ id: imageId, name, role, sha256 }) => ({ id: imageId, name, role, sha256 })), workspaceId: workspaceId(), ...(ownerId ? { ownerId: String(ownerId) } : {}), createdAt: now().toISOString(), receipt }, null, 2));
     return {
       id, title: label, size, prompt: text, family: set.family || 'none', references: summary,
       dataUrl: `data:image/png;base64,${Buffer.from(image.png).toString('base64')}`,
@@ -55,24 +56,27 @@ function createHelpImages({ generateImage, dir, isConfigured = () => true, probl
   }
   const metaOf = (id) => { try { return JSON.parse(fs.readFileSync(file(id, 'json'), 'utf8')); } catch { return {}; } };
   const summaryOf = (meta) => ({ label: meta.referenceSet || '', ...referenceSummary(Array.isArray(meta.references) ? meta.references : []) });
-  // The saved PNG for a picture made here, for "Download".
-  function pngPath(id) {
+  // The saved PNG for a picture made here, for "Download". `ownerId` (a channel owner) limits it to their own pictures.
+  function pngPath(id, { ownerId = '' } = {}) {
     if (typeof id !== 'string' || !ID.test(id)) throw new Error('That picture is no longer available.');
     const target = file(id, 'png'); if (!fs.existsSync(target)) throw new Error('That picture is no longer available.');
-    return { path: target, title: metaOf(id).title || 'Ask AI picture' };
+    const meta = metaOf(id);
+    if (ownerId && meta.ownerId !== ownerId) throw new Error('That picture is no longer available.');
+    return { path: target, title: meta.title || 'Ask AI picture' };
   }
-  // Every saved picture, newest first, for Simple mode's Assets tab (metadata only; read() loads one image).
-  function list() {
+  // Every saved picture, newest first, for Simple mode's Assets tab (metadata only; read() loads one image). `ownerId`
+  // (a channel owner) lists only the pictures they made.
+  function list({ ownerId = '' } = {}) {
     let names = [];
     try { names = fs.readdirSync(dir); } catch { return []; }
     return names.filter((name) => ID.test(name.replace(/\.json$/, '')) && name.endsWith('.json') && !name.endsWith('.request.json'))
       .map((name) => { try { return JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')); } catch { return null; } })
-      .filter((meta) => meta && fs.existsSync(file(meta.id, 'png')))
+      .filter((meta) => meta && fs.existsSync(file(meta.id, 'png')) && (!ownerId || meta.ownerId === ownerId))
       .map((meta) => ({ id: meta.id, title: meta.title || 'Ask AI picture', prompt: meta.prompt || '', size: meta.size || HELP_IMAGE_SIZES[0], createdAt: meta.createdAt || '', costUsd: Number.isFinite(meta.receipt?.costUsd) ? meta.receipt.costUsd : null, family: meta.family || 'none', references: summaryOf(meta) }))
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   }
-  function read(id) {
-    const { path: target } = pngPath(id); const meta = metaOf(id);
+  function read(id, { ownerId = '' } = {}) {
+    const { path: target } = pngPath(id, { ownerId }); const meta = metaOf(id);
     return { id, dataUrl: `data:image/png;base64,${fs.readFileSync(target).toString('base64')}`, family: meta.family || 'none', references: summaryOf(meta) };
   }
   return { create, pngPath, list, read };

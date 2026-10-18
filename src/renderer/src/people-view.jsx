@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { Eye, Monitor, RefreshCw, UserPlus, Users } from 'lucide-react';
+import { ChevronDown, Eye, FolderOpen, Monitor, RefreshCw, UserPlus, Users } from 'lucide-react';
 import { Dialog, DialogClose, useToast } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { useUnsavedGuard } from './asset-editor.jsx';
@@ -27,12 +27,34 @@ const TABS = [['people', 'People'], ['roles', 'Roles'], ['log', 'Access log']];
 function readTab() { try { const value = window.localStorage.getItem(TAB_KEY); return TABS.some(([id]) => id === value) ? value : 'people'; } catch { return 'people'; } }
 function saveTab(value) { try { window.localStorage.setItem(TAB_KEY, value); } catch { /* a blocked store just forgets the tab */ } }
 
-function MacPeople({ channels, onPreview }) {
-  const here = place();
+// A greyed action that still explains itself. aria-disabled (not disabled) keeps it focusable, so the note shows on
+// hover and on keyboard focus, is read out through aria-describedby, and Escape hides it until the pointer or focus leaves.
+function ExplainedButton({ icon, label, note }) {
+  const noteId = useId(); const [dismissed, setDismissed] = useState(false);
+  return <span className={`people-hint${dismissed ? ' is-dismissed' : ''}`} onMouseLeave={() => setDismissed(false)} onBlur={() => setDismissed(false)}
+    onKeyDown={(event) => { if (event.key === 'Escape') setDismissed(true); }}>
+    <button type="button" className="studio-primary is-unavailable" aria-disabled="true" aria-describedby={noteId} onClick={(event) => event.preventDefault()}>{icon}{label}</button>
+    <span role="tooltip" id={noteId} className="people-hint-tip">{note}</span>
+  </span>;
+}
+
+// On the Mac (or PC) app nobody else can sign in, so inviting happens in the browser studio. This says how to get there.
+function MacPeople({ channels, onPreview, onOpenDataFolder }) {
+  const here = place(); const stepsId = useId(); const [open, setOpen] = useState(false);
   return <>
     <section className="people-mac-note" aria-labelledby="people-mac-title">
       <span className="people-mac-icon" aria-hidden="true"><Monitor size={22} /></span>
-      <div><h2 id="people-mac-title">Only you use the studio on {here}</h2><p>People sign in to the browser version of the studio. On {here} you’re the only user and always an admin. To check what someone else sees, use View as in the sidebar.</p></div>
+      <div><h2 id="people-mac-title">Only you use the studio on {here}</h2><p>This app is a studio for you alone: its work stays on {here}. Your team shares one studio in the browser version, and that’s where you invite people and choose their roles. To check what someone else would see, use View as in the sidebar.</p>
+        <button type="button" className="studio-quiet small people-setup-toggle" aria-expanded={open} aria-controls={stepsId} onClick={() => setOpen((value) => !value)}>How to set up the browser studio<ChevronDown size={15} aria-hidden="true" /></button>
+        {open && <div id={stepsId} className="people-setup">
+          <ol className="people-steps is-stacked">
+            <li><span>1</span>Your dev or IT team hosts the browser studio on a company server, behind company sign-in. The hosting guide comes with the studio’s code (docs/web-deploy.md).</li>
+            <li><span>2</span>To keep your work, they copy this app’s data folder to the server while both are stopped. Saved keys stay locked to {here}, so save them again in Settings there.</li>
+            <li><span>3</span>In the browser studio, open People & access and invite your team: choose each person’s role and, for channel owners, their channel.</li>
+          </ol>
+          {onOpenDataFolder && <button type="button" className="studio-quiet small" onClick={onOpenDataFolder}><FolderOpen size={15} aria-hidden="true" />Open data folder</button>}
+        </div>}
+      </div>
     </section>
     <section className="people-section" aria-labelledby="people-preview-title">
       <div className="people-section-head"><h2 id="people-preview-title" className="studio-section-title">Preview a role</h2>{onPreview && <button type="button" className="studio-quiet small" onClick={() => onPreview({ role: 'editor' })}><Eye size={15} aria-hidden="true" />Preview as an editor</button>}</div>
@@ -171,6 +193,7 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
     {team && <div className="studio-head-actions">
       {canPreviewAny && <button type="button" className="studio-quiet" onClick={() => setPreviewing(true)}><Eye size={16} aria-hidden="true" />Preview as…</button>}
       {canInvite && !firstRun && <button type="button" className="studio-primary" {...writeProps(viewer, busy)} onClick={() => setInvite({ preset: {} })}><UserPlus size={16} aria-hidden="true" />Invite people</button>}
+      {!web && <ExplainedButton icon={<UserPlus size={16} aria-hidden="true" />} label="Invite people" note={`People join through the browser version of the studio, where your team shares one studio. Invite them there once it’s set up; this app on ${place()} is for you alone.`} />}
     </div>}
   </div>;
   if (!available) return <div className="studio-screen studio-page people-page"><div className="studio-page-head"><div><h1>People & access</h1></div></div><div className="studio-empty"><p>People and roles aren’t available in this version of the studio.</p></div></div>;
@@ -186,7 +209,8 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
         </button>)}
       </div>
       <div role="tabpanel" id={`${tabsId}-${tab}-panel`} aria-labelledby={`${tabsId}-${tab}`} className="people-panel">
-        {tab === 'people' && !web && <MacPeople channels={channels} onPreview={previewTo ? preview : null} />}
+        {tab === 'people' && !web && <MacPeople channels={channels} onPreview={previewTo ? preview : null}
+          onOpenDataFolder={typeof api?.openDataFolder === 'function' ? () => (action ? action(() => api.openDataFolder(), 'Data folder opened.') : api.openDataFolder()) : null} />}
         {tab === 'people' && web && firstRun && <section className="people-first-run" aria-labelledby="people-first-title">
           <span className="people-mac-icon" aria-hidden="true"><Users size={22} /></span>
           <div><h2 id="people-first-title">Bring your team in</h2>

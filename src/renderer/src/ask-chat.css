@@ -1,5 +1,6 @@
 /* Ask AI's streaming chat (ask-thread.jsx, ask-steps.jsx, ask-composer.jsx), loaded after help-assistant.css. Colors are
-   tokens only: the --help-* set and the --ask-* tokens derived from it in help-assistant.css, so the dark theme follows.
+   tokens only: the --help-* set (named from the studio's --s-* tokens) and the --ask-* tokens derived from it in
+   help-assistant.css, so the edition's palette and the dark theme follow.
    Layout rules keep the answer still while it streams: the newest turn reserves the view's height, older turns skip
    rendering off screen, earlier lines never re-break as words arrive, and the steps line has a fixed height. */
 
@@ -33,17 +34,14 @@
 
 /* ── An answer ── */
 .help-answer.is-failed .ask-partial { opacity: .55; }
-.ask-note { margin: 0; font-size: 12px; color: var(--help-muted); }
-.help-page .ask-note { font-size: 13px; }
 .ask-read { margin-bottom: 0; }
-.help-followup-kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 650; color: var(--help-accent); }
-.ask-stopped { color: var(--help-muted); }
+.help-followup-kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--help-accent); }
 /* The caret at the end of the text being written. */
 .ask-streaming .markdown-content > :is(p, h1, h2, h3, h4, h5, h6):last-child::after,
 .ask-streaming .markdown-content > :is(ul, ol):last-child > li:last-child::after {
   content: ''; display: inline-block; inline-size: .5em; block-size: 1.05em; vertical-align: -.15em; margin-inline-start: 2px; border-radius: 2px;
   background: var(--ask-caret); animation: ask-caret var(--ask-caret-period) steps(1) infinite; }
-/* Links, cards and buttons rise in under the finished text, one after another. */
+/* Cards, references and buttons rise in under the finished text, one group after another. */
 .ask-rise { animation: ask-rise var(--ask-rise) both; animation-delay: calc(var(--i, 0) * 40ms); }
 
 /* ── The steps line ── */
@@ -76,12 +74,11 @@
 .ask-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-height: 26px; color: var(--ask-tool-ink); opacity: 0; transition: opacity 160ms ease; }
 .ask-user:hover .ask-tools, .help-answer:hover .ask-tools, .ask-tools:focus-within, .ask-tools.is-last { opacity: 1; }
 @media (hover: none) { .ask-tools { opacity: 1; } }
-.help-drawer .ask-tool { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 26px; height: 26px; min-height: 26px; padding: 0 5px; font-size: 11px; font-weight: 600; color: var(--ask-tool-ink); background: transparent; border: 0; border-radius: 7px; }
+.help-drawer .ask-tool { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 26px; height: 26px; min-height: 26px; padding: 0 5px; font-size: 12px; font-weight: 600; color: var(--ask-tool-ink); background: transparent; border: 0; border-radius: 7px; }
 .help-drawer .ask-tool:hover:not(:disabled) { color: var(--help-ink); background: var(--ask-tool-hover); }
 .help-drawer .ask-tool:disabled { opacity: .4; }
-.ask-tool-note { font-size: 11px; }
-.ask-tool-meta { padding: 0 4px; font-size: 11px; color: var(--ask-tool-ink); font-variant-numeric: tabular-nums; }
-.ask-tools .help-receipt { padding: 0 4px; }
+.ask-tool-note { font-size: 12px; }
+.ask-tool-meta { padding: 0 4px; font-size: 12px; color: var(--ask-tool-ink); font-variant-numeric: tabular-nums; }
 .ask-versions { display: inline-flex; align-items: center; }
 
 /* ── Jump to latest ── */
@@ -163,7 +160,7 @@
 }
 @media (max-width: 640px) {
   .help-page .ask-user { max-width: 90%; }
-  .help-page .ask-notices { width: calc(100% - 24px); }
+  .help-page .ask-notices { width: calc(100% - 32px); }
 }
 /* The sidebar's Ask AI item: an answer finished while Ask AI was closed (studio-sidebar.jsx useAskItem). */
 .studio-frame .studio-sidebar .sb-ask-dot { flex: none; align-self: center; width: 7px; height: 7px; margin-left: -4px; border-radius: 50%; background: var(--s-accent); }

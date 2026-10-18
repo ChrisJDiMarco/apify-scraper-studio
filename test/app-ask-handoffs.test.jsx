@@ -54,7 +54,7 @@ async function askInDrawer() {
 
 describe('Ask AI opens the research program it is about', () => {
   it('in the Advanced layout: the card, the Open button and the link each select that program', async () => {
-    await openStudio('classic');
+    const api = await openStudio('classic');
     const answer = await askInDrawer();
     // The newest program is what the page would open on by itself.
     fireEvent.click(within(answer).getByRole('button', { name: /See the program/ }));
@@ -62,15 +62,24 @@ describe('Ask AI opens the research program it is about', () => {
     expect(mainNav().getByRole('button', { name: /^Research programs/ })).toHaveAttribute('aria-current', 'page');
     expect(within(document.querySelector('.cs-research-main')).getByRole('heading', { level: 3, name: 'Older program' })).toBeInTheDocument();
 
-    // Already showing the page: the in-answer link and the Open button still move the selection.
+    // Already showing the page: the in-answer link still moves the selection. The Open button names the same program,
+    // so the answer shows the two as one reference chip.
     pickProgram('Newer program');
     expect(selectedProgram()).toBe('Newer program');
-    fireEvent.click(within(answer).getByRole('button', { name: /^Older program/ }));
+    const refs = within(answer).getByRole('group', { name: 'In this answer' });
+    expect(within(refs).getAllByRole('button').map((button) => button.textContent)).toEqual(['Older program']);
+    expect(within(answer).queryByRole('button', { name: 'Open the older program' })).toBeNull();
+    fireEvent.click(within(refs).getByRole('button', { name: /^Older program/ }));
     await waitFor(() => expect(selectedProgram()).toBe('Older program'));
+    // An answer whose text doesn't link it: its Open button is the chip, and runs through the shared runner.
     pickProgram('Newer program');
-    fireEvent.click(within(answer).getByRole('button', { name: 'Open the older program' }));
+    api.askHelp.mockImplementationOnce(async () => ({ ...reply, answer: 'Here it is.' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Scraper Studio' }), { target: { value: 'Open it' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send question' }));
+    await waitFor(() => expect(screen.getAllByRole('article', { name: 'Answer' })).toHaveLength(2));
+    const second = screen.getAllByRole('article', { name: 'Answer' })[1];
+    fireEvent.click(await within(second).findByRole('button', { name: 'Open the older program' }));
     await waitFor(() => expect(selectedProgram()).toBe('Older program'));
-    expect(await within(answer).findByText('Opened “Older program” in Research programs.')).toBeInTheDocument();
 
     // A request is taken once: choosing another program, leaving and coming back keeps that choice.
     pickProgram('Newer program');

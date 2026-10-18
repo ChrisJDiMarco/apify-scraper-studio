@@ -81,6 +81,23 @@ describe('Ask AI progress hub', () => {
     expect(progress.snapshot('person-a', 'req-00000005')).not.toBeNull(); // still readable until keepMs
   });
 
+  it('reads back a channel owner’s answers only in the space they were asked from', () => {
+    const { progress } = hub();
+    // Riley asked as an editor (no space), then from Blog's channel role.
+    progress.begin({ requestId: 'req-editor01', identityId: 'riley', question: 'Studio-wide' }).text('Studio-wide answer');
+    progress.begin({ requestId: 'req-blog0001', identityId: 'riley', question: 'For Blog', space: 'blog' }).text('Blog answer');
+    // As Blog's owner: only Blog's answer, by id or in the list.
+    expect(progress.snapshot('riley', 'req-editor01', { space: 'blog' })).toBeNull();
+    expect(progress.snapshot('riley', 'req-blog0001', { space: 'blog' })).toMatchObject({ text: 'Blog answer' });
+    expect(progress.active('riley', { space: 'blog' }).map((row) => row.requestId)).toEqual(['req-blog0001']);
+    // Moved on to Social: neither.
+    expect(progress.snapshot('riley', 'req-blog0001', { space: 'social' })).toBeNull();
+    expect(progress.active('riley', { space: 'social' })).toEqual([]);
+    // As an editor again (no space): everything Riley has.
+    expect(progress.active('riley').map((row) => row.requestId).sort()).toEqual(['req-blog0001', 'req-editor01']);
+    expect(progress.snapshot('riley', 'req-editor01', { space: undefined })).toMatchObject({ text: 'Studio-wide answer' });
+  });
+
   it('forgets finished answers after keepMs and keeps each person to their cap, never dropping one that is running', () => {
     const { progress, tick } = hub({ keepMs: 1000, maxPerPerson: 2 });
     const running = progress.begin({ requestId: 'req-run00001', identityId: 'p' });

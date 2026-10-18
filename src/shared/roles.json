@@ -1,5 +1,5 @@
 {
-  "//": "Who may call what. src/main/roles.js is the only reader of the policy; the renderer gets viewer.allowed, capabilities, nav, modes and hiddenPages in state and may import this file for labels and copy only. Every method in studio-api-channels.json sits in exactly one capability (test/roles.test.js); a method in none is admin-only. A composite method's capability is the same as, or requires, the capability of everything it can run. Admins hold every capability; editor- and channel-based roles hold what their role grants, adjusted per person (deny wins). lock 'admin' capabilities can never be granted; lock 'always' is held by everyone with a role. A channel-based role can only ever call channelSafeMethods. An editor-based role holding a spends capability also needs seeCosts, and a role without seeCosts never receives money fields.",
+  "//": "Who may call what. src/main/roles.js is the only reader of the policy; the renderer gets viewer.allowed, capabilities, nav, modes and hiddenPages in state and may import this file for labels and copy only. Every method in studio-api-channels.json sits in exactly one capability (test/roles.test.js); a method in none is admin-only. A composite method's capability is the same as, or requires, the capability of everything it can run. Admins hold every capability; editor- and channel-based roles hold what their role grants, adjusted per person (deny wins). lock 'admin' capabilities can never be granted; lock 'always' is held by everyone with a role. A channel-based role can only ever call channelSafeMethods. requiresByBase replaces requires for that base (Ask AI on a channel role needs only its channel's reads; its server side builds everything from the channel projection). An editor-based role holding a spends capability also needs seeCosts unless the capability is costsOptional (Ask AI: each answer is small and capped, and a role without seeCosts sees no cost line), and a role without seeCosts never receives money fields.",
   "policyVersion": 3,
   "roles": [
     { "id": "admin", "label": "Admin", "description": "Everything, including settings, people and analytics." },
@@ -41,7 +41,7 @@
       "methods": ["cancelStudioRun", "retryStudioRun", "cancelJob"] },
     { "id": "markTrendsUsed", "group": "reports", "label": "Mark trends used", "description": "Say whether a channel is using a trend, with its link and planned date.", "requires": ["readAssets"], "defaults": ["admin", "channel"], "bases": ["editor", "channel"],
       "methods": ["setTrendAdoption"] },
-    { "id": "askAi", "group": "ai", "label": "Use Ask AI", "description": "Ask about the studio and its research, keep conversations and memory, and make pictures.", "spends": true, "requires": ["readAssets", "readResearch"], "defaults": ["admin", "editor"], "bases": ["editor"],
+    { "id": "askAi", "group": "ai", "label": "Use Ask AI", "description": "Ask questions, find things and make drafts, within this role’s access. Conversations and memory are kept for each person.", "spends": true, "costsOptional": true, "requires": ["readAssets", "readResearch"], "requiresByBase": { "channel": ["readAssets"] }, "defaults": ["admin", "editor", "channel"], "bases": ["editor", "channel"],
       "methods": ["readAskProgress", "cancelAsk", "askHelp", "listAskConversations", "readAskConversation", "renameAskConversation", "deleteAskConversation", "recordAskOutcome", "listAskMemory", "saveAskMemory", "forgetAskMemory", "createHelpImage", "saveHelpImage", "listHelpImages", "readHelpImage"] },
     { "id": "viewPrompts", "group": "ai", "label": "See AI prompts", "description": "Read every prompt behind research, reports and assets, and preview them for free.", "defaults": ["admin", "editor"], "bases": ["editor"],
       "methods": ["listPrompts", "readPrompt", "previewPrompt", "diffPromptVersions", "estimatePromptTest"] },
@@ -57,8 +57,8 @@
       "methods": ["pickImportFile", "previewImportDataset", "importDataset", "compareDatasets", "saveMonitor", "refreshApifyActors", "searchSources", "previewSearchSources", "askFindings", "discoverApifyResource", "testRecipe", "saveRecipeVersion", "saveRecipe", "runRecipe", "readDataset", "exportDataset", "exportDatasetToSheets", "readAnalysis", "analyzeDataset", "openAnalysisOutput", "revealAnalysisOutput", "openAsset", "revealAsset", "saveAsset", "exportAssetPack", "saveBrandProfile", "selectBrandProfile"] },
     { "id": "deleteScrapers", "group": "data", "label": "Delete scrapers", "description": "Remove saved scrapers for good.", "requires": ["dataTools"], "defaults": ["admin"], "bases": ["editor"],
       "methods": ["deleteRecipe"] },
-    { "id": "exportPublish", "group": "data", "label": "Export and publish", "description": "Publish reports to Google Docs, export runs and reviews, and sync the trend board to Monday.", "requires": ["readAssets", "readResearch"], "defaults": ["admin", "editor"], "bases": ["editor"],
-      "methods": ["publishStudioRun", "exportStudioRun", "exportResearchReview", "syncTrendBoardToMonday", "readMondaySyncLog"] },
+    { "id": "exportPublish", "group": "data", "label": "Export and publish", "description": "Publish reports to Google Docs, save a report to the Google Drive folder, export runs and reviews, and sync the trend board to Monday.", "requires": ["readAssets", "readResearch"], "defaults": ["admin", "editor"], "bases": ["editor"],
+      "methods": ["publishStudioRun", "saveReportToDrive", "exportStudioRun", "exportResearchReview", "syncTrendBoardToMonday", "readMondaySyncLog"] },
     { "id": "seeCosts", "group": "studio", "label": "See costs and budgets", "description": "Costs, budgets and estimates. Anyone who can start paid work has this too.", "projection": "money", "defaults": ["admin", "editor"], "bases": ["editor"],
       "methods": [] },
     { "id": "managePrograms", "group": "studio", "label": "Manage research programs", "description": "Create and edit research programs, with their sources, budgets and schedules; set up playbooks and approve what workflows may spend.", "requires": ["readResearch", "seeCosts"], "defaults": ["admin"], "bases": ["editor"],
@@ -74,7 +74,7 @@
     { "id": "manageAccess", "group": "admin", "label": "People and access", "description": "Invite people, change roles and what each role can do, preview access and read the access log.", "lock": "admin", "defaults": ["admin"], "bases": [],
       "methods": ["getTeam", "saveMember", "removeMember", "createSignInLink", "revokeSignInLink", "setViewAs", "saveRolePolicy", "saveRole", "deleteRole", "saveMemberAccess", "inviteMembers", "readAccessLog", "previewAccess"] }
   ],
-  "channelSafeMethods": ["appMeta", "state", "contentCatalog", "openSourceUrl", "setViewPrefs", "planAssetKit", "createAssetKit", "saveAssetKitFolder", "readStudioAsset", "openStudioAsset", "cancelStudioRun", "retryStudioRun", "setTrendAdoption", "openReportDoc", "closeReportDoc", "listReportNotes", "saveReportNote", "resolveReportNote", "deleteReportNote"],
+  "channelSafeMethods": ["appMeta", "state", "contentCatalog", "openSourceUrl", "setViewPrefs", "planAssetKit", "createAssetKit", "saveAssetKitFolder", "readStudioAsset", "openStudioAsset", "cancelStudioRun", "retryStudioRun", "setTrendAdoption", "openReportDoc", "closeReportDoc", "listReportNotes", "saveReportNote", "resolveReportNote", "deleteReportNote", "readAskProgress", "cancelAsk", "askHelp", "listAskConversations", "readAskConversation", "renameAskConversation", "deleteAskConversation", "recordAskOutcome", "listAskMemory", "saveAskMemory", "forgetAskMemory", "createHelpImage", "saveHelpImage", "listHelpImages", "readHelpImage"],
   "noRoleMethods": ["appMeta", "state"],
   "identityMethods": ["appMeta", "state", "setViewAs", "setViewPrefs"],
   "//paidMethods": "Methods that spend outside a capability that spends (paid Settings checks and AI job tests): a server draining for a restart refuses them (studio-server.js DRAIN_REFUSED).",
@@ -83,15 +83,15 @@
   "//pages": "Each page and the capability that shows it, in this order for hiddenPages. Simple and Advanced share one namespace; the Advanced data-tools pages hide as one group (pageGroups), so a role without data tools keeps Simple Reports. channelPages are the channel owner's shell.",
   "pages": { "settings": "settings", "knowledge": "editBrand", "analytics": "seeAnalytics", "people": "manageAccess", "prompts": "viewPrompts", "home": "core", "trends": "readResearch", "reports": "readAssets", "assets": "readAssets", "inbox": "core", "calendar": "readAssets", "ask": "askAi", "overview": "core", "research": "readResearch", "board": "readResearch", "sheets": "sheets", "create": "writeReports", "library": "readAssets", "playbooks": "readWorkflows", "workflows": "readWorkflows" },
   "pageGroups": { "data-tools": "dataTools" },
-  "channelPages": { "trends": "readAssets", "assets": "readAssets", "plan": "markTrendsUsed", "inbox": "core" },
+  "channelPages": { "trends": "readAssets", "assets": "readAssets", "plan": "markTrendsUsed", "inbox": "core", "ask": "askAi" },
   "navOrder": {
     "full": { "main": ["home", "trends", "reports", "assets", "inbox", "calendar", "ask"], "admin": ["prompts", "analytics", "people"], "bottom": ["settings"] },
-    "channel": { "main": ["trends", "assets", "plan", "inbox"], "admin": [], "bottom": [] }
+    "channel": { "main": ["trends", "assets", "plan", "inbox", "ask"], "admin": [], "bottom": [] }
   },
   "roleTemplates": [
-    { "id": "viewer", "label": "Viewer", "description": "Reads reports, trends and evidence. Sees no costs and changes nothing.", "base": "editor", "capabilities": ["core", "readAssets", "readResearch"] },
+    { "id": "viewer", "label": "Viewer", "description": "Reads reports, trends and evidence, and asks Ask AI about them. Sees no costs and changes nothing.", "base": "editor", "capabilities": ["core", "readAssets", "readResearch", "askAi"] },
     { "id": "analyst", "label": "Analyst", "description": "Researches with quick scans, Ask AI, Sheets and data tools, and sees what they cost.", "base": "editor", "capabilities": ["core", "readAssets", "readResearch", "quickScans", "askAi", "viewPrompts", "sheets", "dataTools", "seeCosts", "manageRuns"] },
-    { "id": "channel-reviewer", "label": "Channel reviewer", "description": "Reads their channel’s trends and assets, and says which trends they used.", "base": "channel", "capabilities": ["core", "readAssets", "markTrendsUsed"] }
+    { "id": "channel-reviewer", "label": "Channel reviewer", "description": "Reads their channel’s trends and assets, asks Ask AI about them, and says which trends they used.", "base": "channel", "capabilities": ["core", "readAssets", "markTrendsUsed", "askAi"] }
   ],
   "copy": {
     "forbidden": "Only editors and admins can do that. Ask an admin if you need it.",

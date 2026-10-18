@@ -32,7 +32,7 @@ when the build changes. Errors the server didn't expect reach the browser as "So
 
 ## The RPC method registry
 
-`src/shared/studio-api-channels.json` lists every method the UI calls (187) and the main-process channel it maps to
+`src/shared/studio-api-channels.json` lists every method the UI calls (188) and the main-process channel it maps to
 (`studio:*`, `help:*`, `team:*` and older ones such as `save-key`). Three things must agree with it:
 
 1. `src/preload/index.js`: the Mac bridge, written by hand (`invoke('studio:x', payload)`).
@@ -72,7 +72,7 @@ See [HANDOFF.md → Data model and storage](HANDOFF.md#data-model-and-storage) f
 | `config.json` | `index.js` (`loadConfig`, `encryptValue`) | Encrypted keys, `KEY_NAMES`. |
 | `data.json` | `index.js` (`loadData`, `saveData`), validated by `src/shared/validation.js` | Settings and Data tools records. |
 | `content-studio/state.json` and `runs/` | `content-workspace.js` | The studio service: workspaces, programs, runs, assets. |
-| `content-studio/team.json` | `team-store.js` | Synchronous, atomic, versioned (v2). |
+| `content-studio/team.json` | `team-store.js` | Synchronous, atomic, versioned (v3); a newer file refuses to start. |
 | `content-studio/monday.json`, `monday-log.jsonl` | `monday-store.js` | Monday.com: per-workspace board link (setup saves check `rev`, 409 `mondaySetupChanged`), item map, people cache, calls today; the sync log (2,000 rows). Webhook secrets stored as sha256 only. |
 | `content-studio/drive-sync.json` | `drive-sync.js` | Google Drive folder sync: the chosen folder and switches (saves check `rev`, 409 `driveSetupChanged`), an id map per folder (folders by logical key, files by asset id), the queue, the sync log (200 rows). The service account key is in `config.json` (`GOOGLE_DRIVE_SERVICE_ACCOUNT`). |
 | `content-studio/ask/` | `ask-store.js` | Per-person folders keyed by a hash of the identity id. |
@@ -84,6 +84,7 @@ See [HANDOFF.md → Data model and storage](HANDOFF.md#data-model-and-storage) f
 | `content-studio/workflows.json` | `workflow-store.js` | Workflows, their runs and team playbooks. Synchronous, atomic, versioned (v1); a newer file refuses to start. Children carry `run.workflow` in `state.json`, written in the save that creates them, so `recover()` rebuilds a missed link. |
 | `v5/` | `index.js` + `src/shared/v5-core.js` | The retired v5 event log; only `recipe-version-saved` (and legacy-import) events are read, for Scrapers' saved versions (`state.v5.recipeVersions`, cached by the file's size and time). |
 | `ai-spend.json` | `ai-limits.js` | Today's recorded AI spend (only with a daily budget). |
+| `content-studio/diagnostics/` | `ai-diagnostics.js` | `ai-invalid-<time>.json`: an AI reply the studio couldn't read, keys redacted; newest 10, none past 30 days. |
 
 All JSON writes go through a temp-file + fsync + rename helper; there is no database and no cross-file transaction.
 
@@ -145,13 +146,21 @@ help-assistant.jsx ──help:ask { question, conversationId, requestId, page }�
 studio-actions.js runs a clicked button: role check, confirmation with estimate for paid work, the executor.
 ```
 
+**A channel owner's Ask AI** runs the same handler, loop and cleaner with a channel scope (`helpChannelOf` in
+`index.js`): the context, lookups, button resolver, cards and links come from `ask-channel.js` over that person's
+projected state (`access.project`, so exactly their channel view), the prompt is `channelPromptParts` with the app
+guide's channel owner sections, the schema has no pages, scan, edit or Show me, and only the `ask-actions.json` kinds
+whose `layouts` include `channel` are offered (run by `channel-ask.jsx`). Their conversations and memory live in their
+channel's space in `ask-store.js`. See [docs/roles-and-access.md](docs/roles-and-access.md#roles-and-capabilities).
+
 **The schema size limit.** The Anthropic API compiles the structured-output schema into a grammar and refuses one it
 judges too large. So the answer schema is flat: one top-level `scan`, one top-level `edit`, actions with `params` as
 `key=value` strings, cards as `{ type, ref, title, note, items: [string], actionIndexes }`, and long lists (pages,
 spots, action kinds, card types, lookup kinds) as plain strings the prompt lists and `cleanReply` checks.
 `test/help-assistant-prompts.test.js` holds it to 11 objects, 10 values per enum and 40 in total. If the API still
 refuses a grammar, `anthropic-runner.js` retries once with the schema written into the prompt (nothing is billed for
-the refused call); treat that as a fallback.
+the refused call); treat that as a fallback. That reply is read leniently (`src/shared/json-reply.js`); one that still
+can't be read leaves a file in `content-studio/diagnostics` (`ai-diagnostics.js`), and Ask AI keeps its answer field.
 
 **The action catalog.** `src/shared/ask-actions.json` lists 27 action kinds (plus 3 old names as aliases): label,
 target type, params, the methods a role must hold (all of them), `needs` (prompt view/edit, Google Drive), `spends`,

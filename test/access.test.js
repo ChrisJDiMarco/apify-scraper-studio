@@ -69,7 +69,7 @@ describe('deny by default', () => {
     const owner = setup(); const editor = setup({ identity: RILEY });
     expect(refused(() => owner.access.check('startResearchRun', { programId: 'p' }, owner.viewer()))).toMatchObject({ status: 403, code: 'forbidden', message: roles.COPY.forbidden });
     expect(refused(() => owner.access.check('saveSettings', {}, owner.viewer()))).toMatchObject({ status: 403, code: 'adminOnly' });
-    expect(refused(() => owner.access.check('askHelp', { question: 'hi' }, owner.viewer()))).toMatchObject({ status: 403 });
+    expect(refused(() => owner.access.check('readStudioRun', { runId: 'research-new' }, owner.viewer()))).toMatchObject({ status: 403, code: 'forbidden' });
     expect(refused(() => editor.access.check('saveSettings', {}, editor.viewer()))).toMatchObject({ status: 403, code: 'adminOnly', message: roles.COPY.adminOnly });
     expect(refused(() => editor.access.check('setViewAs', { role: 'editor' }, editor.viewer()))).toMatchObject({ code: 'adminOnly' });
     expect(refused(() => editor.access.check('someNewMethod', {}, editor.viewer()))).toMatchObject({ code: 'adminOnly' }); // unknown → admin only

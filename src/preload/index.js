@@ -191,6 +191,8 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   retryDriveSync: (payload) => invoke('drive:retry', payload),
   disconnectDriveSync: (payload) => invoke('drive:disconnect', payload),
   readDriveSyncLog: (payload) => invoke('drive:log', payload),
+  // Save to Drive on a report (admins and editors; refused while the folder sync adds every report by itself).
+  saveReportToDrive: (payload) => invoke('drive:save-report', payload),
   archiveAndClearSheets: (payload) => invoke('archive-and-clear-sheets', payload),
   importWorkingSheets: () => invoke('import-working-sheets'),
   exportDatasetToSheets: (payload) => invoke('export-dataset-to-sheets', payload),

@@ -235,8 +235,10 @@ npm run restore -- --from /var/backups/scraper-studio/scraper-studio-backup-<tim
 
 ## Upgrades and migrations
 
-- Always back up before an upgrade. There are no downgrades: `team.json` is migrated in place (v1 → v2) and a newer
-  `team.json` makes an older build refuse to start ("This team file is from a newer Scraper Studio").
+- Always back up before an upgrade. There are no downgrades: `team.json` is migrated in place (v1 → v2 → v3) and a
+  newer `team.json` makes an older build refuse to start ("This team file is from a newer Scraper Studio"). v3 (Ask AI
+  for every role) is written at the first change after the upgrade, so a 0.3.0 build can't open that data folder
+  afterwards; restore the pre-upgrade backup to go back.
 - **Rollback**: stop, restore the pre-upgrade backup, start the previous image or app version.
 - Damaged stores: a `data.json` or `config.json` that can't be parsed is copied to `<file>.bad-<time>` and the studio
   starts from defaults for that store (listed in `state.storeRecovery`); a file that can't be read at all stops startup.
@@ -309,6 +311,7 @@ store. Never bodies, passwords, tokens, cookies or keys. `STUDIO_LOG_LEVEL=debug
 | "Your company sign-in has expired" | The SSO session ended | Reload; check the proxy's session length and `api_routes` |
 | "Live updates are paused: the studio has too many open tabs" | `STUDIO_MAX_EVENT_STREAMS` reached | Raise it or close tabs; pages catch up every 30 s |
 | Long answers fail at about 100 s | Cloudflare's proxy limit (524) | Raise the limit (Enterprise) or use another proxy; Ask AI's Ask again joins the running answer |
+| Ask AI says the answer wasn't valid JSON ("Claude returned structured output that is not valid JSON", "The model's answer wasn't valid JSON") | The model's reply had a mistake the studio couldn't repair, often after the API refused the answer format as too large and the schema went into the prompt | Read the newest file in `content-studio/diagnostics` in the data folder: the reply's text (keys redacted), the route, model and stop reason; the newest 10 are kept, none past 30 days. When the answer itself was readable, Ask AI keeps it and says some extras couldn't be read |
 | "The app stopped during this run" | The process stopped mid-run | **Retry unfinished outputs**; finished work is kept |
 | Apify job ended ABORTED, or a source stopped at its cap | Its share of the collection budget ran out, or the time limit | Raise the collection budget and retry; kept rows aren't paid for again |
 | "This Claude app (…) is too old" | Outdated Claude Code on the host | `claude update`, then **Check Claude** |

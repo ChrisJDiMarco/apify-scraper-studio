@@ -132,6 +132,7 @@ Posts and documents are attacker-controllable text. Mitigations:
 | Ask AI | 200 conversations and 300 active memory items per person (oldest unpinned trimmed); deleting a conversation is permanent; removing a person deletes their conversations and memory. |
 | Team activity / access log | 5,000 / 2,000 rows. |
 | Browser transfers | Uploads and downloads expire after 10 minutes; the transfer folder is emptied at every start; export copies older than `STUDIO_EXPORT_DAYS` (7) are removed at start. |
+| AI replies the studio couldn't read (`content-studio/diagnostics`) | The newest 10 files, none older than 30 days (keys redacted, owner-only, 100 KB each). Not removed when a conversation, run or person is deleted; delete the folder to clear them. |
 | Backups | As long as the operator keeps them (`--keep`). They contain everything above. |
 | Copies in Google Drive (folder sync) | In Drive, under the organization's Drive retention; the studio never deletes them. Disconnect stops new copies and removes the key; the id map in `drive-sync.json` stays so a reconnect doesn't copy twice. |
 | Workspaces hidden by a one-workspace build | Kept on disk with all their records (hidden, not deleted), plus a one-time `content-studio/state.before-single-workspace.json` (0600, a copy of `state.json` from before the switch). Delete both deliberately if that data must go; see RUNBOOK. |

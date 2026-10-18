@@ -70,7 +70,8 @@ describe('the gate on the browser studio', () => {
   it('keeps a channel owner to their own channel', async () => {
     await expect(alex('save-settings', { aiProvider: 'claude' })).rejects.toMatchObject({ status: 403, message: 'Only an admin can do that.' });
     await expect(alex('studio:startResearchRun', { programId: 'program-pulse' })).rejects.toMatchObject({ status: 403, message: 'Only editors and admins can do that. Ask an admin if you need it.' });
-    await expect(alex('help:ask', { question: 'What is new?' })).rejects.toMatchObject({ status: 403 });
+    await expect(alex('studio:listPrompts', {})).rejects.toMatchObject({ status: 403 });
+    await expect(alex('studio:readStudioRun', { runId: 'research-1' })).rejects.toMatchObject({ status: 403 });
     await expect(alex('studio:readStudioAsset', { assetId: 'asset-kit-social' })).rejects.toMatchObject({ status: 403, message: 'That belongs to another channel.' });
     await expect(alex('studio:saveAssetKitFolder', { runId: 'content-kit-social' })).rejects.toMatchObject({ status: 403 });
     expect(cli.calls).toEqual([]); // nothing reached an AI
@@ -211,13 +212,13 @@ describe('the gate on the browser studio', () => {
     await expect(chris('team:save-role', { label: 'Viewer', base: 'editor', template: 'viewer', rev: access.rev })).rejects.toMatchObject({ status: 403, code: 'preview' }); // still previewing
     await chris('team:view-as', { role: 'admin' });
     const { role } = await chris('team:save-role', { label: 'Viewer', base: 'editor', template: 'viewer', rev: access.rev });
-    expect(role).toMatchObject({ label: 'Viewer', base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'] });
+    expect(role).toMatchObject({ label: 'Viewer', base: 'editor', capabilities: ['askAi', 'core', 'readAssets', 'readResearch'] });
     expect((await chris('team:view-as', { role: role.id })).viewer).toMatchObject({ preview: true, role: 'editor', roleId: role.id, roleLabel: 'Viewer' });
     const viewerState = await chris('state');
     expect(JSON.stringify(viewerState.contentStudio)).not.toMatch(/"costUsd"|"maxBudgetUsd"|"receipts"/); // no See costs, no money
     await chris('team:view-as', { role: 'admin' });
     await expect(riley('team:preview-access', { role: 'editor' })).rejects.toMatchObject({ status: 403, message: 'Only an admin can do that.' });
-    expect(await chris('team:preview-access', { role: role.id })).toMatchObject({ base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'], can: ['See research and evidence', 'Read reports and assets'] });
+    expect(await chris('team:preview-access', { role: role.id })).toMatchObject({ base: 'editor', capabilities: ['askAi', 'core', 'readAssets', 'readResearch'], can: ['See research and evidence', 'Read reports and assets', 'Use Ask AI'] });
     // The access log says what happened, newest first.
     const log = await chris('team:access-log', { limit: 10 });
     expect(log.rows.map((row) => row.text)).toEqual(expect.arrayContaining(['Chris made the Viewer role, built on Editor', 'Chris turned on Start research for Riley', 'Chris turned off Start research for Editor']));

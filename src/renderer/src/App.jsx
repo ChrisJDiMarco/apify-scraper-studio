@@ -41,6 +41,7 @@ import { PromptLibrary } from './prompt-library.jsx';
 import { LINK_COPIED, deepLinkTarget, linkFor, shareOrigin, useDeepLink } from './deep-links.js';
 import { NoAccess, PreviewBanner, copyText, useNarrow, useToast } from './role-screens.jsx';
 import { ChannelAssets, ChannelPlan, ChannelTrends } from './channel-owner.jsx';
+import { ChannelAskPage } from './channel-ask.jsx';
 import { AnalyticsView } from './analytics-view.jsx';
 import { PeopleView } from './people-view.jsx';
 import { UnsavedContext, createUnsavedGuard } from './asset-editor.jsx';
@@ -289,6 +290,8 @@ function StudioApp({ api }) {
   const [createRequest, setCreateRequest] = useState(null); // { key, mode: 'report' }: Create content opens on "Use a report"
   const [promptRequest, setPromptRequest] = useState(null); // { key, promptId, tab? }: Prompts opens that prompt once
   const [channelTrendFocus, setChannelTrendFocus] = useState(''); // a trend's brief to open on a channel owner's Trends (a share link, an Inbox row)
+  const [channelSeed, setChannelSeed] = useState(null); // a question for a channel owner's Ask AI page ({ key, text } or { key, draft })
+  const [channelLastTab, setChannelLastTab] = useState('trends'); // the channel page Ask AI was opened from, for its context
   const [inboxSeen, setInboxSeen] = useState(0); // bumps after Mark all read, so the badge also reads this browser's copy
   const [roleEpoch, setRoleEpoch] = useState(0); // bumps when someone else changes this person's role, to close open sheets
   const narrow = useNarrow();
@@ -313,6 +316,8 @@ function StudioApp({ api }) {
   const classicIds = new Set(navPages(classicShape).map((row) => row.id));
   const channelIds = navPages(channelShape).map((row) => row.id);
   const askPage = Boolean(simpleShape.actions.ask);
+  // A channel owner's Ask AI page, when their role has Use Ask AI (its answers come from their channel only).
+  const channelAsk = Boolean(channelShape.actions.ask);
   // Simple's pages in nav order (⌘1–9), then Ask AI, for SimpleMode and the Ask AI buttons that open a tab.
   const simpleTabs = [...simpleShape.order.map((row) => row.target), ...simplePages.filter((row) => row.kind !== 'settings' && !simpleShape.order.includes(row)).map((row) => row.target), ...(askPage ? ['ask'] : [])];
   const adminPages = simplePages.filter((row) => row.kind === 'admin').map((row) => row.id);
@@ -566,7 +571,12 @@ function StudioApp({ api }) {
     withViewTransition(() => setSimpleTab(next));
   }
   // `focus` is a trend to jump to in My assets, once: any other way there (the nav, ⌘2) starts at the top.
-  function goChannel(next, focus = '') { if (!channelIds.includes(next)) return; setChannelFocus(typeof focus === 'string' ? focus : ''); setChannelTrendFocus(''); withViewTransition(() => setChannelTab(next)); }
+  // 'ask' is the channel owner's Ask AI page (the sidebar's Ask AI, ⌘J), which remembers the page it was opened from.
+  function goChannel(next, focus = '') {
+    if (!channelIds.includes(next) && !(next === 'ask' && channelAsk)) return;
+    if (next === 'ask' && channelTab !== 'ask') setChannelLastTab(channelTab);
+    setChannelFocus(typeof focus === 'string' ? focus : ''); setChannelTrendFocus(''); withViewTransition(() => setChannelTab(next));
+  }
   // { key, section }: the Settings section to jump to (settings-sections.js ids; '' = the top), once per key.
   const [settingsRequest, setSettingsRequest] = useState(null);
   function openSettings(section = '') {
@@ -646,6 +656,13 @@ function StudioApp({ api }) {
       if (question) setShellRequest({ key: Date.now(), kind: 'ask', text: question, context: background, ...(Array.isArray(attachments) ? { attachments } : {}) });
       else if (start) setShellRequest({ key: Date.now(), kind: 'ask', draft: start });
       withViewTransition(() => setSimpleTab('ask'));
+      return;
+    }
+    if (mode === 'channel') {
+      if (!channelAsk) return;
+      if (question) setChannelSeed({ key: Date.now(), text: question, context: background, ...(Array.isArray(attachments) ? { attachments } : {}) });
+      else if (start) setChannelSeed({ key: Date.now(), draft: start });
+      goChannel('ask');
       return;
     }
     if (mode !== 'classic') return;
@@ -1014,7 +1031,7 @@ function StudioApp({ api }) {
     }
     expectedRole.current = null; previewReturn.current = null;
     if (!before.split('|')[1]) return; // just let in (from No access): the frame itself is the news
-    setRoleEpoch((value) => value + 1); setDrawerOpen(false); setPeek(false); setPaletteOpen(false); setHelpOpen(false); setHelpSeed(null); setShellRequest(null); setClassicTour(null); setPromptRequest(null); setPeopleRequest(null); setRunRequest(null); setCreateRequest(null);
+    setRoleEpoch((value) => value + 1); setDrawerOpen(false); setPeek(false); setPaletteOpen(false); setHelpOpen(false); setHelpSeed(null); setShellRequest(null); setChannelSeed(null); setClassicTour(null); setPromptRequest(null); setPeopleRequest(null); setRunRequest(null); setCreateRequest(null);
     const label = viewer.roleLabel || roleLabel(role);
     if (role) setNotice(`Your role changed to ${channelBase && viewer.channelName ? `${label} for ${viewer.channelName}` : label}.`);
   }, [roleKey, Boolean(state.viewer)]);
@@ -1023,14 +1040,15 @@ function StudioApp({ api }) {
     if (mode === 'simple' && !simpleAllowed(simpleTab)) setSimpleTab(simpleTabs[0] || 'home');
     if (mode === 'classic' && !pageAllowed(active)) setActive(api.contentCatalog ? 'content-studio' : 'dashboard');
     if (active === 'content-studio' && !studioAllowed(studioView)) setStudioView('overview');
-    if (mode === 'channel' && !channelIds.includes(channelTab)) setChannelTab(channelIds[0] || 'trends');
-  }, [roleKey, mode, adminPages.join('|'), settingsAllowed, simpleTabs.join('|'), channelIds.join('|')]);
+    if (mode === 'channel' && !channelIds.includes(channelTab) && !(channelTab === 'ask' && channelAsk)) setChannelTab(channelIds[0] || 'trends');
+  }, [roleKey, mode, adminPages.join('|'), settingsAllowed, simpleTabs.join('|'), channelIds.join('|'), channelAsk]);
   useEffect(() => { if (!narrow) setDrawerOpen(false); }, [narrow]);
   // A request belongs to the layout it was made in: leaving that layout drops it, so a page that mounts again later
   // (the Advanced drawer, Simple's Ask AI) never repeats an old question. Cleared before the next paint.
   useLayoutEffect(() => {
     if (mode !== 'classic') { setHelpSeed(null); setClassicTour(null); }
     if (mode !== 'simple') setShellRequest(null);
+    if (mode !== 'channel') setChannelSeed(null);
   }, [mode]);
   // The Library, Research programs, Create content, Prompts, People and Sheets act on their request when they open; once
   // the person leaves the page, it is spent, so coming back later starts where the page normally does.
@@ -1172,7 +1190,7 @@ function StudioApp({ api }) {
 
   const content = useMemo(() => {
     const common = { state, busy };
-    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} runRequest={runRequest} createRequest={createRequest} onViewChange={(view) => { if (view !== studioView && !guard.confirmLeave()) return; withViewTransition(() => setStudioView(view)); }} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onProgramRequestHandled={(key) => setProgramRequest((current) => (current?.key === key ? null : current))} onAsk={askAllowed ? (text, context, extra) => openAskAiRef.current(text, { context, attachments: extra?.attachments }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} onMakeAssets={(request) => openKitDialogRef.current(request)} onContextChange={setClassicContext} briefingActions={briefingActionsRef.current} web={web} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice(`Asset ${revealed}.`))} />} />;
+    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} runRequest={runRequest} createRequest={createRequest} onViewChange={(view) => { if (view !== studioView && !guard.confirmLeave()) return; withViewTransition(() => setStudioView(view)); }} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onProgramRequestHandled={(key) => setProgramRequest((current) => (current?.key === key ? null : current))} onAsk={askAllowed ? (text, context, extra) => openAskAiRef.current(text, { context, attachments: extra?.attachments }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} onMakeAssets={(request) => openKitDialogRef.current(request)} onContextChange={setClassicContext} briefingActions={briefingActionsRef.current} web={web} onOpenTarget={(target) => openTargetRef.current(target)} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice(`Asset ${revealed}.`))} />} />;
     if (active === 'sheets') return <SheetsView api={api} state={state} initialWorkbookId={sheetRequest.id} workbookRequestKey={sheetRequest.key} onNavigate={(target, args = {}) => (target === 'research-programs' ? (args?.runId ? openTargetRef.current({ kind: 'run', id: String(args.runId), page: 'research' }) : navigateStudio('research')) : target === 'trend-board' ? navigateStudio('board') : navigate(target))} />;
     if (active === 'templates') return <TemplateLibraryView {...common} onChooseTemplate={choosePlaybook} onNavigate={navigate} />;
     if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), '', true)} onNavigate={navigate} />;
@@ -1374,8 +1392,11 @@ function StudioApp({ api }) {
   const revealNav = (open) => { if (narrow && mode !== 'channel') setDrawerOpen(Boolean(open)); };
 
   const main = mode === 'channel'
-    ? <main className="channel-main" key={`channel-${roleEpoch}`}>
-      {channelTab === 'assets'
+    ? <main className="channel-main" key={`channel-${roleEpoch}`} data-tab={channelTab}>
+      {channelTab === 'ask' && channelAsk
+        ? <ChannelAskPage api={askApi} state={state} viewer={viewer} can={can} canRun={canRun} action={runAction} askAdmin={askAdmin} web={web} seed={channelSeed} lastTab={channelLastTab}
+          onOpenTrend={(themeId) => { goChannel('trends'); setChannelTrendFocus(themeId || ''); }} onOpenFolder={(themeId) => goChannel('assets', themeId || '')} onOpenTab={(tab) => goChannel(tab)} />
+        : channelTab === 'assets'
         ? <ChannelAssets api={api} web={web} view={channelView} viewer={viewer} busy={busy} action={runAction} cache={channelCache} onCache={(key, url) => setChannelCache((current) => ({ ...current, [key]: url }))} focusThemeId={channelFocus} />
         : SHARED_PAGES[channelTab] ? renderSharedPage(channelTab)
           : <ChannelTrends api={api} view={channelView} viewer={viewer} busy={busy} action={runAction} imagesReady={studioState.capabilities?.imagesConfigured ?? true} onOpenAssets={(themeId) => goChannel('assets', themeId || '')} onPrefs={(patch) => Promise.resolve(api.setViewPrefs?.(patch)).catch(() => null)} onToast={setNotice} linkOrigin={linkOrigin} focusThemeId={channelTrendFocus} />}
@@ -1397,7 +1418,7 @@ function StudioApp({ api }) {
     <div ref={frameRef} className={`app-shell studio-frame${web ? '' : ' is-desktop'}`} data-platform={isMac() ? 'mac' : 'other'} data-edition={semrushShell ? 'semrush' : 'general'} data-mode={mode} data-rail={rail ? '' : undefined}>
       <StudioSidebar edition={semrushShell ? 'semrush' : 'general'} meta={meta} web={web} viewer={viewer} nav={nav} activeId={activeNavId} mode={mode} busy={busy} workspaces={contentWorkspaces} activeWorkspaceId={contentWorkspace?.id || ''}
         rail={rail} onToggleRail={toggleRail} drawerOpen={drawerOpen} onCloseDrawer={() => setDrawerOpen(false)}
-        onNavigate={openNavItem} onCreate={createFromNav} onSearch={() => setPaletteOpen(true)} onAsk={toggleAsk} askCurrent={mode === 'simple' && simpleTab === 'ask'} askExpanded={mode === 'classic' && helpOpen} onToggleDataTools={toggleDataTools}
+        onNavigate={openNavItem} onCreate={createFromNav} onSearch={() => setPaletteOpen(true)} onAsk={toggleAsk} askCurrent={(mode === 'simple' && simpleTab === 'ask') || (mode === 'channel' && channelTab === 'ask')} askExpanded={mode === 'classic' && helpOpen} onToggleDataTools={toggleDataTools}
         onSelectWorkspace={switchWorkspace} onNewWorkspace={newWorkspace} singleWorkspace={singleWorkspace} onViewAs={api.setViewAs && realAdmin ? viewAs : undefined} onMode={chooseMode} onSignOut={signOut}
         working={working} onSaveFocusChannels={typeof api.setViewPrefs === 'function' ? saveFocusChannels : undefined} newMenuKey={newMenuKey} />
       <div className="studio-main">
@@ -1408,7 +1429,7 @@ function StudioApp({ api }) {
         {mode !== 'channel' && <CommandPalette open={paletteOpen} items={paletteOpen ? paletteEntries() : []} fallback={paletteFallback} limit={{ idle: 6, search: 8 }} onClose={() => setPaletteOpen(false)} onRun={runPaletteItem} />}
         {mode === 'classic' && classicTour && !loading && <Spotlight key={classicTour.key} steps={classicTour.steps} onPrepare={prepareClassicSpot} onClose={() => { setClassicTour(null); if (narrow) setDrawerOpen(false); }} onBackToChat={() => { setClassicTour(null); if (narrow) setDrawerOpen(false); setHelpOpen(true); }} />}
         {mode === 'channel' && (error || notice) && <div className={`studio-toast${error ? ' error' : ''}`} role={error ? 'alert' : 'status'} onMouseEnter={() => setNoticeHeld(true)} onMouseLeave={() => setNoticeHeld(false)}><span>{error || notice}</span><button type="button" className="studio-toast-close" aria-label="Dismiss" onClick={dismiss}><X size={15} aria-hidden="true" /></button></div>}
-        {mode === 'channel' && <ChannelBottomNav items={navPages(nav)} active={channelTab} onNavigate={goChannel} />}
+        {mode === 'channel' && <ChannelBottomNav items={[...navPages(nav), ...(nav.actions.ask ? [{ id: 'ask', label: nav.actions.ask.label, icon: nav.actions.ask.icon, spot: nav.actions.ask.spot }] : [])]} active={channelTab} onNavigate={goChannel} />}
         {mode === 'classic' && classicUndoToast}
         {kitHost}
         {playbookHost}

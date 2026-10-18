@@ -15,6 +15,19 @@
 .people-steps li { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--s-ink); }
 .people-steps li > span { display: grid; place-items: center; width: 24px; height: 24px; font-size: 12.5px; font-weight: 700; background: var(--s-accent); border-radius: 50%; }
 .people-steps li + li::before { content: '→'; margin-right: 10px; color: var(--s-muted); }
+.people-steps.is-stacked { flex-direction: column; gap: 10px; max-width: 640px; }
+.people-steps.is-stacked li { align-items: flex-start; line-height: 1.5; }
+.people-steps.is-stacked li > span { flex: none; margin-top: 1px; }
+.people-steps.is-stacked li + li::before { content: none; }
+.studio-frame .people-setup-toggle { justify-self: start; }
+.studio-frame .people-setup-toggle svg { transition: transform .15s ease; }
+.studio-frame .people-setup-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.people-setup { display: grid; gap: 12px; justify-items: start; padding-top: 2px; }
+/* A greyed button that explains itself on hover and keyboard focus (ExplainedButton). */
+.people-hint { position: relative; display: inline-flex; }
+.studio-frame .studio-primary.is-unavailable { opacity: .45; cursor: not-allowed; box-shadow: none; }
+.people-hint-tip { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: 290px; padding: 10px 12px; font-size: 13px; line-height: 1.45; font-weight: 500; color: #fff; background: var(--s-ink); border-radius: 10px; box-shadow: 0 10px 24px rgba(24, 30, 21, .18); opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .12s ease, transform .12s ease, visibility .12s; pointer-events: none; }
+.people-hint:is(:hover, :focus-within):not(.is-dismissed) .people-hint-tip { opacity: 1; visibility: visible; transform: none; }
 
 /* Channel coverage. */
 .people-coverage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }

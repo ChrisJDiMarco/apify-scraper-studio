@@ -5,6 +5,7 @@
   --s-ink: #181e15; --s-muted: #62685e; --s-faint: #6a7068; /* 4.68:1 on --s-bg, 5.08:1 on --s-card (WCAG AA) */ --s-line: #e3e8e4; --s-line-strong: #cfd6d0; --s-bg: #f4f6f5; --s-card: #ffffff;
   --s-accent: #c190ff; --s-accent-strong: #a873f2; --s-soft: #f1eaff; --s-soft-ink: #5a2fa0; --s-mint: #dceeeb; --s-mint-ink: #1f5a4c;
   --s-warn: #fff4dc; --s-warn-ink: #6b5413; --s-danger: #8a2f1c; --s-danger-soft: #fbe7df;
+  --s-warm: #fcefe3; --s-warm-ink: #7a4416; /* questions and choices (Ask AI's choice, plan and form cards) */
   --s-radius: 20px; --s-radius-row: 16px; --s-radius-control: 12px;
   --s-shadow: 0 1px 2px rgba(24, 30, 21, .04), 0 12px 32px rgba(24, 30, 21, .06);
   --s-shadow-pop: 0 30px 80px rgba(0, 0, 0, .28);
@@ -20,6 +21,7 @@
 :root[data-theme="dark"] .studio-frame, .studio-frame[data-theme="dark"] {
   --s-ink: #eef2ee; --s-muted: #a3aaa1; --s-faint: #868e84; --s-line: #2b322b; --s-line-strong: #3a423a; --s-bg: #121611; --s-card: #1a1f19;
   --s-soft: #2a2140; --s-soft-ink: #d9c6ff; --s-mint: #16302a; --s-mint-ink: #8fe0c8; --s-warn: #3a2f12; --s-warn-ink: #f0d58a; --s-danger: #f0a08e; --s-danger-soft: #3b1d16;
+  --s-warm: #36240f; --s-warm-ink: #f3c793;
   --s-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 12px 32px rgba(0, 0, 0, .35); --s-shadow-pop: 0 30px 80px rgba(0, 0, 0, .6);
   --s-sidebar-bg: #151a14; --s-nav-active: var(--s-soft);
 }
@@ -31,6 +33,8 @@
 .studio-main > :is(.workspace, .simple-shell, main) { flex: 1 1 auto; min-height: 0; height: auto; }
 .app-shell.studio-frame .studio-main > .workspace { height: auto; }
 .studio-frame[data-mode="channel"] .studio-main > main { overflow-y: auto; padding: 36px 28px 72px; }
+/* A channel owner's Ask AI page fills the column, as Simple's does. */
+.studio-frame[data-mode="channel"] .studio-main > main[data-tab="ask"] { position: relative; overflow: hidden; padding: 0; }
 /* Simple's toast centres over the main column, not the window. */
 .app-shell.studio-frame .simple-toast { left: calc(50% + var(--s-sidebar-width) / 2); }
 .studio-frame .simple-count { font-size: 11.5px; }
@@ -86,6 +90,7 @@
   .app-shell.studio-frame[data-edition] { grid-template-columns: minmax(0, 1fr); }
   .app-shell.studio-frame .simple-toast { left: 50%; }
   .studio-frame[data-mode="channel"] .studio-main > main { padding: 22px 16px calc(56px + env(safe-area-inset-bottom) + 32px); }
+  .studio-frame[data-mode="channel"] .studio-main > main[data-tab="ask"] { padding: 0 0 calc(56px + env(safe-area-inset-bottom)); }
   .studio-frame[data-mode="channel"] .studio-toast { bottom: calc(56px + env(safe-area-inset-bottom) + 14px); }
 }
 @media (min-width: 861px) { .studio-topbar, .studio-bottom-nav, .studio-scrim { display: none; } }
@@ -111,8 +116,8 @@
 
 /* Buttons. Each class sets its own hover so premium.css's green fill never shows through. */
 .studio-frame :is(.studio-primary, .studio-quiet, .studio-danger, .studio-link, .studio-icon-button) { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; line-height: 1.2; text-decoration: none; box-shadow: none; transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease; }
-.studio-frame .studio-primary { min-height: 42px; padding: 0 18px; font-size: 14px; font-weight: 650; color: var(--s-ink); background: var(--s-accent); border: 0; border-radius: 999px; }
-.studio-frame .studio-primary:hover:not(:disabled) { color: var(--s-ink); background: var(--s-accent-strong); }
+.studio-frame .studio-primary { min-height: 42px; padding: 0 18px; font-size: 14px; font-weight: 650; color: var(--s-on-accent); background: var(--s-accent); border: 0; border-radius: 999px; }
+.studio-frame .studio-primary:hover:not(:disabled) { color: var(--s-on-accent); background: var(--s-accent-strong); }
 .studio-frame .studio-quiet { min-height: 40px; padding: 0 16px; font-size: 13.5px; font-weight: 600; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; }
 .studio-frame .studio-quiet:hover:not(:disabled) { color: var(--s-ink); background: var(--s-bg); border-color: var(--s-line-strong); }
 .studio-frame .studio-danger { min-height: 40px; padding: 0 16px; font-size: 13.5px; font-weight: 600; color: var(--s-danger); background: var(--s-card); border: 1px solid #efd4d1; border-radius: 999px; }

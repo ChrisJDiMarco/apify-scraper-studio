@@ -20,6 +20,8 @@ const copies = [
   ['src/shared/ai-models.json', 'out/shared/ai-models.json'],
   ['src/shared/ai-tasks.json', 'out/shared/ai-tasks.json'],
   ['src/shared/structured-stream.js', 'out/shared/structured-stream.js'], // Ask AI's answer as it is written
+  ['src/shared/json-reply.js', 'out/shared/json-reply.js'], // a model's JSON reply read leniently (the text runners)
+  ['src/main/ai-diagnostics.js', 'out/main/ai-diagnostics.js'], // content-studio/diagnostics: answers that couldn't be read
   ['src/main/ai-http.js', 'out/main/ai-http.js'],
   ['src/main/ai-catalog.js', 'out/main/ai-catalog.js'],
   ['src/main/ai-routing.js', 'out/main/ai-routing.js'],
@@ -34,6 +36,7 @@ const copies = [
   ['src/main/help-images.js', 'out/main/help-images.js'],
   ['src/main/help-assistant.js', 'out/main/help-assistant.js'],
   ['src/main/ask-store.js', 'out/main/ask-store.js'], // Ask AI conversations and memory
+  ['src/main/ask-channel.js', 'out/main/ask-channel.js'], // a channel owner's Ask AI, from their channel view only
   ['src/main/ask-followups.js', 'out/main/ask-followups.js'], // messages a run started from Ask AI posts there
   ['src/main/ask-progress.js', 'out/main/ask-progress.js'], // Ask AI's streamed answers and their steps
   ['src/main/ask-estimate.js', 'out/main/ask-estimate.js'], // the cost line under Ask AI's question box

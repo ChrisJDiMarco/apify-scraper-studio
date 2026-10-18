@@ -7,7 +7,8 @@
 // ('prompt'). A 400 about the schema retries once with the schema in the prompt. The key is never logged and the base
 // URL is pinned (no environment override). Electron-free; fetch is injected.
 const { STUDIO_SYSTEM_PROMPT } = require('../shared/claude-runner');
-const { toApiSchema, answerFormat, jsonFrom, planBudget, GRAMMAR_REFUSED, RAISE_BUDGET, usd } = require('../shared/anthropic-runner');
+const { toApiSchema, answerFormat, planBudget, GRAMMAR_REFUSED, RAISE_BUDGET, RAW_TEXT_BYTES, usd } = require('../shared/anthropic-runner');
+const { parseJsonReply, schemaAccept, clipText } = require('../shared/json-reply');
 const { fetchJson, readSse, wait, httpError } = require('./ai-http');
 
 const OPENROUTER_API = 'https://openrouter.ai/api/v1';
@@ -179,14 +180,18 @@ function createOpenRouterRunner({ getKey, fetchImpl = globalThis.fetch, clock = 
     if (reply.finish === 'content_filter') throw runnerError(`${model}’s provider declined this request. No answer was saved.`, 'AI_REFUSED', fields);
     if (reply.finish && !['stop', 'end_turn'].includes(reply.finish)) throw runnerError(`The model stopped before finishing (${reply.finish}). No unvalidated answer was saved.`, 'AI_INVALID_RESULT', fields);
     if (!reply.text.trim()) throw runnerError('The model returned no answer. No unvalidated answer was saved.', 'AI_INVALID_RESULT', fields);
-    let output;
-    try { output = structured === 'native' ? JSON.parse(reply.text) : jsonFrom(reply.text); } catch (_) { throw runnerError('The model’s answer wasn’t valid JSON. No unvalidated answer was saved.', 'AI_INVALID_RESULT', fields); }
+    // A strict schema's answer is JSON as sent; one written with the schema in the prompt is read leniently (json-reply.js),
+    // and only an object shaped like the answer counts (schemaAccept). An answer that can't be read keeps its text
+    // (redacted, 200 KB at most) for the local diagnostic and Ask AI.
+    let output; let parse = 'none';
+    try { ({ value: output, repaired: parse } = parseJsonReply(reply.text, { lenient: structured !== 'native', accept: schemaAccept(schema) })); }
+    catch (_) { throw runnerError('The model’s answer wasn’t valid JSON. No unvalidated answer was saved.', 'AI_INVALID_RESULT', { ...fields, rawText: clipText(redact(reply.text), RAW_TEXT_BYTES), rawTextLength: reply.text.length, schemaInPrompt: structured !== 'native', stopReason: reply.finish || '' }); }
     if (!isObject(output)) throw runnerError('The model’s answer wasn’t a JSON object. No unvalidated answer was saved.', 'AI_INVALID_RESULT', fields);
     if (structured === 'native') output = stripNulls(output, toApiSchema(schema));
     const usage = reply.usage ? { prompt_tokens: reply.usage.prompt_tokens ?? null, completion_tokens: reply.usage.completion_tokens ?? null, cached_tokens: reply.usage.prompt_tokens_details?.cached_tokens ?? null, reasoning_tokens: reply.usage.completion_tokens_details?.reasoning_tokens ?? null } : null;
     return {
       output,
-      receipt: { provider: 'openrouter', requestedModel: model, actualModel: reply.returnedModel || model, effort: reasoning?.effort || '', ...(effort && !reasoning ? { effortNote: `${model} takes no reasoning setting on OpenRouter, so it ran at its default.` } : {}), costUsd: reply.costUsd, costBasis: reply.costUsd == null ? 'OpenRouter charge not reported yet' : 'OpenRouter charge', usage, durationMs: Math.max(0, clock() - startedAt), requestId: reply.generationId || null, structuredOutput: structured === 'native' ? 'native' : 'schema in prompt', maxTokens },
+      receipt: { provider: 'openrouter', requestedModel: model, actualModel: reply.returnedModel || model, effort: reasoning?.effort || '', ...(effort && !reasoning ? { effortNote: `${model} takes no reasoning setting on OpenRouter, so it ran at its default.` } : {}), costUsd: reply.costUsd, costBasis: reply.costUsd == null ? 'OpenRouter charge not reported yet' : 'OpenRouter charge', usage, durationMs: Math.max(0, clock() - startedAt), requestId: reply.generationId || null, structuredOutput: structured === 'native' ? 'native' : 'schema in prompt', maxTokens, ...(parse !== 'none' ? { parse } : {}) },
     };
   }
 

@@ -185,7 +185,9 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   const semrush = edition === 'semrush';
   const modes = list(viewer.modes).length ? list(viewer.modes) : ['simple', 'classic'];
   const settingsAllowed = !channelShell && can('saveSettings') && !hidden.has('settings');
-  const askAllowed = !channelShell && can('askHelp') && (layout !== 'simple' || ((!listedMain || listedMain.has('ask')) && !hidden.has('ask')));
+  // Ask AI: Advanced's drawer for anyone who may ask; Simple's page and the channel layout's page when the role lists it
+  // (viewer.nav, from Use Ask AI) too. A channel owner's Ask AI answers from their channel only (the server's side).
+  const askAllowed = can('askHelp') && (layout === 'classic' || ((!listedMain || listedMain.has('ask')) && !hidden.has('ask')));
   const simpleAllowed = (id) => (!listedMain || listedMain.has(id)) && !hidden.has(id);
 
   // Live work and warnings, from state; counts of work waiting on this person, from the caller.
@@ -278,7 +280,7 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   const actions = {
     create,
     search: channelShell ? null : { label: 'Search…', shortcut: '⌘K', spot: 'nav.find' },
-    ask: askAllowed ? { id: 'ask', label: 'Ask AI', icon: 'Sparkles', shortcut: '⌘J', spot: 'nav.ask', mode: layout === 'simple' ? 'page' : 'drawer' } : null,
+    ask: askAllowed ? { id: 'ask', label: 'Ask AI', icon: 'Sparkles', shortcut: '⌘J', spot: 'nav.ask', mode: layout === 'classic' ? 'drawer' : 'page' } : null,
   };
   const footer = {
     layouts: !channelShell && !isChannelViewer(viewer) && modes.includes('simple') && modes.includes('classic') ? LAYOUTS.map((row) => ({ ...row })) : [],

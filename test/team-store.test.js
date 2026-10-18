@@ -29,7 +29,7 @@ describe('team file', () => {
     h.store.saveMember({ name: 'Alex', email: 'Alex@Semrush.com ', role: 'channel', channelId: 'blog' }, ADMIN);
     const saved = h.file();
     expect(saved).toMatchObject({ version: TEAM_VERSION, members: [{ name: 'Alex', email: 'alex@semrush.com', role: 'channel', channelId: 'blog', grants: [], denies: [], disabled: false, createdBy: { id: 'owner', name: 'Studio admin' }, lastSeenAt: '', link: null }], roles: [], rolePolicy: { rev: 0, builtIn: {} }, adoptions: [], activity: [], audit: [], prefs: {} });
-    expect(TEAM_VERSION).toBe(2);
+    expect(TEAM_VERSION).toBe(3);
     expect(saved.members[0].id).toMatch(/^member-[0-9a-f-]{36}$/);
     expect(fs.readdirSync(h.root).filter((name) => name.endsWith('.tmp'))).toEqual([]);
     if (process.platform !== 'win32') expect(fs.statSync(path.join(h.root, 'team.json')).mode & 0o777).toBe(0o600);
@@ -44,8 +44,9 @@ describe('team file', () => {
     expect(() => harness({ files: { 'team.json': JSON.stringify({ version: TEAM_VERSION + 1, members: [] }) }, openNow: false }).open()).toThrow('This team file is from a newer Scraper Studio. Update the app or server.');
     const legacy = harness({ files: { 'team.json': JSON.stringify({ members: [{ id: 'member-1', name: 'Pat', email: 'pat@semrush.com', role: 'editor' }] }) } });
     expect(legacy.store.listMembers()).toMatchObject([{ id: 'member-1', role: 'editor', channelId: null, grants: [], denies: [], disabled: false, link: null, serverAdmin: false }]);
-    // Version 1 becomes version 2 with no access changes: everyone keeps exactly what they had.
-    expect(migrate({ version: 1, members: [{ id: 'member-1', role: 'editor' }] })).toEqual({ version: 2, members: [{ id: 'member-1', role: 'editor', grants: [], denies: [] }], roles: [], rolePolicy: { rev: 0, updatedAt: '', updatedBy: null, builtIn: {} }, audit: [] });
+    // Version 1 becomes version 2 with no access changes (everyone keeps exactly what they had), then 3, which only
+    // touches custom roles (a v1 file has none).
+    expect(migrate({ version: 1, members: [{ id: 'member-1', role: 'editor' }] })).toEqual({ version: 3, members: [{ id: 'member-1', role: 'editor', grants: [], denies: [] }], roles: [], rolePolicy: { rev: 0, updatedAt: '', updatedBy: null, builtIn: {} }, audit: [] });
     expect(legacy.store.identityFor(legacy.store.memberById('member-1'))).toMatchObject({ role: 'editor', roleId: 'editor' });
   });
 
@@ -394,7 +395,7 @@ describe('roles and access (team.json v2)', () => {
     expect(refusal(() => store.saveRolePolicy({ rev: 0, builtIn: { editor: { grant: [], deny: [] } } }, by))).toMatchObject({ status: 409, code: 'policyConflict', message: expect.stringMatching(/^Alex changed roles at .+, after you opened them\. Reload to see the latest\.$/) });
     expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { admin: { deny: ['settings'] } } }, by))).toMatchObject({ code: 'adminAccess', status: 400 });
     expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { editor: { grant: ['settings'] } } }, by))).toMatchObject({ code: 'lockedCapability', message: 'Only admins can have “Settings and connections”.' });
-    expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { channel: { grant: ['askAi'] } } }, by))).toMatchObject({ code: 'notForChannelRoles' });
+    expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { channel: { grant: ['readResearch'] } } }, by))).toMatchObject({ code: 'notForChannelRoles' });
     expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { editor: { deny: ['readResearch'] } } }, by))).toMatchObject({ code: 'needsCapability' });
     expect(refusal(() => store.saveRolePolicy({ rev: 1, builtIn: { editor: { grant: ['teleport'] } } }, by))?.status).toBe(400);
     // Saving the defaults back clears the adjustment.
@@ -406,7 +407,7 @@ describe('roles and access (team.json v2)', () => {
   it('makes, renames and deletes custom roles, moving their people in the same write', () => {
     const { h, store, riley, sam } = team();
     const made = store.saveRole({ label: 'Viewer', base: 'editor', template: 'viewer', rev: 0 }, ADMIN);
-    expect(made.role).toMatchObject({ label: 'Viewer', base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'], template: 'viewer', policyVersion: 3 });
+    expect(made.role).toMatchObject({ label: 'Viewer', base: 'editor', capabilities: ['askAi', 'core', 'readAssets', 'readResearch'], template: 'viewer', policyVersion: 3 });
     expect(made.role.id).toMatch(/^role-viewer-[0-9a-f]{4}$/);
     expect(made.audit[0]).toMatchObject({ kind: 'role-created', target: { type: 'role', id: made.role.id, name: 'Viewer' } });
     expect(refusal(() => store.saveRole({ label: 'viewer', base: 'editor', rev: 1 }, ADMIN))).toMatchObject({ code: 'roleName' });
@@ -415,8 +416,8 @@ describe('roles and access (team.json v2)', () => {
     expect(refusal(() => store.saveRole({ label: 'Reviewers', base: 'channel', template: 'viewer', rev: 1 }, ADMIN))?.message).toMatch(/different kind of role/);
     expect(refusal(() => store.saveRole({ label: 'Boss', base: 'admin', rev: 1 }, ADMIN))?.status).toBe(400);
     expect(refusal(() => store.saveRole({ label: 'Late', base: 'editor', rev: 0 }, ADMIN))?.code).toBe('policyConflict');
-    const renamed = store.saveRole({ id: made.role.id, label: 'Readers', description: 'Read only.', capabilities: ['readAssets', 'readResearch', 'sheets'], rev: 1 }, ADMIN);
-    expect(renamed.role).toMatchObject({ label: 'Readers', description: 'Read only.', capabilities: ['core', 'readAssets', 'readResearch', 'sheets'] });
+    const renamed = store.saveRole({ id: made.role.id, label: 'Readers', description: 'Read only.', capabilities: ['askAi', 'readAssets', 'readResearch', 'sheets'], rev: 1 }, ADMIN);
+    expect(renamed.role).toMatchObject({ label: 'Readers', description: 'Read only.', capabilities: ['askAi', 'core', 'readAssets', 'readResearch', 'sheets'] });
     expect(renamed.audit[0].changes.map((change) => change.field)).toEqual(['label', 'description', 'capability']);
     // People can have it; their identity carries the base and the role.
     store.saveMember({ id: riley.id, role: made.role.id }, ADMIN);
@@ -448,7 +449,7 @@ describe('roles and access (team.json v2)', () => {
     expect(store.saveMemberAccess({ id: riley.id, grants: ['seeAnalytics'], denies: ['askAi', 'editPrompts'] }, ADMIN).audit).toEqual([]); // no change
     expect(refusal(() => store.saveMemberAccess({ id: alex.id, grants: ['askAi'] }, ADMIN))).toMatchObject({ code: 'adminAccess' });
     expect(refusal(() => store.saveMemberAccess({ id: riley.id, grants: ['settings'] }, ADMIN))).toMatchObject({ code: 'lockedCapability' });
-    expect(refusal(() => store.saveMemberAccess({ id: sam.id, grants: ['askAi'] }, ADMIN))).toMatchObject({ code: 'notForChannelRoles' });
+    expect(refusal(() => store.saveMemberAccess({ id: sam.id, grants: ['readResearch'] }, ADMIN))).toMatchObject({ code: 'notForChannelRoles' });
     expect(refusal(() => store.saveMemberAccess({ id: riley.id, grants: ['startResearch'], denies: ['readResearch'] }, ADMIN))).toMatchObject({ code: 'needsCapability', message: '“Start research” also needs “See research and evidence”.' });
     expect(refusal(() => store.saveMemberAccess({ id: riley.id, grants: [] }, { id: riley.id, name: 'Riley' }))).toMatchObject({ code: 'selfChange' });
     expect(refusal(() => store.saveMemberAccess({ id: 'member-missing' }, ADMIN))?.status).toBe(404);
@@ -494,5 +495,116 @@ describe('roles and access (team.json v2)', () => {
     expect(h.store.auditFor({ memberId: 'member-alex' }).rows).toHaveLength(1); // rows they made
     for (let index = 0; index < 5; index++) h.store.log('research-started', 'semrush', { programName: 'Pulse' }, { id: 'member-alex', name: 'Alex' });
     expect(h.file().audit).toHaveLength(AUDIT_LIMIT);
+  });
+});
+
+describe('Ask AI on for every role (team.json v3)', () => {
+  const AT = '2026-10-10T10:00:00.000Z';
+  const member = (id, role, extra = {}) => ({ id, name: id.replace('member-', ''), email: `${id.replace('member-', '')}@example.com`, role, channelId: null, disabled: false, grants: [], denies: [], createdAt: AT, updatedAt: AT, lastSeenAt: '', link: null, ...extra });
+  // A v2 studio from before Ask AI was for everyone: custom roles without it, one an admin turned it off for (in the
+  // access log), one without the reads Ask AI needs, and an Editor role an admin had turned Ask AI off for.
+  const v2 = () => JSON.stringify({
+    version: 2,
+    members: [member('member-alex', 'admin'), member('member-sam', 'role-readers-0001'), member('member-riley', 'role-reviewers-0002', { channelId: 'blog' }), member('member-jordan', 'channel', { channelId: 'social', denies: ['makeAssets'] })],
+    roles: [
+      { id: 'role-readers-0001', label: 'Readers', base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'], template: 'viewer', policyVersion: 3, createdAt: AT, updatedAt: AT },
+      { id: 'role-reviewers-0002', label: 'Reviewers', base: 'channel', capabilities: ['core', 'markTrendsUsed', 'readAssets'], template: 'channel-reviewer', policyVersion: 3, createdAt: AT, updatedAt: AT },
+      { id: 'role-quiet-0003', label: 'Quiet', base: 'editor', capabilities: ['core', 'readAssets', 'readResearch', 'sheets'], template: '', policyVersion: 3, createdAt: AT, updatedAt: AT },
+      { id: 'role-briefs-0004', label: 'Briefs only', base: 'editor', capabilities: ['core', 'readAssets'], template: '', policyVersion: 3, createdAt: AT, updatedAt: AT },
+    ],
+    rolePolicy: { rev: 4, updatedAt: AT, updatedBy: { id: 'member-alex', name: 'Alex' }, builtIn: { editor: { grant: [], deny: ['askAi'] } } },
+    adoptions: [], activity: [], prefs: {},
+    audit: [{ id: 'audit-1', at: AT, by: { id: 'member-alex', name: 'Alex' }, kind: 'role-changed', target: { type: 'role', id: 'role-quiet-0003', name: 'Quiet' }, changes: [{ field: 'capability', capability: 'askAi', from: true, to: false }], affected: 0 }],
+  });
+  const capsOf = (store, roleId) => store.accessPolicy().roles.get(roleId).capabilities;
+
+  it('turns Ask AI on once for the roles that lack it, and leaves an admin’s Off, the admin role and everything else alone', () => {
+    const h = harness({ files: { 'team.json': v2() } });
+    const { store } = h;
+    expect(capsOf(store, 'role-readers-0001')).toEqual(['askAi', 'core', 'readAssets', 'readResearch']);
+    expect(capsOf(store, 'role-reviewers-0002')).toEqual(['askAi', 'core', 'markTrendsUsed', 'readAssets']);
+    expect(capsOf(store, 'channel')).toContain('askAi'); // the built-in Channel owner, from roles.json's defaults
+    expect(capsOf(store, 'role-quiet-0003')).not.toContain('askAi'); // an admin turned it off for this role
+    expect(capsOf(store, 'role-briefs-0004')).toEqual(['core', 'readAssets']); // it lacks See research and evidence, which Ask AI needs on an editor base
+    expect(capsOf(store, 'editor')).not.toContain('askAi'); // an admin's Off on the built-in Editor stays
+    expect(capsOf(store, 'admin')).toHaveLength(28);
+    // People's own access is untouched: Jordan's Off for Make channel assets stays, and Jordan has Ask AI from the role.
+    expect(store.accessFor('member-jordan')).toEqual({ grants: [], denies: ['makeAssets'] });
+    // The access log says what changed, as Automatic, with who it affects.
+    const rows = store.auditFor({}).rows.filter((row) => row.by?.id === 'system');
+    expect(rows.map((row) => [row.kind, row.target.id, row.changes[0]])).toEqual([['policy-changed', 'role-reviewers-0002', { field: 'capability', capability: 'askAi', from: false, to: true }], ['policy-changed', 'role-readers-0001', { field: 'capability', capability: 'askAi', from: false, to: true }]]);
+    expect(rows.find((row) => row.target.id === 'role-readers-0001').affected).toBe(1);
+    // Until the next write the file keeps its old version; opening again gives the same result, with no new rows.
+    expect(h.file().version).toBe(2);
+    const again = h.open();
+    expect(capsOf(again, 'role-readers-0001')).toContain('askAi');
+    expect(again.auditFor({}).rows.filter((row) => row.by?.id === 'system')).toHaveLength(2);
+  });
+
+  it('keeps an admin’s later Off through restarts and upgrades: the default is applied only once', () => {
+    const h = harness({ files: { 'team.json': v2() } });
+    const by = { id: 'member-alex', name: 'Alex' };
+    const policy = h.store.accessSummary();
+    const off = h.store.saveRolePolicy({ rev: policy.rev, builtIn: { channel: { grant: [], deny: ['askAi'] } }, custom: [{ id: 'role-readers-0001', capabilities: ['core', 'readAssets', 'readResearch'] }] }, by);
+    expect(off.audit.map((row) => [row.target.id, row.changes[0].capability, row.changes[0].to])).toEqual([['channel', 'askAi', false], ['role-readers-0001', 'askAi', false]]);
+    expect(h.file()).toMatchObject({ version: 3, rolePolicy: { builtIn: { channel: { grant: [], deny: ['askAi'] } } } });
+    // A restart reads version 3: nothing turns it back on.
+    for (let restart = 0; restart < 2; restart++) {
+      const store = h.open();
+      expect(capsOf(store, 'channel')).not.toContain('askAi');
+      expect(capsOf(store, 'role-readers-0001')).not.toContain('askAi');
+      expect(capsOf(store, 'role-reviewers-0002')).toContain('askAi');
+    }
+    // Turned back on, it stays on too.
+    const store = h.open();
+    store.saveRolePolicy({ rev: store.accessSummary().rev, builtIn: { channel: { grant: [], deny: [] } } }, by);
+    expect(capsOf(h.open(), 'channel')).toContain('askAi');
+    expect(h.file().rolePolicy.builtIn).not.toHaveProperty('channel');
+  });
+
+  it('gives Ask AI back where it went off only because See costs went off, and keeps an Off an admin chose', () => {
+    const LATER = '2026-10-12T09:00:00.000Z';
+    const row = (id, kind, target, changes) => ({ id, at: kind === 'deliberate' ? LATER : AT, by: { id: 'member-alex', name: 'Alex' }, kind: target.type === 'member' ? 'member-access' : 'role-changed', target, changes, affected: 0 });
+    const capChange = (capability, from = true, to = false) => ({ field: 'capability', capability, from, to });
+    const file = (editorRows) => JSON.stringify({
+      version: 2,
+      members: [member('member-alex', 'admin'), member('member-riley', 'editor', { denies: ['askAi', 'seeCosts'] }), member('member-jordan', 'editor', { denies: ['askAi', 'seeCosts'] }), member('member-sam', 'role-analysts-0005')],
+      roles: [{ id: 'role-analysts-0005', label: 'Analysts', base: 'editor', capabilities: ['core', 'dataTools', 'readAssets', 'readResearch', 'sheets', 'viewPrompts'], template: 'analyst', policyVersion: 3, createdAt: AT, updatedAt: AT }],
+      rolePolicy: { rev: 6, updatedAt: AT, updatedBy: { id: 'member-alex', name: 'Alex' }, builtIn: { editor: { grant: [], deny: ['askAi', 'manageRuns', 'quickScans', 'seeCosts'] } } },
+      adoptions: [], activity: [], prefs: {},
+      audit: [
+        // See costs off for Analysts, in one row with what it turned off.
+        row('audit-1', 'cascade', { type: 'role', id: 'role-analysts-0005', name: 'Analysts' }, [capChange('seeCosts'), capChange('askAi'), capChange('quickScans')]),
+        // See costs off for Editor: one row per capability, written together.
+        ...editorRows,
+        // Riley's own See costs Off took Ask AI with it; Jordan's Ask AI Off was its own save.
+        row('audit-6', 'cascade', { type: 'member', id: 'member-riley', name: 'riley' }, [capChange('askAi', 'default', 'off'), capChange('seeCosts', 'default', 'off')]),
+        row('audit-7', 'cascade', { type: 'member', id: 'member-jordan', name: 'jordan' }, [capChange('seeCosts', 'default', 'off')]),
+        row('audit-8', 'deliberate', { type: 'member', id: 'member-jordan', name: 'jordan' }, [capChange('askAi', 'default', 'off')]),
+      ],
+    });
+    const editorTogether = ['seeCosts', 'askAi', 'quickScans', 'manageRuns'].map((capability, at) => ({ ...row(`audit-e${at}`, 'cascade', { type: 'role', id: 'editor', name: 'Editor' }, [capChange(capability)]), kind: 'policy-changed' }));
+    const { store } = harness({ files: { 'team.json': file(editorTogether) } });
+    expect(capsOf(store, 'role-analysts-0005')).toContain('askAi');
+    expect(capsOf(store, 'role-analysts-0005')).not.toContain('seeCosts');
+    expect(capsOf(store, 'editor')).toContain('askAi');
+    expect(store.accessSummary().roles.find((role) => role.id === 'editor').overrides).toEqual({ grant: [], deny: ['manageRuns', 'quickScans', 'seeCosts'] });
+    expect(store.accessFor('member-riley')).toEqual({ grants: [], denies: ['seeCosts'] });
+    expect(store.accessFor('member-jordan')).toEqual({ grants: [], denies: ['askAi', 'seeCosts'] }); // an admin turned it off for Jordan
+    const automatic = store.auditFor({}).rows.filter((entry) => entry.by?.id === 'system').map((entry) => [entry.kind, entry.target.id, entry.changes[0].from, entry.changes[0].to]);
+    expect(automatic).toEqual(expect.arrayContaining([['policy-changed', 'role-analysts-0005', false, true], ['policy-changed', 'editor', false, true], ['member-access', 'member-riley', 'off', 'default']]));
+    expect(automatic).toHaveLength(3);
+    // An Editor Off that an admin chose before See costs went off stays.
+    const chosen = [{ ...row('audit-e9', 'deliberate', { type: 'role', id: 'editor', name: 'Editor' }, [capChange('askAi')]), at: AT, kind: 'policy-changed' }, { ...row('audit-e10', 'deliberate', { type: 'role', id: 'editor', name: 'Editor' }, [capChange('seeCosts')]), kind: 'policy-changed' }];
+    expect(capsOf(harness({ files: { 'team.json': file(chosen) } }).store, 'editor')).not.toContain('askAi');
+  });
+
+  it('tells People & access what Ask AI needs on each kind of role', () => {
+    const { store } = harness();
+    const ask = store.accessSummary().capabilities.find((cap) => cap.id === 'askAi');
+    expect(ask).toMatchObject({ label: 'Use Ask AI', bases: ['editor', 'channel'], defaults: ['admin', 'editor', 'channel'], spends: true, costsOptional: true, requires: ['readAssets', 'readResearch'], requiresByBase: { channel: ['readAssets'] } });
+    expect(ask.description).toMatch(/^Ask questions, find things and make drafts, within this role’s access\./);
+    // A new role from any template starts with it.
+    for (const template of store.accessSummary().templates) expect(template.capabilities).toContain('askAi');
   });
 });

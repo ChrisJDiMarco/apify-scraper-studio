@@ -223,10 +223,16 @@ function createAskStore({ root, now = () => new Date() } = {}) {
   }
 
   // ---------- Conversations ----------
+  // A channel owner's Ask AI keeps its own space: conversations and memory made from a channel role carry that channel
+  // (channelId), and a channel asker sees only those. A call with no channelId (admins and editors) sees everything the
+  // person has. So a person moved from Editor to a channel role never reads back answers written from the whole studio,
+  // and one moved to another channel doesn't see the old channel's.
+  const spaceOf = (channelId) => (typeof channelId === 'string' && channelId ? channelId : null);
+  const inSpace = (channelId) => { const space = spaceOf(channelId); return (row) => !space || (row?.channelId || '') === space; };
   function metaOf(conversation) {
     const messages = list(conversation.messages);
     const lastAnswer = [...messages].reverse().find((message) => message.role === 'assistant');
-    return { id: conversation.id, title: conversation.title, workspaceId: conversation.workspaceId || '', createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, messageCount: messages.length, preview: plainPreview(lastAnswer?.content || messages[messages.length - 1]?.content || ''), pinned: Boolean(conversation.pinned) };
+    return { id: conversation.id, title: conversation.title, workspaceId: conversation.workspaceId || '', ...(conversation.channelId ? { channelId: conversation.channelId } : {}), createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, messageCount: messages.length, preview: plainPreview(lastAnswer?.content || messages[messages.length - 1]?.content || ''), pinned: Boolean(conversation.pinned) };
   }
   function readConversationFile(identityId, id) {
     if (typeof id !== 'string' || !CONVERSATION_ID.test(id)) return null;
@@ -248,24 +254,26 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     return index;
   }
   const saveIndex = (identityId, index) => writeFile(files(identityId).index, { version: ASK_VERSION, identityId, conversations: index.conversations, requests: index.requests.slice(-MAX_REQUESTS) });
-  function requireConversation(identityId, id) {
+  // `channelId` (a channel asker's space, see spaceOf): a conversation outside it reads as gone.
+  function requireConversation(identityId, id, channelId) {
     const conversation = readConversationFile(identityId, id);
-    if (!conversation) throw fail('That conversation isn’t available anymore. Start a new one.', 404);
+    if (!conversation || !inSpace(channelId)(conversation)) throw fail('That conversation isn’t available anymore. Start a new one.', 404);
     return conversation;
   }
 
-  function listConversations(identityId, { workspaceId = '', limit = 100 } = {}) {
-    const rows = loadIndex(identityId).conversations.filter((row) => !workspaceId || row.workspaceId === workspaceId);
+  function listConversations(identityId, { workspaceId = '', limit = 100, channelId } = {}) {
+    const rows = loadIndex(identityId).conversations.filter((row) => (!workspaceId || row.workspaceId === workspaceId) && inSpace(channelId)(row));
     return copy(rows.sort((a, b) => Number(b.pinned) - Number(a.pinned) || time(b.updatedAt) - time(a.updatedAt)).slice(0, Math.max(1, Math.min(MAX_CONVERSATIONS, Number(limit) || 100))));
   }
-  const readConversation = (identityId, id) => { const conversation = readConversationFile(identityId, id); return conversation ? copy(conversation) : null; };
+  const readConversation = (identityId, id, { channelId } = {}) => { const conversation = readConversationFile(identityId, id); return conversation && inSpace(channelId)(conversation) ? copy(conversation) : null; };
   const history = (identityId, id, options) => askHistory(requireConversation(identityId, id), options);
 
   // The stored reply for a request already answered, so asking again with the same requestId never pays twice.
-  function findByRequest(identityId, requestId) {
+  function findByRequest(identityId, requestId, { channelId } = {}) {
     const entry = [...loadIndex(identityId).requests].reverse().find((row) => row.requestId === requestId);
     if (!entry) return null;
-    const conversation = readConversationFile(identityId, entry.conversationId);
+    const found = readConversationFile(identityId, entry.conversationId);
+    const conversation = found && inSpace(channelId)(found) ? found : null;
     const userMessage = conversation?.messages.find((message) => message.id === entry.userMessageId);
     const message = conversation?.messages.find((row) => row.id === entry.messageId);
     if (!userMessage || !message) return null;
@@ -274,21 +282,21 @@ function createAskStore({ root, now = () => new Date() } = {}) {
 
   // One answered question: the person's message and Ask AI's reply land together, with what it remembered and, when
   // the model returned one, a new rolling summary. A new conversation is created when conversationId is empty.
-  function appendTurn(identityId, { conversationId = '', workspaceId = '', user = {}, assistant = {}, remember = [], summary = null, title = '' } = {}) {
+  function appendTurn(identityId, { conversationId = '', workspaceId = '', channelId, user = {}, assistant = {}, remember = [], summary = null, title = '' } = {}) {
     const index = loadIndex(identityId); const at = stamp();
     let conversation;
     if (conversationId) {
       conversation = readConversationFile(identityId, conversationId);
-      if (!conversation) throw fail('This conversation was deleted while Ask AI was answering. Ask again in a new conversation.', 404);
+      if (!conversation || !inSpace(channelId)(conversation)) throw fail('This conversation was deleted while Ask AI was answering. Ask again in a new conversation.', 404);
     } else {
-      conversation = { version: ASK_VERSION, id: newId('ask'), title: firstTitle(user.content), workspaceId, createdAt: at, updatedAt: at, pinned: false, renamed: false, summary: '', summaryThrough: '', messages: [] };
+      conversation = { version: ASK_VERSION, id: newId('ask'), title: firstTitle(user.content), workspaceId, ...(spaceOf(channelId) ? { channelId: spaceOf(channelId) } : {}), createdAt: at, updatedAt: at, pinned: false, renamed: false, summary: '', summaryThrough: '', messages: [] };
     }
     // The model may name a conversation from its first answer; a title the person chose always stays.
     const suggested = clip(title, TITLE_MAX);
     if (!conversation.messages.length && !conversation.renamed && suggested) conversation.title = suggested;
     const userMessage = { id: newId('msg'), role: 'user', content: String(user.content || '').slice(0, 4000), ...(user.context ? { context: String(user.context).slice(0, 3900) } : {}), ...attachmentsOf(user), page: user.page && typeof user.page === 'object' ? copy(user.page) : null, requestId: String(user.requestId || ''), createdAt: at };
     const message = { id: newId('msg'), role: 'assistant', ...copy(assistant), cards: list(assistant.cards).map(copy), remembered: [], createdAt: at };
-    const remembered = list(remember).length ? rememberItems(identityId, remember, { workspaceId: conversation.workspaceId || workspaceId, source: { conversationId: conversation.id, messageId: message.id } }) : [];
+    const remembered = list(remember).length ? rememberItems(identityId, remember, { workspaceId: conversation.workspaceId || workspaceId, channelId: conversation.channelId || '', source: { conversationId: conversation.id, messageId: message.id } }) : [];
     if (remembered.length) {
       message.remembered = remembered;
       // The "Remembered" chips with Undo (forget) come from what was actually saved, never from the model's wording.
@@ -316,10 +324,10 @@ function createAskStore({ root, now = () => new Date() } = {}) {
   // The last question asked again: Retry (mode 'regenerate', the same words) or Edit (mode 'edit', new words). Only the
   // last question and its answer can be replaced; `replaces` is that question's id. The new answer keeps the answers it
   // replaces as view-only versions (at most MAX_VERSIONS), and an edited question keeps when it was edited.
-  function replaceLastTurn(identityId, { conversationId = '', replaces = '', mode = 'regenerate', user = {}, assistant = {}, remember = [], summary = null } = {}) {
+  function replaceLastTurn(identityId, { conversationId = '', replaces = '', mode = 'regenerate', channelId, user = {}, assistant = {}, remember = [], summary = null } = {}) {
     const index = loadIndex(identityId); const at = stamp();
     const conversation = readConversationFile(identityId, conversationId);
-    if (!conversation) throw fail('This conversation was deleted while Ask AI was answering. Ask again in a new conversation.', 404);
+    if (!conversation || !inSpace(channelId)(conversation)) throw fail('This conversation was deleted while Ask AI was answering. Ask again in a new conversation.', 404);
     const messages = conversation.messages; const userMessage = messages[messages.length - 2]; const old = messages[messages.length - 1];
     if (messages.length < 2 || userMessage?.role !== 'user' || userMessage.id !== replaces || old?.role !== 'assistant') throw fail('Only your last question can be asked again.', 409);
     const asked = String(userMessage.content || '');
@@ -331,7 +339,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     if (user.requestId) userMessage.requestId = String(user.requestId);
     if (user.attachments !== undefined) { delete userMessage.attachments; Object.assign(userMessage, attachmentsOf(user)); }
     const message = { id: newId('msg'), role: 'assistant', ...copy(assistant), cards: list(assistant.cards).map(copy), remembered: [], versions: [versionOf(old, asked), ...list(old.versions)].slice(0, MAX_VERSIONS), createdAt: at };
-    const remembered = list(remember).length ? rememberItems(identityId, remember, { workspaceId: conversation.workspaceId || '', source: { conversationId: conversation.id, messageId: message.id } }) : [];
+    const remembered = list(remember).length ? rememberItems(identityId, remember, { workspaceId: conversation.workspaceId || '', channelId: conversation.channelId || '', source: { conversationId: conversation.id, messageId: message.id } }) : [];
     if (remembered.length) {
       message.remembered = remembered;
       message.cards.push({ type: 'memory', title: 'Remembered', note: '', data: { items: remembered }, actionIndexes: [] });
@@ -368,8 +376,8 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     return { conversationId: conversation.id, messageId: posted.id };
   }
 
-  function renameConversation(identityId, { conversationId, title, pinned } = {}) {
-    const conversation = requireConversation(identityId, conversationId);
+  function renameConversation(identityId, { conversationId, title, pinned, channelId } = {}) {
+    const conversation = requireConversation(identityId, conversationId, channelId);
     if (title !== undefined) {
       const name = clip(title, 80);
       if (!name) throw fail('Give the conversation a name.');
@@ -383,9 +391,13 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     saveIndex(identityId, index);
     return copy(metaOf(conversation));
   }
-  function deleteConversation(identityId, conversationId) {
+  function deleteConversation(identityId, conversationId, { channelId } = {}) {
     if (typeof conversationId !== 'string' || !CONVERSATION_ID.test(conversationId)) throw fail('That conversation isn’t available anymore.', 404);
     const index = loadIndex(identityId);
+    if (spaceOf(channelId)) {
+      const stored = readConversationFile(identityId, conversationId) || index.conversations.find((row) => row.id === conversationId);
+      if (stored && !inSpace(channelId)(stored)) throw fail('That conversation isn’t available anymore.', 404);
+    }
     fs.rmSync(conversationFile(identityId, conversationId), { force: true });
     index.conversations = index.conversations.filter((row) => row.id !== conversationId);
     index.requests = index.requests.filter((row) => row.conversationId !== conversationId);
@@ -395,8 +407,8 @@ function createAskStore({ root, now = () => new Date() } = {}) {
 
   // What happened after an answer: a button's result ({ index, outcome:{ status, text } }) or the picture it drew
   // ({ outcome:{ kind:'image', imageId, status } }). Outcomes travel back to the model with the history.
-  function recordOutcome(identityId, { conversationId, messageId, index, outcome = {}, imageId } = {}) {
-    const conversation = requireConversation(identityId, conversationId);
+  function recordOutcome(identityId, { conversationId, messageId, index, outcome = {}, imageId, channelId } = {}) {
+    const conversation = requireConversation(identityId, conversationId, channelId);
     const message = typeof messageId === 'string' && MESSAGE_ID.test(messageId) ? conversation.messages.find((row) => row.id === messageId && row.role === 'assistant') : null;
     if (!message) throw fail('That answer isn’t in this conversation anymore.', 404);
     const detail = outcome && typeof outcome === 'object' ? outcome : {};
@@ -432,7 +444,8 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     memory.items = memory.items.filter((item) => !overflow.has(item.id));
     writeFile(files(identityId).memory, { version: ASK_VERSION, items: memory.items });
   }
-  const visibleTo = (workspaceId) => (item) => item.scope === 'me' || !workspaceId || item.workspaceId === workspaceId;
+  // `channelId`: a channel asker's space (spaceOf). Their memory is only what they told Ask AI from that channel role.
+  const visibleTo = (workspaceId, channelId) => { const space = inSpace(channelId); return (item) => (item.scope === 'me' || !workspaceId || item.workspaceId === workspaceId) && space(item); };
   const memoryView = (item) => copy(item);
   function cleanItem(input = {}) {
     const text = clip(input.text, MEMORY_TEXT_MAX);
@@ -444,38 +457,38 @@ function createAskStore({ root, now = () => new Date() } = {}) {
   // Things the model was told to remember: secret-shaped text is dropped, a repeat of an active item only refreshes it,
   // and `replaces` retires the item it supersedes (text "" with replaces just forgets that item). Returns what is new
   // or changed as { id, text }; that list is the "Remembered" card.
-  function rememberItems(identityId, items, { workspaceId = '', source = {} } = {}) {
-    const memory = loadMemory(identityId); const at = stamp(); const saved = [];
+  function rememberItems(identityId, items, { workspaceId = '', channelId, source = {} } = {}) {
+    const memory = loadMemory(identityId); const at = stamp(); const saved = []; const space = spaceOf(channelId); const visible = visibleTo(workspaceId, channelId);
     for (const raw of list(items).slice(0, 3)) {
-      const replaces = typeof raw?.replaces === 'string' && MEMORY_ID.test(raw.replaces) ? memory.items.find((item) => item.id === raw.replaces && item.status === 'active' && visibleTo(workspaceId)(item)) : null;
+      const replaces = typeof raw?.replaces === 'string' && MEMORY_ID.test(raw.replaces) ? memory.items.find((item) => item.id === raw.replaces && item.status === 'active' && visible(item)) : null;
       const text = clip(raw?.text, MEMORY_TEXT_MAX);
       if (replaces && (!text || normalizedText(text) !== normalizedText(replaces.text))) Object.assign(replaces, { status: 'forgotten', updatedAt: at });
       if (!text || looksSecret(text)) continue;
       const scope = MEMORY_SCOPES.includes(raw?.scope) ? raw.scope : 'me';
       const kind = MEMORY_KINDS.includes(raw?.kind) ? raw.kind : 'fact';
-      const same = memory.items.find((item) => item.status === 'active' && item.scope === scope && (scope === 'me' || item.workspaceId === workspaceId) && normalizedText(item.text) === normalizedText(text));
+      const same = memory.items.find((item) => item.status === 'active' && item.scope === scope && (scope === 'me' || item.workspaceId === workspaceId) && (item.channelId || '') === (space || '') && normalizedText(item.text) === normalizedText(text));
       if (same) { Object.assign(same, { kind, updatedAt: at }); continue; }
-      const item = { id: newId('mem'), kind, text, scope, workspaceId: scope === 'workspace' ? workspaceId : '', source: { conversationId: String(source.conversationId || ''), messageId: String(source.messageId || '') }, createdAt: at, updatedAt: at, lastUsedAt: '', uses: 0, pinned: false, status: 'active' };
+      const item = { id: newId('mem'), kind, text, scope, workspaceId: scope === 'workspace' ? workspaceId : '', ...(space ? { channelId: space } : {}), source: { conversationId: String(source.conversationId || ''), messageId: String(source.messageId || '') }, createdAt: at, updatedAt: at, lastUsedAt: '', uses: 0, pinned: false, status: 'active' };
       memory.items.unshift(item); saved.push({ id: item.id, text: item.text });
     }
     saveMemoryFile(identityId, memory);
     return saved;
   }
 
-  function listMemory(identityId, { workspaceId = '', includeForgotten = false } = {}) {
-    return loadMemory(identityId).items.filter((item) => (includeForgotten || item.status === 'active') && visibleTo(workspaceId)(item)).sort((a, b) => Number(b.pinned) - Number(a.pinned) || time(b.updatedAt) - time(a.updatedAt)).map(memoryView);
+  function listMemory(identityId, { workspaceId = '', includeForgotten = false, channelId } = {}) {
+    return loadMemory(identityId).items.filter((item) => (includeForgotten || item.status === 'active') && visibleTo(workspaceId, channelId)(item)).sort((a, b) => Number(b.pinned) - Number(a.pinned) || time(b.updatedAt) - time(a.updatedAt)).map(memoryView);
   }
   // From the "What Ask AI remembers" sheet: a new item (no id), an edit, a pin, or bringing a forgotten one back.
-  function saveMemory(identityId, input = {}, { workspaceId = '' } = {}) {
-    const memory = loadMemory(identityId); const at = stamp();
+  function saveMemory(identityId, input = {}, { workspaceId = '', channelId } = {}) {
+    const memory = loadMemory(identityId); const at = stamp(); const space = spaceOf(channelId);
     if (input.id == null || input.id === '') {
-      const item = { id: newId('mem'), ...cleanItem(input), workspaceId: '', source: { conversationId: '', messageId: '' }, createdAt: at, updatedAt: at, lastUsedAt: '', uses: 0, pinned: input.pinned === true, status: 'active' };
+      const item = { id: newId('mem'), ...cleanItem(input), workspaceId: '', ...(space ? { channelId: space } : {}), source: { conversationId: '', messageId: '' }, createdAt: at, updatedAt: at, lastUsedAt: '', uses: 0, pinned: input.pinned === true, status: 'active' };
       if (item.scope === 'workspace') item.workspaceId = workspaceId;
-      const same = memory.items.find((row) => row.status === 'active' && row.scope === item.scope && row.workspaceId === item.workspaceId && normalizedText(row.text) === normalizedText(item.text));
+      const same = memory.items.find((row) => row.status === 'active' && row.scope === item.scope && row.workspaceId === item.workspaceId && (row.channelId || '') === (space || '') && normalizedText(row.text) === normalizedText(item.text));
       if (same) { Object.assign(same, { kind: item.kind, pinned: same.pinned || item.pinned, updatedAt: at }); saveMemoryFile(identityId, memory); return memoryView(same); }
       memory.items.unshift(item); saveMemoryFile(identityId, memory); return memoryView(item);
     }
-    const item = memory.items.find((row) => row.id === input.id);
+    const item = memory.items.find((row) => row.id === input.id && inSpace(channelId)(row));
     if (!item) throw fail('Ask AI doesn’t remember that anymore.', 404);
     if (input.text !== undefined || input.kind !== undefined || input.scope !== undefined) {
       const next = cleanItem({ text: input.text ?? item.text, kind: input.kind ?? item.kind, scope: input.scope ?? item.scope });
@@ -487,9 +500,9 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     saveMemoryFile(identityId, memory);
     return memoryView(item);
   }
-  function forgetMemory(identityId, id) {
+  function forgetMemory(identityId, id, { channelId } = {}) {
     const memory = loadMemory(identityId);
-    const item = typeof id === 'string' ? memory.items.find((row) => row.id === id) : null;
+    const item = typeof id === 'string' ? memory.items.find((row) => row.id === id && inSpace(channelId)(row)) : null;
     if (!item) throw fail('Ask AI doesn’t remember that anymore.', 404);
     Object.assign(item, { status: 'forgotten', pinned: false, updatedAt: stamp() });
     saveMemoryFile(identityId, memory);
@@ -499,9 +512,9 @@ function createAskStore({ root, now = () => new Date() } = {}) {
   // The memories worth putting in front of this question: lexical match against the question and page, boosted for
   // pinned items, recent ones, ones used before and ones naming a live trend, program or report. Returns at most
   // `limit` items within `maxChars`, and counts them as used.
-  function recall(identityId, { workspaceId = '', query = '', names = [], limit = 12, maxChars = 2500 } = {}) {
-    const memory = loadMemory(identityId);
-    const pool = memory.items.filter((item) => item.status === 'active' && (item.scope === 'me' || item.workspaceId === workspaceId));
+  function recall(identityId, { workspaceId = '', query = '', names = [], limit = 12, maxChars = 2500, channelId } = {}) {
+    const memory = loadMemory(identityId); const space = inSpace(channelId);
+    const pool = memory.items.filter((item) => item.status === 'active' && (item.scope === 'me' || item.workspaceId === workspaceId) && space(item));
     if (!pool.length) return [];
     const lexical = bm25(pool.map((item) => tokens(item.text)), tokens(query));
     const live = [...new Set(list(names).map(phrase).filter((name) => name.length >= 4))].slice(0, 300);
@@ -526,22 +539,23 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     return chosen.map(({ id, kind, text, scope, pinned, updatedAt }) => ({ id, kind, text, scope, pinned: Boolean(pinned), updatedAt }));
   }
   // The `memory` lookup: older items beyond the ones recalled, by lexical match only.
-  function searchMemory(identityId, { workspaceId = '', query = '', exclude = [], limit = 12 } = {}) {
-    const skip = new Set(list(exclude));
-    const pool = loadMemory(identityId).items.filter((item) => item.status === 'active' && (item.scope === 'me' || item.workspaceId === workspaceId) && !skip.has(item.id));
+  function searchMemory(identityId, { workspaceId = '', query = '', exclude = [], limit = 12, channelId } = {}) {
+    const skip = new Set(list(exclude)); const space = inSpace(channelId);
+    const pool = loadMemory(identityId).items.filter((item) => item.status === 'active' && (item.scope === 'me' || item.workspaceId === workspaceId) && space(item) && !skip.has(item.id));
     const scores = bm25(pool.map((item) => tokens(item.text)), tokens(query));
     return pool.map((item, index) => ({ item, score: scores[index] })).filter((row) => row.score > 0).sort((a, b) => b.score - a.score).slice(0, limit).map(({ item }) => ({ id: item.id, kind: item.kind, text: item.text, scope: item.scope, updatedAt: item.updatedAt }));
   }
   // The `conversation` lookup: "what did we decide about X last week". Scores each stored message (and each title and
   // summary) and returns the best conversations with their best passages. `minScore` keeps only conversations that match
   // well (Ask AI's related conversations), not any shared word.
-  function searchConversations(identityId, query, limit = 5, { workspaceId = '', exclude = '', minScore = 0 } = {}) {
+  function searchConversations(identityId, query, limit = 5, { workspaceId = '', exclude = '', minScore = 0, channelId } = {}) {
     const terms = tokens(query);
     if (!terms.length) return [];
-    const metas = loadIndex(identityId).conversations.filter((row) => row.id !== exclude && (!workspaceId || row.workspaceId === workspaceId)).sort((a, b) => time(b.updatedAt) - time(a.updatedAt)).slice(0, 100);
+    const space = inSpace(channelId);
+    const metas = loadIndex(identityId).conversations.filter((row) => row.id !== exclude && (!workspaceId || row.workspaceId === workspaceId) && space(row)).sort((a, b) => time(b.updatedAt) - time(a.updatedAt)).slice(0, 100);
     const docs = [];
     for (const meta of metas) {
-      const conversation = readConversationFile(identityId, meta.id); if (!conversation) continue;
+      const conversation = readConversationFile(identityId, meta.id); if (!conversation || !space(conversation)) continue;
       docs.push({ conversation, message: null, words: tokens(`${conversation.title} ${conversation.summary || ''}`) });
       for (const message of conversation.messages) if (message.content) docs.push({ conversation, message, words: tokens(message.content) });
     }

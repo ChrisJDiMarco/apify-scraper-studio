@@ -122,6 +122,20 @@ export function goldenCases() {
     add(`assistant.ask-ai.${name}`, () => helpText(help.helpPromptParts({ question: 'What is rising this week?', history: [], context, guide: 'GUIDE', role })));
     add(`assistant.ask-ai.${name}-lookups-memory`, () => helpText(help.helpPromptParts({ question: 'What does the report say?', history: input.helpHistory, context, guide: 'GUIDE', lookups: input.helpLookups, role, memory: input.helpMemory, summary: 'They asked about trends earlier.', pending: input.helpPending })));
   }
+  // A channel owner's Ask AI (channelPromptParts): its LIVE CONTEXT is ask-channel.js's, frozen here in that shape, and
+  // its buttons are the Channel owner role's.
+  const channelContext = {
+    role: 'channel owner', layout: 'channel', channel: { name: 'Northwind Blog', generateMakes: ['Short news update', 'Long-form article'] }, askAdmin: 'Alex', workspace: { name: 'Your workspace' }, currentPage: { tab: 'trends' },
+    canDo: ['Read the briefs of the trends offered to their channel', 'Generate drafts for their channel from a brief', 'Say whether their channel is using a trend, with its live link and planned date'],
+    attention: [{ what: '1 new trend for Northwind Blog', why: 'Newest: “AI Answer Click Erosion”.', kind: 'open-tab', target: 'trends' }],
+    counts: { trends: 1, new: 1, using: 0, notForUs: 0, sets: 0, files: 0 },
+    trends: [{ name: 'AI Answer Click Erosion', about: 'Help-center pages keep ranking while AI answers take the click.', priority: 'Top priority', ready: '2026-10-12', new: true, offeredToYourChannel: true, answer: '', brief: 'TREND: AI Answer Click Erosion', drafts: null }],
+    drafts: [], plan: [], inbox: [], latestTrends: [{ name: 'AI Answer Click Erosion', summary: 'Help-center pages keep ranking while AI answers take the click.' }], pictures: { available: false, brandReferenceImages: [] },
+  };
+  const channelAccess = { allowed: ['askHelp', 'planAssetKit', 'createAssetKit', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption'], hiddenPages: [] };
+  const channelLookups = [{ kind: 'trend', target: 'AI Answer Click Erosion', found: true, title: 'AI Answer Click Erosion', trend: { name: 'AI Answer Click Erosion', answer: '' }, brief: { title: 'TREND: AI Answer Click Erosion', text: '# TREND: AI Answer Click Erosion\n\nLead with the help-center click loss.' } }];
+  add('assistant.ask-ai.channel', () => helpText(help.helpPromptParts({ question: 'What is new for my channel?', history: [], context: channelContext, guide: 'GUIDE', role: 'channel', access: channelAccess })));
+  add('assistant.ask-ai.channel-lookups-memory', () => helpText(help.helpPromptParts({ question: 'What does the brief say?', history: input.helpHistory, context: channelContext, guide: 'GUIDE', lookups: channelLookups, role: 'channel', access: channelAccess, memory: input.helpMemory, summary: 'They asked about the new trend earlier.', pending: input.helpPending })));
 
   // ── Data tools (data-prompts.js) ──
   for (const preset of presets) add(`data.report-preset.${preset.id}`, () => data.datasetPrompt('report', 'the SOURCE_ITEMS section below', { reportPresetId: preset.id }));

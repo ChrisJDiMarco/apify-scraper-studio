@@ -145,6 +145,8 @@ The goal: a request like "do a small scrape, keep the cost low and tell me what'
 
 ## 3. Chat card library (`src/renderer/src/chat-cards.jsx` + `chat-cards.css`)
 
+Every reply has one anatomy (`ask-reply.css`): the answer text, cards, references (link chips to studio items: in-answer links, Open buttons for one item and pages, each item once), the actions row (at most one primary button per reply), the meta row (copy, retry, time · model · cost) and Ask next (suggestion chips). Every card uses one shell (`ReplyCard`): a 28px icon tile tinted by family (research and trends mint, assets and reports soft, questions and choices warm, numbers neutral), an eyebrow and a title, a 14px body and a footer row of small quiet buttons.
+
 Cards are structured, grounded blocks rendered under an answer. The model chooses a card and a `ref`. The **server hydrates** each card from state, so numbers, statuses and ids always come from the studio, never from the model. Cards with refs that can't be resolved are dropped. Model-only cards (metric, table, checklist, compare) are allowed, but their numbers must come from LIVE CONTEXT or LOOKUP RESULTS (a prompt rule).
 
 **Model wire format (since `62cb9da`; `cardSchema` in `help-assistant.js`):** `{ type, ref, title, note, items:[string] (≤12), actionIndexes:[int] }`. Metric cards arrive as lines "Label: value (change)", and table and compare cards as "a | b | c" lines (header first); `cleanCards`/`linesToParts` parse them, then `modelCard` (model-only cards) or `hydrateCards` in `index.js` (studio cards) build the hydrated shape below. To add a card type: add it to `CARD_TYPES` and the CARDS prompt rules, parse its lines, and render it in `chat-cards.jsx`. Never add a nested `data` object to the schema.
@@ -165,10 +167,10 @@ Hydrated card shape (the renderer contract): `{ type, title, note, data, actionI
 | compare | `{ left:{ title, points:[string] }, right:{ title, points:[string] } }` | Two-column comparison |
 | posts | `{ posts:[{ platform, author, text, url, publishedAt, engagement }] }` | Quoted posts with platform marks and source links (server-hydrated from the `posts` lookup) |
 | scan-plan | `{ scan, programId, programName }` | Editable quick-scan planner (section 2) |
-| memory | `{ items:[{ id, text }] }` | "Remembered" chip row with Undo (forget) |
+| memory | `{ items:[{ id, text }] }` | "Remembered" card, one row per item with Undo (forget) |
 | prompt-change | the proposed prompt edit | Diff with **Apply as version N** (SPEC-2 §A) |
 | action *(added later)* | the button's filled-in params | **Check before saving**: edit what Ask AI filled in, then run the button |
-| choice *(added later)* | the candidates for an ambiguous target, or a follow-up question | Pick one; runs the button on the chosen ids with no AI call |
+| choice *(added later)* | the candidates for an ambiguous target, or a follow-up question | Pick one (full-width rows; no two read the same: the server adds what tells them apart and shows the same item once); runs the button on the chosen ids with no AI call |
 | plan *(added later)* | numbered steps (buttons or `ask` steps) | Runs steps in order, each with Skip; a failed step shows Try again |
 | draft *(added later)* | `{ kind: slack\|email\|linkedin\|x\|note, subject, text }` | Editable text with Copy, Copy for Slack, Ask for a shorter one; never sent |
 | report-change *(added later)* | a section's old and new text | Diff with brand check, **Apply** through `editStudioAsset` with `baseEditedAt`, Open the report |

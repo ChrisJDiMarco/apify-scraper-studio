@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Brain, Check, CircleAlert, Download, Ellipsis, History, Image as ImageIcon, LoaderCircle, MessagesSquare, MousePointerClick, Pencil, Pin, PinOff, Plus, RefreshCw, RotateCcw, Search, Sparkles, Trash2, X } from 'lucide-react';
-import { ChatCards, MemoryCard, cardActionIndexes } from './chat-cards.jsx';
+import { Activity, ArrowRight, Brain, Check, CircleAlert, CircleStop, Download, Ellipsis, FileText, FolderOpen, History, Image as ImageIcon, LayoutGrid, LoaderCircle, MessagesSquare, MousePointerClick, Pencil, Pin, PinOff, Plus, Radar, RefreshCw, RotateCcw, ScrollText, Search, Sparkles, Trash2, TrendingUp, X } from 'lucide-react';
+import { BUTTON, CARD_TYPES, ChatCards, MemoryCard, ReplyCard, actionIcon, cardActionIndexes, isQuietAction, primaryCard, primaryPicker } from './chat-cards.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { aiActionAllowed } from './studio-actions.js';
 import { PREVIEW_TITLE, formatDay, formatTime, useCan, useViewer, writeProps } from './viewer.js';
@@ -12,6 +12,7 @@ import { REF_LABEL, SLASH_COMMANDS, currentStudioDrag, dragHasFiles, dragHasStud
 import { DEFAULT_STARTERS, smartStarters } from './ask-starters.js';
 import './help-assistant.css';
 import './ask-chat.css';
+import './ask-reply.css';
 
 export { studioLinks };
 
@@ -136,16 +137,30 @@ function referencesLine(image) {
   return ` · ${parts}${refs.label ? ` from ${refs.label}` : ''}`;
 }
 
+// A picture made in the chat, in the same card shell as every other card: a sized placeholder while it's drawn, then the
+// picture (click to enlarge), what it cost and Download.
 function Picture({ image, onRetry, onDownload, onEnlarge, onOpenAssets }) {
-  if (image.status === 'creating') return <div className="help-picture help-picture-pending" style={{ aspectRatio: ratio(image.size) }} role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><span>Creating the picture… usually under a minute</span></div>;
-  if (image.status === 'loading') return <div className="help-picture help-picture-pending" style={{ aspectRatio: ratio(image.size) }} role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><span>Loading the picture…</span></div>;
-  if (image.status === 'failed') return <div className="help-error" role="alert"><p>The picture wasn't created. {image.error}</p>{onRetry && <button type="button" onClick={onRetry}><RefreshCw size={13} aria-hidden="true" />Try again</button>}</div>;
-  return <figure className="help-picture">
-    <button type="button" className="help-picture-frame" onClick={onEnlarge} aria-label={`Enlarge ${image.title}`}><img src={image.dataUrl} alt={image.title} style={{ aspectRatio: ratio(image.size) }} /></button>
-    <figcaption><span>{image.title}</span><button type="button" onClick={onDownload}><Download size={13} aria-hidden="true" />Download</button></figcaption>
-    {(image.costUsd != null || onOpenAssets) && <small className="help-receipt">{image.costUsd != null ? `${image.provider === 'fal' ? 'fal.ai' : 'OpenAI'} image · ${money(image.costUsd)}${referencesLine(image)}` : ''}{onOpenAssets && <>{image.costUsd != null ? ' · ' : ''}Saved to <button type="button" className="help-inline-link" onClick={onOpenAssets}>Assets</button></>}</small>}
-    {image.family && image.family !== 'none' && image.references && !image.references.style && !image.references.logo && <small className="help-receipt">No reference images in {image.references.label || 'this set'} yet, so this picture follows the brand colors only. Reference images in Settings → Brand reference images make pictures match the brand.</small>}
-  </figure>;
+  const pending = image.status === 'creating' || image.status === 'loading';
+  return <ReplyCard type="picture" kicker="Picture" title={image.title} icon={ImageIcon}>
+    {pending ? <div className="reply-picture-pending" style={{ aspectRatio: ratio(image.size) }} role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><span>{image.status === 'creating' ? 'Creating the picture… usually under a minute' : 'Loading the picture…'}</span></div>
+      : image.status === 'failed' ? <>
+        <p className="reply-failed" role="alert">The picture wasn't created. {image.error}</p>
+        {onRetry && <div className="reply-card-foot"><button type="button" className={BUTTON.quiet} onClick={onRetry}><RefreshCw size={14} aria-hidden="true" />Try again</button></div>}
+      </> : <>
+        <button type="button" className="reply-picture-frame" onClick={onEnlarge} aria-label={`Enlarge ${image.title}`}><img src={image.dataUrl} alt={image.title} style={{ aspectRatio: ratio(image.size) }} /></button>
+        {(image.costUsd != null || onOpenAssets) && <small className="reply-muted help-receipt">{image.costUsd != null ? `${image.provider === 'fal' ? 'fal.ai' : 'OpenAI'} image · ${money(image.costUsd)}${referencesLine(image)}` : ''}{onOpenAssets && <>{image.costUsd != null ? ' · ' : ''}Saved to <button type="button" className="help-inline-link" onClick={onOpenAssets}>Assets</button></>}</small>}
+        {image.family && image.family !== 'none' && image.references && !image.references.style && !image.references.logo && <small className="reply-muted help-receipt">No reference images in {image.references.label || 'this set'} yet, so this picture follows the brand colors only. Reference images in Settings → Brand reference images make pictures match the brand.</small>}
+        <div className="reply-card-foot"><button type="button" className={BUTTON.quiet} onClick={onDownload}><Download size={14} aria-hidden="true" />Download</button></div>
+      </>}
+  </ReplyCard>;
+}
+// The kind of studio item a reference chip opens (studio: links in the answer, Open buttons for one item, and pages).
+const REF_ICONS = { report: FileText, trend: TrendingUp, folder: FolderOpen, run: Activity, program: Radar, prompt: ScrollText, page: LayoutGrid };
+// A reference chip names the item ("Open “Zero-click report”" shows as Zero-click report): its arrow says Open, and the
+// button's full words stay its accessible name.
+function refName(label) {
+  const name = String(label || '').trim().replace(/^open\s+/i, '').replace(/^[“"](.+)[”"]$/, '$1').trim();
+  return name ? name.charAt(0).toUpperCase() + name.slice(1) : String(label || '');
 }
 
 // The ⋯ menu on a conversation: pin, rename, delete. Arrow keys move, Esc closes and returns to the button.
@@ -313,7 +328,9 @@ function MemoryPanel({ api, workspaceId, onClose }) {
 // tells Ask AI which layout the person is in. onOpenSettings is passed only to people who may open Settings, so the
 // "Open Settings" button on an error never shows an editor a door they can't use; copy.noPictures replaces the Settings
 // hint when pictures are off for someone else to turn on.
-export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSettings, imagesReady = false, variant = 'drawer', seed = null, onAction, onShow, starters = STARTERS, copy = {}, onOpenAssets, state = null, nav = null, workspaceId: workspaceIn }) {
+// needs ((state, can) → [{ label, request }]) replaces the "Needs you now" rules: a channel owner's come from their
+// channel's view (channel-ask.jsx).
+export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSettings, imagesReady = false, variant = 'drawer', seed = null, onAction, onShow, starters = STARTERS, copy = {}, onOpenAssets, state = null, nav = null, workspaceId: workspaceIn, needs = attentionStarters }) {
   const viewer = useViewer(); // an admin previewing another role sees Ask AI as they would, but can't send
   const can = useCan();
   const confirm = useConfirm();
@@ -888,7 +905,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   }
 
   // ── What the panel shows ──
-  const allNeeds = onAction && !messages.length ? attentionStarters(state, can).filter((row) => aiActionAllowed(row.request.kind, can)) : [];
+  const allNeeds = onAction && !messages.length ? list(needs(state, can)).filter((row) => aiActionAllowed(row.request.kind, can)) : [];
   const questions = starters === STARTERS ? smartStarters({ state, can, fallback: STARTERS, imagesReady }) : starters.filter((question) => imagesReady || !/image/i.test(question));
   const running = Boolean(viewRequest);
   const canStop = running && ((typeof api.cancelAsk === 'function' && can('cancelAsk')) || (typeof api.cancelJob === 'function' && can('cancelJob')));
@@ -914,27 +931,68 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
     {allNeeds.length > 0 && <div className="help-starters help-needs" role="group" aria-label="Needs you now">{allNeeds.map((row) => <button type="button" key={row.label} {...writeProps(viewer)} onClick={() => runStarter(row.request)}><span>{row.label}</span><CircleAlert size={14} aria-hidden="true" /></button>)}</div>}
     <div className="help-starters" role="group" aria-label="Try asking">{questions.map((question) => <button type="button" key={question} {...writeProps(viewer)} onClick={() => ask(question)}><span>{question}</span>{/image|picture/i.test(question) ? <ImageIcon size={14} aria-hidden="true" /> : <ArrowRight size={14} aria-hidden="true" />}</button>)}</div>
   </div>;
-  // Under a finished answer: in-answer links, cards, what was remembered, Show me, the picture, buttons and pages.
+  // Under a finished answer, in the reply's order (ask-reply.css): the cards (with what was remembered and the picture),
+  // the references (in-answer links, Open buttons for one studio item, and pages, as link chips: each item once), then
+  // the actions row (the buttons no card or chip draws, and Show me). A reply has one primary button at most: the first
+  // card with open work takes it, else the first button here that does the work; every other button is quiet.
   const renderExtras = (message, { links = [] } = {}) => {
     const carded = cardActionIndexes(message.cards, message.actions);
-    const plain = onAction ? message.actions.map((action, index) => [action, index]).filter(([action, index]) => action && !carded.has(index)) : [];
     const memoryCarded = message.cards.some((card) => card?.type === 'memory');
+    const states = statesFor(message);
+    // The references, the first of each item kept: a page linked in the text and also listed in pages, or a trend the
+    // text links and an Open button names, is one chip. An Open button runs through the shared runner as before (so its
+    // outcome is recorded); it simply sits with the other links instead of in the actions row.
+    const refs = []; const refKeys = new Set(); const chipped = new Set();
+    const addRef = (ref) => { if (refKeys.has(ref.key)) return false; refKeys.add(ref.key); refs.push(ref); return true; };
+    for (const link of links) addRef({ key: `${link.kind}:${link.id}`, kind: link.kind, label: link.label, open: () => openLink(link) });
+    if (onAction) message.actions.forEach((action, index) => {
+      if (action?.kind !== 'open' || !REF_ICONS[action.ref?.kind] || !action.ref.id || carded.has(index)) return;
+      chipped.add(index);
+      addRef({ key: `${action.ref.kind}:${action.ref.id}`, kind: action.ref.kind, label: refName(action.label), name: action.label, index, open: () => runAction(message, index) });
+    });
+    for (const link of message.pages) addRef({ key: `page:${link.page}`, kind: 'page', label: refName(link.label), name: link.label, open: () => onOpenPage(link.page) });
+    const plain = onAction ? message.actions.map((action, index) => [action, index]).filter(([action, index]) => action && !carded.has(index) && !chipped.has(index)) : [];
+    const refFailures = refs.map((ref) => (ref.index != null ? actionState[`${message.id}:${ref.index}`] : null)).filter((status) => status?.status === 'failed');
+    const pick = primaryPicker(primaryCard(message.cards, message.actions, states, state, { canAct: Boolean(onAction), canRunAction: Boolean(onAction), canAsk: true, can, api }) < 0);
+    const hasCards = message.cards.some((card) => CARD_TYPES.includes(card?.type)) || (message.remembered.length > 0 && !memoryCarded) || Boolean(message.image);
+    const showMe = Boolean(message.show && onShow);
     let rise = 0; const riseStyle = () => ({ '--i': rise++ });
     return <>
-      {links.length > 0 && <div className="help-pages help-links ask-rise" style={riseStyle()} aria-label="In this answer">{links.map((link) => <button type="button" key={`${link.kind}:${link.id}`} onClick={() => openLink(link)}>{link.label}<ArrowRight size={13} aria-hidden="true" /></button>)}</div>}
-      {message.cards.length > 0 && <div className="ask-rise" style={riseStyle()}><ChatCards cards={message.cards} actions={message.actions} actionState={statesFor(message)} onAction={onAction ? (index) => runAction(message, index) : undefined} onRunAction={onAction} onOutcome={(index, outcome) => cardOutcome(message, index, outcome)} onAsk={(text) => ask(text)} onNav={nav || {}} api={api} state={state} conversationId={conversation?.id || conversationRef.current?.id || ''} messageId={isLocal(message.id) ? '' : message.id} /></div>}
-      {message.remembered.length > 0 && !memoryCarded && <div className="ask-rise" style={riseStyle()}><MemoryCard card={{ type: 'memory', title: 'Remembered', data: { items: message.remembered } }} api={api} /></div>}
-      {message.show && onShow && <div className="help-show ask-rise" style={riseStyle()}><button type="button" onClick={() => onShow(message.show.steps)}><MousePointerClick size={14} aria-hidden="true" />{message.show.steps.length > 1 ? `Show me · ${message.show.steps.length} steps` : 'Show me'}</button></div>}
-      {message.image && <div className="ask-rise" style={riseStyle()}><Picture image={message.image} onRetry={typeof api.createHelpImage === 'function' && !viewer.preview ? () => drawPicture(message.id, { title: message.image.title, prompt: message.image.prompt, size: message.image.size, family: message.image.family || 'none' }, conversation?.id || '') : null} onDownload={() => download(message.image)} onEnlarge={() => setEnlarged(message.image)} onOpenAssets={onOpenAssets} /></div>}
-      {plain.length > 0 && <div className="help-actions ask-rise" style={riseStyle()}>{plain.map(([action, index]) => { const status = actionState[`${message.id}:${index}`]; return <div className="help-action" key={`${action.kind}-${index}`}>{status?.status === 'done' ? <span className="help-action-done"><Check size={13} aria-hidden="true" />{status.text}</span> : <button type="button" disabled={status?.status === 'running'} onClick={() => runAction(message, index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}{action.label}</button>}{status?.status === 'failed' && <small role="alert">{status.text}</small>}{!status && list(action.problems).length > 0 && <small className="help-action-note">{action.problems[0]}</small>}</div>; })}</div>}
-      {message.pages.length > 0 && <div className="help-pages ask-rise" style={riseStyle()}>{message.pages.map((link) => <button type="button" key={link.page} onClick={() => onOpenPage(link.page)}>{link.label}<ArrowRight size={13} aria-hidden="true" /></button>)}</div>}
+      {hasCards && <div className="ask-reply-cards ask-rise" style={riseStyle()} data-reply-group="cards">
+        {message.cards.length > 0 && <ChatCards cards={message.cards} actions={message.actions} actionState={states} onAction={onAction ? (index) => runAction(message, index) : undefined} onRunAction={onAction} onOutcome={(index, outcome) => cardOutcome(message, index, outcome)} onAsk={(text) => ask(text)} onNav={nav || {}} api={api} state={state} conversationId={conversation?.id || conversationRef.current?.id || ''} messageId={isLocal(message.id) ? '' : message.id} />}
+        {message.remembered.length > 0 && !memoryCarded && <MemoryCard card={{ type: 'memory', title: 'Remembered', data: { items: message.remembered } }} api={api} />}
+        {message.image && <Picture image={message.image} onRetry={typeof api.createHelpImage === 'function' && !viewer.preview ? () => drawPicture(message.id, { title: message.image.title, prompt: message.image.prompt, size: message.image.size, family: message.image.family || 'none' }, conversation?.id || '') : null} onDownload={() => download(message.image)} onEnlarge={() => setEnlarged(message.image)} onOpenAssets={onOpenAssets} />}
+      </div>}
+      {refs.length > 0 && <div className="ask-reply-refs ask-rise" style={riseStyle()} data-reply-group="refs" role="group" aria-label="In this answer">
+        {refs.map((ref) => {
+          const Icon = REF_ICONS[ref.kind] || ArrowRight; const running = ref.index != null && actionState[`${message.id}:${ref.index}`]?.status === 'running';
+          return <button type="button" key={ref.key} className="reply-ref" aria-label={ref.name && ref.name !== ref.label ? ref.name : undefined} disabled={running} onClick={ref.open}><Icon size={14} aria-hidden="true" /><span>{ref.label}</span><ArrowRight size={13} aria-hidden="true" /></button>;
+        })}
+        {refFailures.map((status, at) => <small key={at} className="reply-failed" role="alert">{status.text}</small>)}
+      </div>}
+      {(plain.length > 0 || showMe) && <div className="ask-reply-actions ask-rise" style={riseStyle()} data-reply-group="actions">
+        {plain.map(([action, index]) => {
+          const status = actionState[`${message.id}:${index}`]; const Icon = actionIcon(action.kind);
+          return <div className="reply-action" key={`${action.kind}-${index}`}>{status?.status === 'done'
+            ? <span className="reply-done" role="status"><Check size={14} aria-hidden="true" />{status.text}</span>
+            : <button type="button" className={pick(!isQuietAction(action.kind))} disabled={status?.status === 'running'} onClick={() => runAction(message, index)}>{status?.status === 'running' ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Icon size={14} aria-hidden="true" />}{action.label}</button>}
+            {status?.status === 'failed' && <small className="reply-failed" role="alert">{status.text}</small>}
+            {!status && list(action.problems).length > 0 && <small className="reply-muted">{action.problems[0]}</small>}
+          </div>;
+        })}
+        {showMe && <button type="button" className={BUTTON.quiet} onClick={() => onShow(message.show.steps)}><MousePointerClick size={14} aria-hidden="true" />{message.show.steps.length > 1 ? `Show me · ${message.show.steps.length} steps` : 'Show me'}</button>}
+      </div>}
     </>;
   };
-  const renderFollowUps = (message) => (message.followUps.length > 0 && !running ? <div className="help-followups ask-rise">{message.followUps.map((question) => <button type="button" key={question} {...writeProps(viewer)} onClick={() => ask(question)}>{question}</button>)}</div> : null);
+  // Ask next: what to ask after the newest answer, as quiet suggestion chips (they ask; they aren't links).
+  const renderFollowUps = (message) => (message.followUps.length > 0 && !running ? <div className="ask-reply-next ask-rise" data-reply-group="next" role="group" aria-label="Ask next">
+    <span className="reply-label" aria-hidden="true">Ask next</span>
+    <div className="ask-reply-next-list">{message.followUps.map((question) => <button type="button" key={question} className="reply-suggest" {...writeProps(viewer)} onClick={() => ask(question)}>{question}</button>)}</div>
+  </div> : null);
   const renderFailure = (message) => {
     const settingsError = onOpenSettings && !message.stoppedEmpty && /claude|codex|api key|signed in|sign in|update|openai|openrouter|connection/i.test(message.error || '');
-    if (message.stoppedEmpty) return <div className="help-notice ask-stopped" role="status"><p>Stopped before answering. Nothing more is spent on that question.</p>{message.retry && <button type="button" className="help-text-button" {...writeProps(viewer, running)} onClick={() => retryAnswer(message)}><RotateCcw size={13} aria-hidden="true" />Ask again</button>}</div>;
-    return <div className="help-error" role="alert"><p>{message.error}</p><div className="help-error-buttons">{message.retry && <button type="button" {...writeProps(viewer, running)} onClick={() => retryAnswer(message)}><RotateCcw size={13} aria-hidden="true" />Try again</button>}{settingsError && <button type="button" onClick={onOpenSettings}>Open Settings<ArrowRight size={13} aria-hidden="true" /></button>}</div></div>;
+    if (message.stoppedEmpty) return <div className="ask-reply-text" role="status"><p className="reply-note"><CircleStop size={14} aria-hidden="true" />Stopped before answering. Nothing more is spent on that question.</p>{message.retry && <div className="reply-card-foot"><button type="button" className={BUTTON.quiet} {...writeProps(viewer, running)} onClick={() => retryAnswer(message)}><RotateCcw size={14} aria-hidden="true" />Ask again</button></div>}</div>;
+    return <div className="reply-error" role="alert"><p>{message.error}</p><div className="reply-card-foot">{message.retry && <button type="button" className={BUTTON.quiet} {...writeProps(viewer, running)} onClick={() => retryAnswer(message)}><RotateCcw size={14} aria-hidden="true" />Try again</button>}{settingsError && <button type="button" className={BUTTON.quiet} onClick={onOpenSettings}>Open Settings<ArrowRight size={14} aria-hidden="true" /></button>}</div></div>;
   };
   const lastUser = [...messages].reverse().find((row) => row.role === 'user');
   const editableUser = (user) => canRedo && !isLocal(user?.id) && !running;
@@ -971,11 +1029,12 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
       {persisted && <nav className={`help-rail${railOpen ? ' is-open' : ''}`} data-spot={narrow ? undefined : 'ask.conversations'} aria-label="Ask AI conversations" aria-hidden={railHidden || undefined} inert={railHidden || undefined}>{history}</nav>}
       {persisted && narrow && railOpen && <button type="button" className="help-rail-scrim" aria-label="Close conversations" tabIndex={-1} onClick={() => setRailOpen(false)} />}
       <div className="help-main">
-        <div className="help-page-tools">
+        {/* The conversation's bar: in the page's flow above the thread (never over it), with the conversation's name. */}
+        <header className={`help-page-tools${messages.length || title ? '' : ' is-plain'}`}>
           {persisted && narrow && <button type="button" data-spot="ask.conversations" className="help-tool" aria-expanded={railOpen} onClick={() => setRailOpen((value) => !value)}><MessagesSquare size={14} aria-hidden="true" /><span>Conversations</span>{unreadIds.size > 0 && <span className="ask-unread-dot" aria-label="New answers" />}</button>}
-          {title && <span className="help-thread-title" title={title}>{title}</span>}
+          {title && <h2 className="help-thread-title" title={title}>{title}</h2>}
           <span className="help-tools-end">{memoryButton}{messages.length > 0 && <button type="button" className="help-tool" onClick={startNew}><RotateCcw size={14} aria-hidden="true" /><span>New conversation</span></button>}</span>
-        </div>
+        </header>
         {thread}
       </div>
     </> : <>

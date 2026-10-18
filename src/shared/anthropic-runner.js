@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk').default;
 const { CLAUDE_EFFORT_LEVELS, CLAUDE_SYSTEM_PROMPT, DEFAULT_AI_MAX_BUDGET_USD, DEFAULT_CLAUDE_MODEL, MAX_CLAUDE_STDIN_BYTES, modelMatches } = require('./claude-runner');
 const { estimateTokens, modelPrice } = require('./research-program');
+const { parseJsonReply, schemaAccept, clipText } = require('./json-reply');
 
 // Direct Messages API route for machines without the Claude CLI. Same contract as the CLI path: run() resolves
 // { output, receipt } and throws Errors with a stable `code` plus `costUsd` (a number when known, null when the
@@ -254,16 +255,15 @@ function validateRequest({ schema, prompt, model, effort, maxBudgetUsd, cachePre
 }
 
 // Stop reason → answer or coded error. Every error here was billed, so it carries the measured cost.
-// Without output_config.format (the grammar fallback) the reply is plain text that should hold one JSON object; take it
-// even when the model wrapped it in a code fence. Callers validate every answer either way.
-function jsonFrom(text) {
-  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  try { return JSON.parse(trimmed); } catch (_) {}
-  const start = trimmed.indexOf('{'); const end = trimmed.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('No JSON object in the reply.');
-  return JSON.parse(trimmed.slice(start, end + 1));
-}
-function settle(message, { model, budget, maxTokens, capSource, effort, requestedEffort, requestId, durationMs, schemaInPrompt = false }) {
+// The answer is every text block joined in order (a reply can hold text, thinking, text). It is read with JSON.parse, then
+// leniently (json-reply.js: a code fence, prose around the object, raw line breaks, trailing commas), which the grammar
+// fallback's free-written JSON needs and the API's own format never should; there only an object shaped like the answer
+// counts (`accept`, schemaAccept of the run's schema), never one nested inside it. Callers validate every answer either way.
+// When nothing can be read, the error keeps the reply (keys redacted, 200 KB at most) as rawText, with schemaInPrompt,
+// blockTypes and stopReason, so the studio can save a local diagnostic (text-router.js) and Ask AI can keep its answer.
+const RAW_TEXT_BYTES = 200 * 1024;
+const jsonFrom = (text) => parseJsonReply(String(text ?? ''), { lenient: true }).value;
+function settle(message, { model, budget, maxTokens, capSource, effort, requestedEffort, requestId, durationMs, schemaInPrompt = false, accept }) {
   const actualModel = typeof message?.model === 'string' ? message.model : '';
   const verified = modelMatches(model, [actualModel]);
   const usage = isObject(message?.usage) ? message.usage : null;
@@ -279,12 +279,16 @@ function settle(message, { model, budget, maxTokens, capSource, effort, requeste
   if (stopReason === 'max_tokens') throw runnerError(`Claude reached ${model}'s ${maxTokens.toLocaleString('en-US')}-token output limit before finishing. Use fewer sources or a lower effort level.`, 'CLAUDE_OUTPUT_TRUNCATED', fields);
   if (stopReason === 'model_context_window_exceeded') throw runnerError(`The research context and Claude's answer did not fit in ${model}'s context window. Use a smaller dataset or fewer sources.`, 'CLAUDE_CONTEXT_EXCEEDED', fields);
   if (stopReason !== 'end_turn') throw runnerError(`Claude stopped before finishing (${stopReason || 'no stop reason'}). No unvalidated answer was saved.`, 'CLAUDE_INVALID_RESULT', fields);
-  // With output_config.format the answer is the JSON text block that follows any thinking blocks.
-  const text = Array.isArray(message.content) ? message.content.find((block) => block?.type === 'text')?.text : undefined;
+  const blocks = Array.isArray(message.content) ? message.content : [];
+  const blockTypes = blocks.map((block) => (typeof block?.type === 'string' ? block.type : 'unknown'));
+  const texts = blocks.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text);
+  const text = texts.join('');
   const missing = () => runnerError('Claude did not return the required structured output. No unvalidated answer was saved.', 'CLAUDE_MISSING_STRUCTURED_OUTPUT', fields);
-  if (typeof text !== 'string' || !text.trim()) throw missing();
-  let output;
-  try { output = schemaInPrompt ? jsonFrom(text) : JSON.parse(text); } catch (_) { throw runnerError('Claude returned structured output that is not valid JSON. No unvalidated answer was saved.', 'CLAUDE_INVALID_RESULT', fields); }
+  if (!text.trim()) throw missing();
+  let parsed;
+  try { parsed = parseJsonReply(text, { lenient: true, accept }); }
+  catch (_) { throw runnerError('Claude returned structured output that is not valid JSON. No unvalidated answer was saved.', 'CLAUDE_INVALID_RESULT', { ...fields, rawText: clipText(redactKey(text), RAW_TEXT_BYTES), rawTextLength: text.length, schemaInPrompt, blockTypes }); }
+  const output = parsed.value;
   if (!isObject(output)) throw missing();
   return {
     output,
@@ -292,6 +296,8 @@ function settle(message, { model, budget, maxTokens, capSource, effort, requeste
       provider: ANTHROPIC_PROVIDER, requestedModel: model, actualModel, actualModels: [actualModel],
       effort: effort.effort, ...(effort.note ? { requestedEffort, effortNote: effort.note } : {}),
       costUsd, usage, durationMs, stopReason, requestId, maxTokens, costBasis: COST_BASIS, ...(schemaInPrompt ? { structuredOutput: 'schema in prompt' } : {}),
+      // How the answer was read, only when it took more than one text block or more than JSON.parse.
+      ...(texts.length > 1 ? { textBlocks: texts.length } : {}), ...(parsed.repaired !== 'none' ? { parse: parsed.repaired } : {}),
     },
   };
 }
@@ -356,7 +362,7 @@ function createAnthropicRunner({ apiKey, Client = Anthropic, clock = Date.now, m
         const loose = buildMessageParams({ model, prompt: prompt + answerFormat(schemaText), schema: null, maxTokens, effort: chosen.effort, adaptiveThinking: profile.adaptiveThinking, cachePrefix });
         try { stream = listen(client.messages.stream(loose, { signal: controller.signal })); message = await stream.finalMessage(); schemaInPrompt = true; } catch (retryError) { throw failure(retryError); }
       }
-      return settle(message, { model, budget, maxTokens, capSource: budgetTokens < profile.maxOutputTokens ? 'budget' : 'model', effort: chosen, requestedEffort: effort, requestId: stream.request_id ?? null, durationMs: Math.max(0, clock() - startedAt), schemaInPrompt });
+      return settle(message, { model, budget, maxTokens, capSource: budgetTokens < profile.maxOutputTokens ? 'budget' : 'model', effort: chosen, requestedEffort: effort, requestId: stream.request_id ?? null, durationMs: Math.max(0, clock() - startedAt), schemaInPrompt, accept: schemaAccept(schema) });
     } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
   }
 
@@ -381,4 +387,4 @@ function createAnthropicRunner({ apiKey, Client = Anthropic, clock = Date.now, m
   return { run, checkModels };
 }
 
-module.exports = { ANTHROPIC_PROVIDER, ANTHROPIC_API_URL, MIN_OUTPUT_TOKENS, DEFAULT_TIMEOUT_MS, GRAMMAR_REFUSED, RAISE_BUDGET, createAnthropicRunner, toApiSchema, buildMessageParams, planBudget, resolveEffort, staticModelProfile, profileFromModelInfo, usageCost, describeApiError, answerFormat, jsonFrom, usd };
+module.exports = { ANTHROPIC_PROVIDER, ANTHROPIC_API_URL, MIN_OUTPUT_TOKENS, DEFAULT_TIMEOUT_MS, GRAMMAR_REFUSED, RAISE_BUDGET, RAW_TEXT_BYTES, createAnthropicRunner, toApiSchema, buildMessageParams, planBudget, resolveEffort, staticModelProfile, profileFromModelInfo, usageCost, describeApiError, answerFormat, jsonFrom, usd };

@@ -59,11 +59,12 @@ Semrush marketing roles. Every person has one role; the server enforces it on ev
 | --- | --- | --- |
 | **Admin** | The studio's owners | Everything: Settings and keys, People & access, Analytics, research programs and schedules, Brand knowledge, prompt locks. |
 | **Editor** | Content and research leads | Find trends (research runs and quick scans), approve them, write and edit reports, make channel assets for any channel, Ask AI, Sheets, data tools, see and edit prompts, see costs. |
-| **Channel owner** | One owner per channel (several may share one) | A four-page layout (Trends, My assets, My plan, Inbox): trends offered to their channel, their channel's drafts, "using / not for us" answers with links and planned dates. Never sees money, models or other channels. |
+| **Channel owner** | One owner per channel (several may share one) | A small layout (Trends, My assets, My plan, Inbox and Ask AI): trends offered to their channel, their channel's drafts, "using / not for us" answers with links and planned dates, and Ask AI scoped to their channel. Never sees money, models or other channels. |
 
 Admins can add up to 12 **custom roles** built on Editor or Channel owner, from the templates Viewer, Analyst and
-Channel reviewer, and adjust any person's access per capability (deny wins). The model is
-28 capabilities over 187 RPC methods; with no policy edits the defaults are admin 187 methods, editor 116, channel owner 19. Details:
+Channel reviewer, and adjust any person's access per capability (deny wins). **Use Ask AI** is on by default for every
+role and template; an admin can switch it off or on for any role or person in People & access (admins always have it).
+The model is 28 capabilities over 188 RPC methods; with no policy edits the defaults are admin 188 methods, editor 117, channel owner 34. Details:
 [docs/roles-and-access.md](docs/roles-and-access.md).
 
 Two layouts, chosen per person: **Simple** (the default; Home, Trends, Reports, Assets, Inbox, Calendar, Ask AI) and
@@ -230,6 +231,15 @@ Ask AI reads at runtime). This is the developer's view, with the code that owns 
   prompts), grounded cards hydrated from studio state, **quick scans** (`research-quick-scan.js`, `quick-scan.json`),
   and 27 kinds of action buttons from one shared list (`src/shared/ask-actions.json`). Nothing runs without a click;
   paid work confirms with an estimate. See [ARCHITECTURE.md](ARCHITECTURE.md#ask-ai-pipeline).
+- **Ask AI for channel owners.** The same capability (`askAi`) on the channel base, with an Ask AI entry (⌘J / Ctrl+J)
+  in the channel layout's sidebar and phone bar (`nav-model.js`, `channel-ask.jsx`). Its answers are built only from
+  that person's projected channel view (`ask-channel.js`: LIVE CONTEXT, lookups of their briefs and drafts, buttons,
+  cards, links, their own conversations and memory in their channel's space), with its own prompt
+  (`help-assistant.js` `channelPromptParts`) and the guide's channel owner sections. Buttons: Generate for my channel,
+  Yes, I'm using this trend / Not for us, Stop and Finish the rest on a set made for their channel only, Save folder,
+  and opening their trends, drafts, plan and inbox, each through the same API and gate as the channel screens. No
+  costs anywhere; pictures only with Make channel assets. A View as preview opens the page but can't ask.
+  Details: [docs/roles-and-access.md](docs/roles-and-access.md#roles-and-capabilities).
 - **Prompt Library.** 36 prompts in 7 groups (`prompt-registry.json`): editable instruction blocks inside fixed
   scaffolding, validation, versions (200 per prompt), diffs, restore, admin locks, free previews and paid test runs
   (50 kept per prompt). Runs snapshot the prompt versions they start with. `prompt-template.js`, `prompt-store.js`,
@@ -300,6 +310,15 @@ Ask AI reads at runtime). This is the developer's view, with the code that owns 
   errors in plain words (folder not shared, key refused, Drive API off, no storage). **Copy existing reports** is a
   cancellable `drive` job; the sync log keeps 200 rows with **Retry**. Readers show **Open in Drive** from
   `contentStudio.driveLinks` (`roles.js` empties it without Read reports and assets); Monday cards fall back to it.
+  With the switch off, **Save to Drive** right after **Share** in both readers (`DriveSaveButton` in
+  `simple-reports.jsx`; `saveReportToDrive` in Export and publish, so admins and editors) sends the open trends report,
+  toolkit or quick scan report now through the same `syncAsset` and id map (`saveNow`, waits up to 60 s): the first save
+  adds the Doc and later ones update it, never a second copy. It reads **Update in Drive** once
+  `contentStudio.driveStale` lists the report (edited or restored after the version its Doc was made from, `sourceAt`, or
+  a toolkit saved before its trends report's Doc existed); **Saved to Drive** can be pressed again and re-makes a Doc
+  deleted in Drive. While the switch is on it is greyed out (`aria-disabled`, with a tooltip naming the folder) and the
+  server refuses it with a 409; before Drive is connected it opens Settings → Google Drive for admins and is greyed out
+  for everyone else.
   Server-side on the web; on the Mac only while the app is open. No AI spend.
 
 ## Configuration reference
@@ -438,7 +457,7 @@ on the server.
   content-studio/
     .studio-owner.json   the data-folder lock (process, host, boot, 30-second heartbeat)
     state.json           workspaces, programs, research and content runs, assets, trends (the studio service)
-    team.json            people, custom roles, role policy, sign-in links, channel answers, activity, access log (v2)
+    team.json            people, custom roles, role policy, sign-in links, channel answers, activity, access log (v3)
     monday.json          Monday.com: account, a board link per workspace, the item map, people cache, today's calls
     workflows.json       workflows, their runs (100 kept each, 2,000 in all) and team playbooks (version 1)
     report-docs/         the report editor: <assetId>.json (Yjs state, versions list) and <assetId>.versions/
@@ -450,6 +469,7 @@ on the server.
     ask/<sha256(identity)[0:32]>/   one person's Ask AI index, conversations (c/), memory.json
     prompts/<workspaceId>/<promptId>.json   prompt versions        prompt-tests/   test records
     brand-images/<workspaceId>/      brand reference images        exports/   run exports
+    diagnostics/         AI replies the studio couldn't read: ai-invalid-<time>.json (keys redacted, newest 10, 30 days)
   web-transfers/         browser uploads and downloads (web only; short-lived)
 ```
 
@@ -457,7 +477,8 @@ on the server.
   (`writeJson` in `index.js`). A damaged `data.json` or `config.json` is copied aside as `<file>.bad-<time>` and
   listed in `state.storeRecovery`; a file that can't be read stops startup rather than being overwritten.
 - **One writer.** The owner lock keeps a second process off the folder. Synchronous stores (`team-store.js`) assume it.
-- **Migrations.** `team.json` v1 → v2 upgrades on load (`MIGRATIONS[1]`); a newer `team.json` refuses to start.
+- **Migrations.** `team.json` v1 → v2 → v3 upgrades on load (`MIGRATIONS[1]`, then `MIGRATIONS[2]`: Ask AI for every
+  role); a newer `team.json` refuses to start, so a v3 file can't go back to a 0.3.0 build.
   The one-way Monday setup in `config.json` (`monday`) moves into `content-studio/monday.json` once at startup, item IDs
   kept and sync left manual until an admin turns it on (`migrateLegacy`).
   `migrateSemrushBrandDefaults` updates the Semrush brand preset in `state.json`. There are no downgrades: back up
@@ -707,6 +728,10 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
   People's unsaved bar), **restore-prompt** and restore-report, a "mark used with this link" follow-up after
   Published, copying the briefing, and plan steps that wait for unfinished work (`after=ready:<trend>`).
 - The spend lookup doesn't include Ask AI's own answer costs (receipts aren't stored centrally) or Apify charges.
+- A channel owner's Ask AI sends no brand visual direction with pictures (it is a Prompt Library prompt, which channel
+  roles can't read), so their pictures follow the brand reference images and their own words only. It has no Show me
+  tours (the channel layout has no spots yet) and no quick scans. Asset status isn't one of its buttons: channel roles
+  can't set it today.
 - The Ask AI footer (`help-assistant.jsx`) still says "about $0.15 each on Claude"; the measured figures are in
   [AI routes and cost controls](#ai-routes-and-cost-controls).
 - Page context: the server (`askPage` in `index.js`) keeps `report`, `folder`, `trend` and `prompt` but drops `run`,
@@ -725,6 +750,14 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
 - On an ambiguous trend name, the trend card shows the newest waiting run's copy while the choice card asks which run.
 - A button whose target matches nothing is dropped (the next answer is told), so a model writing loose names loses
   buttons other than `open`.
+- A reply whose JSON can't be read, even leniently (`src/shared/json-reply.js`: fences, prose around the object, raw
+  line breaks, trailing commas), fails as before but keeps its text: `ai-diagnostics.js` saves it to
+  `content-studio/diagnostics/ai-invalid-<time>.json` (keys redacted, 100 KB at most, owner-only, newest 10, none past
+  30 days; not removed with a conversation, see SECURITY.md), and Ask AI keeps the answer field when it can read it
+  (`salvageReply`, plus a reading round's lookups), with a note that cards and buttons couldn't be read.
+  Other tasks still fail. The Claude Code and Codex routes don't pass the reply on, so they leave no diagnostic. The
+  cause of the Oct 18 "not valid JSON" answer (several text blocks, or a refused grammar and free-written JSON) wasn't
+  confirmed; the first diagnostics file will show which.
 
 ### UX flows
 

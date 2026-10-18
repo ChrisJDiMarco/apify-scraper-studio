@@ -116,6 +116,25 @@ describe('buildNav: channel owners', () => {
     expect(isChannelViewer({ role: 'role-reviewer-1a2b', base: 'channel' })).toBe(true);
     expect(isChannelViewer(editor())).toBe(false);
   });
+
+  it('adds Ask AI, as a page with ⌘J, when the role has Use Ask AI, and leaves it out when it doesn’t', () => {
+    const asker = { ...owner, allowed: [...owner.allowed, 'askHelp'], nav: { main: ['trends', 'assets', 'plan', 'inbox', 'ask'] }, hiddenPages: [] };
+    const nav = buildNav({ viewer: asker, layout: 'channel', state: {}, edition: 'semrush' });
+    expect(nav.actions.ask).toEqual({ id: 'ask', label: 'Ask AI', icon: 'Sparkles', shortcut: '⌘J', spot: 'nav.ask', mode: 'page' });
+    expect(nav.actions.create).toEqual([]);
+    expect(nav.actions.search).toBeNull();
+    expect(labels(nav)).toEqual([['channel', ['Trends', 'My assets', 'My plan', 'Inbox']]]); // the pages; Ask AI sits with the actions, as in Simple
+    expect(nav.shortcuts).toContainEqual({ keys: '⌘J', label: 'Ask AI' });
+    // Off for the role: the server leaves 'ask' out of its nav and askHelp out of what it may call.
+    expect(buildNav({ viewer: { ...asker, nav: { main: ['trends', 'assets', 'plan', 'inbox'] } }, layout: 'channel', state: {}, edition: 'semrush' }).actions.ask).toBeNull();
+    expect(buildNav({ viewer: { ...asker, allowed: owner.allowed }, layout: 'channel', state: {}, edition: 'semrush' }).actions.ask).toBeNull();
+    expect(buildNav({ viewer: { ...asker, hiddenPages: ['ask'] }, layout: 'channel', state: {}, edition: 'semrush' }).actions.ask).toBeNull();
+    // In a preview it shows as the previewed role has it (roleAllowed), like the other layouts.
+    expect(buildNav({ viewer: { ...asker, preview: true, allowed: ['setViewPrefs'], roleAllowed: asker.allowed }, layout: 'channel', state: {}, edition: 'semrush' }).actions.ask).toMatchObject({ mode: 'page' });
+    // Simple and Advanced are unchanged: a page in Simple, a drawer in Advanced.
+    expect(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).actions.ask).toMatchObject({ mode: 'page', shortcut: '⌘J' });
+    expect(buildNav({ viewer: admin(), layout: 'classic', state: state(), edition: 'semrush' }).actions.ask).toMatchObject({ mode: 'drawer', shortcut: '⌘J' });
+  });
 });
 
 describe('buildNav: New', () => {

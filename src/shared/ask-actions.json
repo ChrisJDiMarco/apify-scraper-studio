@@ -1,5 +1,5 @@
 {
-  "//": "Ask AI's buttons, one entry per action kind. Read by src/main/help-assistant.js (the ACTIONS lines in the prompt, the reply cleaner and its params check, role gating) and src/renderer/src/studio-actions.js (what each button runs and whether this role may run it), so the two can't drift apart. Fields: label = how the model should word the button; target = what the action's target names, resolved to an id on the server (src/main/index.js helpResolveActions; see targets); params = the 'key=value' strings it takes, by type (see paramTypes); methods = every API method the button ends up calling, and a role needs all of them (none = it only opens a place, which the layout's own access checks); needs = an extra right from the Prompt Library (promptView, promptEdit) or a connection (googleDrive); spends = paid work, always confirmed with an estimate; destructive = confirmed as a danger; confirm = none | dialog | estimate | handoff (a dialog elsewhere has the last word) | card (a card under the answer has the button); form = when an action form card lets the person check what Ask AI filled in (always | params | never); layouts = where it works; prompt = the model's instruction line. test/ask-actions-registry.test.js keeps every method real and every kind wired.",
+  "//": "Ask AI's buttons, one entry per action kind. Read by src/main/help-assistant.js (the ACTIONS lines in the prompt, the reply cleaner and its params check, role gating) and src/renderer/src/studio-actions.js (what each button runs and whether this role may run it), so the two can't drift apart. Fields: label = how the model should word the button; target = what the action's target names, resolved to an id on the server (src/main/index.js helpResolveActions; see targets); params = the 'key=value' strings it takes, by type (see paramTypes); methods = every API method the button ends up calling, and a role needs all of them (none = it only opens a place, which the layout's own access checks); needs = an extra right from the Prompt Library (promptView, promptEdit) or a connection (googleDrive); spends = paid work, always confirmed with an estimate; destructive = confirmed as a danger; confirm = none | dialog | estimate | handoff (a dialog elsewhere has the last word) | card (a card under the answer has the button); form = when an action form card lets the person check what Ask AI filled in (always | params | never); layouts = where it works (channel: a channel owner's Ask AI, which finds its target in their channel's view only); prompt = the model's instruction line; channelPrompt = that line for a channel owner, when it differs. test/ask-actions-registry.test.js keeps every method real and every kind wired.",
   "paramTypes": {
     "text:N": "plain text up to N characters",
     "enum:a|b": "one of the listed values",
@@ -66,44 +66,51 @@
       "prompt": "target = \"\". Writes reports for approved trends (trends.approvedAwaitingReports): params trends=<names separated by |> for only some of them, or no params for all. Approved trends from the same run that aren't picked are skipped for good; say so. They confirm the estimate first."
     },
     "make-assets": {
-      "label": "Make Social and Blog assets for “<report>”", "target": "report", "params": { "channels": "channels" }, "methods": ["planAssetKit", "createAssetKit"], "spends": true, "destructive": false, "confirm": "handoff", "form": "never", "layouts": ["simple", "classic"],
-      "prompt": "target = a report title from reports (a trend's report and toolkit count as one). params channels=<names from channels separated by |> to tick only those channels. Opens the Make channel assets dialog filled in; they check the cost and press Make there."
+      "label": "Make Social and Blog assets for “<report>”", "target": "report", "params": { "channels": "channels" }, "methods": ["planAssetKit", "createAssetKit"], "spends": true, "destructive": false, "confirm": "handoff", "form": "never", "layouts": ["simple", "classic", "channel"],
+      "prompt": "target = a report title from reports (a trend's report and toolkit count as one). params channels=<names from channels separated by |> to tick only those channels. Opens the Make channel assets dialog filled in; they check the cost and press Make there.",
+      "channelPrompt": "target = a trend name from trends whose brief is ready. Makes their channel's drafts from its brief, as Generate for my channel does: they see what will be made and how long it takes, then press Generate. No params."
     },
     "set-status": {
       "label": "Mark “<report>” published", "target": "asset", "params": { "status": "enum:draft|in-review|approved|scheduled|published", "link": "url" }, "methods": ["setAssetStatus"], "spends": false, "destructive": false, "confirm": "none", "form": "params", "layouts": ["simple", "classic"],
       "prompt": "target = a report title from reports, or \"Folder title › File\" for a channel asset file. params status=draft|in-review|approved|scheduled|published (required), and link=<the live web address> only when they wrote it, for published. Free; published shows a card with a link box first."
     },
     "mark-used": {
-      "label": "Social is using “<trend>”", "target": "trend.ready", "params": { "channel": "channel", "status": "enum:using|not-using|clear", "link": "url", "date": "date", "note": "text:500" }, "methods": ["setTrendAdoption"], "spends": false, "destructive": false, "confirm": "card", "form": "always", "layouts": ["simple", "classic"],
-      "prompt": "target = a trend name from trends.ready. Records whether one channel uses it: params channel=<a channel from channels> (required), status=using|not-using|clear (default using), link=<the web address they wrote>, date=<planned date YYYY-MM-DD>, note=<a short note>. They check it on a card first."
+      "label": "Social is using “<trend>”", "target": "trend.ready", "params": { "channel": "channel", "status": "enum:using|not-using|clear", "link": "url", "date": "date", "note": "text:500" }, "methods": ["setTrendAdoption"], "spends": false, "destructive": false, "confirm": "card", "form": "always", "layouts": ["simple", "classic", "channel"],
+      "prompt": "target = a trend name from trends.ready. Records whether one channel uses it: params channel=<a channel from channels> (required), status=using|not-using|clear (default using), link=<the web address they wrote>, date=<planned date YYYY-MM-DD>, note=<a short note>. They check it on a card first.",
+      "channelPrompt": "target = a trend name from trends. Saves their channel's answer on it: params status=using|not-using|clear (default using), link=<the live web address they wrote>, date=<planned date YYYY-MM-DD>, note=<a short note>. Leave channel out: it is always theirs. They check it on a card first."
     },
     "edit-report": {
       "label": "Review the new intro", "target": "report", "params": {}, "methods": ["readStudioAsset", "editStudioAsset"], "spends": false, "destructive": false, "confirm": "card", "form": "never", "layouts": ["simple", "classic"],
       "prompt": "target = the title of a report you read with a report lookup for this answer. Proposes new text for one section (see EDITS): fill edit.ref = the report title, edit.part = the section's exact heading, edit.text = the whole new section text without its heading line, edit.note = what changes and why. It never saves itself; they review it on its report-change card and press Apply."
     },
     "finish-assets": {
-      "label": "Finish the assets in “<folder>”", "target": "folder", "params": {}, "methods": ["retryStudioRun"], "spends": true, "destructive": false, "confirm": "estimate", "form": "never", "layouts": ["simple", "classic"],
-      "prompt": "target = an asset folder title whose latest run needs another try. Retries the unfinished assets (they confirm the cost first)."
+      "label": "Finish the assets in “<folder>”", "target": "folder", "params": {}, "methods": ["retryStudioRun"], "spends": true, "destructive": false, "confirm": "estimate", "form": "never", "layouts": ["simple", "classic", "channel"],
+      "prompt": "target = an asset folder title whose latest run needs another try. Retries the unfinished assets (they confirm the cost first).",
+      "channelPrompt": "target = a trend name from drafts whose set needsAnotherTry and was made for their channel only (sharedWithOtherChannels false). Finishes the drafts that didn't make it; they confirm first."
     },
     "save-folder": {
-      "label": "Save “<folder>”", "target": "folder", "params": {}, "methods": ["saveAssetKitFolder"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
-      "prompt": "target = an asset folder title. Saves its latest run as a folder (desktop app: into Downloads; browser: a .zip)."
+      "label": "Save “<folder>”", "target": "folder", "params": {}, "methods": ["saveAssetKitFolder"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic", "channel"],
+      "prompt": "target = an asset folder title. Saves its latest run as a folder (desktop app: into Downloads; browser: a .zip).",
+      "channelPrompt": "target = a trend name from drafts with ready files. Saves that trend's drafts as a folder (Mac app: into Downloads; browser: a .zip)."
     },
     "stop-run": {
-      "label": "Stop “<run>”", "target": "run.live", "params": {}, "methods": ["cancelStudioRun"], "spends": false, "destructive": true, "confirm": "dialog", "form": "never", "layouts": ["simple", "classic"],
-      "prompt": "target = the title of something in workingNow. Stops it; finished work is kept."
+      "label": "Stop “<run>”", "target": "run.live", "params": {}, "methods": ["cancelStudioRun"], "spends": false, "destructive": true, "confirm": "dialog", "form": "never", "layouts": ["simple", "classic", "channel"],
+      "prompt": "target = the title of something in workingNow. Stops it; finished work is kept.",
+      "channelPrompt": "target = a trend name from drafts whose set is being made (status queued or running) and was made for their channel only. Stops it; finished drafts are kept."
     },
     "retry-run": {
       "label": "Try “<run>” again", "target": "run.stopped", "params": {}, "methods": ["retryStudioRun"], "spends": true, "destructive": false, "confirm": "estimate", "form": "never", "layouts": ["simple", "classic"],
       "prompt": "target = the title of a failed, partial or stopped research or report run. Tries it again with its saved budget (they confirm first)."
     },
     "open": {
-      "label": "Open “<name>”", "target": "any", "params": { "type": "enum:report|folder|trend|program|run|prompt|page" }, "methods": [], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
-      "prompt": "target = the name of a report, asset folder, trend, program, run or prompt, even a loose one (\"the zero-click report\"); params type=report|folder|trend|program|run|prompt|page when you know it (for page, target = a PAGES id). Opens it in the studio."
+      "label": "Open “<name>”", "target": "any", "params": { "type": "enum:report|folder|trend|program|run|prompt|page" }, "methods": [], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic", "channel"],
+      "prompt": "target = the name of a report, asset folder, trend, program, run or prompt, even a loose one (\"the zero-click report\"); params type=report|folder|trend|program|run|prompt|page when you know it (for page, target = a PAGES id). Opens it in the studio.",
+      "channelPrompt": "target = a trend name. Opens that trend's brief; with params type=folder, its drafts in My assets; with type=page, target = trends, assets, plan or inbox."
     },
     "open-tab": {
-      "label": "Open Trends", "target": "tab", "params": {}, "methods": [], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
-      "prompt": "target = home, trends, reports, assets, inbox, calendar, ask or settings."
+      "label": "Open Trends", "target": "tab", "params": {}, "methods": [], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic", "channel"],
+      "prompt": "target = home, trends, reports, assets, inbox, calendar, ask or settings.",
+      "channelPrompt": "target = trends, assets, plan, inbox or ask."
     },
     "open-tracker": {
       "label": "Open the Trend tracker", "target": "none", "params": {}, "methods": ["readWorkbook"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
@@ -122,7 +129,7 @@
       "prompt": "target = a report title. Creates Google Docs from that report's files in the team's Drive folder (they confirm first). Only when connections.googleDrivePublishing is true."
     },
     "ask": {
-      "label": "Then: make Social assets once the reports are ready", "target": "question", "params": {}, "methods": ["askHelp"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
+      "label": "Then: make Social assets once the reports are ready", "target": "question", "params": {}, "methods": ["askHelp"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic", "channel"],
       "prompt": "target = the question to send. A plan step for work that can't be a button yet (it depends on something unfinished); clicking it asks you that question."
     },
     "draft-program": {

@@ -33,6 +33,14 @@ export function askCostLine({ persisted = false, seesCosts = true, route = '', i
 // Reports, folders and trends this person can attach, from the pushed state, newest first.
 export function attachOptionsFrom(state) {
   const studio = state?.contentStudio || {}; const workspaceId = studio.activeWorkspaceId;
+  // A channel owner's state holds only their channel's view: its trends' briefs, and the sets made for their channel.
+  if (studio.channelView && typeof studio.channelView === 'object') {
+    const view = studio.channelView; const trends = list(view.trends);
+    const briefs = trends.map((trend) => list(trend.reportAssets).find((asset) => asset.id === trend.primaryReportId) || list(trend.reportAssets)[0]).filter((asset) => asset?.title).map((asset) => ({ kind: 'report', ref: asset.title, id: asset.id }));
+    const sets = []; const named = new Set();
+    for (const run of list(view.runs)) { const title = String(run.kit?.sourceTitle || run.title || '').trim(); if (!title || named.has(title.toLowerCase())) continue; named.add(title.toLowerCase()); sets.push({ kind: 'asset-folder', ref: title, id: run.kit?.themeId || run.id }); }
+    return { report: briefs.slice(0, 60), 'asset-folder': sets.slice(0, 40), trend: trends.filter((trend) => trend.name).map((trend) => ({ kind: 'trend', ref: trend.name, id: trend.themeId })).slice(0, 60) };
+  }
   const mine = (row) => !workspaceId || !row?.workspaceId || row.workspaceId === workspaceId;
   const newest = (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
   const reports = list(studio.assets).filter((asset) => mine(asset) && asset.kind === 'text' && asset.title).sort(newest).map((asset) => ({ kind: 'report', ref: asset.title, id: asset.id }));
