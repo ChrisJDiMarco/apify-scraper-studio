@@ -66,12 +66,13 @@ describe('buildNav: Advanced', () => {
     expect(labels(nav)).toEqual([
       ['research', ['Home', 'Inbox', 'Research programs', 'Trend board', 'Sheets']],
       ['content', ['Create content', 'Library', 'Calendar', 'Brand knowledge']],
-      ['data', ['Search platforms', 'Scrapers', 'Import research', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Playbooks', 'Workflows', 'Activity']],
+      ['automate', ['Playbooks', 'Workflows']],
+      ['data', ['Search platforms', 'Scrapers', 'Import research', 'Brief starters', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Activity']],
       ['studio', ['Prompts', 'Analytics', 'People & access', 'Settings']],
     ]);
     const data = nav.groups.find((group) => group.id === 'data');
     expect(data).toMatchObject({ label: 'Data tools', collapsible: true, open: false, spot: 'nav.data-tools' });
-    expect(data.subgroups.map((sub) => [sub.label, sub.items.length])).toEqual([['Collect', 3], ['Analyze', 4], ['Automate', 2], ['', 1]]);
+    expect(data.subgroups.map((sub) => [sub.label, sub.items.length])).toEqual([['Collect', 4], ['Analyze', 4], ['', 1]]);
     // Data tools and Studio pages take no number here: Research and Content use all nine.
     expect(nav.order.map((row) => row.id)).toEqual(['overview', 'inbox', 'research', 'board', 'sheets', 'create', 'library', 'calendar', 'knowledge']);
     expect(findNavItem(nav, 'board')).toMatchObject({ badge: 2, badgeLabel: '2 need your OK', kind: 'studio' });
@@ -120,9 +121,11 @@ describe('buildNav: channel owners', () => {
 describe('buildNav: New', () => {
   it('offers every kind of new thing, with the admin rows last, and lists programs when there are several', () => {
     const nav = buildNav({ viewer: admin({ web: true }), layout: 'simple', state: state({ programs: [{ id: 'p1', name: 'SEO weekly', workspaceId: 'w1' }, { id: 'p2', name: 'AI search', workspaceId: 'w1' }, { id: 'p3', name: 'Elsewhere', workspaceId: 'w2' }] }), edition: 'semrush' });
-    expect(nav.actions.create.map((row) => `${row.id}:${row.section}`)).toEqual(['research:main', 'quick-scan:main', 'assets:main', 'content:main', 'picture:main', 'program:admin', 'person:admin', 'workspace:admin']);
+    expect(nav.actions.create.map((row) => `${row.id}:${row.section}`)).toEqual(['research:main', 'quick-scan:main', 'assets:main', 'content:main', 'picture:main', 'program:admin', 'playbook:admin', 'person:admin', 'workspace:admin']);
     // People on the Mac has no invite, so New › Person is the browser studio's only.
     expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).not.toContain('person');
+    // A one-workspace build offers no New › Workspace.
+    expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state({ workspacePolicy: { mode: 'single', name: 'Main' } }), edition: 'semrush' }).actions.create)).not.toContain('workspace');
     expect(nav.actions.create[0].choices).toEqual([{ id: 'p1', label: 'SEO weekly' }, { id: 'p2', label: 'AI search' }]);
     const one = buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' });
     expect(one.actions.create[0]).toMatchObject({ choices: [], programId: 'p1', hint: 'Runs a research program. You’ll see the cost first.' });
@@ -172,11 +175,33 @@ describe('View as and My channels', () => {
 describe('labels and keys', () => {
   it('names pages for the breadcrumb and spells shortcuts for aria-keyshortcuts', () => {
     expect(PAGE_LABELS).toMatchObject({ overview: 'Home', dashboard: 'Overview', reports: 'Dataset reports', people: 'People & access', settings: 'Settings', inbox: 'Inbox' });
-    expect(DATA_TOOL_IDS).toEqual(['search', 'automation', 'imports', 'datasets', 'reports', 'compare', 'chat', 'templates', 'missions', 'runs']);
+    expect(DATA_TOOL_IDS).toEqual(['search', 'automation', 'imports', 'templates', 'datasets', 'reports', 'compare', 'chat', 'runs']);
     expect(ariaKeys('⌘1')).toBe('Meta+1');
     expect(ariaKeys('⌥⌘N')).toBe('Alt+Meta+N');
     const nav = buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' });
     expect(nav.shortcuts.slice(0, 2)).toEqual([{ keys: '⌘1', label: 'Home' }, { keys: '⌘2', label: 'Trends' }]);
     expect(nav.shortcuts.map((row) => row.keys).slice(-6)).toEqual(['⌘K', '⌘J', '⌥⌘N', '⌘,', '⌘\\', 'Esc']);
+  });
+});
+
+describe('buildNav: Automate', () => {
+  it('puts Playbooks and Workflows in Advanced for admins and editors, with what waits on them', () => {
+    const nav = buildNav({ viewer: admin(), layout: 'classic', state: state({ workflowSummary: { waiting: 2 }, workflows: [{ id: 'workflow-a', running: true }] }), edition: 'semrush' });
+    expect(nav.groups.map((group) => group.id)).toEqual(['research', 'content', 'automate', 'data', 'studio']);
+    expect(findNavItem(nav, 'workflows')).toMatchObject({ badge: 2, badgeLabel: '2 waiting on you', live: true, liveLabel: 'a workflow is running', spot: 'nav.workflows', kind: 'app' });
+    expect(findNavItem(nav, 'templates')).toMatchObject({ label: 'Brief starters', spot: 'nav.brief-starters' });
+    const general = buildNav({ viewer: admin(), layout: 'classic', state: state(), edition: 'general' });
+    expect(general.groups.map((group) => group.id).slice(0, 2)).toEqual(['workspace', 'automate']);
+    const reader = editor({ allowed: [...editor().allowed, 'estimateWorkflow'] });
+    expect(ids(buildNav({ viewer: reader, layout: 'classic', state: state(), edition: 'semrush' }).groups.find((group) => group.id === 'automate').items)).toEqual(['playbooks', 'workflows']);
+  });
+  it('leaves Automate out without readWorkflows, and Simple stays at its pages', () => {
+    const viewer = editor({ hiddenPages: ['settings', 'knowledge', 'analytics', 'people', 'playbooks', 'workflows'] });
+    expect(buildNav({ viewer, layout: 'classic', state: state(), edition: 'semrush' }).groups.some((group) => group.id === 'automate')).toBe(false);
+    expect(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).groups[0].items.map((row) => row.id)).not.toContain('workflows');
+  });
+  it('offers New › Playbook only to someone who can set one up', () => {
+    expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).toContain('playbook');
+    expect(ids(buildNav({ viewer: editor(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).not.toContain('playbook');
   });
 });

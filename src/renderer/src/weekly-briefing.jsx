@@ -8,6 +8,8 @@ import { number } from './ui.jsx';
 import { buildTrendBoard } from '../../shared/trend-board.js';
 import { linkFor } from './deep-links.js';
 import { nextSteps, setupChecklist } from './next-steps.js';
+import { ProgramsPanel } from './home-programs.jsx';
+import { AutomationsCard } from './workflows-view.jsx';
 import { defaultProgram, lastProgramId, readChoice, rememberProgram, saveChoice } from './choices.js';
 import './weekly-briefing.css';
 
@@ -110,7 +112,7 @@ export function briefingMarkdown(data, { changes = null, origin = '' } = {}) {
   return parts.length > 1 ? [...parts, studio].filter(Boolean).join('\n\n') : [`${title}\n\nQuiet week so far. New trends show up here after the next research run.`, studio].filter(Boolean).join('\n\n');
 }
 
-export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout = 'simple', busy = false, board = null, now = null, onOpenTarget, onDecide, onDecideWithNote, onAsk, onOpenTracker, onStartResearch, linkOrigin = '', postsApi = null, onWriteReports, onRetryRun, onMakeAssets, onCreate, web: webIn }) {
+export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout = 'simple', busy = false, board = null, now = null, onOpenTarget, onDecide, onDecideWithNote, onAsk, onOpenTracker, onStartResearch, linkOrigin = '', postsApi = null, onWriteReports, onRetryRun, onMakeAssets, onCreate, web: webIn, onNotice, onOpenProgramPage }) {
   const contextViewer = useViewer(); const viewer = viewerIn || contextViewer;
   const can = (method) => canCall(viewer, method); const canRun = (method) => canRunCall(viewer, method);
   const data = useMemo(() => briefingData({ state, viewer, now: now || new Date(), board }), [state.contentStudio, viewer, board, now]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -201,7 +203,7 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
     {problem && <p className="wb-problem" role="alert">{problem}</p>}
 
     {needsSetup && (can('saveSettings')
-      ? !showSetup && <button type="button" className="wb-setup" onClick={() => open({ kind: 'page', id: 'settings', page: 'settings' })}><span className="wb-setup-dot" aria-hidden="true" /><span><strong>Finish setup to start collecting</strong><small>Connect your Apify account in Settings. It takes about a minute.</small></span><ArrowRight size={16} aria-hidden="true" /></button>
+      ? !showSetup && <button type="button" className="wb-setup" onClick={() => open({ kind: 'page', id: 'settings', page: 'settings', section: 'sources' })}><span className="wb-setup-dot" aria-hidden="true" /><span><strong>Finish setup to start collecting</strong><small>Connect your Apify account in Settings. It takes about a minute.</small></span><ArrowRight size={16} aria-hidden="true" /></button>
       : <div className="wb-setup is-note" role="note"><span className="wb-setup-dot" aria-hidden="true" /><span><strong>Setup isn’t finished</strong><small>Ask {askAdmin} to connect Apify. Then research can start collecting.</small></span></div>)}
 
     {onAsk && <form className="wb-ask" data-spot="home.ask" onSubmit={submit}>
@@ -278,6 +280,10 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
       </div>
 
       <div className="wb-col wb-col-side">
+        {/* Research programs (admins who manage them): schedule, runs, sources and budgets, with Run now and a quick editor. */}
+        {can('saveResearchProgram') && typeof api.saveResearchProgram === 'function' && <ProgramsPanel state={state} viewer={viewer} api={api} busy={busy} needsSetup={Boolean(needsSetup)} onStartResearch={onStartResearch} onOpenTarget={onOpenTarget} onNotice={onNotice || ((message) => { setCopied(message); setTimeout(() => setCopied(''), 4800); })} onOpenProgramPage={onOpenProgramPage} />}
+        {/* Automations (readWorkflows): workflows with status, next run, what waits, Pause / Resume and Manage. */}
+        <AutomationsCard state={state} api={api} viewer={viewer} can={can} onOpenTarget={onOpenTarget} onNotice={onNotice} desktop={!web} />
         {historyOn && <div className="wb-changes" data-spot="home.changes"><WhatChanged changes={history === undefined ? undefined : changes} error={historyError} onOpenTrend={openTrend} onOpenTracker={onOpenTracker} onStartResearch={startResearch} limit={3} /></div>}
 
         {live.length > 0 && <section className="wb-card wb-working" aria-labelledby="wb-working-title" data-spot="home.working">

@@ -24,10 +24,10 @@ const { SECRET_KEY_PATTERN, parseJsonObject, publicRecipe, redactSecrets, valida
 const { normalizeDataset, normalizeItem, normalizeMetrics, toCsv, toJsonl } = normalize;
 const { createApifyRunner, discoverApifyResource, listAllDatasetItems } = apifyRunner;
 const { REPORT_PRESETS, buildAnalysisContext, buildAssetPrompt, buildCodexCommand, buildPrompt, parseJsonlEvents, reportPresetById, validateAiOutput } = codexRunner;
-const { buildReadinessSummary, buildSetupSteps, buildStudioIntelligence, buildWorkPlan, planIntent, profileDataset, suggestCommands } = intelligence;
+const { buildReadinessSummary, buildSetupSteps, buildStudioIntelligence, buildWorkPlan, profileDataset, suggestCommands } = intelligence;
 const { ensureWorkspace, isPathInside, safeFilename } = workspace;
 const { buildArchiveClearRequest, buildDatasetSheetRows, buildDatasetWriteRequest, buildDatasetWriteRequests, buildPingRequest, buildSheetReadRequest, isRetryableSheetMessage, isRetryableSheetStatus, parseSpreadsheetId } = sheetsBridge;
-const { boolValue, enumValue, intValue, optionalRecord, stringArray, stringValue, validateAnalysisPayload, validateAssetPayload, validateCardPayload, validateExportPayload, validateGenerateAssetsPayload, validateId, validateIntentActionPayload, validateIntentPayload, validateKeyName, validateKeyValue, validateMoveCardPayload, validateSettings } = validation;
+const { boolValue, enumValue, intValue, optionalRecord, stringArray, stringValue, validateAnalysisPayload, validateAssetPayload, validateExportPayload, validateId, validateKeyName, validateKeyValue, validateSettings } = validation;
 const workflowConfig = JSON.parse(fs.readFileSync(new URL('../src/shared/asset-workflow.json', import.meta.url), 'utf8'));
 const projectRoot = path.resolve(new URL('..', import.meta.url).pathname);
 const requireFromTest = createRequire(import.meta.url);
@@ -105,21 +105,6 @@ describe('IPC validation helpers', () => {
       reportPresetId: 'lead-list',
     });
     expect(() => validateAnalysisPayload({ datasetId: 'dataset-1', kind: 'delete-everything' })).toThrow(/unsupported/);
-    expect(validateIntentPayload({ command: 'make a lead sheet', datasetId: 'dataset-1' })).toEqual({ command: 'make a lead sheet', datasetId: 'dataset-1' });
-    expect(() => validateIntentPayload({ command: '' })).toThrow(/Command/);
-    expect(() => validateIntentPayload({ command: 'x', datasetId: '../bad' })).toThrow(/Dataset ID/);
-    expect(validateIntentActionPayload({
-      id: 'generate-report',
-      label: 'Generate report',
-      action: 'analyze-dataset',
-      args: { datasetId: 'dataset-1', kind: 'report', reportPresetId: 'lead-list' },
-    })).toEqual({
-      id: 'generate-report',
-      label: 'Generate report',
-      action: 'analyze-dataset',
-      args: { datasetId: 'dataset-1', kind: 'report', reportPresetId: 'lead-list' },
-    });
-    expect(() => validateIntentActionPayload({ action: 'open-shell', args: {} })).toThrow(/Intent action/);
 
     expect(validateAssetPayload({
       id: 'asset-1',
@@ -129,22 +114,6 @@ describe('IPC validation helpers', () => {
     })).toMatchObject({ id: 'asset-1', title: 'Lead list', evidenceIds: ['a', 'b'] });
   });
 
-  it('validates asset generation requests before Codex sees them', () => {
-    expect(validateGenerateAssetsPayload({
-      card: { id: 'card-1', title: 'Trend' },
-      assetTypeIds: ['blog-post', 'linkedin-post'],
-      datasetId: 'dataset-1',
-    })).toMatchObject({
-      card: { id: 'card-1', title: 'Trend' },
-      assetTypeIds: ['blog-post', 'linkedin-post'],
-      datasetId: 'dataset-1',
-    });
-
-    expect(() => validateGenerateAssetsPayload({
-      card: { id: '../bad', title: 'Trend' },
-      assetTypeIds: ['blog-post'],
-    })).toThrow(/Card ID/);
-  });
 });
 
 describe('recipes and redaction', () => {
@@ -1028,21 +997,6 @@ describe('validation primitives', () => {
     expect(() => stringArray('tag', 'Tags')).toThrow(/list/);
   });
 
-  it('validates card and move payloads', () => {
-    expect(validateCardPayload({ title: 'Trend', tags: ['ai', 'ai'], signalCount: 7 })).toMatchObject({
-      title: 'Trend',
-      tags: ['ai'],
-      signalCount: '7',
-      column: 'detected',
-    });
-    expect(validateMoveCardPayload({ cardId: 'card-1', column: 'ready', card: { title: 'Trend' } })).toMatchObject({
-      cardId: 'card-1',
-      column: 'ready',
-      card: { title: 'Trend' },
-    });
-    expect(() => validateCardPayload({ title: '' })).toThrow(/Card title/);
-    expect(() => validateMoveCardPayload({ cardId: 'card 1', column: 'ready' })).toThrow(/Card ID/);
-  });
 });
 
 describe('dashboard helpers', () => {
@@ -1172,34 +1126,6 @@ describe('studio intelligence', () => {
     expect(profile.recommendedActions[0]).toMatchObject({ action: 'run-recipe' });
   });
 
-  it('plans runnable plain-English commands against current app state', () => {
-    const intelligenceState = buildStudioIntelligence(state, () => payload);
-    const plan = planIntent('make me a lead sheet from the latest data', {
-      ...state,
-      intelligence: intelligenceState,
-    });
-
-    expect(plan.canRun).toBe(true);
-    expect(plan.steps.map((step) => step.action)).toEqual(['analyze-dataset', 'export-dataset']);
-    expect(plan.steps[0].args).toMatchObject({ datasetId: 'ds-1', kind: 'report', reportPresetId: 'lead-list' });
-    expect(plan.steps[1].args).toMatchObject({ datasetId: 'ds-1', format: 'csv' });
-  });
-
-  it('asks for the exact missing setup when a scrape cannot run yet', () => {
-    const plan = planIntent('scrape reddit hiring posts', {
-      keys: {},
-      recipes: [],
-      datasets: [],
-      intelligence: buildStudioIntelligence({ keys: {}, recipes: [], datasets: [] }),
-    });
-
-    expect(plan.canRun).toBe(false);
-    expect(plan.missing).toEqual([
-      'Save APIFY_API_TOKEN in Settings.',
-      'Create or save a recipe before asking the app to scrape.',
-    ]);
-  });
-
   it('profiles social, product, and review datasets with matching report routes', () => {
     expect(profileDataset({ id: 'social', name: 'Subreddit pulse', platform: 'reddit' }, {
       items: [{ id: 'p1', type: 'post', author: 'ana', text: 'People keep asking about agents.', url: 'https://reddit.com/r/x' }],
@@ -1227,68 +1153,6 @@ describe('studio intelligence', () => {
       health: { tone: 'warning' },
       warnings: ['bad json'],
     });
-  });
-
-  it('plans scrape, tag, thread, card, and export variants without duplicate steps', () => {
-    const intelligenceState = buildStudioIntelligence(state, () => payload);
-    const baseState = { ...state, intelligence: intelligenceState };
-
-    expect(planIntent('run the recipe', baseState)).toMatchObject({
-      canRun: true,
-      steps: [{ action: 'run-recipe', args: { recipeId: 'recipe-1' } }],
-    });
-
-    const plan = planIntent('tag and thread this dataset, export jsonl, and make a kanban card', baseState);
-    expect(plan.steps.map((step) => step.action)).toEqual([
-      'analyze-dataset',
-      'analyze-dataset',
-      'export-dataset',
-      'create-card',
-    ]);
-    expect(plan.steps[2].args).toMatchObject({ format: 'jsonl' });
-  });
-
-  it('chooses report presets from user intent before falling back to the profile', () => {
-    const intelligenceState = buildStudioIntelligence(state, () => payload);
-    const baseState = { ...state, intelligence: intelligenceState };
-
-    expect(planIntent('make a competitor positioning report', baseState).steps[0].args.reportPresetId).toBe('competitive-report');
-    expect(planIntent('build account outreach intelligence', baseState).steps[0].args.reportPresetId).toBe('account-intelligence');
-    expect(planIntent('summarize the reddit community', baseState).steps[0].args.reportPresetId).toBe('subreddit-pulse');
-    expect(planIntent('analyze this', baseState).steps[0].args.reportPresetId).toBe('lead-list');
-  });
-
-  it('plans against the selected dataset instead of always using the first dataset', () => {
-    const twoDatasetState = {
-      ...state,
-      datasets: [
-        state.datasets[0],
-        { id: 'ds-2', name: 'Competitor product prices', platform: 'web', itemCount: 1 },
-      ],
-    };
-    const intelligenceState = buildStudioIntelligence(twoDatasetState, (dataset) => (dataset.id === 'ds-2'
-      ? { items: [{ sku: 'a1', productName: 'AI plan', price: 29, url: 'https://example.com/p' }] }
-      : payload));
-    const plan = planIntent('analyze this', {
-      ...twoDatasetState,
-      intelligence: intelligenceState,
-      selectedDatasetId: 'ds-2',
-    });
-
-    expect(plan.targetDatasetId).toBe('ds-2');
-    expect(plan.steps[0].args).toMatchObject({ datasetId: 'ds-2', reportPresetId: 'competitive-report' });
-    expect(plan.profile).toMatchObject({ datasetId: 'ds-2', kind: 'ecommerce-products' });
-  });
-
-  it('falls back to the next useful action for vague commands', () => {
-    const intelligenceState = buildStudioIntelligence(state, () => payload);
-
-    expect(planIntent('what should I do next', { ...state, intelligence: intelligenceState }).steps.map((step) => step.action)).toEqual([
-      'analyze-dataset',
-      'analyze-dataset',
-    ]);
-    expect(planIntent('what should I do next', { keys: { APIFY_API_TOKEN: true }, recipes: state.recipes, datasets: [] }).steps[0].action).toBe('run-recipe');
-    expect(planIntent('what should I do next', { keys: {}, recipes: [], datasets: [] }).missing).toEqual(['Create a recipe or run a dataset first.']);
   });
 
   it('builds a prioritized workspace action queue from setup and dataset state', () => {
@@ -1361,13 +1225,6 @@ describe('studio intelligence', () => {
       'rerun-empty-dataset',
       'inspect-dataset-health',
     ]);
-    expect(planIntent('what should I do next', { ...emptyState, intelligence: intelligenceState }).steps).toEqual([
-      expect.objectContaining({ action: 'run-recipe', args: { recipeId: 'recipe-1' } }),
-    ]);
-    expect(planIntent('make a report', { ...emptyState, intelligence: intelligenceState })).toMatchObject({
-      canRun: false,
-      missing: ['Run the recipe again before asking AI to analyze an empty dataset.'],
-    });
   });
 
   it('suggests contextual command chips for setup, scraping, and dataset work', () => {

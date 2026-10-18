@@ -19,16 +19,19 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const money = (value) => (Number.isFinite(Number(value)) ? `$${Number(value).toFixed(2)}` : '—');
 function Field({ id, label, hint, children }) { return <div className="cs-field"><label htmlFor={id}>{label}</label>{children}{hint && <small>{hint}</small>}</div>; }
 
-export function ProgramWindowFields({ draft, setDraft }) {
+// `idPrefix` ('cs' on the Research programs page, 'pd' in Home's program drawer) keeps ids and radio names unique when
+// both forms are on screen.
+export function ProgramWindowFields({ draft, setDraft, idPrefix = 'cs' }) {
+  const p = idPrefix;
   const custom = Boolean(draft.window?.startDate);
   const setWindow = (patch) => setDraft((current) => ({ ...current, window: { ...current.window, ...patch } }));
   return <>
     <div className="cs-choice-row" role="radiogroup" aria-label="Date window">
-      <label><input type="radio" name="cs-window-mode" checked={!custom} onChange={() => setWindow({ startDate: '', endDate: '' })} />Last few days (n8n default)</label>
-      <label><input type="radio" name="cs-window-mode" checked={custom} onChange={() => setWindow({ startDate: new Date(Date.now() - (draft.lookbackDays || 7) * 86400000).toISOString().slice(0, 10) })} />Custom dates</label>
+      <label><input type="radio" name={`${p}-window-mode`} checked={!custom} onChange={() => setWindow({ startDate: '', endDate: '' })} />Last few days (n8n default)</label>
+      <label><input type="radio" name={`${p}-window-mode`} checked={custom} onChange={() => setWindow({ startDate: new Date(Date.now() - (draft.lookbackDays || 7) * 86400000).toISOString().slice(0, 10) })} />Custom dates</label>
     </div>
-    {custom ? <div className="cs-two-fields"><Field id="cs-window-start" label="Start date"><input id="cs-window-start" type="date" value={draft.window.startDate || ''} onChange={(event) => setWindow({ startDate: event.target.value })} /></Field><Field id="cs-window-end" label="End date" hint="Optional. Inclusive UTC dates; leave empty to search up to now."><input id="cs-window-end" type="date" value={draft.window.endDate || ''} min={draft.window.startDate || undefined} onChange={(event) => setWindow({ endDate: event.target.value })} /></Field></div>
-      : <div className="cs-lookback-field"><Field id="cs-program-lookback" label="Search the last (days)" hint="Each run searches from this many days before it starts, up to now."><input id="cs-program-lookback" type="number" min="1" max="365" step="1" value={draft.lookbackDays ?? 7} onChange={(event) => setDraft((current) => ({ ...current, lookbackDays: Number(event.target.value) }))} /></Field></div>}
+    {custom ? <div className="cs-two-fields"><Field id={`${p}-window-start`} label="Start date"><input id={`${p}-window-start`} type="date" value={draft.window.startDate || ''} onChange={(event) => setWindow({ startDate: event.target.value })} /></Field><Field id={`${p}-window-end`} label="End date" hint="Optional. Inclusive UTC dates; leave empty to search up to now."><input id={`${p}-window-end`} type="date" value={draft.window.endDate || ''} min={draft.window.startDate || undefined} onChange={(event) => setWindow({ endDate: event.target.value })} /></Field></div>
+      : <div className="cs-lookback-field"><Field id={`${p}-program-lookback`} label="Search the last (days)" hint="Each run searches from this many days before it starts, up to now."><input id={`${p}-program-lookback`} type="number" min="1" max="365" step="1" value={draft.lookbackDays ?? 7} onChange={(event) => setDraft((current) => ({ ...current, lookbackDays: Number(event.target.value) }))} /></Field></div>}
   </>;
 }
 
@@ -58,7 +61,9 @@ function studioDefault(stage, routing) {
   const effort = chosen.effort ?? task?.default?.effort ?? '';
   return `${modelName(route, 'text', route === 'codex' ? '' : model) || model}${effort && route !== 'codex' ? ` · ${effort}` : ''}, ${ROUTE_LABEL[route] || route}`;
 }
-export function ProgramAiFields({ draft, setDraft, api, routing: given = null }) {
+// `open` shows the stages without the disclosure (Home's program drawer, where the group has its own heading).
+export function ProgramAiFields({ draft, setDraft, api, routing: given = null, idPrefix = 'cs', open = false }) {
+  const p = idPrefix;
   // The studio's saved routing names each stage's default (admins can read it; for others the shipped defaults show).
   const [loaded, setLoaded] = useState(null);
   useEffect(() => {
@@ -71,30 +76,31 @@ export function ProgramAiFields({ draft, setDraft, api, routing: given = null })
   const overrides = programOverrides(draft.ai);
   const write = (next) => setDraft((current) => ({ ...current, ai: { ...(current.ai || {}), overrides: next, concurrency: ai.concurrency } }));
   const setStage = (stage, entry) => { const next = { ...overrides }; if (entry) next[stage] = entry; else delete next[stage]; write(next); };
-  return <details className="cs-details cs-ai-stages"><summary><Bot size={14} aria-hidden="true" />AI for this program</summary><div>
+  const body = <div>
     <p>Each stage uses the studio’s choice in Settings → Model routing unless this program chooses its own. A program’s own choice wins for its runs. Lower effort is cheaper; tagging works well at low.</p>
     <div className="cs-stage-grid" role="table" aria-label="AI per stage">{STAGES.map(([stage, label, hint]) => {
       const own = overrides[stage]; const route = own?.route || 'auto';
       return <div className="cs-stage-row" role="row" key={stage}>
         <div role="cell"><strong>{label}</strong><small>{hint}</small></div>
-        <div role="cell"><label className="cs-sr-only" htmlFor={`cs-ai-choice-${stage}`}>{label}: who chooses</label>
-          <select id={`cs-ai-choice-${stage}`} value={own ? 'own' : 'studio'} onChange={(event) => setStage(stage, event.target.value === 'own' ? { model: ai.models[stage], effort: ai.effort[stage] } : null)}>
+        <div role="cell"><label className="cs-sr-only" htmlFor={`${p}-ai-choice-${stage}`}>{label}: who chooses</label>
+          <select id={`${p}-ai-choice-${stage}`} value={own ? 'own' : 'studio'} onChange={(event) => setStage(stage, event.target.value === 'own' ? { model: ai.models[stage], effort: ai.effort[stage] } : null)}>
             <option value="studio">Studio default ({studioDefault(stage, routing)})</option>
             <option value="own">Choose for this program…</option>
           </select></div>
         {own && <div role="cell" className="cs-stage-own">
-          <label className="cs-sr-only" htmlFor={`cs-route-${stage}`}>{label} connection</label>
-          <select id={`cs-route-${stage}`} value={route} onChange={(event) => { const next = event.target.value; setStage(stage, { ...(next === 'auto' ? {} : { route: next }), model: next === 'codex' ? '' : next === 'openrouter' ? '' : own.model || ai.models[stage], ...(own.effort && next !== 'codex' ? { effort: own.effort } : {}) }); }}>
+          <label className="cs-sr-only" htmlFor={`${p}-route-${stage}`}>{label} connection</label>
+          <select id={`${p}-route-${stage}`} value={route} onChange={(event) => { const next = event.target.value; setStage(stage, { ...(next === 'auto' ? {} : { route: next }), model: next === 'codex' ? '' : next === 'openrouter' ? '' : own.model || ai.models[stage], ...(own.effort && next !== 'codex' ? { effort: own.effort } : {}) }); }}>
             {TEXT_ROUTES.map((value) => <option key={value} value={value}>{ROUTE_LABEL[value]}</option>)}
           </select>
-          <ModelPicker id={`cs-model-${stage}`} label={`${label} model`} route={route} kind="text" value={own.model || ''} api={api} onChange={(model) => setStage(stage, { ...own, model })} />
-          <label className="cs-sr-only" htmlFor={`cs-effort-${stage}`}>{label} effort</label>
-          <select id={`cs-effort-${stage}`} value={own.effort || ''} onChange={(event) => setStage(stage, { ...own, effort: event.target.value })}><option value="">Model default</option>{EFFORTS.map((level) => <option key={level} value={level}>{level}</option>)}</select>
+          <ModelPicker id={`${p}-model-${stage}`} label={`${label} model`} route={route} kind="text" value={own.model || ''} api={api} onChange={(model) => setStage(stage, { ...own, model })} />
+          <label className="cs-sr-only" htmlFor={`${p}-effort-${stage}`}>{label} effort</label>
+          <select id={`${p}-effort-${stage}`} value={own.effort || ''} onChange={(event) => setStage(stage, { ...own, effort: event.target.value })}><option value="">Model default</option>{EFFORTS.map((level) => <option key={level} value={level}>{level}</option>)}</select>
         </div>}
       </div>;
     })}</div>
-    <Field id="cs-ai-concurrency" label="Batches at once" hint="How many discovery or tagging batches run in parallel (1–6)."><input id="cs-ai-concurrency" type="number" min="1" max="6" step="1" value={ai.concurrency} onChange={(event) => setDraft((current) => ({ ...current, ai: { ...(current.ai || ai), concurrency: Number(event.target.value) } }))} /></Field>
-  </div></details>;
+    <Field id={`${p}-ai-concurrency`} label="Batches at once" hint="How many discovery or tagging batches run in parallel (1–6)."><input id={`${p}-ai-concurrency`} type="number" min="1" max="6" step="1" value={ai.concurrency} onChange={(event) => setDraft((current) => ({ ...current, ai: { ...(current.ai || ai), concurrency: Number(event.target.value) } }))} /></Field>
+  </div>;
+  return open ? <div className="cs-ai-stages is-open">{body}</div> : <details className="cs-details cs-ai-stages"><summary><Bot size={14} aria-hidden="true" />AI for this program</summary>{body}</details>;
 }
 
 export function ProgramAutomationFields({ draft, setDraft, capabilities = {} }) {
@@ -111,10 +117,13 @@ export const hasProgramSources = (draft = {}) => (Array.isArray(draft.sourceGrou
 // Three states: no sources (nothing to price), estimating (the first answer is on its way; later ones keep the last
 // numbers on screen, dimmed), and ready. Each request is tied to the draft it priced, so a slow answer for an older
 // draft never replaces a newer one.
-export function ProgramEstimate({ draft, api }) {
+// `onEstimate(result | null)` hears each answer (the drawer lists it when a schedule is turned on).
+export function ProgramEstimate({ draft, api, onEstimate }) {
   const [estimate, setEstimate] = useState(null); const [error, setError] = useState(''); const [status, setStatus] = useState('idle');
   const timer = useRef(); const version = JSON.stringify({ sourceGroups: draft.sourceGroups, ai: draft.ai, targetPerPlatform: draft.targetPerPlatform, perAuthorCap: draft.perAuthorCap, maxThemes: draft.maxThemes, collection: draft.collection, taggingBatchSizes: draft.taggingBatchSizes, discoveryBatchSize: draft.discoveryBatchSize, budgets: draft.budgets, window: draft.window, lookbackDays: draft.lookbackDays, query: draft.query, topicFiltersTargets: draft.topicFiltersTargets });
   const hasSources = hasProgramSources(draft);
+  const heard = useRef(onEstimate); heard.current = onEstimate;
+  useEffect(() => { heard.current?.(status === 'ready' ? estimate : null); }, [estimate, status]);
   useEffect(() => {
     if (!api.estimateResearchProgram) return undefined;
     clearTimeout(timer.current);
@@ -149,15 +158,28 @@ export function ProgramEstimate({ draft, api }) {
   </div>;
 }
 
-export function ProgramCollectionFields({ draft, setDraft }) {
+export function ProgramCollectionFields({ draft, setDraft, idPrefix = 'cs' }) {
+  const p = idPrefix;
   const values = { ...DEFAULT_COLLECTION, ...(draft.collection || {}) };
   const sizes = { x: 50, linkedin: 40, reddit: 50, ...(draft.taggingBatchSizes || {}) };
   const set = (key, value) => setDraft((current) => ({ ...current, collection: { ...values, [key]: value } }));
   const fields = [['xHandlesPerJob', 'X handles per Apify run', 1, 500, 'Fewer handles per run is cheaper per tweet.'], ['xMaxItemsPerHandle', 'X tweet ceiling per handle', 10, 1000, 'A cost ceiling; the per-author cap applies after.'], ['linkedinPostsPerProfile', 'LinkedIn posts per profile', 1, 100, 'n8n uses 15.'], ['linkedinProfilesPerJob', 'LinkedIn profiles per Apify run', 1, 1000], ['redditPostsPerSub', 'Reddit posts per subreddit', 10, 1000, 'n8n uses 300.'], ['redditScrollTimeoutSecs', 'Reddit scroll time (seconds)', 10, 600, 'n8n used 90, which reached only 3–4 days back in busy subreddits.'], ['redditSubsPerJob', 'Reddit communities per Apify run', 1, 50, 'Smaller groups run in parallel and finish sooner.'], ['laneConcurrency', 'Apify runs at once per platform', 1, 10]];
   return <>
-    <div className="cs-advanced-grid">{fields.map(([key, label, min, max, hint]) => <Field key={key} id={`cs-collection-${key}`} label={label} hint={hint}><input id={`cs-collection-${key}`} type="number" min={min} max={max} step="1" value={values[key]} onChange={(event) => set(key, Number(event.target.value))} /></Field>)}</div>
-    <div className="cs-thresholds"><div><h4>Tagging batch size per platform</h4><div className="cs-three-fields">{[['x', 'X'], ['linkedin', 'LinkedIn'], ['reddit', 'Reddit']].map(([platform, label]) => <Field key={platform} id={`cs-tagging-size-${platform}`} label={label}><input id={`cs-tagging-size-${platform}`} type="number" min="10" max="200" step="1" value={sizes[platform]} onChange={(event) => setDraft((current) => ({ ...current, taggingBatchSizes: { ...sizes, [platform]: Number(event.target.value) } }))} /></Field>)}</div></div></div>
+    <div className="cs-advanced-grid">{fields.map(([key, label, min, max, hint]) => <Field key={key} id={`${p}-collection-${key}`} label={label} hint={hint}><input id={`${p}-collection-${key}`} type="number" min={min} max={max} step="1" value={values[key]} onChange={(event) => set(key, Number(event.target.value))} /></Field>)}</div>
+    <div className="cs-thresholds"><div><h4>Tagging batch size per platform</h4><div className="cs-three-fields">{[['x', 'X'], ['linkedin', 'LinkedIn'], ['reddit', 'Reddit']].map(([platform, label]) => <Field key={platform} id={`${p}-tagging-size-${platform}`} label={label}><input id={`${p}-tagging-size-${platform}`} type="number" min="10" max="200" step="1" value={sizes[platform]} onChange={(event) => setDraft((current) => ({ ...current, taggingBatchSizes: { ...sizes, [platform]: Number(event.target.value) } }))} /></Field>)}</div></div></div>
   </>;
+}
+
+// How sure post tagging must be before a post joins a theme, and when a match is accepted without review
+// (research-program.js validates 0.55–1, with the automatic threshold at or above the first).
+export function ProgramMatchFields({ draft, setDraft, idPrefix = 'cs' }) {
+  const p = idPrefix;
+  const confidence = Number.isFinite(Number(draft.confidenceThreshold)) ? Number(draft.confidenceThreshold) : 0.55;
+  const auto = Number.isFinite(Number(draft.autoAcceptThreshold)) ? Number(draft.autoAcceptThreshold) : Math.max(0.7, confidence);
+  return <div className="cs-thresholds cs-match-fields"><div><h4>Theme matching</h4><div className="cs-two-fields">
+    <Field id={`${p}-confidence-threshold`} label="Theme match confidence" hint="A tagged post joins a theme at this confidence or higher (0.55–1)."><input id={`${p}-confidence-threshold`} type="number" min="0.55" max="1" step="0.01" value={confidence} onChange={(event) => { const value = Number(event.target.value); setDraft((current) => ({ ...current, confidenceThreshold: value, autoAcceptThreshold: Math.max(value, Number(current.autoAcceptThreshold ?? 0.7)) })); }} /></Field>
+    <Field id={`${p}-auto-accept-threshold`} label="Accept matches automatically at" hint="Matches below this wait for review. At least the confidence above."><input id={`${p}-auto-accept-threshold`} type="number" min={confidence} max="1" step="0.01" value={auto} onChange={(event) => setDraft((current) => ({ ...current, autoAcceptThreshold: Number(event.target.value) }))} /></Field>
+  </div></div></div>;
 }
 
 // Priority and repository context on a discovered theme (n8n Trend Velocity columns).

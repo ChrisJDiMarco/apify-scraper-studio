@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Check, CircleAlert, FileText, Images, LoaderCircle, PenLine, Radar, RotateCcw, Sparkles, SquareKanban, Undo2, X } from 'lucide-react';
+import { ArrowRight, Check, CircleAlert, FileText, Images, LoaderCircle, PenLine, Radar, RotateCcw, Sparkles, Undo2, X } from 'lucide-react';
 import { Button, formatDate, number, withViewTransition } from './ui.jsx';
 import { PASSED_STAGE, TREND_STAGES, buildTrendBoard, generationPlan } from '../../shared/trend-board.js';
 import { DecidedBy, Sparkline, WhyItMatters, decisionOf } from './trend-pulse.jsx';
@@ -9,6 +9,7 @@ import { useConfirm } from './confirm-dialog.jsx';
 import { CODEX_UNCAPPED } from './studio-actions.js';
 import { reportCostLine } from './cost-lines.js';
 import { clearStudioDrag, markStudioDrag } from './ask-slash.js';
+import { MondayChip, MondayStatusLine } from './monday-ui.jsx';
 import './trend-board.css';
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -30,7 +31,7 @@ function scoutingText(scout) {
 // `trend` is the trend history's record for this card (momentum and posts per run across research runs), or null; `by`
 // is who decided it (run.decisionsBy), with their note and routed channels; `fits` names the person's own channels it
 // fits (My channels).
-function TrendCard({ card, trend = null, by = null, channels = [], fits = [], disabled, mayDecide = false, write = { disabled: Boolean(disabled) }, preview = false, dragging, api, onDecide, onDecideWithNote, onAsk, onDragStart, onDragEnd, onOpenRun, onReadReport, onCreateAssets, onMakeAssets }) {
+function TrendCard({ card, trend = null, by = null, monday = null, channels = [], fits = [], disabled, mayDecide = false, write = { disabled: Boolean(disabled) }, preview = false, dragging, api, onDecide, onDecideWithNote, onAsk, onDragStart, onDragEnd, onOpenRun, onReadReport, onCreateAssets, onMakeAssets }) {
   const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0];
   return <article className={`tb-card ${card.needsAttention ? 'attention' : ''} ${dragging ? 'dragging' : ''}`} data-card-key={card.key} style={{ viewTransitionName: transitionName(card.key) }} draggable={mayDecide && card.canDecide && !disabled && !preview} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'copyMove'; event.dataTransfer.setData('text/plain', card.key); markStudioDrag(event, { kind: 'trend', ref: card.name, id: card.key }); onDragStart(card.key); }} onDragEnd={() => { clearStudioDrag(); onDragEnd(); }} aria-label={card.name}>
     {card.priorityTier && <div className="tb-card-meta"><span className={`tb-tier tier-${card.priorityTier.toLowerCase().replace(/[^a-z]+/g, '-')}`} title={card.priorityScore != null ? `Priority score ${card.priorityScore}` : undefined}>{card.priorityTier}</span></div>}
@@ -45,6 +46,7 @@ function TrendCard({ card, trend = null, by = null, channels = [], fits = [], di
     {/* Ready: Make channel assets (the kit, over this page) leads; Create content (one-off drafts) stays a quiet extra. */}
     {card.stage === 'ready' && <div className="tb-card-actions">{report && <Button type="button" className="cs-quiet" onClick={() => onReadReport(report)}><FileText size={13} aria-hidden="true" />Read trends report</Button>}{report && onMakeAssets && <Button type="button" className="tb-ok" {...write} onClick={() => onMakeAssets(report)}><Images size={13} aria-hidden="true" />Make channel assets</Button>}{report && onCreateAssets && <Button type="button" className="cs-quiet" {...write} onClick={() => onCreateAssets(report)}><PenLine size={13} aria-hidden="true" />{card.contentRunCount ? 'Create more content' : 'Create content'}</Button>}{card.assetCount > 0 && <small className="tb-asset-count">{plural(card.assetCount, 'asset')} made</small>}</div>}
     {card.stage === 'passed' && card.canDecide && mayDecide && <div className="tb-card-actions"><Button type="button" className="cs-quiet" {...write} onClick={() => onDecide(card, 'pending')}><RotateCcw size={13} aria-hidden="true" />Reconsider</Button></div>}
+    {monday?.items?.[card.key] && <div className="tb-card-monday"><MondayChip monday={monday} card={card} api={api} disabled={disabled} /></div>}
   </article>;
 }
 
@@ -61,7 +63,6 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
   // What this role may do here (in an admin's preview, the previewed role's), and write buttons that stay off in a preview.
   const mayDecide = canCall(viewer, 'decideResearchTheme');
   const mayWrite = canCall(viewer, 'approveResearchThemes') && canCall(viewer, 'continueResearchRun');
-  const maySync = canCall(viewer, 'syncTrendBoardToMonday'); // Export and publish; a read-only role never sees Sync
   const write = writeProps(viewer, disabled);
   const editionId = list(studio.workspaces).find((workspace) => workspace.id === studio.activeWorkspaceId)?.editionId || 'general';
   const channels = useMemo(() => routingChannels(editionId), [editionId]);
@@ -74,7 +75,6 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
   const [showPassed, setShowPassed] = useState(false);
   const [dragKey, setDragKey] = useState('');
   const [dropStage, setDropStage] = useState('');
-  const [syncNote, setSyncNote] = useState('');
   const researchRuns = useMemo(() => list(studio.researchRuns).map((run) => {
     const own = Object.entries(pending).filter(([key]) => splitKey(key)[0] === run.id);
     if (!own.length || run.status !== 'awaiting-review') return run;
@@ -138,14 +138,6 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
       return api.continueResearchRun({ runId });
     }, `Writing reports for ${plural(approved.length, 'trend')}. Cards move to Ready as each one finishes.`);
   }
-  async function syncMonday() {
-    if (!canRun(viewer, 'syncTrendBoardToMonday')) return;
-    setSyncNote('');
-    const cards = board.cards.map(({ key, stage, name, description, evidenceCount, platforms, programName }) => ({ key, stage, name, description, evidenceCount, platforms, programName }));
-    if (!(await confirm({ title: `Send ${plural(cards.length, 'trend')} to your Monday.com board?`, lines: ['Existing items are updated, new ones are added.'], confirmLabel: 'Send to Monday.com' }))) return;
-    const result = await action('Syncing to Monday.com', () => api.syncTrendBoardToMonday({ cards }));
-    if (result) setSyncNote(result.failed ? `${number(result.created + result.updated)} synced, ${number(result.failed)} failed. ${result.error}` : `${plural(result.created, 'new item')} and ${plural(result.updated, 'update')} sent to Monday.com.`);
-  }
   function drop(stage) {
     const card = board.cards.find((row) => row.key === dragKey);
     setDragKey(''); setDropStage('');
@@ -179,20 +171,16 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
   const empty = !board.cards.length && !board.scouting.length;
   const stages = showPassed ? [...TREND_STAGES, PASSED_STAGE] : TREND_STAGES;
 
-  // Connecting Monday.com happens in Settings, so without Settings (an editor) only a connected board's Sync shows, and
-  // only to a role the server lets sync (in an admin's preview it shows, switched off like every other write).
-  const mondayControl = !api.syncTrendBoardToMonday || !maySync ? null
-    : (!monday?.connected || !monday.boardId) && !onSettings ? null
-    : !monday?.connected ? <Button type="button" className="cs-quiet" onClick={onSettings}><SquareKanban size={14} aria-hidden="true" />Connect Monday.com</Button>
-    : !monday.boardId ? <Button type="button" className="cs-quiet" onClick={onSettings}><SquareKanban size={14} aria-hidden="true" />Choose a Monday board</Button>
-    : <Button type="button" className="cs-quiet" onClick={syncMonday} title={monday.lastSyncedAt ? `Last synced ${formatDate(monday.lastSyncedAt)}` : 'Not synced yet'} {...writeProps(viewer, disabled || !board.cards.length)}><SquareKanban size={14} aria-hidden="true" />Sync to {monday.boardName || 'Monday.com'}</Button>;
+  // Monday.com (monday-ui.jsx): the board's sync status, Sync now (a background job; the server builds the cards) and the
+  // log. Connecting happens in Settings, so only a role with Settings (onSettings) sees Connect or Choose a board.
+  const mondayControl = <MondayStatusLine monday={monday} api={api} canSetup={Boolean(onSettings)} disabled={disabled} />;
 
   return <div className="tb-board" ref={boardRef}>
     <div className={`cs-section-heading ${pageHeading ? 'cs-page-heading' : ''}`}>
       <div><Heading id={pageHeading ? 'content-studio-title' : undefined}>Trend board</Heading><p>Research scouts the trends. You decide which ones become reports and campaigns.</p></div>
       <div className="tb-head-actions">{mondayControl}{onFindTrends && <Button type="button" disabled={disabled} onClick={onFindTrends}><Radar size={15} aria-hidden="true" />{findLabel}</Button>}</div>
     </div>
-    {(boardError || syncNote || monday?.lastError) && <p className={`tb-note ${boardError || monday?.lastError ? 'attention' : ''}`} role={boardError ? 'alert' : 'status'}>{boardError || syncNote || `Last Monday.com sync: ${monday.lastError}`}</p>}
+    {boardError && <p className="tb-note attention" role="alert">{boardError}</p>}
     {empty ? <div className="cs-empty"><span><Radar size={24} aria-hidden="true" /></span><h3>No trends on the board yet</h3><p>A research run reads the posts your program follows and brings every trend it finds to Needs your OK. Say yes to the ones worth a report, add a note for the channels if you like, then press Write reports. Nothing is written or spent until you do.</p>{onFindTrends ? <Button type="button" disabled={disabled} onClick={onFindTrends}>{findLabel}<ArrowRight size={14} aria-hidden="true" /></Button> : <p className="tb-note">Ask {askAdmin} to start a research run.</p>}</div>
       : <div className="tb-columns" style={{ '--tb-columns': stages.length }}>
         {stages.map((stage) => {
@@ -212,7 +200,7 @@ export function TrendBoardView({ studio = {}, monday, api, action, disabled, pag
                   <Button type="button" className="tb-ok" {...writeProps(viewer, disabled || Boolean(checkingRunId))} onClick={() => generate(runId)}>{checking ? <LoaderCircle size={13} className="spin" aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}{checking ? 'Checking the cost…' : 'Write reports'}</Button>
                 </div>;
               })}
-              {cards.map((card) => { const by = decisionOf(studio.researchRuns, card); return <TrendCard key={card.key} card={card} trend={trendOf(card)} by={by} channels={channels} fits={fitsOf(by)} disabled={disabled} mayDecide={mayDecide} write={write} preview={Boolean(viewer.preview)} dragging={dragKey === card.key} api={api} onDecide={decide} onDecideWithNote={typeof api?.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk} onDragStart={setDragKey} onDragEnd={() => { setDragKey(''); setDropStage(''); }} onOpenRun={onOpenRun} onReadReport={onReadReport} onCreateAssets={onCreateAssets} onMakeAssets={onMakeAssets} />; })}
+              {cards.map((card) => { const by = decisionOf(studio.researchRuns, card); return <TrendCard key={card.key} card={card} trend={trendOf(card)} by={by} monday={monday} channels={channels} fits={fitsOf(by)} disabled={disabled} mayDecide={mayDecide} write={write} preview={Boolean(viewer.preview)} dragging={dragKey === card.key} api={api} onDecide={decide} onDecideWithNote={typeof api?.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk} onDragStart={setDragKey} onDragEnd={() => { setDragKey(''); setDropStage(''); }} onOpenRun={onOpenRun} onReadReport={onReadReport} onCreateAssets={onCreateAssets} onMakeAssets={onMakeAssets} />; })}
               {!cards.length && !(stage.id === 'potential' && board.scouting.length) && !(stage.id === 'approved' && approvedRuns.length) && <p className="tb-column-empty">{droppable ? 'Drop here' : stage.empty}</p>}
             </div>
           </section>;

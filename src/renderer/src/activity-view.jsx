@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, CheckCircle2, CircleDashed, Clock3, Database, FileText, Globe2, Hourglass, LoaderCircle, RotateCcw, Search, Sparkles, Square, SquareKanban } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, CircleDashed, Clock3, Database, FileText, Globe2, Hourglass, LoaderCircle, RotateCcw, Search, Sparkles, Square, SquareKanban, Workflow } from 'lucide-react';
 import { ACTIVITY_KINDS, activitySummary, buildActivity, dayLabel, filterActivity, formatDuration } from '../../shared/activity-feed.js';
 import { Button, JsonBlock, formatDate, label, number } from './ui.jsx';
 import { hasCapability, useViewer } from './viewer.js';
 import './workspace-pages.css';
 
-const KIND_ICONS = { collection: Globe2, research: Search, content: FileText, analysis: Sparkles, job: CircleDashed };
+const KIND_ICONS = { collection: Globe2, research: Search, content: FileText, analysis: Sparkles, workflow: Workflow, job: CircleDashed };
 const STATE_LABEL = { active: 'Running', review: 'Waiting on you', attention: 'Needs attention', done: 'Done', idle: 'Idle' };
 const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: value < 1 ? 2 : 0, maximumFractionDigits: 2 }).format(value || 0);
 
@@ -100,6 +100,7 @@ export function ActivityView({ state, busy, onRunRecipe, onDatasetSelect, onNavi
             {selected.datasetId && <Button className="ghost" onClick={() => { onDatasetSelect(selected.datasetId); onNavigate('datasets'); }}><Database size={14} aria-hidden="true" />Open dataset</Button>}
             {selected.kind === 'research' && selected.state === 'review' && <Button onClick={() => onOpenStudio('board')}><SquareKanban size={14} aria-hidden="true" />Review trends</Button>}
             {selected.kind === 'research' && selected.state !== 'review' && <Button className="ghost" onClick={() => onOpenStudio('research', selected.studioRunId)}>Open in Research programs<ArrowRight size={14} aria-hidden="true" /></Button>}
+            {selected.kind === 'workflow' && selected.target?.id && <Button className="ghost" onClick={() => onNavigate('workflows', { workflowId: selected.target.id, runId: selected.target.runId })}>Open in Workflows<ArrowRight size={14} aria-hidden="true" /></Button>}
             {selected.kind === 'content' && <Button className="ghost" onClick={() => onOpenStudio('create', selected.studioRunId)}>Open in Create content<ArrowRight size={14} aria-hidden="true" /></Button>}
             {selected.kind === 'analysis' && <Button className="ghost" onClick={() => onNavigate('reports', { analysisId: selected.analysisId })}>Open report<ArrowRight size={14} aria-hidden="true" /></Button>}
             {selected.kind === 'job' && selected.cancellable && selected.state === 'active' && <Button className="ghost danger" disabled={busy} onClick={() => onCancelJob(selected.jobId)}><Square size={12} aria-hidden="true" />Cancel</Button>}

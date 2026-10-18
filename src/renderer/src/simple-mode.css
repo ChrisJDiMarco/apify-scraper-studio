@@ -229,11 +229,10 @@
 .simple-caught-up small { font-size: 13px; }
 
 /* Settings inside Simple mode: the classic page, restyled to sit in this calmer surface. */
-.simple-settings { max-width: 980px; }
+.simple-settings { max-width: 1220px; }
 .simple-settings .settings-view { padding: 0; background: transparent; border: 0; box-shadow: none; }
 .simple-settings .settings-view > .panel-head { display: none; }
 .simple-settings .settings-block, .simple-settings .settings-health { margin-top: 14px; padding: 22px 24px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 20px; box-shadow: 0 1px 2px rgba(24, 30, 21, .03); }
-.simple-settings .settings-block:first-of-type { margin-top: 0; }
 .simple-settings .settings-view h3 { font-size: 16px; letter-spacing: -.2px; }
 .simple-settings .settings-view p, .simple-settings .settings-view small { font-size: 13px; line-height: 1.55; }
 .simple-settings .settings-view button { min-height: 38px; padding: 0 16px; font-size: 13px; font-weight: 600; color: #fff; background: var(--s-ink); border: 1px solid var(--s-ink); border-radius: 999px; }

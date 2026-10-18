@@ -8,8 +8,11 @@ export const ACTIVITY_KINDS = [
   { id: 'research', label: 'Research' },
   { id: 'content', label: 'Content' },
   { id: 'analysis', label: 'AI analysis' },
+  { id: 'workflow', label: 'Workflows' },
   { id: 'job', label: 'Other jobs' },
 ];
+// A workflow run's status in the timeline's words (waiting runs show as needing review).
+const WORKFLOW_STATUS = { running: 'running', 'waiting-review': 'awaiting-review', 'waiting-budget': 'awaiting-review', succeeded: 'succeeded', partial: 'partial', failed: 'failed', cancelled: 'cancelled', skipped: 'cancelled' };
 
 export function activityState(status) {
   if (status === 'awaiting-review') return 'review';
@@ -65,6 +68,11 @@ export function buildActivity(state = {}) {
   for (const analysis of list(state.analyses)) {
     const dataset = datasets.get(analysis.datasetId);
     add({ id: analysis.id, kind: 'analysis', title: analysis.reportPresetName || `${analysis.kind === 'thread' ? 'Thread summary' : analysis.kind === 'tag' ? 'AI tagging' : 'AI report'}`, subtitle: dataset?.name || analysis.datasetSnapshot?.name || '', status: analysis.status || 'idle', startedAt: analysis.startedAt || analysis.createdAt, finishedAt: analysis.finishedAt, error: errorText(analysis.error), datasetId: dataset ? dataset.id : '', analysisId: analysis.id, raw: analysis });
+  }
+  const workflows = new Map(list(studio.workflows).map((workflow) => [workflow.id, workflow.name]));
+  for (const run of list(studio.workflowRuns)) {
+    const status = WORKFLOW_STATUS[run.status] || 'idle';
+    add({ id: run.id, kind: 'workflow', title: workflows.get(run.workflowId) || run.workflowName || 'Workflow run', subtitle: run.status === 'skipped' ? `Skipped · ${run.message || ''}`.trim() : run.message || '', status, startedAt: run.createdAt, finishedAt: run.finishedAt || '', error: ['failed', 'partial'].includes(run.status) ? run.message || '' : '', costUsd: Number(run.spentUsd) || 0, target: { kind: 'workflow', id: run.workflowId, runId: run.id } });
   }
   for (const job of list(state.jobs)) {
     add({ id: job.id, kind: 'job', title: job.title || job.kind || 'Background job', subtitle: job.kind ? `${job.kind[0].toUpperCase()}${job.kind.slice(1)} job` : '', status: job.status || 'idle', startedAt: job.startedAt, finishedAt: job.finishedAt, error: errorText(job.error), jobId: job.id, cancellable: Boolean(job.cancellable), raw: job });

@@ -1,0 +1,108 @@
+/* Monday.com: Settings → Monday.com, the chips on trend cards, the status line and the sync log (monday-settings.jsx,
+   monday-ui.jsx). Token-only (--s-*, set by the studio frame in both layouts); the fallbacks keep a bare mount readable. */
+.md-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.md-muted { color: var(--s-muted, #62685e); font-size: 12px; }
+.md-block { display: block; margin-top: 2px; font-weight: 400; }
+.md-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.md-wrap { flex-wrap: wrap; }
+.md-quiet { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-control, 12px); background: var(--s-card, #fff); color: var(--s-ink, #181e15); font: inherit; font-size: 12px; font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap; }
+.md-quiet:hover { background: var(--s-bg, #f4f6f5); }
+.md-quiet:disabled { opacity: .55; cursor: default; }
+:is(.md-quiet, .md-chip a, .md-chip-action, .md-notes-button, .md-icon, .md-chips button, .md-segment button):focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 2px; }
+
+/* ── Settings ─────────────────────────────────────────────────────────── */
+.md-settings { display: grid; gap: 14px; }
+.md-message { margin: 0; padding: 8px 10px; border-radius: var(--s-radius-control, 12px); font-size: 13px; }
+.md-message.is-ok { background: var(--s-mint, #dceeeb); color: var(--s-mint-ink, #1f5a4c); }
+.md-message.is-problem { background: var(--s-danger-soft, #fbe7df); color: var(--s-danger, #8a2f1c); }
+.md-message a, .md-summary a, .md-log a, .md-notes a { display: inline-flex; align-items: center; gap: 3px; color: var(--s-soft-ink, #5a2fa0); font-weight: 600; }
+.md-step { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-row, 16px); background: var(--s-card, #fff); color: var(--s-ink, #181e15); min-width: 0; }
+.md-step h4 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; }
+.md-step h5 { margin: 0 0 6px; font-size: 13px; }
+.md-step-number { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: var(--s-soft, #f1eaff); color: var(--s-soft-ink, #5a2fa0); font-size: 12px; font-weight: 700; flex: none; }
+.md-help, .md-connected { margin: 0; font-size: 13px; line-height: 1.5; }
+.md-field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; min-width: 0; }
+.md-field input, .md-field select, .md-step select, .md-step input[type="search"], .md-step input[type="time"] { min-width: 0; max-width: 100%; padding: 7px 10px; border: 1px solid var(--s-line-strong, #cfd6d0); border-radius: var(--s-radius-control, 12px); background: var(--s-card, #fff); color: var(--s-ink, #181e15); font: inherit; font-size: 13px; font-weight: 400; }
+.md-field .md-row input { flex: 1 1 200px; }
+.md-segment { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 3px; border-radius: var(--s-radius-control, 12px); background: var(--s-bg, #f4f6f5); width: fit-content; max-width: 100%; }
+.md-segment button { padding: 6px 12px; border: 0; border-radius: calc(var(--s-radius-control, 12px) - 3px); background: transparent; color: var(--s-muted, #62685e); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.md-segment button[aria-selected="true"] { background: var(--s-card, #fff); color: var(--s-ink, #181e15); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.md-board-list { display: grid; gap: 6px; max-height: 280px; overflow: auto; }
+.md-board-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-control, 12px); cursor: pointer; }
+.md-board-row.is-chosen { border-color: var(--s-accent, #c190ff); background: var(--s-soft, #f1eaff); }
+.md-board-row span { display: grid; min-width: 0; }
+.md-board-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.md-create { display: grid; gap: 10px; }
+.md-fieldset { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.md-fieldset legend { margin-bottom: 4px; padding: 0; font-size: 13px; font-weight: 700; }
+.md-check { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.md-check select, .md-check input[type="time"] { margin-left: 4px; }
+.md-columns-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 12px; }
+.md-table-wrap { max-width: 100%; overflow-x: auto; }
+.md-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.md-table th, .md-table td { padding: 7px 8px; border-bottom: 1px solid var(--s-line, #e3e8e4); text-align: left; vertical-align: top; }
+.md-table thead th { color: var(--s-muted, #62685e); font-size: 12px; font-weight: 600; }
+.md-table tbody th { font-weight: 600; min-width: 140px; }
+.md-table select { width: 100%; min-width: 150px; }
+.md-required { color: var(--s-soft-ink, #5a2fa0); font-size: 11px; font-weight: 700; }
+.md-example { color: var(--s-muted, #62685e); max-width: 220px; overflow-wrap: anywhere; }
+.md-subtable { display: grid; gap: 4px; max-width: 520px; }
+.md-problem { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 8px 10px; border-radius: var(--s-radius-control, 12px); background: var(--s-warn, #fff4dc); color: var(--s-warn-ink, #6b5413); font-size: 13px; }
+.md-budget { margin: 0; padding: 8px 10px; border-radius: var(--s-radius-control, 12px); background: var(--s-bg, #f4f6f5); color: var(--s-ink, #181e15); font-size: 13px; }
+.md-budget.is-warning { background: var(--s-warn, #fff4dc); color: var(--s-warn-ink, #6b5413); }
+.md-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.md-summary { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--s-mint, #dceeeb); border-radius: var(--s-radius-row, 16px); background: var(--s-card, #fff); }
+.md-summary p { margin: 0; }
+.md-summary-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 15px; }
+.md-details { border-top: 1px solid var(--s-line, #e3e8e4); padding-top: 10px; }
+.md-details summary { cursor: pointer; font-size: 13px; font-weight: 700; }
+.md-details[open] summary { margin-bottom: 10px; }
+.md-rules { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; line-height: 1.5; }
+.md-disconnect { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--s-danger-soft, #fbe7df); border-radius: var(--s-radius-row, 16px); background: var(--s-card, #fff); }
+
+/* ── Chips on trend cards ─────────────────────────────────────────────── */
+.md-chip-row { position: relative; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.md-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 2px 8px; border-radius: 999px; background: var(--s-bg, #f4f6f5); color: var(--s-ink, #181e15); font-size: 11px; font-weight: 600; line-height: 1.6; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+a.md-chip:hover { background: var(--s-soft, #f1eaff); color: var(--s-soft-ink, #5a2fa0); }
+.md-chip.is-synced { background: var(--s-soft, #f1eaff); color: var(--s-soft-ink, #5a2fa0); }
+.md-chip.is-waiting, .md-chip.is-removed { color: var(--s-muted, #62685e); }
+.md-chip.is-failed { background: var(--s-danger-soft, #fbe7df); color: var(--s-danger, #8a2f1c); }
+.md-chip.is-conflict { background: var(--s-warn, #fff4dc); color: var(--s-warn-ink, #6b5413); }
+.md-chip-action { margin-left: 4px; padding: 0 6px; border: 1px solid currentColor; border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: 11px; cursor: pointer; }
+.md-chip-action:disabled { opacity: .55; cursor: default; }
+.md-extra { color: var(--s-muted, #62685e); font-size: 11px; }
+.md-notes-button { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: 0; background: none; color: var(--s-soft-ink, #5a2fa0); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.md-notes { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; display: grid; gap: 8px; width: min(320px, calc(100vw - 32px)); max-height: 320px; overflow: auto; padding: 10px; border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-control, 12px); background: var(--s-card, #fff); color: var(--s-ink, #181e15); box-shadow: var(--s-shadow, 0 12px 32px rgba(0, 0, 0, .12)); white-space: normal; }
+.md-notes header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.md-notes ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.md-notes p { margin: 2px 0 0; overflow-wrap: anywhere; }
+.md-icon { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--s-muted, #62685e); cursor: pointer; }
+
+/* ── Status line in the trend page header ─────────────────────────────── */
+.md-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; color: var(--s-muted, #62685e); font-size: 12px; }
+.md-status.is-attention .md-status-words { color: var(--s-warn-ink, #6b5413); }
+.md-status-words { display: inline-flex; align-items: center; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.md-status-log { flex-basis: 100%; padding: 10px; border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-control, 12px); background: var(--s-card, #fff); color: var(--s-ink, #181e15); }
+.md-status.is-compact .md-status-words { max-width: 100%; }
+
+/* ── Sync log ─────────────────────────────────────────────────────────── */
+.md-log { display: grid; gap: 8px; }
+.md-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.md-chips button { padding: 3px 10px; border: 1px solid var(--s-line-strong, #cfd6d0); border-radius: 999px; background: var(--s-card, #fff); color: var(--s-ink, #181e15); font: inherit; font-size: 12px; cursor: pointer; }
+.md-chips button[aria-pressed="true"] { border-color: var(--s-accent, #c190ff); background: var(--s-soft, #f1eaff); color: var(--s-soft-ink, #5a2fa0); }
+.md-log-rows { display: grid; gap: 0; margin: 0; padding: 0; max-height: 360px; overflow: auto; list-style: none; font-size: 13px; }
+.md-log-rows li { display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--s-line, #e3e8e4); }
+.md-log-rows li.is-problem span { color: var(--s-danger, #8a2f1c); }
+.md-log-rows time { color: var(--s-muted, #62685e); font-size: 12px; white-space: nowrap; }
+.md-log-rows span { overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .md-step { padding: 12px; }
+  .md-log-rows li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .md-table thead { display: none; }
+  .md-table tr { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--s-line, #e3e8e4); }
+  .md-table th, .md-table td { padding: 0; border: 0; }
+  .md-table select { min-width: 0; }
+  .md-example { max-width: none; }
+}
+.tb-card-monday { margin-top: 8px; }

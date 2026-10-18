@@ -1,6 +1,6 @@
 // Portable content contracts. Source documents are data; this module performs no I/O.
 // Prompt Library: editable instruction blocks and their defaults. A plan reads a run's snapshot (request.prompts).
-const { defaultText, promptBlocks, snapshotBlocks, traceMark } = require('./prompt-template');
+const { defaultText, promptBlocks, snapshotBlocks, traceMark, teamNotesBlock } = require('./prompt-template');
 const brandImages = require('./brand-images');
 const MAX_SOURCE_CHARS = 250000;
 const MAX_CONTEXT_CHARS = 400000;
@@ -185,7 +185,7 @@ function buildContentPlan(request = {}, { trace = false } = {}) {
       return { id, label, channel: descriptor.channel, kind: 'image', extension: 'png', schema: null, prompt, size: descriptor.size, variants, variantPrompts: pictureDirections(id, editionId, prompts, { trace }).slice(0, variants).map((direction, i) => `${prompt}\nVARIATION ${i + 1} OF ${variants}: ${direction}`), referencePolicy: { optional: true, preserveApprovedLogo: true, omitLogoWithoutAsset: true } };
     }
     const sectionRules = descriptor.sections.map(section => `${section.id}: ${section.heading}${section.minItems != null ? `; ${section.minItems === section.maxItems ? `exactly ${section.minItems}` : `${section.minItems}–${section.maxItems}`} structured items` : '; narrative body, empty items allowed'}${section.itemMaxChars ? `; item text at most ${section.itemMaxChars} characters` : ''}`).join('\n');
-    return { id, label, channel: descriptor.channel, kind: 'text', extension: descriptor.extension || 'md', schema: outputSchema(descriptor), sections: descriptor.sections, prompt: `${rules}\n${editionRules}\nDELIVERABLE: ${label}\n${blocks(`assets.${id}`).put('instruction')}\nREQUIRED SECTIONS IN ORDER:\n${sectionRules}\nReturn schema-valid JSON only. Counts and character limits apply to structured item text, not labels. Use body for prose; do not duplicate counted items in body. Evidence IDs must come from source.evidence. Product IDs must come from the registry. Use an empty productIds list and a caveat when no approved match exists. For product-agnostic copy, mention no registry products or tools.\nUNTRUSTED_SOURCE_AND_BRAND_DATA:\n${context}` };
+    return { id, label, channel: descriptor.channel, kind: 'text', extension: descriptor.extension || 'md', schema: outputSchema(descriptor), sections: descriptor.sections, prompt: `${rules}\n${editionRules}\nDELIVERABLE: ${label}\n${blocks(`assets.${id}`).put('instruction')}${teamNotesBlock(request.teamNotes, { label: 'TEAM NOTES FOR THESE CHANNEL ASSETS' })}\nREQUIRED SECTIONS IN ORDER:\n${sectionRules}\nReturn schema-valid JSON only. Counts and character limits apply to structured item text, not labels. Use body for prose; do not duplicate counted items in body. Evidence IDs must come from source.evidence. Product IDs must come from the registry. Use an empty productIds list and a caveat when no approved match exists. For product-agnostic copy, mention no registry products or tools.\nUNTRUSTED_SOURCE_AND_BRAND_DATA:\n${context}` };
   });
   return { editionId, source: { id: source.id, title: source.title, kind: source.kind, characters: source.text.length, evidenceCount: source.evidence.length }, deliverables, warnings, contextCharacters: context.length };
 }

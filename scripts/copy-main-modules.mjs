@@ -40,6 +40,8 @@ const copies = [
   ['src/shared/anthropic-runner.js', 'out/shared/anthropic-runner.js'],
   ['src/shared/xlsx-writer.js', 'out/shared/xlsx-writer.js'],
   ['src/main/content-workspace.js', 'out/main/content-workspace.js'],
+  // One workspace or several (package.json studioWorkspace, STUDIO_WORKSPACE_MODE).
+  ['src/main/workspace-policy.js', 'out/main/workspace-policy.js'],
   // Prompt Library: saved versions, the API (previews, tests), the template engine, its registry, defaults and samples.
   ['src/main/prompt-store.js', 'out/main/prompt-store.js'],
   ['src/main/prompt-lab.js', 'out/main/prompt-lab.js'],
@@ -63,6 +65,17 @@ const copies = [
   ['src/main/studio-host.js', 'out/main/studio-host.js'],
   ['src/main/document-import.js', 'out/main/document-import.js'],
   ['src/main/monday-sync.js', 'out/main/monday-sync.js'],
+  // Monday.com two-way sync: the engine, its store, the server-built cards and the shared catalog.
+  ['src/main/monday-engine.js', 'out/main/monday-engine.js'],
+  ['src/main/monday-store.js', 'out/main/monday-store.js'],
+  ['src/main/monday-cards.js', 'out/main/monday-cards.js'],
+  ['src/shared/monday.json', 'out/shared/monday.json'],
+  // Workflows and playbooks: the engine, its store, the pure rules and the two catalogs.
+  ['src/main/workflow-engine.js', 'out/main/workflow-engine.js'],
+  ['src/main/workflow-store.js', 'out/main/workflow-store.js'],
+  ['src/shared/workflow-core.js', 'out/shared/workflow-core.js'],
+  ['src/shared/workflow-steps.json', 'out/shared/workflow-steps.json'],
+  ['src/shared/playbooks.json', 'out/shared/playbooks.json'],
   ['src/main/workbooks.js', 'out/main/workbooks.js'],
   ['src/main/workbook-import.js', 'out/main/workbook-import.js'],
   ['src/shared/research-workbook.js', 'out/shared/research-workbook.js'],

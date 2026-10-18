@@ -365,9 +365,12 @@ const RESEARCH_LISTS = ['researchReviews', 'researchAudit', 'researchExports'];
 // Every list and record in v5 emptied, its other values kept.
 const emptied = (value) => Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined).map(([key, entry]) => [key, Array.isArray(entry) ? [] : entry && typeof entry === 'object' ? {} : entry]));
 function withoutUnheld(state, viewer) {
-  const research = holds(viewer, 'readResearch'); const data = holds(viewer, 'dataTools');
-  if (research && data) return state;
+  const research = holds(viewer, 'readResearch'); const data = holds(viewer, 'dataTools'); const automation = holds(viewer, 'readWorkflows');
+  if (research && data && automation) return state;
   const out = { ...state }; const studio = { ...(isRecord(state.contentStudio) ? state.contentStudio : {}) };
+  // Workflows and playbooks: same keys, nothing in them.
+  if (!automation) for (const key of ['workflows', 'workflowRuns', 'playbooks']) if (own(studio, key)) studio[key] = [];
+  if (!automation && own(studio, 'workflowSummary')) studio.workflowSummary = { active: 0, paused: 0, drafts: 0, waiting: 0 };
   if (!research) {
     if (Array.isArray(studio.researchRuns)) studio.researchRuns = studio.researchRuns.map(runOutline);
     if (Array.isArray(studio.themes)) studio.themes = studio.themes.filter(isRecord).map((theme) => pick(theme, ['id', 'workspaceId', 'name', 'status']));

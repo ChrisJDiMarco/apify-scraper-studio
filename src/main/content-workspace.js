@@ -61,8 +61,11 @@ const LEGACY_SEMRUSH_BRAND_FIELDS = Object.freeze({
 // onRunEvent (optional) hears when a run started from an Ask AI conversation reaches a point worth posting there (a quick
 // scan's trends report, trends waiting for an OK, reports written, a stop): { type, key, identityId, conversationId, run,
 // report?, error?, attempt? } → { messageId } | null (src/main/ask-followups.js). It never fails a run.
-function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, trackJob, onRunEvent, routing: routingHost = null, generateVideo = null } = {}) {
+function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, trackJob, onRunEvent, routing: routingHost = null, generateVideo = null, hooks = {}, isWorkflowCall = () => false, workspacePolicy = null } = {}) {
   if (!root || typeof runAI !== 'function') throw new Error('Studio storage and AI host are required.');
+  // One workspace or several (src/main/workspace-policy.js). Single mode keeps one workspace of the package's edition,
+  // shown as policy.name (Main); the others are hidden (archived), never deleted. See migrateWorkspacePolicy below.
+  const policy = workspacePolicy?.mode === 'single' ? { mode: 'single', id: /^[a-z0-9-]{1,40}$/.test(String(workspacePolicy.id || '')) ? workspacePolicy.id : 'semrush', editionId: workspacePolicy.editionId === 'general' ? 'general' : 'semrush', name: String(workspacePolicy.name || 'Main').slice(0, 60) || 'Main' } : { mode: 'multi' };
   // Model routing (src/main/ai-routing.js): which connection, model and effort each AI task uses. The host passes its
   // studio routing; without one (tests, older hosts) the same rules run on the capabilities' text route and model.
   const routing = routingHost || localRouting();
@@ -74,7 +77,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   const who = () => { let value = null; try { value = actor(); } catch (_) { value = null; } return { id: String(value?.id || SYSTEM.id).slice(0, 320), name: String(value?.name || SYSTEM.name).slice(0, 120) }; };
   fs.mkdirSync(root, { recursive: true });
   const stateFile = path.join(root, 'state.json');
-  const fresh = () => ({ version: 1, activeWorkspaceId: ['general', 'semrush'].includes(defaultWorkspaceId) ? defaultWorkspaceId : 'general', workspaces: ['general', 'semrush'].map(editionId => ({ id: editionId, name: editionId === 'semrush' ? 'Semrush workspace' : 'Your workspace', editionId, knowledge: content.validateBrandKnowledge(editionId === 'semrush' ? content.SEMRUSH_KNOWLEDGE_PRESET : {}, { editionId }), products: [], ...(editionId === 'semrush' ? { brandDefaults: copy(content.SEMRUSH_BRAND_2026) } : {}), createdAt: stamp(), updatedAt: stamp() })), programs: [], researchRuns: [], contentRuns: [], themes: [], history: [], detections: [], assets: [], exports: [], datasetOwners: {} });
+  const editionWorkspace = (editionId, workspaceId = editionId, name = editionId === 'semrush' ? 'Semrush workspace' : 'Your workspace') => ({ id: workspaceId, name, editionId, knowledge: content.validateBrandKnowledge(editionId === 'semrush' ? content.SEMRUSH_KNOWLEDGE_PRESET : {}, { editionId }), products: [], ...(editionId === 'semrush' ? { brandDefaults: copy(content.SEMRUSH_BRAND_2026) } : {}), createdAt: stamp(), updatedAt: stamp() });
+  // A fresh install has one workspace per edition; in single mode only the package's own, named Main.
+  const fresh = () => ({ version: 1, activeWorkspaceId: policy.mode === 'single' ? policy.id : ['general', 'semrush'].includes(defaultWorkspaceId) ? defaultWorkspaceId : 'general', workspaces: policy.mode === 'single' ? [editionWorkspace(policy.editionId, policy.id, policy.name)] : ['general', 'semrush'].map(editionId => editionWorkspace(editionId)), ...(policy.mode === 'single' ? { workspacePolicy: { mode: 'single', mainId: policy.id, name: policy.name, appliedAt: stamp() } } : {}), programs: [], researchRuns: [], contentRuns: [], themes: [], history: [], detections: [], assets: [], exports: [], datasetOwners: {} });
   let state;
   try { state = JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw new Error('Studio data could not be read. Restore the saved state before continuing.'); state = fresh(); }
   state.detections ||= [];
@@ -145,6 +150,59 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     }
     return changed;
   }
+  // Single mode (the Semrush package): one workspace of the package's edition, shown as Main. The main one is the one a
+  // previous start chose, else the configured id when it holds data (or nothing else does), else the edition's workspace
+  // with the most programs, runs and assets. Every other workspace is archived: hidden from the switcher, the state and
+  // the scheduler, with every record kept on disk. Before the first change state.json is copied once to
+  // state.before-single-workspace.json. Multi mode undoes it: archived workspaces come back, Main gets its old name back,
+  // and revived schedules wait for their next time instead of running at once. Idempotent; returns whether it changed.
+  function migrateWorkspacePolicy() {
+    const applied = state.workspacePolicy && typeof state.workspacePolicy === 'object' ? state.workspacePolicy : null;
+    if (policy.mode !== 'single') {
+      if (applied?.mode !== 'single') return false;
+      const now = stamp();
+      for (const w of state.workspaces) {
+        if (w.archived?.reason === 'single-workspace') {
+          delete w.archived;
+          for (const program of state.programs) if (program.workspaceId === w.id && program.schedule?.enabled && program.schedule.frequency !== 'manual') program.schedule.nextRunAt = nextResearchScheduleAt(program.schedule, { from: now });
+        }
+        if (w.id === applied.mainId) { if (w.previousName && w.name === applied.name) w.name = w.previousName; delete w.previousName; }
+      }
+      delete state.workspacePolicy;
+      return true;
+    }
+    const score = w => [state.programs, state.researchRuns, state.contentRuns, state.assets].reduce((sum, rows) => sum + (rows || []).filter(row => row.workspaceId === w.id).length, 0);
+    const candidates = state.workspaces.filter(w => w.editionId === policy.editionId);
+    const pinned = applied?.mode === 'single' ? candidates.find(w => w.id === applied.mainId) : null;
+    const configured = candidates.find(w => w.id === policy.id);
+    const holding = candidates.filter(w => w !== configured).map(w => ({ w, n: score(w) })).filter(row => row.n > 0).sort((a, b) => b.n - a.n || String(b.w.updatedAt || '').localeCompare(String(a.w.updatedAt || '')));
+    let main = pinned || (configured && (score(configured) > 0 || !holding.length) ? configured : holding[0]?.w || configured || candidates[0] || null);
+    let changed = false;
+    const change = () => {
+      if (changed) return; changed = true;
+      const backup = path.join(root, 'state.before-single-workspace.json');
+      try { if (fs.existsSync(stateFile) && !fs.existsSync(backup)) writeBytes(backup, fs.readFileSync(stateFile)); } catch (error) { console.warn(`The studio data couldn’t be copied before switching to one workspace: ${safeError(error)}`); }
+    };
+    if (!main) { change(); main = editionWorkspace(policy.editionId, state.workspaces.some(w => w.id === policy.id) ? id('workspace') : policy.id, policy.name); state.workspaces.push(main); }
+    if (main.archived) { change(); delete main.archived; }
+    if (main.name !== policy.name) { change(); if (!main.previousName) main.previousName = main.name; main.name = policy.name; }
+    for (const w of state.workspaces) if (w !== main && !w.archived) { change(); w.archived = { at: stamp(), reason: 'single-workspace' }; }
+    if (state.activeWorkspaceId !== main.id) { change(); state.activeWorkspaceId = main.id; }
+    if (applied?.mode !== 'single' || applied.mainId !== main.id || applied.name !== policy.name) { change(); state.workspacePolicy = { mode: 'single', mainId: main.id, name: policy.name, appliedAt: stamp() }; }
+    return changed;
+  }
+  const isArchived = workspaceId => Boolean(state.workspaces.find(w => w.id === workspaceId)?.archived);
+  const mainId = () => state.workspacePolicy?.mainId || policy.id;
+  // Who owns a saved collection with no recorded workspace: Main in single mode, the general workspace otherwise.
+  const datasetFallback = () => (policy.mode === 'single' ? mainId() : 'general');
+  const singleRefusal = message => Object.assign(new Error(message), { status: 409, code: 'singleWorkspace' });
+  // What publicState says about the policy: in single mode, Main's name and edition and what the hidden workspaces hold.
+  function workspacePolicyView() {
+    if (policy.mode !== 'single') return { mode: 'multi' };
+    const count = (rows, w) => (rows || []).filter(row => row.workspaceId === w.id).length;
+    const archived = state.workspaces.filter(w => w.archived?.reason === 'single-workspace').map(w => ({ id: w.id, name: w.name, programs: count(state.programs, w), runs: count(state.researchRuns, w) + count(state.contentRuns, w), assets: count(state.assets, w) }));
+    return { mode: 'single', name: policy.name, editionId: policy.editionId, archived };
+  }
   function workspace(workspaceId = state.activeWorkspaceId, enforce = true) { safeId(workspaceId); const result = state.workspaces.find(w => w.id === workspaceId); if (!result || (enforce && workspaceId !== state.activeWorkspaceId)) throw new Error('Select the workspace that owns this record.'); return result; }
   function owned(list, recordId) { safeId(recordId); const item = list.find(row => row.id === recordId); if (!item || item.workspaceId !== state.activeWorkspaceId) throw new Error('Record not found in the selected workspace.'); return item; }
   function runRecord(runId) { return owned([...state.contentRuns, ...state.researchRuns], runId); }
@@ -172,15 +230,21 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   }
   // The Ask AI conversation a run was started from stays on the server; only followUpAt (a follow-up was posted) is shown.
   const withoutAsk = value => { if (value && typeof value === 'object') { delete value.ask; if (value.quickScan && typeof value.quickScan === 'object') delete value.quickScan.ask; } return value; };
+  // The workflow run a child run belongs to (workflow engine): ids and the workflow's name only.
+  function workflowLink(value) {
+    if (!value || typeof value !== 'object') return null;
+    const link = { id: String(value.id || '').slice(0, 180), runId: String(value.runId || '').slice(0, 180), name: String(value.name || '').slice(0, 120) };
+    return /^workflow-[a-zA-Z0-9_-]{1,170}$/.test(link.id) && /^wfrun-[a-zA-Z0-9_-]{1,170}$/.test(link.runId) ? link : null;
+  }
   // A research run's cost includes its report runs and a quick scan's trends report (ownCostUsd is its own).
   function publicRun(run) { const value = withoutAsk(copy(run)); if (run.type === 'research') { value.ownCostUsd = run.costUsd; value.costUsd += [...(run.reportRunIds || []).map(entry => entry.runId), ...(run.scanReport?.runId ? [run.scanReport.runId] : [])].reduce((sum, childId) => sum + (state.contentRuns.find(child => child.id === childId)?.costUsd || 0), 0); } return value; }
   function publicState() {
     const scoped = list => copy(list.filter(row => row.workspaceId === state.activeWorkspaceId));
-    const datasets = getDatasets().filter(d => (state.datasetOwners[d.id] || d.workspaceId || 'general') === state.activeWorkspaceId).map(d => ({ id: d.id, name: d.name, platform: d.platform, itemCount: d.itemCount, createdAt: d.createdAt }));
+    const datasets = getDatasets().filter(d => (state.datasetOwners[d.id] || d.workspaceId || datasetFallback()) === state.activeWorkspaceId).map(d => ({ id: d.id, name: d.name, platform: d.platform, itemCount: d.itemCount, createdAt: d.createdAt }));
     // Reference documents can be long; state carries their metadata and readReferenceDoc returns the text.
     // Brand reference images arrive grouped by picture set; readBrandImage returns a picture's bytes.
     const activeView = w => ({ ...w, referenceDocs: (w.referenceDocs || []).map(({ text, ...doc }) => ({ ...doc, characters: String(text || '').length })), brandImageSets: brandImages().brandImageFamilies(w.editionId).map(family => ({ ...family, images: (w.brandImages || []).filter(image => image.family === family.id) })) });
-    return { activeWorkspaceId: state.activeWorkspaceId, workspaces: copy(state.workspaces.map(w => w.id === state.activeWorkspaceId ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit', 'scan-report'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() }, promptChanges: recentPromptChanges() };
+    return { activeWorkspaceId: state.activeWorkspaceId, workspaces: copy(state.workspaces.filter(w => !w.archived).map(w => w.id === state.activeWorkspaceId ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), workspacePolicy: workspacePolicyView(), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit', 'scan-report'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() }, promptChanges: recentPromptChanges() };
   }
   function updateScheduledRun(run) {
     if (!run.scheduledFor) return;
@@ -393,7 +457,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // One snapshot of every offered asset's prompts prices the plan and becomes the run's copy (only the chosen ones), so
     // the estimate someone approves is built from the same text the run writes with.
     const promptsAll = promptSnapshot(w, assetPromptIds(offered, { kit: true }));
-    const input = { editionId: w.editionId, source: picked.source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds, imageVariants: 3, prompts: pickPrompts(promptsAll, assetPromptIds(deliverableIds, { kit: true })) };
+    // Notes a workflow's assets step adds for the writers (only when there are some, so other kits keep their exact input).
+    const teamNotes = payload.teamNotes === undefined || payload.teamNotes === '' ? '' : require('../shared/workflow-core').notesText(payload.teamNotes, 'teamNotes');
+    const input = { editionId: w.editionId, source: picked.source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds, imageVariants: 3, prompts: pickPrompts(promptsAll, assetPromptIds(deliverableIds, { kit: true })), ...(teamNotes ? { teamNotes } : {}) };
     const plan = content.buildContentPlan(input);
     const ai = kitAiNow(w);
     const references = kitReferenceCounts(w);
@@ -869,7 +935,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       check(run); const cache = file(run.id, `${batch.id}.validated.json`); let result;
       if (fs.existsSync(cache)) result = read(cache);
       else {
-        const prompt = researchPrompts.discoveryPrompt({ batch, query: program.query, ...edition, blocks: snapshotBlocks(input.prompts, 'research.discovery') });
+        const prompt = researchPrompts.discoveryPrompt({ batch, query: program.query, ...edition, notes: program.notes?.research || '', blocks: snapshotBlocks(input.prompts, 'research.discovery') });
         result = await aiValidated(run, batch.id, research.DISCOVERY_SCHEMA, prompt, raw => research.validateCandidates(raw, { runId: run.id, batch }), { ...settings, estimateUsd: estimateCall(settings, prompt, STAGE_OUTPUT_TOKENS.discovery), message: `Discovering trends · ${research.PLATFORM_LABELS[batch.platform]} batch ${batch.platformBatchNumber}` });
         write(cache, { ...result, platform: batch.platform, batchNumber: batch.platformBatchNumber, itemsProcessed: batch.items.length, completedAt: stamp() });
       }
@@ -886,7 +952,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     else {
       const synthesisSettings = stageAi(run, 'synthesis');
       const sources = Object.fromEntries(Object.entries(discovery.receipt.perPlatform).map(([p]) => [research.PLATFORM_LABELS[p], discovery.batches.filter(b => b.platform === p).reduce((sum, b) => sum + b.items.length, 0)]));
-      const prompt = researchPrompts.synthesisPrompt({ candidates: merged, totalPosts: discovery.receipt.plannedCount, sources, maxThemes: program.maxThemes, taxonomy, query: program.query, ...edition, blocks: snapshotBlocks(input.prompts, 'research.synthesis') });
+      const prompt = researchPrompts.synthesisPrompt({ candidates: merged, totalPosts: discovery.receipt.plannedCount, sources, maxThemes: program.maxThemes, taxonomy, query: program.query, ...edition, notes: program.notes?.research || '', blocks: snapshotBlocks(input.prompts, 'research.synthesis') });
       if (prompt.length > 2500000) throw new Error('Theme synthesis exceeds the context budget. Use a shorter window or fewer sources; every completed discovery batch is saved.');
       run.stage = 'synthesis'; save();
       synthesized = await aiValidated(run, 'theme-synthesis', { ...research.THEMES_SCHEMA, properties: { themes: { ...research.THEMES_SCHEMA.properties.themes, maxItems: program.maxThemes } } }, prompt, raw => research.validateThemes(raw, { runId: run.id, candidates: merged, maxThemes: program.maxThemes, taxonomy }), { ...synthesisSettings, estimateUsd: estimateCall(synthesisSettings, prompt, STAGE_OUTPUT_TOKENS.synthesis), message: 'Synthesizing the top themes' });
@@ -991,7 +1057,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (existingReport) { const child = state.contentRuns.find(row => row.id === existingReport.runId); if (child && child.status !== 'succeeded') { const unused = Math.max(0, run.maxBudgetUsd - run.reservedUsd); const remainingChildren = run.reportRunIds.filter(entry => state.contentRuns.find(r => r.id === entry.runId)?.status !== 'succeeded').length; const extra = Math.floor(unused / Math.max(1, remainingChildren) * 100) / 100; child.maxBudgetUsd += extra; run.reservedUsd += extra; save(); await launchAndWait(child, () => performContent(child)); } check(run); continue; }
       const selection = reports().selectThemeEvidence({ theme, items: evidence.items, assignments, maxPosts: 500 });
       if (!selection.coverage.matchedCount) { run.warnings = [...new Set([...(run.warnings || []), `No posts were tagged to “${theme.name}”, so its reports were skipped.`])]; continue; }
-      const payload = { theme: { id: theme.id, name: theme.name, description: theme.description, matchingKeywords: theme.matchingKeywords, matchingCriteria: theme.matchingCriteria, negativeCriteria: theme.negativeCriteria, novelty: theme.novelty, taxonomyCategory: theme.taxonomyCategory }, selection, brandName: w.editionId === 'semrush' ? 'Semrush' : (w.knowledge?.name || w.name), analysisFocus: w.editionId === 'semrush' ? 'SEO Trends' : (program.query || w.knowledge?.audience || ''), targetAudience: w.editionId === 'semrush' ? 'SEO Professionals' : (w.knowledge?.audience || '') };
+      const payload = { theme: { id: theme.id, name: theme.name, description: theme.description, matchingKeywords: theme.matchingKeywords, matchingCriteria: theme.matchingCriteria, negativeCriteria: theme.negativeCriteria, novelty: theme.novelty, taxonomyCategory: theme.taxonomyCategory }, selection, brandName: w.editionId === 'semrush' ? 'Semrush' : (w.knowledge?.name || w.name), analysisFocus: w.editionId === 'semrush' ? 'SEO Trends' : (program.query || w.knowledge?.audience || ''), targetAudience: w.editionId === 'semrush' ? 'SEO Professionals' : (w.knowledge?.audience || ''), ...(program.notes?.reports ? { notes: program.notes.reports } : {}) };
       const source = { kind: 'research-theme', id: `${run.id}-${theme.id}`, title: theme.name, text: `${theme.name}: ${theme.description}`, evidence: selection.posts.map(post => ({ id: post.id, text: post.text, url: post.url, platform: post.platform, author: post.author, publishedAt: post.date || post.publishedAt || '' })), research: payload };
       const remainingThemes = run.themes.length - run.reportRunIds.length;
       const estimate = reportEstimate(reportSettings, selection);
@@ -1026,14 +1092,14 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       try {
         let output;
         if (job.id === 'evidence-report') {
-          const request = lib.buildTrendReportRequest({ theme: payload.theme, selection: payload.selection, editionId: input.editionId, brandName: payload.brandName, analysisFocus: payload.analysisFocus, targetAudience: payload.targetAudience, blocks: snapshotBlocks(input.prompts, 'reports.trends-report') });
+          const request = lib.buildTrendReportRequest({ theme: payload.theme, selection: payload.selection, editionId: input.editionId, brandName: payload.brandName, analysisFocus: payload.analysisFocus, targetAudience: payload.targetAudience, notes: payload.notes || '', blocks: snapshotBlocks(input.prompts, 'reports.trends-report') });
           output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, raw => lib.validateTrendReport(raw, request.context), { ...reportSettings, estimateUsd: estimateCall(reportSettings, request.prompt, STAGE_OUTPUT_TOKENS.report), message: `Writing the trends report · ${payload.theme.name}`, timeoutMs: 2400000 });
         } else {
           const reportJob = run.jobs.find(entry => entry.id === 'evidence-report');
           if (reportJob?.status !== 'succeeded' || !reportJob.assetId) throw new Error('The editorial toolkit is built from the trends report. Generate the report first.');
           const trendReport = read(file(run.id, `${reportJob.assetId}.json`));
           const registryDoc = (input.referenceDocs || []).find(doc => doc.kind === 'registry');
-          const request = lib.buildToolkitRequest({ theme: payload.theme, trendReport, trendReportMarkdown: content.renderContentExport(trendReport), metrics: payload.selection.metrics, registryText: registryDoc?.text || '', products: input.productRegistry || [], referenceDocs: (input.referenceDocs || []).filter(doc => doc.kind !== 'registry'), enterpriseProducts: input.enterpriseProducts || [], editionId: input.editionId, brandName: payload.brandName, blocks: snapshotBlocks(input.prompts, 'reports.editorial-toolkit') });
+          const request = lib.buildToolkitRequest({ theme: payload.theme, trendReport, trendReportMarkdown: content.renderContentExport(trendReport), metrics: payload.selection.metrics, registryText: registryDoc?.text || '', products: input.productRegistry || [], referenceDocs: (input.referenceDocs || []).filter(doc => doc.kind !== 'registry'), enterpriseProducts: input.enterpriseProducts || [], editionId: input.editionId, brandName: payload.brandName, notes: payload.notes || '', blocks: snapshotBlocks(input.prompts, 'reports.editorial-toolkit') });
           output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, raw => lib.validateToolkit(raw, request.context).output, { ...toolkitSettings, estimateUsd: estimateCall(toolkitSettings, request.prompt, STAGE_OUTPUT_TOKENS.toolkit), message: `Writing the editorial toolkit · ${payload.theme.name}`, timeoutMs: 2400000 });
         }
         job.assetId = saveTextAsset(run, deliverable, output).id; job.status = 'succeeded';
@@ -1268,7 +1334,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   async function launchAndWait(run, fn) { launch(run, fn); await active.get(run.id); }
   // `by` is the person who started it; schedules start as the system. A quick scan passes { origin: 'quick-scan', quickScan }
   // with its derived program, which is written only to the run's input.json: the saved program and its schedule never change.
-  function startResearchRun(program, datasetIds = [], scheduledFor = '', by = SYSTEM, { origin = '', quickScan = null, ask = null } = {}) {
+  function startResearchRun(program, datasetIds = [], scheduledFor = '', by = SYSTEM, { origin = '', quickScan = null, ask = null, workflow = null } = {}) {
     const scan = origin === 'quick-scan';
     // A scan that writes its trends report prices it with discovery and synthesis (quickScan.reportUsd, from its plan).
     const reportUsd = scan && quickScan?.report === true ? Math.max(0, Number(quickScan.reportUsd) || 0) : 0;
@@ -1307,8 +1373,13 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       // reach a provider. A restart never silently replays an interrupted claim.
       Object.assign(program.schedule, { lastRunAt: stamp(), lastScheduledFor: scheduledFor, lastRunId: run.id, lastStatus: 'queued', lastError: '', skippedAt: '', skippedReason: '' });
     }
+    // A workflow's run is linked in the same save that creates it (the workflow engine rebuilds its refs from this).
+    if (workflow) run.workflow = workflow;
     state.researchRuns.unshift(run);
-    return launch(run, () => performDiscovery(run));
+    const started = launch(run, () => performDiscovery(run));
+    // A program's run started by a person or its own schedule may start a "whenever this program runs" workflow.
+    if (!workflow && !scan && typeof hooks.onResearchRunStarted === 'function') { try { hooks.onResearchRunStarted(copy(run)); } catch (_) { /* a workflow never stops the run it follows */ } }
+    return started;
   }
   // ---------- Quick scans (SPEC §2): a small, hour-level research run priced and started from Ask AI ----------
   const quickScans = () => require('../shared/research-quick-scan');
@@ -1502,7 +1573,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       return null;
     }
     if ((promptId === 'assistant.ask-datasets' || promptId.startsWith('data.')) && typeof readDataset === 'function') {
-      const datasets = newest(getDatasets().filter(d => (state.datasetOwners[d.id] || d.workspaceId || 'general') === w.id));
+      const datasets = newest(getDatasets().filter(d => (state.datasetOwners[d.id] || d.workspaceId || datasetFallback()) === w.id));
       for (const dataset of datasets.slice(0, 3)) {
         let payload; try { payload = await readDataset(dataset.id); } catch (_) { continue; }
         const items = (payload?.items || []).filter(item => item && typeof item.id === 'string' && typeof item.text === 'string' && item.text.trim()).slice(0, 40);
@@ -1526,6 +1597,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const now = stamp(); const results = [];
     for (const program of state.programs) {
       const schedule = program.schedule;
+      if (isArchived(program.workspaceId)) continue; // a workspace hidden in a one-workspace build never spends
       if (!schedule?.enabled || schedule.frequency === 'manual' || !schedule.nextRunAt || Date.parse(schedule.nextRunAt) > Date.parse(now)) continue;
       try {
         const validated = research.validateResearchProgram(program);
@@ -1575,10 +1647,13 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // (fresh installs have one each), which stays the same across re-imports.
   function setupPlan(input) {
     const lib = setupBundle(); const bundle = lib.validateSetupBundle(input); const source = bundle.workspace;
-    const target = state.workspaces.find(w => w.editionId === source.editionId) || null;
+    // A one-workspace build imports only its own edition's files, into Main.
+    if (policy.mode === 'single' && source.editionId !== policy.editionId) throw new Error(`This setup file is for the ${source.editionId === 'semrush' ? 'Semrush' : 'general'} edition. This studio has one ${policy.editionId === 'semrush' ? 'Semrush' : 'general'} workspace, ${policy.name}, so it can’t be imported. Nothing was imported.`);
+    const target = (policy.mode === 'single' ? state.workspaces.find(w => w.id === mainId()) : state.workspaces.find(w => w.editionId === source.editionId && !w.archived)) || null;
     for (const program of bundle.programs) {
       const elsewhere = state.programs.find(row => row.id === program.id && row.workspaceId !== target?.id);
-      if (elsewhere) throw new Error(`Program “${program.name}” already belongs to “${state.workspaces.find(w => w.id === elsewhere.workspaceId)?.name || 'another workspace'}”, so it cannot be imported into “${target?.name || source.name}”. Nothing was imported.`);
+      const owner = elsewhere && state.workspaces.find(w => w.id === elsewhere.workspaceId);
+      if (elsewhere) throw new Error(`Program “${program.name}” already belongs to ${owner?.archived ? `“${owner.name}”, a workspace hidden in this build,` : `“${owner?.name || 'another workspace'}”,`} so it cannot be imported into “${target?.name || source.name}”. Nothing was imported.`);
     }
     const shared = new Set(bundle.programs.map(program => program.id));
     const context = {
@@ -1592,14 +1667,22 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     publicState, recoverInterrupted, checkDueResearchSchedules, startResearchScheduler, stopResearchScheduler,
     // Create content offers every deliverable but the kit-only short video.
     contentCatalog: () => ({ editions: copy(content.CONTENT_EDITIONS), deliverables: copy(content.CONTENT_DELIVERABLES.filter(d => !d.kitOnly)) }),
-    selectContentWorkspace(workspaceId) { workspace(workspaceId, false); state.activeWorkspaceId = workspaceId; save(); return publicState(); },
+    selectContentWorkspace(workspaceId) {
+      if (policy.mode === 'single' && workspaceId !== mainId()) throw singleRefusal(`This studio has one workspace, ${policy.name}. Its data is the only data in this build.`);
+      workspace(workspaceId, false); if (isArchived(workspaceId)) throw new Error('That workspace is hidden in this build.');
+      state.activeWorkspaceId = workspaceId; save(); return publicState();
+    },
+    // Single mode: what this build's workspace policy is, for the host's logs and tests.
+    workspacePolicy: () => copy(state.workspacePolicy || { mode: policy.mode }),
     // baseUpdatedAt (optional, here and on saveResearchProgram): the updatedAt the form opened with. A save over a newer
     // one made since is refused, so two admins editing the same record never silently replace each other's changes.
     saveContentWorkspace(payload) {
+      if (policy.mode === 'single' && !payload.id) throw singleRefusal(`This studio has one workspace. Edit ${policy.name}’s brand knowledge instead.`);
       const existing = payload.id ? workspace(payload.id) : null; const editionId = existing?.editionId || payload.editionId || 'general';
       staleSave(existing, payload.baseUpdatedAt, 'this workspace');
       const w = { id: existing?.id || id('workspace'), name: String(payload.name || '').trim().slice(0, 160), editionId, knowledge: content.validateBrandKnowledge(payload.knowledge || {}, { editionId }), products: content.validateProductRegistry(payload.products || [], { editionId }), ...(editionId === 'semrush' ? { brandDefaults: copy(content.SEMRUSH_BRAND_2026) } : {}), createdAt: existing?.createdAt || stamp(), updatedAt: stamp() };
       if (payload.enterpriseProducts !== undefined) w.enterpriseProducts = enterpriseList(payload.enterpriseProducts);
+      if (policy.mode === 'single') w.name = policy.name; // Main's name comes with the app
       if (!w.name) throw new Error('Name your workspace.'); if (existing) Object.assign(existing, w); else state.workspaces.push(w); state.activeWorkspaceId = w.id; save(); return copy(w);
     },
     // Workspace research knowledge: the n8n Taxonomy Lookup tab, the product registry and the
@@ -1797,8 +1880,14 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // Trend board: OK or pass one discovered theme at a time. Nothing is spent until the run continues. A yes can carry a
     // note for the channels and the channels it is for (kit folder ids; none, or every one, means all channels), which
     // channel owners read on the trend's card and analytics use to decide which channels it was offered to.
-    decideResearchTheme({ runId, themeId, decision, note, channels }) {
-      const by = who(); const run = runRecord(runId); if (run.type !== 'research' || run.status !== 'awaiting-review') throw new Error('This trend is no longer waiting for a decision.');
+    // internal ({ by, via, workspaceId }) is the Monday.com sync's (monday-engine.js): never reachable over RPC, because the
+    // studio:* handler passes the payload alone, so a browser can't claim to be someone else.
+    decideResearchTheme({ runId, themeId, decision, note, channels }, internal = {}) {
+      const monday = internal?.via === 'monday' && internal.by;
+      const by = monday ? { id: String(internal.by.id || SYSTEM.id).slice(0, 320), name: String(internal.by.name || SYSTEM.name).slice(0, 120) } : who();
+      const run = monday && internal.workspaceId ? state.researchRuns.find(row => row.id === runId && row.workspaceId === internal.workspaceId) : runRecord(runId);
+      if (!run) throw new Error('Record not found in the selected workspace.');
+      if (run.type !== 'research' || run.status !== 'awaiting-review') throw new Error('This trend is no longer waiting for a decision.');
       if (!['approved', 'passed', 'pending'].includes(decision)) throw new Error('Choose approve, pass, or undo.');
       if (!(run.discoveredThemes || run.themes).some(t => t.id === themeId)) throw new Error('Only discovered trends can be decided.');
       const words = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
@@ -1809,7 +1898,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       run.decisions = { ...(run.decisions || {}) }; run.decisionsBy = { ...(run.decisionsBy || {}) }; run.decidedAt = stamp();
       // Undo forgets who decided, so analytics show the trend as waiting again.
       if (decision === 'pending') { delete run.decisions[themeId]; delete run.decisionsBy[themeId]; }
-      else { run.decisions[themeId] = decision; run.decisionsBy[themeId] = { ...by, at: run.decidedAt, ...(words ? { note: words } : {}), ...(routed.length && routed.length < known.length ? { channels: routed } : {}) }; }
+      else { run.decisions[themeId] = decision; run.decisionsBy[themeId] = { ...by, at: run.decidedAt, ...(words ? { note: words } : {}), ...(routed.length && routed.length < known.length ? { channels: routed } : {}), ...(monday ? { via: 'monday' } : {}) }; }
       save(); return publicRun(run);
     },
     continueResearchRun({ runId }) { const run = runRecord(runId); if (!run.approvedAt || run.type !== 'research') throw new Error('Approve the research themes first.'); return launch(run, () => performClassification(run)); },
@@ -1858,6 +1947,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         jobs: plan.deliverables.map(d => ({ id: d.id, label: kit().kitFileLabel(d.id, w.editionId), kind: d.kind, folder: kit().kitFolderFor(d.id, w.editionId).name, status: 'queued' })) };
       // A short video whose model starts from a picture draws its first frame with the campaign set, so that set is kept
       // too even when the set's own hero graphic wasn't chosen (only chosen picture sets show in run.kit.references).
+      // Only the workflow engine (its runs act as the workflow) may link a set to a workflow run.
+      if (payload.workflow !== undefined) { if (!isWorkflowCall()) throw Object.assign(new Error('Only a workflow can link a set of channel assets to its run.'), { status: 403 }); run.workflow = workflowLink(payload.workflow); }
       const keyframeSet = run.ai.routing['video.keyframe'] && !plan.deliverables.some(d => d.id === 'brand-image') ? [{ id: 'brand-image', kind: 'image' }] : [];
       try { const references = Object.fromEntries(Object.entries(snapshotKitReferences(run, w, [...plan.deliverables, ...keyframeSet])).filter(([deliverableId]) => plan.deliverables.some(d => d.id === deliverableId))); if (Object.keys(references).length) run.kit.references = references; }
       catch (error) { fs.rmSync(path.join(root, 'runs', run.id), { recursive: true, force: true }); throw error; }
@@ -2027,6 +2118,19 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     kitRunsFor: sourceKey => copy(state.contentRuns.filter(run => run.workspaceId === state.activeWorkspaceId && run.kit && run.kit.sourceKey === sourceKey)),
     // What channel-view's readyTrends reads, for the active workspace, without publicState()'s deep copy: callers only read.
     trendSource() { const mine = row => row.workspaceId === state.activeWorkspaceId; return { activeWorkspaceId: state.activeWorkspaceId, researchRuns: state.researchRuns.filter(mine), contentRuns: state.contentRuns.filter(mine), assets: state.assets.filter(mine), themes: state.themes.filter(mine) }; },
+    // Internal (not in studioMethods): what the Monday.com sync builds its cards from, for one workspace. Callers only read.
+    // docLinks: each report's Google Doc from the Drive receipts (the research run's, else the report run's); history:
+    // the trend tracker (momentum, the same trend across runs), for the active workspace only.
+    boardSource(workspaceId = state.activeWorkspaceId) {
+      const mine = row => row.workspaceId === workspaceId; const researchRuns = state.researchRuns.filter(mine); const contentRuns = state.contentRuns.filter(mine);
+      const assets = state.assets.filter(mine); const docLinks = {};
+      for (const run of researchRuns) for (const entry of run.reportRunIds || []) {
+        const report = contentRuns.find(row => row.id === entry.runId);
+        for (const asset of assets) if (asset.runId === entry.runId && REPORT_DELIVERABLES.includes(asset.deliverableId)) { const url = (run.googleDelivery ? deliveredDoc(run.googleDelivery, asset) : '') || (report?.googleDelivery ? deliveredDoc(report.googleDelivery, asset) : ''); if (url) docLinks[asset.id] = url; }
+      }
+      let history = null; if (workspaceId === state.activeWorkspaceId) { try { history = trendHistory().history; } catch (_) { history = null; } }
+      return { researchRuns, contentRuns, assets, programs: state.programs.filter(mine), editionId: state.workspaces.find(w => w.id === workspaceId)?.editionId || 'general', history, docLinks };
+    },
     picturesReady,
     // Sheets: every research run with saved evidence opens as a workbook. Reading never starts or changes a run.
     listResearchWorkbookSources() {
@@ -2165,6 +2269,70 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     },
     waitForIdle: async () => { while (active.size) await Promise.allSettled([...active.values()]); },
     // Runs working right now (any workspace), for the host's "quit anyway?" check.
+    // ---------- Workflows (SPEC-3 wave 3B; src/main/workflow-engine.js) ----------
+    // The engine's own way in: each start writes run.workflow ({ id, runId, name }) in the save that creates the run, and
+    // is credited to the workflow (the host runs these as the workflow's actor). Existing methods are unchanged.
+    startResearchRunFor({ programId, by = null, link } = {}) {
+      const program = owned(state.programs, programId);
+      api.checkResearchIdle({ programId });
+      return withoutAsk(startResearchRun(program, [], '', by || who(), { workflow: workflowLink(link) }));
+    },
+    // A quick scan a workflow runs: no fingerprint (the workflow's approved budget binds the setup), still one quick scan
+    // at a time in a workspace.
+    startQuickScanFor({ scan, programId, by = null, link } = {}) {
+      const { scan: planned, saved, derived, selection, fingerprint } = quickScanPlan({ programId, scan: { ...(scan || {}), report: true } });
+      if (!collect) throw new Error('Source collection is unavailable on this host, so quick scans can’t run here.');
+      const busy = activeQuickScan(state.activeWorkspaceId); if (busy) throw quickScanBusy(busy);
+      const reportUsd = quickScanAiEstimate(derived, { report: true }).report.usd;
+      const quickScan = { topic: planned.topic, depth: planned.depth, platforms: selection.platforms, lookbackHours: planned.lookbackHours, targets: selection.targets.map(({ platform, target }) => ({ platform, target })), itemsPerPlatform: planned.itemsPerPlatform, commentsPerPost: planned.commentsPerPost, fingerprint, report: true, reportUsd };
+      return withoutAsk(startResearchRun({ ...derived, workspaceId: saved.workspaceId }, [], '', by || who(), { origin: 'quick-scan', quickScan, workflow: workflowLink(link) }));
+    },
+    // What a workflow's quick scan would cost and cap: { aboutUsd, capUsd, lines, warnings, blocked }.
+    estimateQuickScanFor({ scan, programId } = {}) {
+      const { derived, scan: planned } = quickScanPlan({ programId, scan: { ...(scan || {}), report: true } });
+      const ai = quickScanAiEstimate(derived, { report: true }); const warnings = []; let collection = 0; let blocked = false;
+      try { const receipt = require('../shared/research-collection').buildCollectionPlan(derived, { now: clock() }).receipt; collection = Math.min(receipt.worstCaseUsd, derived.budgets.collectionUsd); }
+      catch (error) { warnings.push(safeError(error)); blocked = true; }
+      if (!collect) { warnings.push('Source collection is unavailable on this host, so quick scans can’t run here.'); blocked = true; }
+      return { aboutUsd: cents(ai.totalUsd + collection), capUsd: cents(derived.budgets.aiUsd + derived.budgets.collectionUsd), topic: planned.topic, warnings, blocked };
+    },
+    // A "whenever this program runs" workflow attaches to a run someone (or the program's schedule) started.
+    linkRunToWorkflow({ runId, link } = {}) { const run = runRecord(runId); run.workflow = workflowLink(link); save(); return publicRun(run); },
+    // Per trend at review time, for approval rules: momentum on the discovery basis ("momentum when found"), priority and
+    // speed from scoring, posts and platforms from discovery.
+    reviewSignals({ runId } = {}) {
+      const run = runRecord(runId); const themes = run.discoveredThemes || run.themes || [];
+      let momentum = {}; try { momentum = trendModule().reviewMomentum(trendHistorySource(trendVersion()), run.id); } catch (_) { momentum = {}; }
+      return Object.fromEntries(themes.map(theme => [theme.id, { name: theme.name, momentum: momentum[theme.id] || 'new', priorityTier: theme.scoring?.priorityTier || '', priorityScore: Number.isFinite(theme.scoring?.priorityScore) ? theme.scoring.priorityScore : 0, velocity: theme.scoring?.velocity || '', posts: Number(theme.evidenceCount ?? theme.evidenceIds?.length) || 0, platforms: Array.isArray(theme.platforms) ? [...theme.platforms] : [] }]));
+    },
+    // A workflow whose rules approved nothing ends the review: every undecided trend is skipped (credited to the workflow)
+    // and the run finishes, so the program's next run isn't held back by a review nobody will do.
+    closeReviewFor({ runId, message = '' } = {}) {
+      const by = who(); const run = runRecord(runId); if (run.type !== 'research' || run.status !== 'awaiting-review') throw new Error('This run is not awaiting theme review.');
+      const at = stamp(); const discovered = run.discoveredThemes || run.themes || [];
+      run.discoveredThemes ||= copy(run.themes); run.decisions = { ...(run.decisions || {}) }; run.decisionsBy = { ...(run.decisionsBy || {}) };
+      for (const theme of discovered) if (run.decisions[theme.id] !== 'passed') { run.decisions[theme.id] = 'passed'; run.decisionsBy[theme.id] = { ...by, at }; }
+      run.themes = []; run.approvedAt = at; run.decidedAt = at; run.status = 'succeeded'; run.stage = 'theme-review'; run.message = String(message || 'No trends were approved.').slice(0, 300);
+      updateScheduledRun(run); save(); return publicRun(run);
+    },
+    // The reports a research run wrote, per approved trend.
+    reportAssetsForRun({ runId } = {}) {
+      const run = runRecord(runId);
+      return (run.reportRunIds || []).map(entry => {
+        const child = state.contentRuns.find(row => row.id === entry.runId); const own = state.assets.filter(asset => asset.runId === entry.runId);
+        return { themeId: entry.themeId, contentRunId: entry.runId, status: child?.status || 'failed', reportAssetId: own.find(asset => asset.deliverableId === 'evidence-report')?.id || '', toolkitAssetId: own.find(asset => asset.deliverableId === 'editorial-toolkit')?.id || '' };
+      });
+    },
+    // A typical set of channel assets priced before any report exists: against the workspace's newest trends report, or
+    // the bundled sample brief. → { aboutUsd, capUsd } per set.
+    estimateKitTypical({ workspaceId, deliverableIds } = {}) {
+      const w = workspace(workspaceId); const kits = new Set(state.contentRuns.filter(run => run.kit).map(run => run.id));
+      const newest = state.assets.filter(asset => asset.workspaceId === w.id && asset.deliverableId === 'evidence-report' && !kits.has(asset.runId)).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
+      const sample = require('../shared/prompt-samples.json').source;
+      const source = newest ? { kind: 'report', assetId: newest.id } : { kind: 'text', title: sample.title, text: sample.text };
+      const { estimate } = kitPlan({ workspaceId: w.id, source, deliverableIds });
+      return { aboutUsd: cents(estimate.totalUsd), capUsd: cents(estimate.capUsd), basis: newest ? 'report' : 'sample' };
+    },
     activeWork: () => [...active.keys()].map(runId => [...state.researchRuns, ...state.contentRuns].find(run => run.id === runId)).filter(run => run && ['queued', 'running'].includes(run.status)).map(run => ({ runId: run.id, kind: run.type === 'research' ? 'research' : 'content', title: run.title || 'Untitled run', stage: run.stage || '' })),
   };
   function researchWorkbookVersion(run) {
@@ -2308,7 +2476,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     return posts;
   }
   // Persist before exposing the service; startup does not emit events or run providers.
-  if (migrateSemrushBrandDefaults()) write(stateFile, state);
+  const policyChanged = migrateWorkspacePolicy();
+  if (migrateSemrushBrandDefaults() || policyChanged) write(stateFile, state);
   return api;
 }
 module.exports = { createContentWorkspace };

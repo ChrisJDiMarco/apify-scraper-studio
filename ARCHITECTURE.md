@@ -32,7 +32,7 @@ when the build changes. Errors the server didn't expect reach the browser as "So
 
 ## The RPC method registry
 
-`src/shared/studio-api-channels.json` lists every method the UI calls (167) and the main-process channel it maps to
+`src/shared/studio-api-channels.json` lists every method the UI calls (172) and the main-process channel it maps to
 (`studio:*`, `help:*`, `team:*` and older ones such as `save-key`). Three things must agree with it:
 
 1. `src/preload/index.js`: the Mac bridge, written by hand (`invoke('studio:x', payload)`).
@@ -73,14 +73,27 @@ See [HANDOFF.md → Data model and storage](HANDOFF.md#data-model-and-storage) f
 | `data.json` | `index.js` (`loadData`, `saveData`), validated by `src/shared/validation.js` | Settings and Data tools records. |
 | `content-studio/state.json` and `runs/` | `content-workspace.js` | The studio service: workspaces, programs, runs, assets. |
 | `content-studio/team.json` | `team-store.js` | Synchronous, atomic, versioned (v2). |
+| `content-studio/monday.json`, `monday-log.jsonl` | `monday-store.js` | Monday.com: per-workspace board link (setup saves check `rev`, 409 `mondaySetupChanged`), item map, people cache, calls today; the sync log (2,000 rows). Webhook secrets stored as sha256 only. |
 | `content-studio/ask/` | `ask-store.js` | Per-person folders keyed by a hash of the identity id. |
 | `content-studio/prompts/`, `prompt-tests/` | `prompt-store.js`, `prompt-lab.js` | Prompt versions per workspace. |
 | `content-studio/.studio-owner.json` | `studio-owner-lock.js` | One process per folder; heartbeat every 30 s; stale-lock takeover rules in [RUNBOOK.md](RUNBOOK.md#recover-from-a-stuck-data-folder-lock). |
 | `workbooks/` | `workbooks.js`, `workbook-import.js` | Sheets imports and per-cell edits. |
-| `v5/` | `index.js` + `src/shared/v5-core.js` | The Workflows engine's event log and projection. |
+| `content-studio/workflows.json` | `workflow-store.js` | Workflows, their runs and team playbooks. Synchronous, atomic, versioned (v1); a newer file refuses to start. Children carry `run.workflow` in `state.json`, written in the save that creates them, so `recover()` rebuilds a missed link. |
+| `v5/` | `index.js` + `src/shared/v5-core.js` | The retired v5 event log; only `recipe-version-saved` (and legacy-import) events are read, for Scrapers' saved versions (`state.v5.recipeVersions`, cached by the file's size and time). |
 | `ai-spend.json` | `ai-limits.js` | Today's recorded AI spend (only with a daily budget). |
 
 All JSON writes go through a temp-file + fsync + rename helper; there is no database and no cross-file transaction.
+
+**Workspace policy.** `src/main/workspace-policy.js` resolves one workspace or several from package.json
+`studioWorkspace` and `STUDIO_WORKSPACE_MODE`/`STUDIO_WORKSPACE_NAME`; `index.js` passes it to `createContentWorkspace`.
+In single mode `migrateWorkspacePolicy` (run once at start, idempotent) picks the main workspace, renames it (keeping
+`previousName`), marks the others `archived: { reason: 'single-workspace' }` and records `state.workspacePolicy`; the
+first change copies `state.json` to `state.before-single-workspace.json`. Archived workspaces stay in `state.json` but
+are left out of `publicState().workspaces`, `selectContentWorkspace` refuses them (409 `singleWorkspace` for anything
+but Main), the scheduler skips their programs, and unowned datasets fall back to Main instead of `general`.
+`publicState().workspacePolicy` tells the renderer (`{ mode: 'single', name, editionId, archived: [{ id, name, programs,
+runs, assets }] }` or `{ mode: 'multi' }`), which hides the switcher, New › Workspace and the workspace name field.
+Multi mode reverses it.
 
 ## AI connections and model routing
 
@@ -176,7 +189,7 @@ member purges theirs; everyone signed in with the admin password shares the `own
 | Review | run status `awaiting-review`; `decideResearchTheme`, `approveResearchThemes` | decisions, `decisionsBy` |
 | Tag | `taggingPrompt` | `runs/<id>/assignments.json`, `theme-stats.json` |
 | Reports | `buildTrendReportRequest`, `buildToolkitRequest` (`research-reports.js`) | report assets |
-| Deliver (optional) | `bridge-delivery.js`, `google-delivery.js`, `monday-sync.js` | Drive receipts |
+| Deliver (optional) | `bridge-delivery.js`, `google-delivery.js`; Monday.com two-way sync `monday-engine.js` (cards from `monday-cards.js`, GraphQL in `monday-sync.js`) | Drive receipts, `content-studio/monday.json` |
 
 Retry resumes from saved stages: finished Apify jobs, batches and reports are never paid for twice. Schedules
 (`research-schedule.js`) tick every 30 seconds while the process runs.
@@ -230,15 +243,31 @@ content (`eslint.config.js`).
 - **Idempotency**: Ask AI by `requestId`; `searchSources`, `runRecipe`, `testRecipe` and `analyzeDataset` accept one
   too (a repeat joins the work in flight or returns its result for 30 minutes; a different payload under the same id
   is 409 `requestIdReused`).
-- **Schedulers**: research schedules (30 s tick in `content-workspace.js`) and the Workflows mission scheduler in
-  `index.js`, both only while the process runs.
+- **Schedulers**: research schedules (30 s tick in `content-workspace.js`) and the workflow engine
+  (`workflow-engine.js`: a 30 s tick plus a 500 ms debounced `poke()` from every studio `emit`), both only while the
+  process runs. The engine starts due schedule-trigger workflows (missed occurrences are never made up; a busy program
+  or a draining server records a skipped run), then advances every live run one step at a time. A program run a person
+  starts reaches `hooks.onResearchRunStarted`, which starts "whenever this program runs" workflows attached to it.
+  Children are started through `runAs(actor)` (an `AsyncLocalStorage` in index.js), so content-workspace's `who()`
+  credits `workflow:<id>`; `createAssetKit` accepts a `workflow` link only under that actor. The web drain and quit
+  call `stop()`.
+- **Monday.com** (`monday-engine.js`): one serialized queue for every Monday call (a repeat of a queued run joins it).
+  A 60 s tick sends hourly or daily pushes, polls, runs a full check every 6 hours and checks webhooks daily; `emitState`
+  calls `noteChange()` so 'As changes happen' sends 15 s after the first change. Sync now is a `monday` job with its
+  AbortController in `apiRequests` (Cancel stops it after the current chunk); an automatic run shows in
+  `activeWorkSummary()` through `activeLine()`. On the web `studio-server.js` takes `POST /hooks/monday/<64-hex secret>`
+  before the same-origin check and sign-in and dispatches to `runtime.provided('mondayHook')`; the engine only queues a
+  re-read (3 s debounce). The client retries rate, concurrency, server and network failures only for idempotent
+  requests, waits for Monday's complexity reset, and pauses the link on token, permission, daily-limit or missing-board
+  errors.
 
 ## Legacy Data tools
 
 The Advanced **Data tools** group (capability `dataTools`) predates the studio: Search platforms, Scrapers (recipes,
 `src/shared/recipe.js`), Import research, Datasets, Dataset reports, Compare snapshots, Ask your datasets
-(`findings-chat.js`), Playbooks (`marketing-templates.js`) and Workflows (the v5 mission engine, `v5-core.js`, events in
-`v5/events.jsonl`). It stores in `data.json` and `datasets/`. Research programs don't feed it (their posts open in
+(`findings-chat.js`) and Brief starters (formerly Playbooks, `marketing-templates.js`). It stores in `data.json` and
+`datasets/`. The v5 missions, intent planner and action graphs were removed when Workflows (Advanced › Automate) were
+rebuilt on research programs; `v5-core.js` keeps the event helpers, recipe versions and dataset evidence. Research programs don't feed it (their posts open in
 Sheets and Ask AI searches them).
 
 ## Extension points
@@ -246,5 +275,6 @@ Sheets and Ask AI searches them).
 | To add | Read |
 | --- | --- |
 | An RPC method, capability, prompt, Ask AI action, card type, Show me target, channel, environment variable | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| A Settings section | `src/renderer/src/settings-sections.js` (id, group, label, `when`, status rule) plus a renderer with the same id in `settings-view.jsx`; the nav, dots and `#/settings/<section>` links follow. |
 | A role | People & access › Roles (no code). A new built-in base touches `roles.json` `roles`, `roles.js` `effectiveRole`/`pagesFor`/`projectState` and `viewer.js` `ROLE_LABELS`. |
 | A deploy target | [docs/web-deploy.md](docs/web-deploy.md), [deploy/README.md](deploy/README.md) |

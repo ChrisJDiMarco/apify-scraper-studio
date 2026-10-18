@@ -263,6 +263,34 @@ describe('research and content studio workspace', () => {
     expect(handlers.api.startResearchRun).not.toHaveBeenCalled();
   });
 
+  it('sends the version an edited program opened with, so a save never replaces someone else’s', async () => {
+    const saved = { ...program, updatedAt: '2026-10-10T10:00:00.000Z' };
+    const handlers = props({ state: { contentStudio: fresh({ programs: [saved] }) } });
+    render(<ContentStudioView {...handlers} initialView="research" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit program' })); fill('Program name', 'Weekly pulse, edited');
+    // The program form holds the theme-matching thresholds under Advanced research controls.
+    expect(document.getElementById('cs-confidence-threshold')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save research program' }));
+    await waitFor(() => expect(handlers.api.saveResearchProgram).toHaveBeenCalledOnce());
+    expect(handlers.api.saveResearchProgram.mock.calls[0][0]).toMatchObject({ id: 'p1', name: 'Weekly pulse, edited', baseUpdatedAt: '2026-10-10T10:00:00.000Z' });
+  });
+
+  it('opens a program’s editor from Home’s Open full page', async () => {
+    const handlers = props({ state: { contentStudio: fresh({ programs: [program, { ...program, id: 'p2', name: 'Second pulse' }] }) }, programRequest: { kind: 'edit', key: 7, programId: 'p2' }, onProgramRequestHandled: vi.fn() });
+    render(<ContentStudioView {...handlers} initialView="research" />);
+    await waitFor(() => expect(screen.getByLabelText('Program name')).toHaveValue('Second pulse'));
+    expect(handlers.onProgramRequestHandled).toHaveBeenCalledWith(7);
+  });
+
+  it('keeps the one workspace’s name in a one-workspace build', () => {
+    const studio = fresh({ workspaces: [workspace], workspacePolicy: { mode: 'single', name: 'Main', editionId: 'general', archived: [] } });
+    render(<ContentStudioView {...props({ state: { contentStudio: studio } })} initialView="knowledge" />);
+    expect(screen.getByLabelText('Workspace name')).toHaveAttribute('readonly');
+    expect(screen.getByText('This studio has one workspace. Its name comes with the app.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Content workspace')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New workspace' })).not.toBeInTheDocument();
+  });
+
   it('restores fixed dates and turns off recurrence when switching back to manual runs', async () => {
     const scheduledProgram = { ...program, schedule: { frequency: 'weekly', enabled: true, time: '09:00', timeZone: 'UTC', weekday: 1, dayOfMonth: 1, lookbackDays: 7 } };
     const handlers = props({ state: { contentStudio: fresh({ programs: [scheduledProgram] }) } });
@@ -669,17 +697,17 @@ describe('Advanced studio pages start from what the person clicked', () => {
     await waitFor(() => expect(screen.queryByLabelText('Program name')).not.toBeInTheDocument());
   });
 
-  it('offers Sync to Monday.com only to a role that may sync, and switches it off in a preview', () => {
-    const monday = { connected: true, boardId: 'b1', boardName: 'Trends board' };
+  it('offers Sync now for Monday.com only to a role that may sync, and switches it off in a preview', () => {
+    const monday = { connected: true, link: { boardId: 'b1', boardName: 'Trends board', active: true, counts: {}, statusLabels: {} }, items: {} };
     const state = { contentStudio: fresh({ researchRuns: [done], contentRuns: [reportRun], assets: [report] }), monday };
-    const api = { ...props().api, syncTrendBoardToMonday: vi.fn(async () => ({ created: 1, updated: 0 })) };
+    const api = { ...props().api, syncTrendBoardToMonday: vi.fn(async () => ({ jobId: 'monday-1', queued: 0 })) };
     const reader = { role: 'editor', base: 'editor', allowed: ['state', 'contentCatalog', 'readStudioRun'] };
     const first = render(<ViewerContext.Provider value={reader}><ContentStudioView {...props({ state, api })} initialView="board" /></ViewerContext.Provider>);
-    expect(screen.queryByRole('button', { name: /Sync to/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Sync now/ })).not.toBeInTheDocument();
     first.unmount();
     const preview = { role: 'editor', base: 'editor', realRole: 'admin', preview: true, allowed: ['state', 'contentCatalog', 'readStudioRun'], roleAllowed: ['state', 'contentCatalog', 'readStudioRun', 'syncTrendBoardToMonday'] };
     render(<ViewerContext.Provider value={preview}><ContentStudioView {...props({ state, api })} initialView="board" /></ViewerContext.Provider>);
-    const sync = screen.getByRole('button', { name: /Sync to Trends board/ });
+    const sync = screen.getByRole('button', { name: /Sync now/ });
     expect(sync).toBeDisabled();
     fireEvent.click(sync);
     expect(api.syncTrendBoardToMonday).not.toHaveBeenCalled();

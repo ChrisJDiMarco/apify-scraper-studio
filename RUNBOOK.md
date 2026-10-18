@@ -29,6 +29,9 @@ npm run dev         # the Mac app
 Never run `npm audit fix` or `npm install` with `--omit=dev` in a development checkout: it strips the dev
 dependencies (Vite, Vitest, Electron) from `node_modules`.
 
+`package.json` makes this a one-workspace build (`studioWorkspace`, below), and `npm run dev` uses your real data
+folder. To keep a second workspace while developing, start with `STUDIO_WORKSPACE_MODE=multi npm run dev`.
+
 ## Release the Mac app
 
 1. Merge to `main`, bump `version` in `package.json`, add a [CHANGELOG.md](CHANGELOG.md) entry, and run
@@ -48,6 +51,24 @@ dependencies (Vite, Vitest, Electron) from `node_modules`.
 
 There are no automatic updates: people quit the app (not during a run), open the new DMG and replace the app.
 Details and signing caveats: [docs/macos-app.md](docs/macos-app.md).
+
+### One-workspace builds (Semrush package)
+
+`package.json` `studioWorkspace` (`{ "mode": "single", "id": "semrush", "editionId": "semrush", "name": "Main" }`) is on
+for the Semrush package, on the Mac and the browser studio. On the browser studio `STUDIO_WORKSPACE_MODE=single|multi`
+and `STUDIO_WORKSPACE_NAME` override it. In single mode:
+
+- The studio has one workspace of the Semrush edition, shown as **Main**. The sidebar shows only its name (no switcher,
+  no New workspace), and Brand knowledge keeps the name read-only. `--studio-workspace=` is ignored, with a warning.
+- **First start after turning it on** (`src/main/content-workspace.js` `migrateWorkspacePolicy`): the Semrush-edition
+  workspace that holds the data becomes Main (its old name is kept as `previousName`); every other workspace is
+  archived. Archived workspaces disappear from the state, the switcher and the scheduler, but their programs, runs,
+  reports, prompts, brand images and Ask AI memory all stay on disk. Before the first change, `content-studio/state.json`
+  is copied once to `content-studio/state.before-single-workspace.json`. Settings → Files & workspace (Studio details on
+  the web) lists what is kept and hidden. The startup log has a `workspace-policy` line.
+- Setup files of the other edition are refused, and New workspace is refused by the server (409 `singleWorkspace`).
+- **Undo**: start once with `STUDIO_WORKSPACE_MODE=multi` (or remove the field). Archived workspaces come back, Main gets
+  its old name back, and their schedules start again at their next time, never all at once.
 
 ## Build and deploy the browser studio
 
@@ -114,6 +135,10 @@ server stops what's left (it shows as stopped and can be retried) and releases t
 signal stops at once. After the restart, open tabs offer a reload, and link and password users sign in again (sessions
 are in memory).
 
+Workflows: the drain stops the workflow engine with the research scheduler; a scheduled workflow that comes due while
+the server is draining or stopped is not made up later (its next time is computed from the restart), and a run that
+was going shows **The studio stopped during this run** with **Try again**, which never pays twice.
+
 **Update**: back up, then `docker compose up -d --build` (or pull the new image and recreate the container). Check
 `/readyz`, sign in, open People & access and one report.
 
@@ -149,6 +174,12 @@ npm run restore -- --from /var/backups/scraper-studio/scraper-studio-backup-<tim
   starts from defaults for that store (listed in `state.storeRecovery`); a file that can't be read at all stops startup.
   Inspect the `.bad-*` copy before deleting it.
 - Moving the Mac app's data to the server: [docs/web-deploy.md](docs/web-deploy.md#moving-the-mac-apps-data-to-the-server).
+- Workflows: `content-studio/workflows.json` (v1) is new; a newer file makes an older build refuse to start ("This
+  workflows file is from a newer Scraper Studio"). Old Data tools missions in `v5/events.jsonl` are no longer read or
+  run (the file stays; Scrapers still read their saved versions from it). The role policy moves to version 2: custom
+  roles show **See workflows and playbooks** and **Build and run workflows** as New and off; Admin and Editor get them.
+- Monday.com: the board setup in `config.json` (`monday`) moves to `content-studio/monday.json` on first start, with sync
+  left manual; a damaged `monday.json` is copied aside and the next sync finds its items again by Studio key.
 
 ## Recover from a stuck data-folder lock
 
@@ -170,7 +201,8 @@ On the Mac, "Workspace already in use" means another copy of the app (or a serve
 
 | What | How |
 | --- | --- |
-| A provider key (Apify, Anthropic, OpenAI, Monday, Google token) | Revoke it at the provider, then **Settings** → save the new one. Re-export setup files that carried the old Apify token. |
+| A provider key (Apify, Anthropic, OpenAI, Google token) | Revoke it at the provider, then **Settings** → save the new one. Re-export setup files that carried the old Apify token. |
+| The Monday.com token | Make a new token on Monday (ideally for a shared studio account), then Settings → Monday.com → **Disconnect…** → **Disconnect Monday.com completely** (keep the item map) → **Connect** with the new one. The board link and item map stay; to re-create the instant-update webhooks press **Edit setup** → **Save changes**. Revoke the old token on Monday last. |
 | `STUDIO_PASSWORD` | Change it in the secrets file and restart. Every password session ends at restart. |
 | A person's sign-in link | People & access → the person → **Make a new sign-in link** (ends the old one) or **Turn off link**. |
 | `STUDIO_PROXY_SECRET` | Change it in the proxy's configuration and the secrets file together, then restart both. |
@@ -209,6 +241,13 @@ store. Never bodies, passwords, tokens, cookies or keys. `STUDIO_LOG_LEVEL=debug
 | Saved keys unreadable after a restart | Different `STUDIO_SECRET_KEY` | Restart with the original key; otherwise Clear and re-enter (see rotation) |
 | "Something went wrong on the studio server… ref …" | An unexpected server error | Search the logs for the ref (`request-failed`) |
 | Nobody can manage People | Last admin left or was disabled | Add an email to `STUDIO_ADMIN_EMAILS` and restart; in password mode the admin password always works |
+| A workflow says "Needs a bigger budget" | The next step's cap doesn't fit the run's or the month's approved budget | An approver raises it (**Raise budget** on the run, or **Change budget…**); the waiting run picks it up |
+| A workflow was paused: "no longer has access to …" | Its owner's role or access changed | An approver opens it and **Take over**, then turns it on |
+| A workflow was paused: "The setup changed since its budget was approved" | A program cap, model, channel or cadence changed | Check the cost and approve the budget again |
+| "Monday.com sync is paused: … token" | The token's owner left or the token was revoked | Connect a new token (see rotation); nothing on Monday changes meanwhile |
+| "Monday.com's daily API limit is used up" | The plan's daily calls ran out (1,000 on Free, Basic, Standard) | It resumes after midnight UTC; check less often or send hourly (Settings shows the estimate) |
+| "Monday couldn't reach this studio" | Webhooks blocked by company sign-in or no public https address | Add the `/hooks/monday/` bypass ([docs/web-deploy.md](docs/web-deploy.md#instant-monday-updates)); it polls every 5 minutes meanwhile |
+| "Changed back … on Monday" in the sync log | Someone (or a Monday automation) changed a stage the studio owns | Expected; after three in an hour the item shows **Changed on Monday** until **Sync now** |
 
 ## Live verification (costs money)
 

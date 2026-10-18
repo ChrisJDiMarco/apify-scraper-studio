@@ -239,7 +239,7 @@ export function snapshotBrandProfile(profile) {
 export function buildMarketingRecipe(templateId, values = {}) {
   const template = MARKETING_TEMPLATES.find((item) => item.id === templateId);
   if (!template) invalid('templateId', 'Choose an available marketing template.');
-  if (!template.supportsPublicPages) invalid('templateId', 'This playbook uses existing data or snapshot comparison. Open it from the playbook library.');
+  if (!template.supportsPublicPages) invalid('templateId', 'This brief starter uses existing data or snapshot comparison. Open it from Brief starters.');
   const brandContext = snapshotBrandProfile(values.brandProfile);
   if (template.requiresIcp && !brandContext?.icp) invalid('brandProfile', 'Choose a saved brand profile with an ideal customer profile (ICP) for account research.');
   const brand = textField(values.brand, 'brand', 'a project or brand name', 120);

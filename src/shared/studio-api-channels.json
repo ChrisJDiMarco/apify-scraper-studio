@@ -37,6 +37,19 @@
     "forgetAskMemory": "help:forget-memory",
     "estimateQuickScan": "studio:estimateQuickScan",
     "startQuickScan": "studio:startQuickScan",
+    "estimateWorkflow": "studio:estimateWorkflow",
+    "readWorkflowRun": "studio:readWorkflowRun",
+    "previewPlaybook": "studio:previewPlaybook",
+    "saveWorkflow": "studio:saveWorkflow",
+    "setWorkflowStatus": "studio:setWorkflowStatus",
+    "deleteWorkflow": "studio:deleteWorkflow",
+    "runWorkflow": "studio:runWorkflow",
+    "cancelWorkflowRun": "studio:cancelWorkflowRun",
+    "retryWorkflowRun": "studio:retryWorkflowRun",
+    "approveWorkflowBudget": "studio:approveWorkflowBudget",
+    "applyPlaybook": "studio:applyPlaybook",
+    "savePlaybook": "studio:savePlaybook",
+    "deletePlaybook": "studio:deletePlaybook",
     "readTrendHistory": "studio:readTrendHistory",
     "readTrendPosts": "studio:readTrendPosts",
     "getAiConnections": "ai:connections",
@@ -135,24 +148,11 @@
       "channel": "state",
       "args": []
     },
-    "listMissions": {
-      "channel": "list-missions",
-      "args": []
-    },
-    "saveMission": "save-mission",
-    "runMission": "run-mission",
-    "runActionGraph": "run-action-graph",
-    "pauseMission": "pause-mission",
-    "scheduleMission": "schedule-mission",
     "discoverApifyResource": "discover-apify-resource",
     "testRecipe": "test-recipe",
     "saveRecipeVersion": "save-recipe-version",
-    "getJob": "get-job",
-    "retryJob": "retry-job",
-    "readJobLog": "read-job-log",
     "searchEvidence": "search-evidence",
     "readEvidence": "read-evidence",
-    "exportMissionBundle": "export-mission-bundle",
     "exportAssetPack": "export-asset-pack",
     "checkCodex": {
       "channel": "check-codex",
@@ -162,9 +162,6 @@
       "channel": "test-image-provider",
       "args": []
     },
-    "planIntent": "plan-intent",
-    "runIntent": "run-intent",
-    "runIntentAction": "run-intent-action",
     "saveKey": {
       "channel": "save-key",
       "args": [
@@ -174,8 +171,6 @@
     },
     "clearKey": "clear-key",
     "saveSettings": "save-settings",
-    "saveCard": "save-card",
-    "moveCard": "move-card",
     "saveAsset": "save-asset",
     "saveRecipe": "save-recipe",
     "deleteRecipe": "delete-recipe",
@@ -186,11 +181,16 @@
       "channel": "test-sheets-bridge",
       "args": []
     },
-    "saveMondayBoard": "save-monday-board",
-    "clearMondayBoard": {
-      "channel": "clear-monday-board",
-      "args": []
-    },
+    "connectMonday": "monday:connect",
+    "testMondayConnection": "monday:test",
+    "listMondayBoards": "monday:boards",
+    "readMondayBoard": "monday:board",
+    "createMondayBoard": "monday:create-board",
+    "fixMondayBoard": "monday:fix-board",
+    "saveMondayLink": "monday:save-link",
+    "disconnectMonday": "monday:disconnect",
+    "readMondaySyncLog": "monday:log",
+    "readMondayItem": "monday:item",
     "syncTrendBoardToMonday": "sync-trend-board-to-monday",
     "archiveAndClearSheets": "archive-and-clear-sheets",
     "importWorkingSheets": {
@@ -203,7 +203,6 @@
     "analyzeDataset": "analyze-dataset",
     "openAnalysisOutput": "open-analysis-output",
     "revealAnalysisOutput": "reveal-analysis-output",
-    "generateAssets": "generate-assets",
     "openDataFolder": {
       "channel": "open-data-folder",
       "args": []

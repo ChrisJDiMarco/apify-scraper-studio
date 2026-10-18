@@ -15,6 +15,10 @@ node scripts/prompt-goldens.mjs --check       # every prompt byte-for-byte again
 npm run check                                 # lint + test + build:web, what CI runs (plus goldens and the audit)
 ```
 
+package.json makes this a one-workspace build (`studioWorkspace`), so the first `npm run dev` hides every workspace but
+Main in your data folder (nothing is deleted). Use `STUDIO_WORKSPACE_MODE=multi npm run dev` to keep several; see
+[RUNBOOK.md](RUNBOOK.md#one-workspace-builds-semrush-package).
+
 ## Conventions
 
 - **Module systems.** `src/main` is CommonJS. `src/renderer` is ESM and **can't import CommonJS from `src/shared`**

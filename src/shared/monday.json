@@ -1,0 +1,31 @@
+{
+  "//": "Monday.com sync catalog (docs/design-review/SPEC-3.md, wave 3B). Main requires it (monday-sync.js, monday-cards.js, monday-engine.js) and the renderer imports it (monday-settings.jsx, monday-ui.jsx). apiVersion is pinned: review it each quarter, and keep every GraphQL string in src/main/monday-sync.js so a bump is a one-file change. fields: id, label, the Monday column types allowed (the first is the type used when the studio creates the column), direction ('toMonday', 'fromMonday' or 'both'; 'directions' lists the choices when there is one), the default column title, and whether a new board gets it ticked.",
+  "apiVersion": "2026-07",
+  "fields": [
+    { "id": "name", "label": "Trend name", "types": ["name"], "fixed": true, "direction": "toMonday" },
+    { "id": "stage", "label": "Stage", "types": ["status"], "required": true, "direction": "both", "title": "Stage" },
+    { "id": "studioKey", "label": "Studio key", "types": ["text"], "required": true, "direction": "toMonday", "title": "Studio key", "columnId": "studio_key" },
+    { "id": "priority", "label": "Priority", "types": ["status", "dropdown", "text"], "direction": "toMonday", "title": "Priority", "default": true },
+    { "id": "category", "label": "Category", "types": ["dropdown", "text", "status"], "direction": "toMonday", "title": "Category", "default": true },
+    { "id": "momentum", "label": "Momentum", "types": ["status", "text"], "direction": "toMonday", "title": "Momentum", "default": true },
+    { "id": "sources", "label": "Sources", "types": ["numbers"], "direction": "toMonday", "title": "Sources", "default": true },
+    { "id": "program", "label": "Research program", "types": ["dropdown", "text"], "direction": "toMonday", "title": "Research program", "default": true },
+    { "id": "foundOn", "label": "Found on", "types": ["date"], "direction": "toMonday", "title": "Found on", "default": true },
+    { "id": "decidedBy", "label": "Decided by", "types": ["text", "people"], "direction": "toMonday", "title": "Decided by", "default": true },
+    { "id": "reportLink", "label": "Trends report", "types": ["link"], "direction": "toMonday", "title": "Trends report", "default": true },
+    { "id": "toolkitLink", "label": "Editorial toolkit", "types": ["link"], "direction": "toMonday", "title": "Editorial toolkit", "default": true },
+    { "id": "studioLink", "label": "Open in studio", "types": ["link"], "direction": "toMonday", "title": "Open in studio", "needsWebAddress": true },
+    { "id": "channels", "label": "Channels using it", "types": ["long_text", "text", "dropdown"], "direction": "toMonday", "title": "Channels", "default": true },
+    { "id": "plannedDate", "label": "Planned date", "types": ["date"], "directions": ["toMonday", "fromMonday"], "direction": "toMonday", "title": "Planned date", "default": true },
+    { "id": "owner", "label": "Owner", "types": ["people"], "directions": ["fromMonday", "toMonday"], "direction": "fromMonday", "title": "Owner", "default": true },
+    { "id": "notes", "label": "Notes", "types": ["long_text"], "direction": "toMonday", "title": "Notes", "default": true }
+  ],
+  "stageLabels": { "potential": "Potential trend", "approved": "Approved", "production": "In production", "ready": "Ready to use", "passed": "Passed" },
+  "priorityLabels": { "FAST-TRACK": "Top priority", "STRONG": "Strong", "MONITOR": "Watch", "LOW": "Low" },
+  "momentumLabels": { "new": "New", "rising": "Rising", "steady": "Steady", "fading": "Fading" },
+  "dailyCalls": { "free": 1000, "basic": 1000, "standard": 1000, "pro": 10000, "enterprise": 25000 },
+  "pushModes": ["live", "hourly", "daily", "manual"],
+  "pollMinutes": [2, 5, 15, 60],
+  "hookEvents": ["change_column_value", "create_update", "item_deleted", "item_archived", "item_restored"],
+  "limits": { "chunk": 10, "opsPerRun": 200, "lookupChunk": 100, "readChunk": 100, "notesPerItem": 10, "noteChars": 500, "logRows": 2000, "hookBodyBytes": 65536, "revertsPerHour": 3, "hookEventsPerMinute": 1200, "hookQueue": 1000, "labelChars": 40, "channelsChars": 2000 }
+}

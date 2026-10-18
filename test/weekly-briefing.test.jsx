@@ -112,7 +112,7 @@ describe('weekly briefing', () => {
     fireEvent.click(setup.getByRole('button', { name: 'New program' }));
     expect(onCreate).toHaveBeenCalledWith('program');
     fireEvent.click(setup.getAllByRole('button', { name: 'Open Settings' })[0]);
-    expect(onOpenTarget).toHaveBeenCalledWith({ kind: 'page', page: 'settings' });
+    expect(onOpenTarget).toHaveBeenCalledWith({ kind: 'page', page: 'settings', section: 'sources' });
     fireEvent.click(setup.getByRole('button', { name: 'Hide' }));
     expect(screen.queryByRole('region', { name: /Get the studio ready/ })).not.toBeInTheDocument();
   });

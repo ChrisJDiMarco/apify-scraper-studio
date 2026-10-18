@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { ArrowLeft, CalendarDays, CheckCheck, ChevronRight, ClipboardCopy, Command, Globe2, Inbox, ListChecks, LoaderCircle, RefreshCw, Repeat2, ScrollText, Sparkles, UserRound, Workflow, X } from 'lucide-react';
 import { AutomationView } from './automation-view.jsx';
 import { DatasetsView, ReportsView } from './dataset-report-views.jsx';
-import { CommandPalette, MissionCommandCenter } from './mission-command.jsx';
+import { CommandPalette } from './command-palette.jsx';
+import { WorkflowsView } from './workflows-view.jsx';
+import { PlaybooksView } from './playbooks-view.jsx';
+import { PlaybookSetup } from './playbook-setup.jsx';
 import { PALETTE_GROUPS, paletteContent } from './palette-content.js';
 import { Spotlight, spotFor } from './spotlight.jsx';
 import { ThreadsView } from './ops-views.jsx';
@@ -42,7 +45,7 @@ import { AnalyticsView } from './analytics-view.jsx';
 import { PeopleView } from './people-view.jsx';
 import { UnsavedContext, createUnsavedGuard } from './asset-editor.jsx';
 import { LOCAL_ADMIN_FALLBACK, PREVIEW_TITLE, ViewerContext, adminNames, can as canCall, canRun as canRunCall, roleLabel } from './viewer.js';
-import { Button, StatusBanner, datasetLabel, number, withViewTransition } from './ui.jsx';
+import { Button, StatusBanner, number, withViewTransition } from './ui.jsx';
 import './studio-frame.css';
 
 // What disconnecting each credential stops, so the confirmation says what is at stake.
@@ -52,7 +55,7 @@ const KEY_CONSEQUENCE = {
   OPENAI_API_KEY: ['the OpenAI key', 'Pictures and OpenAI models routed to it stop before spending until you add it again.'],
   GOOGLE_SHEETS_WEBHOOK_URL: ['the Google Sheets bridge', 'Sending rows to Sheets and pulling tabs stop until you add it again.'],
   GOOGLE_DOCS_ACCESS_TOKEN: ['Google Docs access', 'Importing Google Docs and publishing to Drive stop until you reconnect.'],
-  MONDAY_API_TOKEN: ['Monday.com', 'Trend board syncing stops until you reconnect.'],
+  MONDAY_API_TOKEN: ['Monday.com', 'Syncing with your board stops. Items on Monday stay.'],
   OPENROUTER_API_KEY: ['the OpenRouter key', 'Jobs routed to OpenRouter stop before spending until you add a key again.'],
   FAL_KEY: ['the fal.ai key', 'Pictures and videos routed to fal.ai stop before spending until you add a key again.'],
 };
@@ -63,7 +66,7 @@ const CANCEL_JOB = { title: 'Cancel this job?', lines: ['Anything it already fin
 // shortcuts all read. App keeps what routing needs: which ids are studio views, which are app pages, and the Studio
 // group's pages with the method each needs.
 const STUDIO_VIEWS = new Set(['overview', 'research', 'board', 'create', 'library', 'knowledge']);
-const APP_PAGES = new Set(['content-studio', 'dashboard', 'sheets', 'settings', 'inbox', 'calendar', ...DATA_TOOL_IDS]);
+const APP_PAGES = new Set(['content-studio', 'dashboard', 'sheets', 'settings', 'inbox', 'calendar', 'playbooks', 'workflows', ...DATA_TOOL_IDS]);
 const ADMIN_PAGES = Object.fromEntries(STUDIO_PAGES.map((page) => [page.id, page]));
 const DATA_TOOL_SPOTS = new Set(['nav.data-tools', ...DATA_TOOLS.flatMap((set) => set.items.map((item) => item.spot))]);
 // Whether Data tools is open, per person on this device. Storage can be missing or blocked (private windows, previews).
@@ -112,18 +115,7 @@ const EMPTY_STATE = {
   settings: {},
   keys: {},
   jobs: [],
-  v5: {
-    missions: [],
-    activeMissionId: '',
-    jobs: [],
-    missionPresets: [],
-    evidenceSummary: { total: 0, datasets: {}, sample: [] },
-    datasetProfiles: [],
-    observability: {},
-    release: {},
-    commandPalette: [],
-    schedules: {},
-  },
+  v5: { recipeVersions: {} }, // the retired v5 log's one projection still read (Scrapers' saved versions)
   intelligence: {
     datasetProfiles: [],
     nextActions: [],
@@ -177,34 +169,6 @@ function ApiUnavailable() {
   );
 }
 
-function AdvancedView(props) {
-  const [command, setCommand] = useState('');
-  const [preview, setPreview] = useState(null);
-  const [plannedCommand, setPlannedCommand] = useState('');
-  const datasetId = props.selectedDataset?.id || '';
-  useEffect(() => { setPreview(null); setPlannedCommand(''); }, [datasetId]);
-  async function previewPlan(event) {
-    event.preventDefault();
-    const result = await props.onPlanIntent(command);
-    if (result) { setPreview(result); setPlannedCommand(command); }
-  }
-  const examples = ['Make a lead sheet from this dataset', 'Summarize the top complaints and requests', 'Find the most engaged authors to follow up with', 'Write a research brief for the marketing team'];
-  return <section className="ws advanced-workflows">
-    <header className="ws-page-head"><div><span className="ws-eyebrow">Plan before you run</span><h2>Workflows</h2><p>Describe an outcome in plain words. You’ll see every step and anything missing before a single collection or AI request runs.</p></div></header>
-    <div className="ws-two-col">
-      <section className="ws-card workflow-planner"><h3>What would you like to make?</h3>
-        <form onSubmit={previewPlan} className="ws-stack"><label htmlFor="workflow-dataset" className="ws-field">Use dataset<select id="workflow-dataset" value={datasetId} onChange={(event) => props.onNavigate('missions', { datasetId: event.target.value })}>{!datasetId && <option value="">No dataset collected yet</option>}{props.state.datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{datasetLabel(dataset)}</option>)}</select></label>
-          <label htmlFor="workflow-goal" className="ws-field">Your goal<textarea id="workflow-goal" rows={3} value={command} onChange={(event) => setCommand(event.target.value)} placeholder="For example: make a lead sheet from this dataset" /></label>
-          <div className="ws-suggestions" aria-label="Example goals">{examples.map((example) => <button key={example} type="button" className="ws-suggestion" onClick={() => setCommand(example)}>{example}</button>)}</div>
-          <div className="ws-head-actions"><Button type="submit" disabled={props.busy || !command.trim()}><Sparkles size={14} aria-hidden="true" />Preview steps</Button><Button type="button" className="ghost" disabled={props.busy || !preview?.canRun || plannedCommand !== command} onClick={() => props.onRunIntent(command)}>Run reviewed plan</Button></div>
-          {preview && plannedCommand !== command && <p className="ws-hint">You changed the goal. Preview again before running.</p>}
-        </form>
-      </section>
-      <section className="ws-card workflow-preview-card" aria-live="polite">{preview ? <><div className="ws-card-head"><h3>{preview.intent}</h3><span className="ws-chip">{preview.canRun ? 'Ready to run' : 'Needs input'}</span></div><ol className="ws-steps">{(preview.steps || []).map((step) => <li key={step.id}><strong>{step.label}</strong><p>{step.why}</p></li>)}</ol>{(preview.missing || []).map((item) => <div key={item} className="ws-callout attention">{item}</div>)}</> : <div className="ws-plan-empty"><Sparkles size={20} aria-hidden="true" /><h3>Your plan appears here</h3><p className="ws-hint">Each step says what it does and why. Nothing runs until you choose Run reviewed plan.</p></div>}</section>
-    </div>
-    <details className="ws-card mission-details"><summary>Scheduled workflows & advanced controls</summary><MissionCommandCenter {...props} /></details>
-  </section>;
-}
 // The Advanced top bar: the breadcrumb (workspace › page), quick work in progress, and Refresh. Search and Ask AI are in
 // the sidebar in every layout.
 function Header({ title, workspaceName = 'Workspace', busy, background = [], onRefresh }) {
@@ -275,8 +239,10 @@ function StudioApp({ api }) {
   const contentWorkspaces = list(state.contentStudio?.workspaces);
   const contentWorkspace = contentWorkspaces.find(item => item.id === state.contentStudio?.activeWorkspaceId);
   const semrushShell = contentWorkspace?.editionId === 'semrush';
-  // Only a real admin switches the workspace everyone uses; the sidebar turns the picker off while previewing.
-  const switchWorkspace = contentWorkspace && api.selectContentWorkspace && realAdmin ? (id) => { if (guard.confirmLeave()) runAction(() => api.selectContentWorkspace(id)); } : undefined;
+  // Only a real admin switches the workspace everyone uses; the sidebar turns the picker off while previewing. A
+  // one-workspace build (package.json studioWorkspace, or STUDIO_WORKSPACE_MODE=single) has no switcher and no New workspace.
+  const singleWorkspace = state.contentStudio?.workspacePolicy?.mode === 'single';
+  const switchWorkspace = contentWorkspace && api.selectContentWorkspace && realAdmin && !singleWorkspace ? (id) => { if (guard.confirmLeave()) runAction(() => api.selectContentWorkspace(id)); } : undefined;
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [pendingActions, setPendingActions] = useState(0);
@@ -519,6 +485,9 @@ function StudioApp({ api }) {
     const carried = carriedNotice.current; carriedNotice.current = { text: '', until: 0 };
     setNotice(carried.until > Date.now() ? carried.text : '');
     setError('');
+    // Workflows replaced the old missions page; old links still land there. A workflow (and run) to show rides along.
+    if (view === 'missions') view = 'workflows';
+    if (view === 'workflows' && (args.workflowId || args.runId)) setWorkflowRequest({ key: Date.now(), workflowId: String(args.workflowId || ''), runId: String(args.runId || ''), run: args.run === true });
     // Pages this role can't open (Settings for an editor, an old link to Brand knowledge) say so instead of opening.
     if (!pageAllowed(view)) { setNotice(pageOffNotice(view)); return; }
     if (args.datasetId) setSelectedDatasetId(args.datasetId);
@@ -563,6 +532,7 @@ function StudioApp({ api }) {
     setPeek(true); setDrawerOpen(false);
     if (STUDIO_VIEWS.has(view)) {
       if (args.runId && (view === 'research' || view === 'create')) setRunRequest({ key: Date.now(), runId: String(args.runId) });
+      if (args.programId && view === 'research') setProgramRequest({ kind: 'edit', key: Date.now(), programId: String(args.programId) }); // Home's program drawer: Open full page
       navigateStudio(view, { confirmed: true });
     } else navigate(view, args, { confirmed: true });
   }
@@ -587,8 +557,11 @@ function StudioApp({ api }) {
   }
   // `focus` is a trend to jump to in My assets, once: any other way there (the nav, ⌘2) starts at the top.
   function goChannel(next, focus = '') { if (!channelIds.includes(next)) return; setChannelFocus(typeof focus === 'string' ? focus : ''); setChannelTrendFocus(''); withViewTransition(() => setChannelTab(next)); }
-  function openSettings() {
+  // { key, section }: the Settings section to jump to (settings-sections.js ids; '' = the top), once per key.
+  const [settingsRequest, setSettingsRequest] = useState(null);
+  function openSettings(section = '') {
     if (!settingsAllowed || !guard.confirmLeave()) return;
+    setSettingsRequest({ key: Date.now(), section: typeof section === 'string' ? section : '' }); // click handlers pass an event
     if (mode === 'simple') withViewTransition(() => setSimpleTab('settings'));
     else navigate('settings', {}, { confirmed: true });
   }
@@ -767,6 +740,7 @@ function StudioApp({ api }) {
       return;
     }
     if (kind === 'program') { openProgram(id); return; }
+    if (kind === 'workflow') { openWorkflow(id, target.runId ? { runId: String(target.runId) } : {}); return; }
     if (kind === 'report') {
       // Simple's Reports lists neither channel assets nor pictures: a channel asset opens its set in Assets, and a picture
       // opens Assets. (Advanced's Library opens any file by id.)
@@ -841,7 +815,7 @@ function StudioApp({ api }) {
     // A page, by its Simple id (trends, reports, assets, inbox…) or an Advanced one (research, library…).
     const tabId = { overview: 'home', board: 'trends', library: 'reports' }[page] || page;
     if (!tabId) return;
-    if (tabId === 'settings') { if (settingsAllowed) openSettings(); else setNotice(pageOffNotice('settings')); return; }
+    if (tabId === 'settings') { if (settingsAllowed) openSettings(String(target.section || '')); else setNotice(pageOffNotice('settings')); return; }
     if (ADMIN_PAGES[tabId]) { if (adminPages.includes(tabId)) openAdminPage(tabId); else setNotice(pageOffNotice(tabId)); return; }
     if (mode === 'simple') { if (simpleAllowed(tabId)) goSimple(tabId); else openClassicPage(tabId); return; }
     const classic = { home: 'overview', trends: 'board', reports: 'library', assets: 'library' }[page] || page;
@@ -864,6 +838,18 @@ function StudioApp({ api }) {
     if (!can('planAssetKit') || !can('createAssetKit') || typeof api.planAssetKit !== 'function') { setNotice(viewer.preview ? 'Making channel assets isn’t part of the role you’re previewing.' : `Making channel assets isn’t part of your access. Ask ${askAdmin} if you need it.`); return; }
     const { channels, ...source } = request || {};
     setKitRequest({ key: Date.now(), ...(source.kind ? { source } : {}), ...(list(channels).length ? { channels: list(channels).map(String) } : {}) });
+  }
+  // Workflows and playbooks: a workflow (and run) to show on Workflows, and the playbook setup sheet, which opens over
+  // the page the person is on in either layout (PlaybookSetup at the shell). No id opens Playbooks to choose one.
+  const [workflowRequest, setWorkflowRequest] = useState(null);
+  const [playbookRequest, setPlaybookRequest] = useState(null);
+  function openPlaybook(playbookId = '') {
+    if (!can('estimateWorkflow') || !pageAllowed('playbooks')) { setNotice(pageOffNotice('playbooks')); return; }
+    if (playbookId) { setPlaybookRequest({ key: Date.now(), playbookId: String(playbookId) }); return; }
+    if (mode === 'simple') openClassicPage('playbooks'); else navigate('playbooks');
+  }
+  function openWorkflow(workflowId = '', extra = {}) {
+    if (mode === 'simple') openClassicPage('workflows', { workflowId, ...extra }); else navigate('workflows', { workflowId, ...extra });
   }
   // New (the sidebar's menu, ⌥⌘N and the palette's Create group): every kind of new thing, in either layout. Paid work
   // still confirms its estimate where it starts (research here, quick scans and pictures in Ask AI).
@@ -895,6 +881,7 @@ function StudioApp({ api }) {
     // "Content from a report" opens Create content on Use a report, with the reports to pick from.
     if (kind === 'content') { openStudioWith('create', () => setCreateRequest({ key: Date.now(), mode: 'report' })); return; }
     if (kind === 'program') { openStudioWith('research', () => setProgramRequest({ kind: 'new', key: Date.now() })); return; }
+    if (kind === 'playbook') { openPlaybook(); return; }
     if (kind === 'person') { openInvite(); return; }
     if (kind === 'workspace' && newWorkspace) newWorkspace();
   }
@@ -1070,6 +1057,9 @@ function StudioApp({ api }) {
   briefingActionsRef.current.onRetryRun = (runId) => Promise.resolve().then(() => classicActionsRef.current?.runAiAction({ kind: 'retry-run', runId })).then((result) => { if (typeof result === 'string') setNotice(result); }, (failure) => setNotice(failure?.message || 'That run couldn’t be tried again.'));
   briefingActionsRef.current.onCreate = (kind) => createFromNavRef.current(kind);
   briefingActionsRef.current.postsApi = typeof api.readTrendPosts === 'function' && can('readTrendPosts') ? api : null;
+  // Home's Research programs panel: its notes, and Open full page (that program's editor on Research programs).
+  briefingActionsRef.current.onNotice = (message) => setNotice(message);
+  briefingActionsRef.current.onOpenProgramPage = (programId) => openStudioWith('research', () => setProgramRequest({ kind: 'edit', key: Date.now(), programId: String(programId) }));
   // Home's Yes and Skip in the Advanced layout show at once and can be taken back for a few seconds, as in Simple: the
   // shared decide() keeps the choice on screen while it saves, and Home shows that same board (classicBoard).
   const [classicBoard, setClassicBoard] = useState(null);
@@ -1117,11 +1107,8 @@ function StudioApp({ api }) {
     if (item.action === 'mark-inbox-read') { try { await markInboxRead(api); setNotice('Inbox marked read.'); } catch { setNotice('Marked read on this browser. The studio couldn’t save it for your other devices.'); } setInboxSeen((value) => value + 1); return; }
     if (item.action === 'next-step') { await runNextStep(args.step); return; }
     if (item.action === 'studio') { if (mode === 'simple') openClassicPage(args.view); else navigateStudio(args.view); return; }
-    if (item.action === 'runMission' && args.missionId) {
-      if (!canRun('runMission')) { setNotice(PREVIEW_TITLE); return; }
-      await runBackground(`mission:${args.missionId}`, 'Workflow run', () => api.runMission(args.missionId), 'Workflow run complete.');
-      return;
-    }
+    // "Run <workflow>…" opens Workflows with its Run now confirmation; "Workflows: <name>" opens it.
+    if (item.action === 'workflow' && args.workflowId) { openWorkflow(args.workflowId, args.run ? { run: true } : {}); return; }
     if (item.action === 'navigate') {
       if (mode === 'simple') openClassicPage(args.view || 'dashboard');
       else navigate(args.view || 'dashboard', args);
@@ -1135,6 +1122,7 @@ function StudioApp({ api }) {
       meta={meta}
       role={viewer.role || 'admin'}
       setupApi={api}
+      request={settingsRequest}
       onOpenPrograms={() => navigateStudio('research')}
       onSaveKey={(keyName, value) => runAction(() => api.saveKey(keyName, value), 'Credential saved.', keyName === 'OPENAI_API_KEY')}
       onClearKey={async (keyName) => { const [name, consequence] = KEY_CONSEQUENCE[keyName] || ['this credential', '']; return (await confirm({ title: `Disconnect ${name}?`, lines: [consequence], confirmLabel: 'Disconnect', tone: 'danger' })) ? runAction(() => api.clearKey(keyName), 'Credential disconnected.', keyName === 'OPENAI_API_KEY') : null; }}
@@ -1148,8 +1136,7 @@ function StudioApp({ api }) {
       onCheckCodex={() => api.checkCodex()}
       onOpenDataFolder={() => runAction(() => api.openDataFolder(), 'Data folder opened.')}
       onOpenWorkspace={() => runAction(() => api.openWorkspace('default'), 'Workspace opened.')}
-      onSaveMondayBoard={api.saveMondayBoard ? (payload) => runAction(() => api.saveMondayBoard(payload), (result) => `Monday.com board connected: ${result.boardName}.`) : undefined}
-      onClearMondayBoard={() => runAction(() => api.clearMondayBoard(), 'Monday.com board forgotten. Trends stay on your board here.')}
+      mondayApi={api}
     />;
   }
   // The Studio group's pages (Prompts, Analytics, People & access), in either layout. People's Preview as passes a whole
@@ -1239,29 +1226,12 @@ function StudioApp({ api }) {
     if (active === 'settings') return renderSettings();
     if (active === 'inbox' || active === 'calendar') return renderSharedPage(active);
     if (ADMIN_PAGES[active]) return renderAdminPage(active);
-    if (active === 'dashboard') return <HomeView state={state} busy={busy} web={web} onNavigate={navigate} />;
-    return (
-      <AdvancedView
-        state={state}
-        meta={meta}
-        payload={payloadDatasetId === selectedDataset?.id ? payload : null}
-        selectedDataset={selectedDataset}
-        busy={busy}
-        onPlanIntent={(command) => runAction(() => api.planIntent({ command, datasetId: selectedDataset?.id || '' }))}
-        onRunIntent={(command) => runBackground('intent', 'Workflow run', () => api.runIntent({ command, datasetId: selectedDataset?.id || '' }), (result) => `Workflow complete: ${result.completedSteps} step${result.completedSteps === 1 ? '' : 's'}.`)}
-        onRunAction={(action) => runBackground(`intent-action:${action.id || action.label || 'step'}`, 'Workflow step', () => api.runIntentAction(action), (result) => `Workflow step complete: ${result.completedSteps} step${result.completedSteps === 1 ? '' : 's'}.`)}
-        onRunMission={(missionId) => runBackground(`mission:${missionId}`, 'Workflow run', () => api.runMission(missionId), 'Workflow run complete.')}
-        onRunActionGraph={(graph) => runBackground('graph', 'Workflow run', () => api.runActionGraph({ graph }), 'Workflow run complete.')}
-        onPauseMission={(missionId) => runAction(() => api.pauseMission(missionId), 'Mission paused.')}
-        onScheduleMission={can('scheduleMission') ? (schedule) => runAction(() => api.scheduleMission(schedule), 'Mission watch loop saved.') : undefined}
-        onExportMissionBundle={(missionId) => runAction(() => api.exportMissionBundle(missionId), 'Mission bundle exported.')}
-        onSearchEvidence={(query) => api.searchEvidence(query)}
-        onRetryJob={(jobId) => runBackground(`retry:${jobId}`, 'Retrying a job', () => api.retryJob(jobId), 'Retry finished.')}
-        onReadJobLog={(jobId) => api.readJobLog(jobId)}
-        onNavigate={navigate}
-      />
-    );
-  }, [active, state, meta, busy, web, selectedDatasetId, payload, payloadError, selectedDataset, payloadDatasetId, creation, studioView, createWorkspaceKey, semrushShell, contentWorkspace, datasetTab, knowledgeTab, sheetRequest, libraryRequest, runRequest, createRequest, askAllowed, viewer, peopleRequest, programRequest, promptRequest, linkOrigin, inboxSeen, classicBoard]);
+    // Automate: Playbooks and Workflows (workflows-view.jsx, playbooks-view.jsx); the setup sheet opens at the shell.
+    if (active === 'workflows') return <WorkflowsView state={state} api={api} viewer={viewer} can={can} confirm={confirm} action={runAction} onOpenTarget={openTarget} onOpenPlaybooks={pageAllowed('playbooks') ? () => navigate('playbooks') : undefined} initial={workflowRequest} desktop={!web} edition={semrushShell ? 'semrush' : 'general'} settingsAllowed={settingsAllowed} />;
+    if (active === 'playbooks') return <PlaybooksView state={state} api={api} viewer={viewer} can={can} confirm={confirm} action={runAction} onSetUp={(id) => openPlaybook(id)} onOpenWorkflow={(id) => navigate('workflows', { workflowId: id })} edition={semrushShell ? 'semrush' : 'general'} />;
+    // Home, and where an unknown or retired page id lands.
+    return <HomeView state={state} busy={busy} web={web} onNavigate={navigate} />;
+  }, [workflowRequest, active, state, meta, busy, web, selectedDatasetId, payload, payloadError, selectedDataset, payloadDatasetId, creation, studioView, createWorkspaceKey, semrushShell, contentWorkspace, datasetTab, knowledgeTab, sheetRequest, libraryRequest, runRequest, createRequest, askAllowed, viewer, peopleRequest, programRequest, promptRequest, linkOrigin, inboxSeen, classicBoard, settingsRequest]);
 
   // The palette's items, built only while it is open: this layout's pages from the nav model (in Simple, the Advanced
   // pages too, as peeks), the Create group from the New menu, this workspace's trends, reports and programs, actions.
@@ -1288,7 +1258,10 @@ function StudioApp({ api }) {
       ...(nav.actions.ask ? [{ id: 'open-ask-ai', label: 'Open Ask AI', icon: Sparkles, group: PALETTE_GROUPS.actions, shortcut: '⌘J', keywords: 'chat help question assistant', action: 'ask', args: { text: '' } }] : []),
       ...(canSwitch ? [mode === 'simple' ? { id: 'mode-classic', label: 'Switch to the Advanced layout', icon: Repeat2, group: PALETTE_GROUPS.actions, keywords: 'advanced layout mode every tool', action: 'mode', args: { mode: 'classic' } }
         : { id: 'mode-simple', label: peek ? 'Back to Simple' : 'Switch to the Simple layout', icon: Repeat2, group: PALETTE_GROUPS.actions, keywords: 'simple layout mode', action: 'mode', args: { mode: 'simple' } }] : []),
-      ...(mode === 'classic' && can('runMission') ? list(state.v5?.commandPalette).filter((item) => item.action === 'runMission' && item.args?.missionId).map((item) => ({ ...item, icon: Workflow, group: PALETTE_GROUPS.actions, keywords: 'workflow mission run' })) : []),
+      ...(can('estimateWorkflow') && pageAllowed('workflows') ? list(state.contentStudio?.workflows).flatMap((row) => [
+        ...(can('runWorkflow') && !viewer.preview ? [{ id: `run-workflow-${row.id}`, label: `Run ${row.name}…`, hint: 'Shows the cost first', icon: Workflow, group: PALETTE_GROUPS.actions, keywords: 'workflow automation run now', action: 'workflow', args: { workflowId: row.id, run: true } }] : []),
+        { id: `open-workflow-${row.id}`, label: `Workflows: ${row.name}`, icon: Workflow, group: PALETTE_GROUPS.actions, keywords: 'workflow automation schedule', action: 'workflow', args: { workflowId: row.id } },
+      ]) : []),
       ...(canWriteReports(can) && classicActions.approved.length ? [{ id: 'write-reports', label: `Write reports for ${classicActions.approved.length} approved ${classicActions.approved.length === 1 ? 'trend' : 'trends'}`, hint: 'Shows the cost first', icon: Sparkles, group: PALETTE_GROUPS.actions, keywords: 'write reports approved trends', action: 'write-reports' }] : []),
       ...(api.contentCatalog && state.contentStudio ? [{ id: 'copy-briefing', label: 'Copy briefing for Slack', hint: linkOrigin ? 'With links' : '', icon: ClipboardCopy, group: PALETTE_GROUPS.actions, keywords: 'slack weekly briefing copy share summary', action: 'copy-briefing' }] : []),
       ...(inboxCount > 0 && pageAllowed('inbox') ? [{ id: 'mark-inbox-read', label: 'Mark Inbox read', hint: `${inboxCount} unread`, icon: CheckCheck, group: PALETTE_GROUPS.actions, keywords: 'inbox read clear notifications', action: 'mark-inbox-read' }] : []),
@@ -1383,6 +1356,8 @@ function StudioApp({ api }) {
   // over the Simple page the person is on (KitCreatorHost), so Cancel leaves them there.
   const simpleShellNav = { copyLink, openInvite, viewAs: viewAsFromNav, openProgramDraft, create: (kind) => createFromNav(kind), makeAssets: (request) => openKitDialog(request) };
   const kitHost = mode !== 'channel' && <KitCreatorHost request={kitRequest} api={api} sources={kitSourcesFrom(classicActions.reports, list(studioState.contentRuns).filter(inWorkspace))} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} action={runAction} busy={busy} picturesOff={`Pictures are off for your team. ${askAdmin} can turn them on.`} focus={list(viewer.prefs?.focusChannels)} edition={semrushShell ? 'semrush' : 'general'} onSettings={settingsAllowed ? openSettings : undefined} onOpenFolder={(key) => openTarget({ kind: 'folder', id: key, page: 'assets' })} onDone={() => setKitRequest(null)} />;
+  // The playbook setup sheet, over whatever page is open in either layout; saving lands on Workflows with it selected.
+  const playbookHost = mode !== 'channel' && playbookRequest && <PlaybookSetup key={playbookRequest.key} playbookId={playbookRequest.playbookId} api={api} state={state} viewer={viewer} can={can} action={runAction} confirm={confirm} edition={semrushShell ? 'semrush' : 'general'} desktop={!web} settingsAllowed={settingsAllowed} onClose={() => setPlaybookRequest(null)} onDone={(workflowId) => openWorkflow(workflowId)} onOpenPrompts={adminPages.includes('prompts') ? () => { setPlaybookRequest(null); openAdminPage('prompts'); } : undefined} />;
   // From a Simple "Show me" step: below 860px the sidebar is a drawer, so open it for nav.* spots and close it after.
   const revealNav = (open) => { if (narrow && mode !== 'channel') setDrawerOpen(Boolean(open)); };
 
@@ -1411,7 +1386,7 @@ function StudioApp({ api }) {
       <StudioSidebar edition={semrushShell ? 'semrush' : 'general'} meta={meta} web={web} viewer={viewer} nav={nav} activeId={activeNavId} mode={mode} busy={busy} workspaces={contentWorkspaces} activeWorkspaceId={contentWorkspace?.id || ''}
         rail={rail} onToggleRail={toggleRail} drawerOpen={drawerOpen} onCloseDrawer={() => setDrawerOpen(false)}
         onNavigate={openNavItem} onCreate={createFromNav} onSearch={() => setPaletteOpen(true)} onAsk={toggleAsk} askCurrent={mode === 'simple' && simpleTab === 'ask'} askExpanded={mode === 'classic' && helpOpen} onToggleDataTools={toggleDataTools}
-        onSelectWorkspace={switchWorkspace} onNewWorkspace={newWorkspace} onViewAs={api.setViewAs && realAdmin ? viewAs : undefined} onMode={chooseMode} onSignOut={signOut}
+        onSelectWorkspace={switchWorkspace} onNewWorkspace={newWorkspace} singleWorkspace={singleWorkspace} onViewAs={api.setViewAs && realAdmin ? viewAs : undefined} onMode={chooseMode} onSignOut={signOut}
         working={working} onSaveFocusChannels={typeof api.setViewPrefs === 'function' ? saveFocusChannels : undefined} newMenuKey={newMenuKey} />
       <div className="studio-main">
         <StudioTopBar title={pageTitle} working={working} mode={mode} drawerOpen={drawerOpen} onMenu={() => setDrawerOpen((open) => !open)} channelName={viewer.channelName || ''} web={web} onSignOut={signOut} />
@@ -1424,6 +1399,7 @@ function StudioApp({ api }) {
         {mode === 'channel' && <ChannelBottomNav items={navPages(nav)} active={channelTab} onNavigate={goChannel} />}
         {mode === 'classic' && classicUndoToast}
         {kitHost}
+        {playbookHost}
       </div>
     </div>
   </UnsavedContext.Provider></ViewerContext.Provider>;

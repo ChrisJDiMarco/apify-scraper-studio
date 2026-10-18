@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRight, Bell, CheckCheck, CircleAlert, FileText, FolderOpen, Megaphone, PenLine, Radar, ScrollText, Send, TrendingUp } from 'lucide-react';
+import { ArrowRight, Bell, CheckCheck, CircleAlert, FileText, FolderOpen, Megaphone, PenLine, Radar, ScrollText, Send, TrendingUp, Workflow, Wallet } from 'lucide-react';
 import { INBOX_KIND_LABEL, buildInbox } from './inbox-model.js';
 import { formatDay, useViewer, writeProps } from './viewer.js';
 import { readChoice, saveChoice } from './choices.js';
@@ -10,7 +10,7 @@ import './weekly-briefing.css';
 // (inbox-model.js); "Mark all read" saves the time in the person's prefs (setViewPrefs({ inboxSeenAt })), with this
 // browser's copy as a fallback when the studio can't save it.
 const LOCAL_SEEN = 'studio.inbox.seenAt';
-const ICONS = { 'needs-ok': TrendingUp, adoption: Megaphone, edit: PenLine, 'run-finished': Radar, 'run-stopped': CircleAlert, 'prompt-change': ScrollText, routed: Send };
+const ICONS = { 'needs-ok': TrendingUp, adoption: Megaphone, edit: PenLine, 'run-finished': Radar, 'run-stopped': CircleAlert, 'prompt-change': ScrollText, routed: Send, 'workflow-review': TrendingUp, 'workflow-budget': Wallet, 'workflow-draft': Wallet, 'workflow-finished': Workflow, 'workflow-stopped': CircleAlert };
 const TARGET_ICONS = { report: FileText, folder: FolderOpen };
 const readLocal = () => { try { return window.localStorage.getItem(LOCAL_SEEN) || ''; } catch { return ''; } };
 const writeLocal = (value) => { try { window.localStorage.setItem(LOCAL_SEEN, value); } catch { /* a convenience only */ } };

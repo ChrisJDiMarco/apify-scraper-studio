@@ -5,7 +5,7 @@
 // Pure: no files, network or clock. Registry and reference documents are supplied data.
 const { CONTENT_EDITIONS, validateProductRegistry } = require('./content-studio');
 // Editable instruction blocks (Prompt Library). `blocks` is a run's snapshot of one prompt; without it the defaults apply.
-const { promptBlocks } = require('./prompt-template');
+const { promptBlocks, teamNotesBlock } = require('./prompt-template');
 
 const TREND_REPORT_LAYOUT = 'golden-thread-trend-report';
 const TOOLKIT_LAYOUT = 'golden-thread-toolkit';
@@ -347,14 +347,14 @@ function selectionValue(selection, field) {
 }
 function themeValue(theme, field = 'theme') { object(theme, field); return { id: str(theme.id, `${field}.id`, 160, true), name: str(theme.name, `${field}.name`, 300, true), description: str(theme.description, `${field}.description`, 4000) }; }
 
-function buildTrendReportRequest({ theme, selection, editionId = 'general', brandName = '', analysisFocus = '', targetAudience = '', blocks = null, trace = false } = {}) {
+function buildTrendReportRequest({ theme, selection, editionId = 'general', brandName = '', analysisFocus = '', targetAudience = '', blocks = null, trace = false, notes = '' } = {}) {
   editionId = edition(editionId); const semrush = editionId === 'semrush'; const summary = themeValue(theme); selectionValue(selection, 'selection');
   if (!selection.posts.length) invalid('selection.posts', 'This theme has no matched evidence to report on.');
   const brand = oneLine(brandName) || (semrush ? 'Semrush' : 'Your brand'); const focus = oneLine(analysisFocus); const audience = oneLine(targetAudience);
   // The Semrush edition keeps the n8n system message verbatim; other workspaces name their own brand and focus.
   const b = promptBlocks('reports.trends-report', editionId, blocks, { trace });
   const vars = { brandClause: oneLine(brandName) ? ` for ${brand}` : '', focusClause: focus ? ` (focus: ${focus})` : '', audienceClause: audience ? `, written for ${audience}` : '' };
-  const prompt = `SYSTEM INSTRUCTIONS\n${trendSystemMessage(b, vars)}\n\nTASK\n${trendUserPrompt(theme, selection).trimEnd()}\n\n${trendOutputInstruction(selection, b)}`;
+  const prompt = `SYSTEM INSTRUCTIONS\n${trendSystemMessage(b, vars)}${teamNotesBlock(notes)}\n\nTASK\n${trendUserPrompt(theme, selection).trimEnd()}\n\n${trendOutputInstruction(selection, b)}`;
   return { prompt, schema: TREND_REPORT_SCHEMA, context: { editionId, brandName: brand, theme: summary, selection } };
 }
 
@@ -746,7 +746,7 @@ function segmentProducts(products, enterpriseNames) {
   return { enterprise: listed.length ? listed : all, selfServe: products.filter(product => product.segment === 'self-serve' && product.affiliateEligible) };
 }
 
-function buildToolkitRequest({ theme, trendReport, trendReportMarkdown = '', metrics, registryText = '', products = [], referenceDocs = [], enterpriseProducts = [], editionId = 'general', brandName = '', trendsDocUrl = '', blocks = null, trace = false } = {}) {
+function buildToolkitRequest({ theme, trendReport, trendReportMarkdown = '', metrics, registryText = '', products = [], referenceDocs = [], enterpriseProducts = [], editionId = 'general', brandName = '', trendsDocUrl = '', blocks = null, trace = false, notes = '' } = {}) {
   editionId = edition(editionId); const semrush = editionId === 'semrush'; const brand = oneLine(brandName) || (semrush ? 'Semrush' : 'Your brand');
   const enterpriseNames = list(enterpriseProducts, 'enterpriseProducts', 50).map((name, index) => str(name, `enterpriseProducts.${index}`, 160, true));
   const docs = list(referenceDocs, 'referenceDocs', 50).map((doc, index) => {
@@ -774,7 +774,7 @@ function buildToolkitRequest({ theme, trendReport, trendReportMarkdown = '', met
   // The alignment check reads the same registry text the model saw (n8n semantics), falling back to the products.
   const toolkits = { ...toolkitsFromProducts(registry), ...(parsed?.toolkits || {}) };
   return {
-    prompt: `SYSTEM INSTRUCTIONS\n${system}\n\nTASK\n${user}`,
+    prompt: `SYSTEM INSTRUCTIONS\n${system}${teamNotesBlock(notes)}\n\nTASK\n${user}`,
     schema: toolkitSchema(enterprise.map(product => product.id), selfServe.map(product => product.id)),
     context: { editionId, brandName: brand, theme: summary, products: registry, enterpriseProducts: enterpriseNames, toolkits, metrics: aggregate, trendsDocUrl: docUrl, registryWarnings: parsed?.warnings || [] },
   };

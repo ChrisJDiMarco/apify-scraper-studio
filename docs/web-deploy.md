@@ -321,6 +321,23 @@ stop-then-start update.
 - **Corporate proxies.** Node 24 uses `HTTPS_PROXY`/`NO_PROXY` when `NODE_USE_ENV_PROXY=1` is set (check this against
   the Node patch release you deploy). For TLS inspection, add the inspecting CA with `NODE_EXTRA_CA_CERTS=/path/ca.pem`.
 
+## Instant Monday updates
+
+Settings → Monday.com → **Check Monday for changes: Instantly** registers Monday.com webhooks that POST to
+`https://<studio>/hooks/monday/<64-hex secret>`. They need:
+
+- **A public https address.** `STUDIO_PUBLIC_ORIGIN` (or the address admins open the studio on); not localhost, at most
+  255 characters with the path. Monday must be able to reach it from the internet.
+- **A sign-in bypass for that path only.** oauth2-proxy: add `"POST=^/hooks/monday/[a-f0-9]{64}$"` to
+  `skip_auth_routes` (it is in `deploy/compose/oauth2-proxy.cfg.example`). Cloudflare Access: a Bypass policy (or a
+  separate application with a Bypass rule) for the path `/hooks/monday/*`. Keep the pattern anchored and exact. The
+  secret in the path is the credential; the studio re-reads every change from Monday's API and never trusts the body.
+- **Nothing else.** Outbound `api.monday.com` is already in the list below. The route answers 404 for an unknown
+  secret, 413 over 64 KB, 429 over 1,200 events a minute and 503 while draining (Monday retries for 30 minutes).
+
+When Monday can't reach the studio, Settings says so and the studio checks Monday every 5 minutes instead. A full check
+runs every 6 hours either way, to catch missed events. The Mac app always polls, and only while it is open.
+
 ## Live updates and limits
 
 - Each person gets at most `STUDIO_MAX_STREAMS_PER_PERSON` (5) live-update streams, their newest tabs, and the server

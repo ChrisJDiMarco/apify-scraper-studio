@@ -52,6 +52,10 @@ export function goldenCases() {
   add('research.synthesis.general-taxonomy', () => prompts.synthesisPrompt({ candidates: input.candidates, totalPosts: posts.length, sources: {}, maxThemes: 2, taxonomy: input.taxonomy, query: '', ...editions.general, focus: 'local search and reviews' }));
   add('research.matching.general-focus', () => prompts.matchingPrompt({ themes: input.themes, existing: [], ...editions.general, focus: 'local search and reviews' }));
   add('research.tagging.general-focus', () => prompts.taggingPrompt({ batch: batch('x'), themes: input.themes.slice(0, 1), ...editions.general, focus: 'local search and reviews' }));
+  // Notes for the AI (a research program's notes, workflows and playbooks): added after the instructions only when set.
+  const NOTES = 'Prefer data-backed, counter-intuitive findings a journalist would cover.';
+  add('research.discovery.semrush-team-notes', () => prompts.discoveryPrompt({ batch: batch('x'), query: '', ...editions.semrush, notes: NOTES }));
+  add('research.synthesis.general-team-notes', () => prompts.synthesisPrompt({ candidates: input.candidates, totalPosts: posts.length, sources: { Twitter: 3 }, maxThemes: 3, taxonomy: null, query: '', ...editions.general, notes: NOTES }));
   add('system.repair.with-previous', () => prompts.repairInstruction(new Error('candidates.0.painPoint: Invalid painPoint.'), { candidates: [{ name: 'Example' }] }));
   add('system.repair.no-previous', () => prompts.repairInstruction('The draft broke 2 rules.', undefined));
 
@@ -62,6 +66,7 @@ export function goldenCases() {
   add('reports.trends-report.semrush', () => trendRequest({ editionId: 'semrush', brandName: 'Semrush', analysisFocus: 'SEO Trends', targetAudience: 'SEO Professionals' }).prompt);
   add('reports.trends-report.general', () => trendRequest({ editionId: 'general', brandName: 'Northwind Analytics', analysisFocus: 'AI search', targetAudience: 'marketing leads' }).prompt);
   add('reports.trends-report.general-bare', () => trendRequest({ editionId: 'general' }).prompt);
+  add('reports.trends-report.semrush-team-notes', () => trendRequest({ editionId: 'semrush', brandName: 'Semrush', analysisFocus: 'SEO Trends', targetAudience: 'SEO Professionals', notes: 'Lead with what changed and how it compares to Semrush; no roadmap speculation.' }).prompt);
   // ── Quick scan trends report (research-scan-report.js): the frozen posts and trends as a scan's payload ──
   const scanReport = load('src/shared/research-scan-report.js');
   const scanPayload = () => scanReport.samplePayload({ ...input, query: 'AI answers and click loss' });
@@ -78,6 +83,7 @@ export function goldenCases() {
     add(`reports.editorial-toolkit.${edition}-enterprise-only`, () => toolkit(edition, { products: enterpriseOnly, enterpriseProducts: input.enterpriseProducts }));
     add(`reports.editorial-toolkit.${edition}-self-serve-only`, () => toolkit(edition, { products: selfServeOnly, referenceDocs: input.referenceDocs.slice(0, 2) }));
   }
+  add('reports.editorial-toolkit.semrush-team-notes', () => toolkit('semrush', { notes: 'Lead with what changed and how it compares to Semrush; no roadmap speculation.' }));
 
   // ── Channel assets and pictures (content-studio.js, asset-kit.js) ──
   const planInput = (editionId) => ({ editionId, source: input.source, brandKnowledge: editionId === 'semrush' ? { ...input.brandKnowledge, name: 'Semrush' } : input.brandKnowledge, productRegistry: input.products, deliverableIds: content.CONTENT_DELIVERABLES.filter((d) => !d.kitOnly && (!d.editions || d.editions.includes(editionId))).map((d) => d.id), imageVariants: 3 });
@@ -122,6 +128,8 @@ export function goldenCases() {
   add('data.dataset-report.unknown-preset', () => data.datasetPrompt('report', 'the SOURCE_ITEMS section below', { reportPresetId: 'not-a-preset' }));
   add('data.dataset-report.context-path', () => data.datasetPrompt('report', '/tmp/items.jsonl', { contextPath: '/tmp/context.json', reportPresetId: 'subreddit-pulse' }));
   add('data.tag-items', () => data.datasetPrompt('tag', 'the SOURCE_ITEMS section below'));
+  // A workflow's assets step with notes for the writers (team notes): one written asset.
+  add('assets.newsletter.semrush-team-notes', () => content.buildContentPlan({ ...planInput('semrush'), deliverableIds: ['newsletter'], teamNotes: 'Lead with the numbers. Keep it under 300 words.' }).deliverables[0].prompt);
   add('data.threads', () => data.datasetPrompt('thread', 'the SOURCE_ITEMS section below', { contextPath: '/tmp/context.json' }));
   add('data.analysis-rules', () => JSON.stringify(data.analysisRules()));
   add('data.workflow-asset-pack', () => data.assetPackPrompt(JSON.stringify(input.assetPackContext, null, 2)));

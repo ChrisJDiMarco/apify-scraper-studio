@@ -106,3 +106,37 @@ describe('the inbox', () => {
     expect(buildInbox({ state: {}, viewer: {}, now: NOW })).toEqual({ items: [], unread: 0 });
   });
 });
+
+describe('workflow rows', () => {
+  const flows = (extra = {}) => ({ team: { admins: [{ name: 'Alex' }] }, contentStudio: {
+    activeWorkspaceId: 'semrush',
+    workflows: [
+      { id: 'workflow-a', workspaceId: 'semrush', name: 'Weekly SEO watch', status: 'active', needsBudget: false, updatedAt: at('14') },
+      { id: 'workflow-b', workspaceId: 'semrush', name: 'PR angles', status: 'draft', needsBudget: true, approvalRequested: { by: { id: 'm-riley', name: 'Riley' }, at: at('15') }, updatedAt: at('15') },
+    ],
+    workflowRuns: [
+      { id: 'wfrun-review', workflowId: 'workflow-a', workspaceId: 'semrush', status: 'waiting-review', waiting: { kind: 'review', since: at('16', '08:00:00'), count: 2, untilAt: at('18', '08:00:00') }, steps: [], createdAt: at('16', '08:00:00') },
+      { id: 'wfrun-budget', workflowId: 'workflow-a', workspaceId: 'semrush', status: 'waiting-budget', message: 'Needs a bigger budget: the next set can cost about $4.00.', waiting: { kind: 'budget', since: at('15', '08:00:00') }, steps: [], createdAt: at('15', '08:00:00') },
+      { id: 'wfrun-done', workflowId: 'workflow-a', workspaceId: 'semrush', status: 'succeeded', notify: { audience: ['editor'], summary: 'Weekly SEO watch: 2 trends, 2 reports.' }, steps: [{ kind: 'notify', status: 'done' }], createdAt: at('13'), finishedAt: at('13', '12:00:00') },
+      { id: 'wfrun-stopped', workflowId: 'workflow-a', workspaceId: 'semrush', status: 'partial', message: 'Stopped at Make channel assets: the writer stopped.', steps: [{ kind: 'assets', status: 'failed' }], createdAt: at('12'), finishedAt: at('12', '12:00:00') },
+    ],
+    ...extra,
+  } });
+  const admin = { id: 'local', role: 'admin', base: 'admin', allowed: null };
+  const editor = { id: 'm-riley', role: 'editor', base: 'editor', capabilities: ['readWorkflows', 'manageWorkflows', 'seeCosts'], allowed: ['decideResearchTheme', 'retryWorkflowRun', 'estimateWorkflow'] };
+  const reader = { id: 'm-viewer', role: 'editor', base: 'editor', capabilities: ['readWorkflows'], allowed: ['estimateWorkflow'] };
+  const kinds = (viewer) => buildInbox({ state: flows(), viewer, now: NOW }).items.map((item) => item.kind).sort();
+  it('shows each person the workflow rows their role acts on', () => {
+    expect(kinds(admin)).toEqual(['workflow-budget', 'workflow-draft', 'workflow-review', 'workflow-stopped']);
+    expect(kinds(editor)).toEqual(['workflow-finished', 'workflow-review', 'workflow-stopped']);
+    // Finished rows follow the notify audience (editors here); nothing to act on otherwise.
+    expect(kinds(reader)).toEqual(['workflow-finished']);
+  });
+  it('words the rows plainly and points them at the workflow or Trends', () => {
+    const items = buildInbox({ state: flows(), viewer: admin, now: NOW }).items;
+    expect(items.find((item) => item.kind === 'workflow-review')).toMatchObject({ title: '“Weekly SEO watch” is waiting for your OK on 2 trends', target: { kind: 'page', page: 'trends' } });
+    expect(items.find((item) => item.kind === 'workflow-budget')).toMatchObject({ title: '“Weekly SEO watch” needs a bigger budget to carry on', target: { kind: 'workflow', id: 'workflow-a', runId: 'wfrun-budget' } });
+    expect(items.find((item) => item.kind === 'workflow-draft')).toMatchObject({ title: 'Riley asked you to approve “PR angles”', target: { kind: 'workflow', id: 'workflow-b' } });
+    expect(INBOX_KIND_LABEL['workflow-finished']).toBe('Workflow finished');
+  });
+});

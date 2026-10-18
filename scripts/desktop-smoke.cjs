@@ -25,7 +25,9 @@ app.on('web-contents-created', (_, contents) => {
   contents.on('console-message', (_, details) => { if (details.level === 'error') failures.push(details.message); });
   contents.on('did-fail-load', (_, code, description) => failures.push(`${code}: ${description}`));
 });
-// These flows cover the general edition; packaged builds may open first in another edition.
+// These flows cover the general edition; packaged builds may open first in another edition. The Semrush package is a
+// one-workspace build (package.json studioWorkspace), which ignores --studio-workspace, so the smoke runs in multi mode.
+process.env.STUDIO_WORKSPACE_MODE ||= 'multi';
 if (!process.argv.some((argument) => argument.startsWith('--studio-workspace='))) process.argv.push('--studio-workspace=general');
 require('../out/main/index.js');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

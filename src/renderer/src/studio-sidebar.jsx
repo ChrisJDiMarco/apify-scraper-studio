@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
-  Activity, BookOpen, Building2, CalendarDays, Check, ChartColumn, ChevronDown, ChevronsUpDown, Circle, Database, Ellipsis, Eye, FileChartColumn, FileText, FileUp, FolderOpen, Gauge,
+  Activity, Bell, BookOpen, Building2, CalendarDays, Check, ChartColumn, ChevronDown, CircleCheck, FileStack, ChevronsUpDown, Circle, Database, Ellipsis, Eye, FileChartColumn, FileText, FileUp, FolderOpen, Gauge,
   GitCompareArrows, Globe, House, ImagePlus, Images, Inbox, Keyboard, Layers, LayoutDashboard, LayoutGrid, LayoutList, Library, LoaderCircle, LogOut, Megaphone, Menu, MessagesSquare,
   PanelLeftClose, PanelLeftOpen, Plus, Radar, ScanSearch, ScrollText, Search, Settings2, Sheet, Sparkles, SquareKanban, SquarePen, TrendingUp, UserPlus, Users, Workflow, Wrench, X,
 } from 'lucide-react';
@@ -21,7 +21,7 @@ import './studio-sidebar.css';
 
 // Lucide icons by the names nav-model.js uses. App's palette draws the same icons.
 export const NAV_ICONS = {
-  Activity, BookOpen, Building2, CalendarDays, ChartColumn, Database, FileChartColumn, FileText, FileUp, FolderOpen, Gauge, GitCompareArrows, Globe, House, ImagePlus, Images, Inbox,
+  Activity, Bell, BookOpen, Building2, CalendarDays, ChartColumn, CircleCheck, Database, FileStack, FileChartColumn, FileText, FileUp, FolderOpen, Gauge, GitCompareArrows, Globe, House, ImagePlus, Images, Inbox,
   Layers, LayoutGrid, Library, MessagesSquare, Radar, ScanSearch, ScrollText, Search, Settings2, Sheet, Sparkles, SquareKanban, SquarePen, TrendingUp, UserPlus, Users, Workflow, Wrench,
 };
 const iconOf = (name) => (typeof name === 'function' || (name && typeof name === 'object') ? name : NAV_ICONS[name] || Circle);
@@ -222,7 +222,7 @@ function MyChannelsDialog({ channels, selected, onSave, onClose }) {
   </Dialog>;
 }
 
-function WorkspaceSwitcher({ viewer, edition, workspaces, activeWorkspaceId, mode, web, busy, rail, onSelectWorkspace, onNewWorkspace, onDone }) {
+function WorkspaceSwitcher({ viewer, edition, workspaces, activeWorkspaceId, mode, web, busy, rail, single = false, onSelectWorkspace, onNewWorkspace, onDone }) {
   const workspace = workspaces.find((row) => row.id === activeWorkspaceId) || null;
   const workspaceName = workspace?.name || (web ? 'Shared studio' : 'My workspace');
   const preview = Boolean(viewer.preview);
@@ -237,7 +237,8 @@ function WorkspaceSwitcher({ viewer, edition, workspaces, activeWorkspaceId, mod
   const line = `${preview ? `Viewing as ${label}` : label} · ${mode === 'classic' ? 'Advanced' : 'Simple'}`;
   const tile = <span className={`sb-tile${edition === 'general' ? ' is-general' : ''}`} aria-hidden="true">{(workspaceName.trim()[0] || 'W').toUpperCase()}</span>;
   const copy = <span className="sb-switcher-copy"><strong>{workspaceName}</strong><small>{line}</small></span>;
-  const switchable = Boolean(onSelectWorkspace) && isRealAdmin(viewer) && workspaces.length > 0;
+  // A one-workspace build (single) only shows the name: no menu, no New workspace.
+  const switchable = !single && Boolean(onSelectWorkspace) && isRealAdmin(viewer) && workspaces.length > 0;
   if (!switchable) {
     return <div className="sb-switcher is-static" role="group" aria-label={`Workspace: ${workspaceName}`} data-spot="nav.workspace" data-tip={rail ? `${workspaceName} · ${line}` : undefined} tabIndex={rail ? 0 : undefined}>{tile}{copy}</div>;
   }
@@ -260,12 +261,12 @@ function WorkspaceSwitcher({ viewer, edition, workspaces, activeWorkspaceId, mod
 /**
  * The sidebar. `nav` is buildNav()'s result for this layout; `activeId` the page that's open (an item id).
  * onNavigate(item) · onCreate(kind, { programId }) · onSearch() · onAsk() · onToggleDataTools() · onToggleRail() ·
- * onSelectWorkspace(id) · onNewWorkspace() · onViewAs(payload) → false when declined · onMode(layout) · onSignOut() ·
+ * onSelectWorkspace(id) · onNewWorkspace() · singleWorkspace (a one-workspace build: the name only) · onViewAs(payload) → false when declined · onMode(layout) · onSignOut() ·
  * onSaveFocusChannels(ids) → Promise. `working` = { label, runs } (working-popover.jsx). `newMenuKey` opens New when
  * it changes (⌥⌘N). `askCurrent`: Simple's Ask AI page is open; `askExpanded`: Advanced's drawer is open.
  */
 export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: given, nav, activeId = '', mode = 'simple', busy = false, workspaces = [], activeWorkspaceId, rail = false, onToggleRail,
-  drawerOpen = false, onCloseDrawer, onNavigate, onCreate, onSearch, onAsk, askCurrent = false, askExpanded = false, onToggleDataTools, onSelectWorkspace, onNewWorkspace, onViewAs, onMode, onSignOut,
+  drawerOpen = false, onCloseDrawer, onNavigate, onCreate, onSearch, onAsk, askCurrent = false, askExpanded = false, onToggleDataTools, onSelectWorkspace, onNewWorkspace, singleWorkspace = false, onViewAs, onMode, onSignOut,
   working, onSaveFocusChannels, newMenuKey = 0 }) {
   const viewer = given || LOCAL_ADMIN_FALLBACK;
   const aside = useRef(null); const account = useRef(null);
@@ -350,7 +351,7 @@ export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: 
         {drawer ? <button type="button" className="studio-icon-button sb-drawer-close" aria-label="Close menu" onClick={close}><X size={18} aria-hidden="true" /></button>
           : onToggleRail && !narrow && <button type="button" className="sb-collapse" data-spot="nav.collapse" aria-label={railed ? 'Expand sidebar' : 'Collapse sidebar'} aria-keyshortcuts="Meta+\" title={railed ? undefined : 'Collapse sidebar (⌘\\)'} data-tip={railed ? 'Expand sidebar · ⌘\\' : undefined} onClick={onToggleRail}>{railed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>}
       </header>
-      <WorkspaceSwitcher viewer={viewer} edition={edition} workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} mode={mode} web={web} busy={busy} rail={railed} onSelectWorkspace={onSelectWorkspace} onNewWorkspace={onNewWorkspace} onDone={close} />
+      <WorkspaceSwitcher viewer={viewer} edition={edition} workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} mode={mode} web={web} busy={busy} rail={railed} single={singleWorkspace} onSelectWorkspace={onSelectWorkspace} onNewWorkspace={onNewWorkspace} onDone={close} />
       {(create.length > 0 || search || ask) && <div className="sb-actions">
         {create.length > 0 && <MenuButton label="New" rows={newRows} placement={railed ? 'right' : 'bottom'} openKey={newMenuKey} menuClass="sb-new-menu"
           buttonClass="sb-create" buttonProps={{ 'data-spot': 'nav.new', 'aria-keyshortcuts': 'Alt+Meta+N', title: railed ? undefined : 'New (⌥⌘N)', 'data-tip': railed ? 'New · ⌥⌘N' : undefined }}

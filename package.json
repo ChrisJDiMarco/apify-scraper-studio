@@ -14,6 +14,12 @@
     "node": ">=22.13.0"
   },
   "studioDefaultWorkspace": "semrush",
+  "studioWorkspace": {
+    "mode": "single",
+    "id": "semrush",
+    "editionId": "semrush",
+    "name": "Main"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build && node scripts/copy-main-modules.mjs",

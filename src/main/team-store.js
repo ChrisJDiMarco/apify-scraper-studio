@@ -26,7 +26,8 @@ const TEAM_VERSION = 2;
 const MIGRATIONS = Object.freeze({
   1: (data) => ({ ...data, version: 2, members: Array.isArray(data.members) ? data.members.map((member) => (member && typeof member === 'object' ? { ...member, grants: [], denies: [] } : member)) : data.members, roles: [], rolePolicy: { rev: 0, updatedAt: '', updatedBy: null, builtIn: {} }, audit: [] }),
 });
-const ACTIVITY_KINDS = Object.freeze(['trend-decision', 'adoption', 'kit-created', 'report-edited', 'report-restored', 'member-changed', 'link-issued', 'research-started']);
+// workflow-run / workflow-changed: written by the workflow engine itself (its decisions never pass the gate).
+const ACTIVITY_KINDS = Object.freeze(['trend-decision', 'adoption', 'kit-created', 'report-edited', 'report-restored', 'member-changed', 'link-issued', 'research-started', 'workflow-run', 'workflow-changed']);
 const AUDIT_KINDS = Object.freeze(['member-added', 'member-changed', 'member-disabled', 'member-enabled', 'member-removed', 'member-access', 'link-issued', 'link-revoked', 'role-created', 'role-changed', 'role-deleted', 'policy-changed']);
 const ACTIVITY_LIMIT = 5000;
 const AUDIT_LIMIT = 2000;
@@ -535,6 +536,8 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     const role = def?.base || null;
     return { id: member.id, name: member.name || localName(member.email), email: member.email || '', role, roleId: def?.id || null, channelId: role === 'channel' && roles.isChannelId(member.channelId) ? member.channelId : null, via, disabled, memberSince: member.createdAt || null };
   }
+  // The member a Monday.com person is, matched by email (monday-engine.js 'members' policy). Pure: no side effects.
+  const identityForEmail = (email) => identityFor(recordByEmail(email), 'monday');
   // A trusted SSO email. STUDIO_ADMIN_EMAILS is authoritative: a listed email is always an enabled admin, created or
   // restored here if needed. A known member gets their role (none while disabled); anyone else is a guest with no role.
   function fromProxyEmail(value) {
@@ -759,7 +762,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
   return {
     listMembers, memberById, memberByEmail, isServerAdmin, saveMember, removeMember, saveMemberAccess, inviteMembers,
     issueLink, revokeLink, memberByLinkToken,
-    fromProxyEmail, identityFor, touch,
+    fromProxyEmail, identityFor, identityForEmail, touch,
     accessPolicy, accessFor, accessSummary, roleLabel, saveRolePolicy, saveRole, deleteRole,
     setAdoption, adoptionsFor,
     log, activityFor, audit, auditFor,

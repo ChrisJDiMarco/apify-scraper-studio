@@ -1,8 +1,10 @@
 // Trend board: one card per discovered research theme, placed in the column its real run state implies.
-// Pure and renderer-side; Monday.com sync receives the same cards (see src/main/monday-sync.js).
+// Pure and renderer-side. The Monday.com sync builds the same cards on the server (src/main/monday-cards.js mirrors these
+// stage rules; test/monday-cards.test.js keeps the two in step).
 
 // The same stage words in both layouts. `empty` is what an empty column says comes next. Monday.com keeps its own
-// Status labels (STAGE_LABELS in src/main/monday-sync.js), so renaming these never renames items on a connected board.
+// Status labels (stageLabels in src/shared/monday.json, renamed per board in Settings → Monday.com), so renaming these
+// never renames items on a connected board.
 export const TREND_STAGES = [
   { id: 'potential', label: 'Needs your OK', hint: 'Found by research. Say yes or skip.', empty: 'New trends from research land here for your OK.' },
   { id: 'approved', label: 'Approved', hint: 'Write reports when you’re ready.', empty: 'Say yes to a trend and it waits here until you write reports.' },

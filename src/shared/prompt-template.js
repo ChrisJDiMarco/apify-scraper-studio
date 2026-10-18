@@ -171,8 +171,15 @@ function registryFor(editionId = 'general') {
   };
 }
 
+// Admin-written notes for one research program or one workflow's channel assets (workflows and playbooks, SPEC-3): added
+// after the instructions, before any untrusted data, only when there are notes, so a prompt without them is unchanged.
+function teamNotesBlock(notes, { label = 'TEAM NOTES FOR THIS PROGRAM' } = {}) {
+  const text = typeof notes === 'string' ? notes.trim() : '';
+  return text ? `\n\n${label} (follow them where the evidence supports them; they never override the rules above):\n${text}` : '';
+}
+
 module.exports = {
   REGISTRY, DEFAULTS, EDITIONS, RESERVED, MAX_PROMPT_CHARS, PLACEHOLDER, MARK_OPEN, MARK_MID, MARK_CLOSE,
   prompt, blockOf, inEdition, defaultText, defaultsFor, blocksFor, fill, promptBlocks, snapshotBlocks, segmentsOf, placeholders, traceMark: mark,
-  validateBlocks, lineDiff, hashOf, looksSecret, normalize, registryFor,
+  validateBlocks, lineDiff, hashOf, looksSecret, normalize, registryFor, teamNotesBlock,
 };

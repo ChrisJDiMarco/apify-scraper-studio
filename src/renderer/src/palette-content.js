@@ -1,6 +1,6 @@
 // Command palette content and search, for both layouts. Pure and renderer-side (ESM): App adds the pages and actions,
 // this module turns the studio's own records into palette items (reports per trend, trends waiting for an OK, research
-// programs), and ranks and groups whatever the person types. The palette itself is mission-command.jsx.
+// programs), and ranks and groups whatever the person types. The palette itself is command-palette.jsx.
 import { buildTrendBoard } from '../../shared/trend-board.js';
 
 const list = (value) => (Array.isArray(value) ? value : []);

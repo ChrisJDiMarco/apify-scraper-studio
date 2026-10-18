@@ -1,7 +1,7 @@
 {
   "//": "Everything Ask AI can point at in Simple mode, the Advanced layout and the left sidebar. Ask AI's 'Show me' steps name an id; the app moves to its tab (or opens the report, folder or dialog it needs), finds the element and spotlights it. 'selector' defaults to [data-spot=\"<id>\"]. 'item' says what the step's item names: 'match' means the element itself carries data-spot-item (a card or row); 'report', 'folder' and 'kit-review' mean the app opens that report, folder or the asset dialog for that report first. 'open' expands a collapsed section. 'page' (with 'workbook' for Sheets) is the Advanced page a 'classic' spot is on, opened first. 'layout' marks a spot that exists in one layout only ('simple', or 'classic' for Advanced); spots without it are in Simple's tabs and Settings, or in the sidebar of both layouts. Spots inside the Advanced 'Data tools' group open it first.",
   "spots": [
-    { "id": "nav.workspace", "tab": "", "where": "Left sidebar, top", "what": "The workspace switcher: the workspace the whole studio is using, with your role and layout under its name (admins switch workspaces and start a new one here)" },
+    { "id": "nav.workspace", "tab": "", "where": "Left sidebar, top", "what": "The workspace switcher: the workspace the whole studio is using, with your role and layout under its name (admins switch workspaces and start a new one here; in a one-workspace build it only shows the name)" },
     { "id": "nav.role", "tab": "", "selector": "[data-spot=\"nav.account\"]", "where": "Left sidebar, bottom: your name", "what": "Your role, and View as for admins: open the account menu to preview what an editor, a custom role or a channel owner sees" },
     { "id": "nav.mode", "tab": "", "where": "Left sidebar, bottom, above your name", "what": "The Simple | Advanced layout switch (Advanced has every tool, including research programs, sheets and scrapers)" },
     { "id": "nav.home", "tab": "", "layout": "simple", "where": "Left sidebar", "what": "Home: the weekly briefing: trends that need your OK, what changed, what's ready for channels, what shipped and what's running" },
@@ -38,8 +38,11 @@
     { "id": "nav.dataset-reports", "tab": "", "layout": "classic", "where": "Advanced sidebar, Data tools, Analyze", "what": "Dataset reports: AI reports written from one dataset (not the trends reports from research)" },
     { "id": "nav.compare", "tab": "", "layout": "classic", "where": "Advanced sidebar, Data tools, Analyze", "what": "Compare snapshots: what changed between two datasets, and saved source checks" },
     { "id": "nav.ask-datasets", "tab": "", "layout": "classic", "where": "Advanced sidebar, Data tools, Analyze", "what": "Ask your datasets: questions across up to eight datasets, with citations (research program posts aren't datasets yet)" },
-    { "id": "nav.playbooks", "tab": "", "layout": "classic", "where": "Advanced sidebar, Data tools, Automate", "what": "Playbooks: ready-made research briefs to set up and run" },
-    { "id": "nav.workflows", "tab": "", "layout": "classic", "where": "Advanced sidebar, Data tools, Automate", "what": "Workflows: describe an outcome, preview the steps, then run them" },
+    { "id": "nav.brief-starters", "tab": "", "layout": "classic", "where": "Advanced sidebar, Data tools, Collect", "what": "Brief starters: ready-made research briefs over datasets and public pages" },
+    { "id": "nav.playbooks", "tab": "", "layout": "classic", "where": "Advanced sidebar, Automate", "what": "Playbooks: ready-made setups for common marketing jobs (research, approval rules, reports, channel assets, Monday.com), with the cost shown first" },
+    { "id": "nav.workflows", "tab": "", "layout": "classic", "where": "Advanced sidebar, Automate", "what": "Workflows: saved automations, what runs and when, run history, and what each may spend" },
+    { "id": "workflows.run", "tab": "", "layout": "classic", "where": "Workflows, each workflow's row", "what": "'Run now…': runs a workflow once after showing its cost" },
+    { "id": "playbook.setup", "tab": "", "layout": "", "where": "The playbook setup sheet (Playbooks › Set up, or New › Playbook)", "what": "Six steps: basics, research, approval, reports and assets, schedule and sharing, review and cost" },
     { "id": "nav.activity", "tab": "", "layout": "classic", "where": "Advanced sidebar, Data tools", "what": "Activity: every job and run, with logs and cancel" },
     { "id": "top.search", "tab": "", "selector": "[data-spot=\"nav.find\"]", "where": "Left sidebar, under New (Search moved here from the top bar)", "what": "Search reports, trends and pages (⌘K), or ask Ask AI what you typed" },
     { "id": "top.ask-ai", "tab": "", "selector": "[data-spot=\"nav.ask\"]", "where": "Left sidebar, under Search (Ask AI moved here from the top bar)", "what": "Ask AI (⌘J): opens Ask AI, the drawer beside the page in Advanced" },
@@ -85,6 +88,7 @@
     { "id": "home.shipped", "tab": "home", "selector": ".wb-shipped", "where": "Home, the weekly briefing", "what": "'Shipped': trends the channels said they used, with links to what went out" },
     { "id": "home.next", "tab": "home", "where": "Home, under the Ask box", "what": "Next up: the one to three things to do now (approved trends waiting for reports, a run that stopped, a report with no channel assets yet, assets In review), each with one button (only when something is waiting)" },
     { "id": "home.setup", "tab": "home", "where": "Home, under the Ask box (admins, until setup is done)", "what": "Get the studio ready: connect Apify, check Claude, save the first research program, invite people and give channels owners, turn on pictures, each with the button that does it" },
+    { "id": "home.programs", "tab": "home", "where": "Home, right column (admins)", "what": "Research programs: schedule, next and last run, sources and budgets; Run now and Edit (a quick editor with every program setting)" },
 
     { "id": "reports.search", "tab": "reports", "where": "Reports", "what": "The search box for report titles" },
     { "id": "reports.types", "tab": "reports", "where": "Reports", "what": "Filter chips: All, Trends reports, Toolkits, Drafts" },
@@ -104,6 +108,7 @@
     { "id": "report.brand-check", "tab": "reports", "item": "report", "where": "An open report, after Edit, beside the text", "what": "Brand check: things to look at before it goes out (claims to avoid, Title Case headings, spelling, exclamation marks, numbers without a source); it never blocks Save, and Ask AI to review the voice is there (item: report title)" },
 
     { "id": "trends.find", "tab": "trends", "where": "Trends, top right", "what": "Find new trends: starts a research run with the program picked beside it (the same choice as Home), after a confirmation with the estimate" },
+    { "id": "trends.monday", "tab": "trends", "where": "Trends, top right, when a Monday.com board is linked", "what": "Monday.com: when trends were last sent, how many couldn't send, Sync now and See log (admins without a board see Connect Monday.com)" },
     { "id": "trends.layout-list", "tab": "trends", "where": "Trends, top right", "what": "List: trends grouped by what needs doing" },
     { "id": "trends.layout-board", "tab": "trends", "where": "Trends, top right", "what": "Board: trends as a kanban board, one column per stage (Needs your OK, Approved, Being written, Ready, Skipped)" },
     { "id": "trends.kanban", "tab": "trends", "where": "Trends, Board view", "what": "The trend board: one column per stage, with Yes / Skip, Write reports and Read on the cards" },
@@ -149,8 +154,9 @@
     { "id": "ask.scan-plan", "tab": "ask", "where": "Ask AI, under an answer that offers a quick scan", "what": "The quick-scan plan: topic, program, depth, platforms, accounts, posts, window and caps; Check cost, then Start scan" },
 
     { "id": "settings.layout", "tab": "", "selector": "[data-spot=\"nav.mode\"]", "where": "Left sidebar, under the role", "what": "The Simple | Advanced layout switch (it moved here from Settings)" },
-    { "id": "settings.share", "tab": "settings", "selector": ".settings-setup", "where": "Settings, after Google and Monday.com", "what": "Share your setup: export or load a teammate's programs and knowledge" },
+    { "id": "settings.share", "tab": "settings", "selector": ".settings-setup", "where": "Settings, Studio (after Integrations)", "what": "Share your setup: export or load a teammate's programs and knowledge" },
     { "id": "settings.apify", "tab": "settings", "selector": "[data-spot=\"settings.apify\"], .settings-sources", "where": "Settings, first", "what": "Source collection: the Apify token (marked Setup needed until it is saved)" },
+    { "id": "settings.nav", "tab": "settings", "selector": ".settings-nav, .settings-jump", "where": "Settings, left (a Jump to menu on small screens)", "what": "Every Settings section in order; a dot shows what needs setup (amber) or is broken (red)" },
     { "id": "settings.ai-connections", "tab": "settings", "selector": "[data-spot=\"settings.ai-connections\"]", "where": "Settings", "what": "AI connections: Claude Code, Codex and the Anthropic, OpenAI, OpenRouter and fal.ai keys, each with its status, how to sign in and a free Test" },
     { "id": "settings.claude", "tab": "settings", "selector": "[aria-labelledby=\"ai-card-claude\"]", "where": "Settings, AI connections", "what": "Claude Code: whether it is installed and signed in (your Claude plan), and the command to sign in" },
     { "id": "settings.anthropic-key", "tab": "settings", "selector": "#ai-key-claude-api", "where": "Settings, AI connections", "what": "The Anthropic API key field" },
@@ -165,6 +171,7 @@
     { "id": "settings.google-docs", "tab": "settings", "open": true, "where": "Settings", "what": "Google Docs: a token for private docs (docs shared by link need none)" },
     { "id": "settings.google-sheets", "tab": "settings", "open": true, "where": "Settings", "what": "Google Sheets: the bridge and Google Drive folders for publishing" },
     { "id": "settings.diagnostics", "tab": "settings", "open": true, "where": "Settings, near the end", "what": "Connection diagnostics: Check connections re-checks every AI connection; the cards show Apify and the rest" },
+    { "id": "settings.monday", "tab": "settings", "where": "Settings, Integrations", "what": "Monday.com: connect with a token (with how to get one), pick or make a board, match columns and stage labels, the sync rules, and the sync log" },
     { "id": "settings.web-address", "tab": "settings", "where": "Settings, on the Mac app only", "what": "Studio web address: the browser studio's address, so Copy link in reports, the Library and channel briefs works on the Mac" }
   ]
 }

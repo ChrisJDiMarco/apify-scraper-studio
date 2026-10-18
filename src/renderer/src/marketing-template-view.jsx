@@ -62,7 +62,7 @@ function MarketingTemplateForm({ template, onSave, onCancel, onOpenScrapers, bus
     <span className="marketing-saved-icon"><Check size={25} aria-hidden="true" /></span>
     <span className="marketing-eyebrow">COLLECTION SAVED</span>
     <h2 id="marketing-saved-title">Your research is ready to start.</h2>
-    <p><strong>{values.brand.trim()}</strong> now has a saved {template.name.toLowerCase()} collection. Run your saved collection, then open AI reports. Your matching report format, brand, and research decision will be filled in.</p>
+    <p><strong>{values.brand.trim()}</strong> now has a saved {template.name.toLowerCase()} collection. Run your saved collection, then open Dataset reports. Your matching report format, brand, and research decision will be filled in.</p>
     <div className="marketing-saved-next"><Globe2 size={17} aria-hidden="true" /><span>Collect pages</span><ArrowRight size={14} aria-hidden="true" /><FileText size={17} aria-hidden="true" /><span>Create report</span></div>
     <p className="marketing-save-note">Saving did not start a paid run or generate a report.</p>
     <button type="button" onClick={onOpenScrapers || onCancel}>{onOpenScrapers ? 'Open saved scrapers' : 'Back to templates'}<ArrowRight size={15} aria-hidden="true" /></button>

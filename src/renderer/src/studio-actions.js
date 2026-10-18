@@ -258,9 +258,16 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
     const undecided = plans.reduce((sum, row) => sum + row.plan.undecided.length, 0);
     const left = plans.flatMap(({ runId, plan }) => plan.approved.filter((card) => !chosen.some((row) => row.runId === runId && row.themeId === card.themeId)));
     const twins = new Set(chosen.map((card) => norm(card.name)).filter((name, at, all) => all.indexOf(name) !== at));
+    // A run a workflow started goes on to make its channel assets once the reports are written (its approved budget).
+    const followUps = runIds.map((runId) => {
+      const link = researchRuns.find((row) => row.id === runId)?.workflow; const flow = link && list(studio.workflows).find((row) => row.id === link.id);
+      const assets = list(flow?.steps).find((step) => step.kind === 'assets'); if (!assets) return '';
+      const names = list(assets.channels).map(channelName); const words = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0] || 'channel';
+      return `Then “${flow.name}” makes ${words} assets${flow.budget?.approvedBy?.name ? ` (budget approved by ${flow.budget.approvedBy.name})` : ''}.`;
+    }).filter(Boolean);
     return confirm({
       title: `Write reports for ${plural(chosen.length, chosen.length === approved.length ? 'approved trend' : 'trend')}?`,
-      lines: [...cost, undecided ? `${plural(undecided, 'trend')} you haven’t decided on from the same ${runIds.length === 1 ? 'run' : 'runs'} will be skipped.` : '', left.length ? `Approved trends you didn’t pick from the same ${runIds.length === 1 ? 'run' : 'runs'} will be skipped and can’t be written later: ${left.map((card) => `“${card.name}”`).slice(0, 6).join(', ')}.` : ''],
+      lines: [...cost, ...followUps, undecided ? `${plural(undecided, 'trend')} you haven’t decided on from the same ${runIds.length === 1 ? 'run' : 'runs'} will be skipped.` : '', left.length ? `Approved trends you didn’t pick from the same ${runIds.length === 1 ? 'run' : 'runs'} will be skipped and can’t be written later: ${left.map((card) => `“${card.name}”`).slice(0, 6).join(', ')}.` : ''],
       items: chosen.map((card) => (twins.has(norm(card.name)) ? `${card.name} · ${card.programName}` : card.name)).slice(0, 12), confirmLabel: 'Write reports',
     });
   }

@@ -1,17 +1,24 @@
 import { useEffect, useRef } from 'react';
 
-// Share links: #/report/<assetId>, #/trend/<themeId>, #/assets/<sourceKey> and #/prompt/<promptId>. The fragment never
-// reaches the server or its logs. App resolves a link after sign-in (useDeepLink), and access still applies: someone
-// whose role can't see the target lands on the page with a note, never on the content. On the Mac, links point at the
-// browser studio, so Copy link shows only once Settings has a "Studio web address".
-export const LINK_KINDS = Object.freeze(['report', 'trend', 'assets', 'prompt']);
+// Share links: #/report/<assetId>, #/trend/<themeId>, #/assets/<sourceKey>, #/prompt/<promptId> and
+// #/settings/<section> (also #settings/<section>; the section may be left out). The fragment never reaches the server or
+// its logs. App resolves a link after sign-in (useDeepLink), and access still applies: someone whose role can't see the
+// target lands on the page with a note, never on the content. On the Mac, links point at the browser studio, so Copy
+// link shows only once Settings has a "Studio web address".
+export const LINK_KINDS = Object.freeze(['report', 'trend', 'assets', 'prompt', 'settings']);
 // Ids are studio-minted (asset-…, theme-…, theme:<id> source keys, prompt ids): letters, digits and a few separators.
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:~-]{0,299}$/;
+// Settings section ids (settings-sections.js): lowercase words and dashes; '' opens Settings at the top.
+const SECTION = /^[a-z0-9-]{0,40}$/;
+const validId = (kind, id) => (kind === 'settings' ? SECTION.test(String(id ?? '')) : ID.test(String(id || '')));
+const hashFor = (kind, id) => (kind === 'settings' && !id ? '#/settings' : `#/${kind}/${encodeURIComponent(id)}`);
 const STASH = 'studio.deeplink';
 const STASH_MS = 30 * 60 * 1000;
 
 // "#/report/asset-1" → { kind: 'report', id: 'asset-1' }; anything else (including #signin=…) → null.
 export function parseHash(hash) {
+  const settings = String(hash || '').match(/^#\/?settings(?:\/([a-z0-9-]{1,40}))?\/?$/);
+  if (settings) return { kind: 'settings', id: settings[1] || '' };
   const match = String(hash || '').match(/^#\/(report|trend|assets|prompt)\/([^/?#]+)\/?$/);
   if (!match) return null;
   let id = '';
@@ -34,8 +41,8 @@ export function normalizeOrigin(value) {
 // The full link, or '' when there is no address to build it on.
 export function linkFor(kind, id, { origin = '' } = {}) {
   const base = normalizeOrigin(origin);
-  if (!base || !LINK_KINDS.includes(kind) || !ID.test(String(id || ''))) return '';
-  return `${base}/#/${kind}/${encodeURIComponent(String(id))}`;
+  if (!base || !LINK_KINDS.includes(kind) || !validId(kind, id)) return '';
+  return `${base}/${hashFor(kind, String(id ?? ''))}`;
 }
 
 // The address share links are built on: this page's origin in the browser studio; the saved "Studio web address" on the
@@ -78,8 +85,8 @@ export function takeStashedDeepLink(storage = safeStorage(), now = Date.now()) {
   if (!storage) return null;
   let saved = null;
   try { saved = JSON.parse(storage.getItem(STASH) || 'null'); storage.removeItem(STASH); } catch { return null; }
-  if (!saved || !LINK_KINDS.includes(saved.kind) || !ID.test(String(saved.id || '')) || !(now - Number(saved.at) < STASH_MS) || Number(saved.at) > now + 60000) return null;
-  return { kind: saved.kind, id: saved.id };
+  if (!saved || !LINK_KINDS.includes(saved.kind) || !validId(saved.kind, saved.id) || !(now - Number(saved.at) < STASH_MS) || Number(saved.at) > now + 60000) return null;
+  return { kind: saved.kind, id: String(saved.id ?? '') };
 }
 // Puts a stashed link back as the fragment unless the address already has one.
 export function restoreDeepLink(win = typeof window !== 'undefined' ? window : null) {
@@ -88,7 +95,7 @@ export function restoreDeepLink(win = typeof window !== 'undefined' ? window : n
   if (parseHash(win.location.hash)) { try { storage?.removeItem(STASH); } catch { /* storage blocked */ } return null; }
   const link = takeStashedDeepLink(storage);
   if (!link) return null;
-  try { win.history.replaceState(null, '', `${win.location.pathname}${win.location.search}#/${link.kind}/${encodeURIComponent(link.id)}`); } catch { return null; }
+  try { win.history.replaceState(null, '', `${win.location.pathname}${win.location.search}${hashFor(link.kind, link.id)}`); } catch { return null; }
   return link;
 }
 function safeStorage(win = typeof window !== 'undefined' ? window : null) {
@@ -96,10 +103,10 @@ function safeStorage(win = typeof window !== 'undefined' ? window : null) {
 }
 
 // A share link as the target the briefing and Inbox use (onOpenTarget): a report, a trend, an Assets folder (by its
-// sourceKey) or a prompt.
+// sourceKey), a prompt or a Settings section.
 export function deepLinkTarget(link) {
   if (!link || !LINK_KINDS.includes(link.kind)) return null;
-  return { report: { kind: 'report', id: link.id, page: 'reports' }, trend: { kind: 'trend', id: link.id, page: 'trends' }, assets: { kind: 'folder', id: link.id, page: 'assets' }, prompt: { kind: 'prompt', id: link.id, page: 'prompts' } }[link.kind];
+  return { report: { kind: 'report', id: link.id, page: 'reports' }, trend: { kind: 'trend', id: link.id, page: 'trends' }, assets: { kind: 'folder', id: link.id, page: 'assets' }, prompt: { kind: 'prompt', id: link.id, page: 'prompts' }, settings: { kind: 'page', page: 'settings', section: link.id || '' } }[link.kind];
 }
 
 // Plain words for the toast after Copy link.

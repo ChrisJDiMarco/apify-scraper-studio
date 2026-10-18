@@ -56,12 +56,17 @@ const GENERAL_STUDIO_TABS = Object.freeze([
 ]);
 // Data tools: three labelled sets, then Activity on its own. Ids are App's page ids; spots keep their old names.
 export const DATA_TOOLS = Object.freeze([
-  { id: 'collect', label: 'Collect', items: [{ id: 'search', label: 'Search platforms', icon: 'ScanSearch', spot: 'nav.search' }, { id: 'automation', label: 'Scrapers', icon: 'Globe', spot: 'nav.scrapers' }, { id: 'imports', label: 'Import research', icon: 'FileUp', spot: 'nav.imports' }] },
+  { id: 'collect', label: 'Collect', items: [{ id: 'search', label: 'Search platforms', icon: 'ScanSearch', spot: 'nav.search' }, { id: 'automation', label: 'Scrapers', icon: 'Globe', spot: 'nav.scrapers' }, { id: 'imports', label: 'Import research', icon: 'FileUp', spot: 'nav.imports' }, { id: 'templates', label: 'Brief starters', icon: 'FileStack', spot: 'nav.brief-starters' }] },
   { id: 'analyze', label: 'Analyze', items: [{ id: 'datasets', label: 'Datasets', icon: 'Database', spot: 'nav.datasets' }, { id: 'reports', label: 'Dataset reports', icon: 'FileChartColumn', spot: 'nav.dataset-reports' }, { id: 'compare', label: 'Compare snapshots', icon: 'GitCompareArrows', spot: 'nav.compare' }, { id: 'chat', label: 'Ask your datasets', icon: 'MessagesSquare', spot: 'nav.ask-datasets' }] },
-  { id: 'automate', label: 'Automate', items: [{ id: 'templates', label: 'Playbooks', icon: 'LayoutGrid', spot: 'nav.playbooks' }, { id: 'missions', label: 'Workflows', icon: 'Workflow', spot: 'nav.workflows' }] },
   { id: 'activity', label: '', items: [{ id: 'runs', label: 'Activity', icon: 'Activity', spot: 'nav.activity' }] },
 ]);
 export const DATA_TOOL_IDS = Object.freeze(DATA_TOOLS.flatMap((set) => set.items.map((item) => item.id)));
+// Automate (Advanced, after Content or Workspace): playbooks set up workflows; workflows run on their own inside an
+// approved budget. Shown when the person may read workflows (readWorkflows) and the page isn't hidden.
+export const AUTOMATE_PAGES = Object.freeze([
+  { id: 'playbooks', label: 'Playbooks', icon: 'LayoutGrid', kind: 'app', spot: 'nav.playbooks', method: 'estimateWorkflow' },
+  { id: 'workflows', label: 'Workflows', icon: 'Workflow', kind: 'app', spot: 'nav.workflows', method: 'estimateWorkflow' },
+]);
 // The Studio group, in both layouts. Each page shows when the person may call its method.
 export const STUDIO_PAGES = Object.freeze([
   { id: 'prompts', label: 'Prompts', icon: 'ScrollText', method: 'listPrompts' },
@@ -76,8 +81,8 @@ export const CHANNEL_PAGES = Object.freeze([
 ]);
 // Page titles by id, for the Advanced breadcrumb and the small-screen top bar.
 export const PAGE_LABELS = Object.freeze(Object.fromEntries([
-  ...WORKSPACE_PAGES, ...RESEARCH_PAGES, ...CONTENT_PAGES, ...DATA_TOOLS.flatMap((set) => set.items), ...STUDIO_PAGES,
-  { id: 'settings', label: 'Settings' }, { id: 'ask', label: 'Ask AI' }, { id: 'marketing-template', label: 'Playbooks' },
+  ...WORKSPACE_PAGES, ...RESEARCH_PAGES, ...CONTENT_PAGES, ...DATA_TOOLS.flatMap((set) => set.items), ...AUTOMATE_PAGES, ...STUDIO_PAGES,
+  { id: 'settings', label: 'Settings' }, { id: 'ask', label: 'Ask AI' }, { id: 'marketing-template', label: 'Brief starters' },
 ].map((page) => [page.id, page.label])));
 
 // Every keyboard shortcut outside the page numbers, for the Keyboard shortcuts dialog. `when` names what it needs.
@@ -188,6 +193,8 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   const researching = researchRuns.some((run) => ACTIVE.has(run.status));
   const kitsRunning = contentRuns.some((run) => run.kit && ACTIVE.has(run.status));
   const writing = contentRuns.some((run) => !run.kit && ACTIVE.has(run.status));
+  const workflowsWaiting = Math.max(0, Number(studio.workflowSummary?.waiting) || 0);
+  const workflowRunning = list(studio.workflows).some((row) => row?.running);
   const waiting = Math.max(0, Number(counts.waiting) || 0);
   const channelNew = Math.max(0, Number(counts.channelNew ?? studio.channelView?.counts?.newTrends) || 0);
   const unread = Math.max(0, Number(inboxUnread) || 0);
@@ -224,6 +231,11 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
     } else {
       groups.push({ id: 'workspace', label: 'Workspace', collapsible: false, open: true, items: WORKSPACE_PAGES.filter((page) => appAllowed(page.id) && (page.id !== 'content-studio' || !hidden.has('content-studio'))).map(pageItem) });
     }
+    // Automate: Workflows shows what waits on this person (trends to OK, budgets) and a dot while a run is going.
+    const automate = hasStudio ? AUTOMATE_PAGES.filter((page) => !hidden.has(page.id) && can(page.method)).map((page) => item(page, {
+      kind: 'app', ...(page.id === 'workflows' ? { ...(workflowsWaiting ? { badge: workflowsWaiting, badgeLabel: `${workflowsWaiting} waiting on you` } : {}), live: workflowRunning, liveLabel: 'a workflow is running' } : {}),
+    })) : [];
+    if (automate.length) groups.push({ id: 'automate', label: 'Automate', collapsible: false, open: true, items: automate });
     const toolsOff = hidden.has('data-tools') || (caps && !caps.has('dataTools'));
     const subgroups = toolsOff ? [] : DATA_TOOLS.map((set) => ({ id: set.id, label: set.label, items: set.items.filter((page) => !hidden.has(page.id)).map((page) => item(page, { kind: 'app' })) })).filter((set) => set.items.length);
     if (subgroups.length) groups.push({ id: 'data', label: 'Data tools', collapsible: true, open: Boolean(dataToolsOpen), spot: 'nav.data-tools', items: subgroups.flatMap((set) => set.items), subgroups });
@@ -256,9 +268,10 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
       : settingsAllowed ? { id: 'picture', label: 'Picture', icon: 'ImagePlus', hint: 'Pictures are off. Turn them on in Settings.', section: 'main' }
         : { id: 'picture', label: 'Picture', icon: 'ImagePlus', hint: 'Ask an admin to turn on pictures.', section: 'main', disabled: true, title: 'Pictures are off for your team.' }),
     hasStudio && !hidden.has('research') && can('saveResearchProgram') && { id: 'program', label: 'Research program', icon: 'Radar', hint: 'What to follow, the window and the budgets.', section: 'admin' },
+    hasStudio && !hidden.has('playbooks') && can('applyPlaybook') && { id: 'playbook', label: 'Playbook', icon: 'LayoutGrid', hint: 'Research, approvals, reports and assets set up in one go. You see the cost first.', section: 'admin' },
     // Inviting is the browser studio's (People on the Mac has no invite), so the Mac never offers it.
     viewer.web && groups.some((group) => group.items.some((row) => row.id === 'people')) && (can('inviteMembers') || can('saveMember')) && { id: 'person', label: 'Person', icon: 'UserPlus', hint: 'Invite someone and choose their role.', section: 'admin' },
-    isRealAdmin(viewer) && workspaces.length > 0 && can('saveContentWorkspace') && can('selectContentWorkspace') && { id: 'workspace', label: 'Workspace', icon: 'Building2', hint: 'A separate set of programs, trends and reports.', section: 'admin' },
+    isRealAdmin(viewer) && workspaces.length > 0 && studio.workspacePolicy?.mode !== 'single' && can('saveContentWorkspace') && can('selectContentWorkspace') && { id: 'workspace', label: 'Workspace', icon: 'Building2', hint: 'A separate set of programs, trends and reports.', section: 'admin' },
   ].filter(Boolean).map((row) => (preview && row.section === 'admin' ? { ...row, disabled: true, title: PREVIEW_TITLE } : { disabled: false, title: '', choices: [], programId: '', ...row }));
 
   const actions = {

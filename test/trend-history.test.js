@@ -254,3 +254,26 @@ describe('Trend tracker in the workbook store', () => {
     expect(() => store.rename({ workbookId: TREND_TRACKER_ID, name: 'Mine' })).toThrow(/keeps its name/);
   });
 });
+
+describe('momentum when found (workflow approval rules)', () => {
+  const { reviewMomentum } = trendHistory;
+  // discoveryEligible is 500 in every run; evidenceCount is each theme's discovery posts.
+  const found = (id, name, posts) => theme(id, name, { evidenceCount: posts });
+  const waiting = (id, date, themes) => run(id, date, themes, { status: 'awaiting-review', themes, approvedAt: undefined, decisions: {} });
+  it('calls a first appearance new and compares discovery shares with the previous run', () => {
+    const source = { runs: [
+      run('r1', '2026-10-05', [found('t-a', 'AI Overviews eat branded clicks', 10), found('t-b', 'Reddit threads rank for reviews', 20)]),
+      waiting('r2', '2026-10-12', [found('t-a', 'AI Overviews eat branded clicks', 20), found('t-b', 'Reddit threads rank for reviews', 21), found('t-c', 'Schema markup for AI answers', 5)]),
+    ] };
+    expect(reviewMomentum(source, 'r2')).toEqual({ 't-a': 'rising', 't-b': 'steady', 't-c': 'new' });
+  });
+  it('stays on the discovery basis when earlier runs were already tagged', () => {
+    const source = {
+      runs: [run('r1', '2026-10-05', [found('t-a', 'AI Overviews eat branded clicks', 40)]), waiting('r2', '2026-10-12', [found('t-a', 'AI Overviews eat branded clicks', 10)])],
+      themeStats: { r1: { retained: 1000, discoveryEligible: 500, tagged: { 't-a': tagged(300) }, discovery: { 't-a': { x: 40, linkedin: 0, reddit: 0, total: 40 } } } },
+      history: [snapshot('r1', 't-a', 0.3)],
+    };
+    expect(reviewMomentum(source, 'r2')).toEqual({ 't-a': 'fading' });
+    expect(reviewMomentum(source, 'missing')).toEqual({});
+  });
+});

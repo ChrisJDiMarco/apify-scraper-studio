@@ -37,7 +37,7 @@ the No access screen.
    (`spends`) on an editor base, because paid work shows its estimate first. A channel base never needs costs.
 
 The methods are the union of the capabilities' methods (a channel base: intersected with `channelSafeMethods`). With
-no policy edits this is exactly the old fixed matrix: admin 167 methods, editor 112, channel owner 13
+no policy edits this is exactly the old fixed matrix: admin 172 methods, editor 108, channel owner 13
 (`test/roles.test.js` and `test/docs-consistency.test.js` check these numbers).
 
 Channels are the ten asset-kit folders in `src/shared/kit-folders.json` `folders` (main reads them through
@@ -175,7 +175,7 @@ of role may ever hold it. “Spends” marks paid work (it needs See costs on an
 | Group | Capability | Defaults | Bases | Requires | Methods |
 | --- | --- | --- | --- | --- | --- |
 | Everyone | `core` Open the studio (lock `always`) | A E C | editor, channel | | `appMeta, state, contentCatalog, openSourceUrl, setViewPrefs` |
-| Research | `readResearch` See research and evidence | A E | editor | | `readStudioRun, readTrendHistory, readTrendPosts, readResearchReview, searchEvidence, readEvidence, readReferenceDoc` |
+| Research | `readResearch` See research and evidence | A E | editor | | `readStudioRun, readTrendHistory, readTrendPosts, readResearchReview, searchEvidence, readEvidence, readReferenceDoc, readMondayItem` |
 | | `startResearch` Start research (spends) | A E | editor | readResearch | `startResearchRun, continueResearchRun, estimateResearchProgram` |
 | | `quickScans` Run quick scans (spends) | A E | editor | readResearch | `estimateQuickScan, startQuickScan` |
 | | `approveTrends` Approve trends | A E | editor | readResearch | `approveResearchThemes, decideResearchTheme, setThemeStatus` |
@@ -183,29 +183,39 @@ of role may ever hold it. “Spends” marks paid work (it needs See costs on an
 | | `writeReports` Write reports (spends) | A E | editor | readResearch, readAssets | `createContentRun, importStudioSource` |
 | | `editReports` Edit reports | A E | editor | readAssets | `editStudioAsset, restoreStudioAsset, saveResearchReview, setAssetStatus` |
 | | `makeAssets` Make channel assets (spends) | A E C | editor, channel | readAssets | `planAssetKit, createAssetKit, saveAssetKitFolder` |
-| | `manageRuns` Stop and retry work (spends) | A E C | editor, channel | | `cancelStudioRun, retryStudioRun, cancelJob, getJob, readJobLog` |
+| | `manageRuns` Stop and retry work (spends) | A E C | editor, channel | | `cancelStudioRun, retryStudioRun, cancelJob` |
 | | `markTrendsUsed` Mark trends used | A C | editor, channel | readAssets | `setTrendAdoption` |
+| Automation | `readWorkflows` See workflows and playbooks (since policy 2) | A E | editor | readResearch | `estimateWorkflow, readWorkflowRun, previewPlaybook` |
+| | `manageWorkflows` Build and run workflows (spends, since policy 2) | A E | editor | readWorkflows, startResearch, quickScans, approveTrends, writeReports, makeAssets, manageRuns, seeCosts | `saveWorkflow, setWorkflowStatus, deleteWorkflow, runWorkflow, cancelWorkflowRun, retryWorkflowRun` |
 | AI and prompts | `askAi` Use Ask AI (spends) | A E | editor | readAssets, readResearch | `askHelp`, the conversation and memory methods, `createHelpImage, saveHelpImage, listHelpImages, readHelpImage` |
 | | `viewPrompts` See AI prompts | A E | editor | | `listPrompts, readPrompt, previewPrompt, diffPromptVersions, estimatePromptTest` |
 | | `editPrompts` Edit AI prompts (spends) | A E | editor | viewPrompts | `savePromptVersion, revertPrompt, testPrompt` |
 | Data and exports | `sheets` Use Sheets | A E | editor | | workbooks, including `exportWorkbookXlsx, exportWorkbookToGoogle` |
-| | `dataTools` Use data tools (spends) | A E | editor | manageRuns | imports, datasets, dataset reports, scrapers, playbooks, workflows, brand profiles, `exportDatasetToSheets` |
+| | `dataTools` Use data tools (spends) | A E | editor | manageRuns | imports, datasets, dataset reports, scrapers, brief starters, brand profiles, `exportDatasetToSheets` |
 | | `deleteScrapers` Delete scrapers | A | editor | dataTools | `deleteRecipe` |
-| | `exportPublish` Export and publish | A E | editor | readAssets, readResearch | `publishStudioRun, exportStudioRun, exportResearchReview, syncTrendBoardToMonday` |
+| | `exportPublish` Export and publish | A E | editor | readAssets, readResearch | `publishStudioRun, exportStudioRun, exportResearchReview, syncTrendBoardToMonday, readMondaySyncLog` |
 | Studio setup | `seeCosts` See costs and budgets (projection `money`) | A E | editor | | none |
-| | `managePrograms` Manage research programs | A | editor | readResearch, seeCosts | `saveResearchProgram, scheduleMission` |
+| | `managePrograms` Manage research programs | A | editor | readResearch, seeCosts | `listAiModels, saveResearchProgram`; workflow budgets and playbooks: `approveWorkflowBudget, applyPlaybook, savePlaybook, deletePlaybook` |
 | | `editBrand` Edit brand knowledge | A | editor | | taxonomy, reference docs, brand images, product registry, `deleteBrandProfile` |
 | | `manageWorkspaces` Switch workspaces | A | editor | | `selectContentWorkspace, saveContentWorkspace` |
 | | `seeAnalytics` See team analytics | A | editor | | `getTrendAnalytics` |
-| Admin only (locked) | `settings` Settings and connections | A | none | | keys, settings, AI and connection checks, Monday, data folders, setup files, sheet maintenance, `setPromptLock` |
+| Admin only (locked) | `settings` Settings and connections | A | none | | keys, settings, AI and connection checks, Monday.com setup (`connectMonday`, `saveMondayLink`, `disconnectMonday` …), data folders, setup files, sheet maintenance, `setPromptLock` |
 | | `manageAccess` People and access | A | none | | `getTeam, saveMember, removeMember, createSignInLink, revokeSignInLink, setViewAs, saveRolePolicy, saveRole, deleteRole, saveMemberAccess, inviteMembers, readAccessLog, previewAccess` |
 
 `channelSafeMethods` = the core methods plus every method with a channel scope in `access.js` (`SCOPE_METHODS.channel`):
-a channel-based role reaches nothing else, whatever it is granted. That keeps `cancelJob`, `getJob` and `readJobLog`
-(in Stop and retry work) away from channel owners. A composite method's capability is the same as, or requires, the
+a channel-based role reaches nothing else, whatever it is granted. That keeps `cancelJob` (in Stop and retry work)
+and every workflow method away from channel owners, who never see workflows or their money. A composite method's capability is the same as, or requires, the
 capability of everything it runs (or is locked admin). Role `null` may call `appMeta` and `state` only.
 
 While previewing, only identity methods and `readMethods` run. Channel owners get the Simple layout only.
+
+**Workflows act as their owner.** A workflow's runs call the studio's pipelines directly (the engine, not the gate), so
+before every step `access.canIdentityCall(ownerId, method)` checks the owner may still call each of that step's methods
+(`workflow-steps.json` lists them); 'local' (the Mac) and 'owner' (the web admin password) are admins. A refusal pauses
+the workflow with `needsAdmin`, and an approver can **Take over** (`approveWorkflowBudget` with `takeOver`). Children
+are credited to `{ id: 'workflow:<id>', name }`; analytics mark those decisions `automatic`, and the engine writes its
+own `workflow-run` / `workflow-changed` activity rows. Without `readWorkflows` the state's `workflows`, `workflowRuns`,
+`playbooks` and `workflowSummary` are empty; without `seeCosts` their `*Usd` fields and budgets are stripped.
 
 ## Identity and sign-in
 
@@ -298,7 +308,7 @@ upgraded on load (`MIGRATIONS[1]`): members get empty `grants` and `denies`, and
                 "disabled": false, "createdAt": "", "updatedAt": "", "createdBy": { "id": "", "name": "" }, "lastSeenAt": "",
                 "link": { "id": "", "hash": "<sha256>", "createdAt": "", "expiresAt": null, "lastUsedAt": "" } }],
   "roles": [{ "id": "role-<slug>-<4hex>", "label": "≤ 40, unique", "description": "≤ 160", "base": "editor|channel",
-              "capabilities": ["<capability>"], "template": "|editor|channel|viewer|analyst|channel-reviewer", "policyVersion": 1,
+              "capabilities": ["<capability>"], "template": "|editor|channel|viewer|analyst|channel-reviewer", "policyVersion": 2,
               "createdAt": "", "updatedAt": "", "createdBy": { "id": "", "name": "" } }],
   "rolePolicy": { "rev": 0, "updatedAt": "", "updatedBy": null, "builtIn": { "editor": { "grant": [], "deny": [] }, "channel": { "grant": [], "deny": [] } } },
   "adoptions": [{ "id": "adoption-<uuid>", "workspaceId": "", "themeId": "", "channelId": "", "status": "using|not-using",
@@ -446,6 +456,7 @@ A channel owner's kit run message comes from a fixed set: "Starting…", "Writin
 | team.json (v2, role policy, custom roles, member access, invites, the access log, prefs) | `test/team-store.test.js` |
 | Channel view and `readyTrends` parity with the trend board | `test/channel-view.test.js` |
 | Analytics definitions | `test/team-analytics.test.js` |
+| Workflow owners' access and the workflows' share of the state | `test/access-workflow.test.js` |
 | Attribution, edits, Drive after an edit, kit exports, retries | `test/content-workspace-roles.test.js` |
 | Edited-report HTML | `test/markdown-html.test.js` |
 | Server: sign-in, links, limits, streams, projection | `test/studio-server.test.js`, `test/web-host.test.js`, `test/web-runtime.test.js` |

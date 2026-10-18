@@ -7,15 +7,15 @@ import { TemplateLibraryView } from '../src/renderer/src/template-library-view.j
 import { HomeView } from '../src/renderer/src/home-view.jsx';
 
 afterEach(cleanup);
-describe('outcome-based playbook library', () => {
-  it('offers eight evidence-scoped playbooks with outcome and input search', () => {
+describe('Brief starters (outcome-based brief library)', () => {
+  it('offers eight evidence-scoped brief starters with outcome and input search', () => {
     render(<TemplateLibraryView state={{}} onChooseTemplate={vi.fn()} onNavigate={vi.fn()} />);
     expect(screen.getAllByRole('article')).toHaveLength(8);
     expect(screen.getByText(/Page-only collections cannot establish/)).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search playbooks' }), { target: { value: 'support export' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search brief starters' }), { target: { value: 'support export' } });
     expect(screen.getAllByRole('article')).toHaveLength(1);
     expect(screen.getByRole('heading', { name: 'Voice of customer brief' })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search playbooks' }), { target: { value: '' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search brief starters' }), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Competitive', exact: true }));
     expect(screen.getAllByRole('article')).toHaveLength(2);
     expect(screen.queryByRole('heading', { name: 'ABM account research' })).not.toBeInTheDocument();
@@ -58,7 +58,7 @@ describe('home follow-up work', () => {
     expect(onNavigate).toHaveBeenCalledWith('reports', { analysisId: 'report-1', datasetId: 'dataset-1' });
     fireEvent.click(screen.getByRole('button', { name: /Pricing page check/ }));
     expect(onNavigate).toHaveBeenCalledWith('compare');
-    fireEvent.click(screen.getByRole('button', { name: /Explore all 8 playbooks/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Explore brief starters/ }));
     expect(onNavigate).toHaveBeenCalledWith('templates');
   });
   it('does not manufacture follow-up work for a new workspace', () => {

@@ -27,5 +27,8 @@ cookie_expire = "168h"               # how long before people sign in again
 cookie_refresh = "1h"
 
 # Health checks from the host or a monitor, without signing in. They reveal no data.
-skip_auth_routes = ["GET=^/healthz$", "GET=^/readyz$"]
+# Monday.com's instant updates (Settings → Monday.com → Check Monday for changes: Instantly) POST to
+# /hooks/monday/<64-hex secret>; the secret is the credential and the studio re-reads every change from Monday's API.
+# Keep the pattern anchored and exact so nothing else skips sign-in. Without it the studio checks Monday every 5 minutes.
+skip_auth_routes = ["GET=^/healthz$", "GET=^/readyz$", "POST=^/hooks/monday/[a-f0-9]{64}$"]
 silence_ping_logging = true

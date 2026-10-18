@@ -3,8 +3,9 @@
 //
 // buildInbox({ state, viewer, seenAt, now? }) → { items, unread }
 //   item = { id, kind, title, detail, at, target: { kind, id, page }, unread }
-//   kind: 'needs-ok' | 'adoption' | 'edit' | 'run-finished' | 'run-stopped' | 'prompt-change' | 'routed'
-//   target.kind: 'trend' | 'report' | 'run' | 'folder' | 'prompt' | 'page' (page: a page id such as 'trends')
+//   kind: 'needs-ok' | 'adoption' | 'edit' | 'run-finished' | 'run-stopped' | 'prompt-change' | 'routed' |
+//     'workflow-review' | 'workflow-budget' | 'workflow-draft' | 'workflow-finished' | 'workflow-stopped'
+//   target.kind: 'trend' | 'report' | 'run' | 'folder' | 'prompt' | 'workflow' | 'page' (page: a page id such as 'trends')
 // Unread means newer than prefs.inboxSeenAt (the last 7 days before it was ever set). Rows are newest first, from the
 // last 30 days, at most 60.
 
@@ -125,6 +126,27 @@ export function buildInbox({ state = {}, viewer = {}, seenAt = '', now = Date.no
     }
   }
 
+  // Workflows: a run waiting for an OK (people who decide trends) or a bigger budget, a draft waiting for an admin's
+  // budget approval (both only for approvers who see costs), a finished run told to this person's role (its notify
+  // step), and a run that stopped (people who can retry it). Channel owners never get workflows in their state.
+  const role = viewer?.base || viewer?.role || '';
+  const seesCosts = role === 'admin' || !Array.isArray(viewer?.capabilities) || viewer.capabilities.includes('seeCosts');
+  const approver = allows(viewer, 'approveWorkflowBudget') && seesCosts;
+  const flows = new Map(list(studio.workflows).filter(mine).map((row) => [row.id, row]));
+  for (const run of list(studio.workflowRuns).filter(mine)) {
+    const flow = flows.get(run.workflowId); const name = quote(flow?.name || run.workflowName);
+    const target = { kind: 'workflow', id: run.workflowId, runId: run.id, page: 'workflows' };
+    const at = run.finishedAt || run.updatedAt || run.createdAt;
+    if (run.status === 'waiting-review' && allows(viewer, 'decideResearchTheme')) push({ id: `workflow-review:${run.id}`, kind: 'workflow-review', at: run.waiting?.since || at, title: `${name} is waiting for your OK on ${plural(run.waiting?.count || 0, 'trend')}`, detail: run.waiting?.untilAt ? `Trends nobody decides by ${shortDay(run.waiting.untilAt)} are handled by its rules.` : 'Say yes or skip on Trends.', target: { kind: 'page', page: 'trends' } });
+    else if (run.status === 'waiting-budget' && approver) push({ id: `workflow-budget:${run.id}`, kind: 'workflow-budget', at: run.waiting?.since || at, title: `${name} needs a bigger budget to carry on`, detail: firstLine(run.message, 140), target });
+    else if (['succeeded', 'partial'].includes(run.status) && run.notify && list(run.notify.audience).includes(role) && !list(run.steps).some((step) => step.status === 'failed')) push({ id: `workflow-finished:${run.id}`, kind: 'workflow-finished', at, title: `${name} finished`, detail: firstLine(run.notify.summary || run.message, 140), target });
+    else if ((run.status === 'failed' || (run.status === 'partial' && list(run.steps).some((step) => step.status === 'failed'))) && allows(viewer, 'retryWorkflowRun')) push({ id: `workflow-stopped:${run.id}`, kind: 'workflow-stopped', at, title: `${name} stopped`, detail: firstLine(run.message, 140), target });
+  }
+  for (const flow of flows.values()) {
+    if (flow.status === 'draft' && flow.approvalRequested && flow.needsBudget && approver) push({ id: `workflow-draft:${flow.id}:${flow.approvalRequested.at}`, kind: 'workflow-draft', at: flow.approvalRequested.at, title: `${flow.approvalRequested.by?.name || 'Someone'} asked you to approve ${quote(flow.name)}`, detail: 'Check its cost, then approve its budget to turn it on.', target: { kind: 'workflow', id: flow.id, page: 'workflows' } });
+    if (flow.status === 'paused' && flow.needsAdmin && approver) push({ id: `workflow-stopped:${flow.id}:${flow.updatedAt}`, kind: 'workflow-stopped', at: flow.updatedAt, title: `${quote(flow.name)} was paused`, detail: firstLine(flow.pausedReason, 140), target: { kind: 'workflow', id: flow.id, page: 'workflows' } });
+  }
+
   // Prompt changes, when the studio pushes them (contentStudio.promptChanges or activity rows of kind prompt-changed).
   const promptRows = [...list(studio.promptChanges), ...list(state.activity).filter((row) => row?.kind === 'prompt-changed').map((row) => ({ ...row.detail, at: row.at, by: row.by }))];
   for (const row of promptRows) {
@@ -142,4 +164,4 @@ export function buildInbox({ state = {}, viewer = {}, seenAt = '', now = Date.no
 }
 
 // Words for the kind of row, for screen readers and the filter.
-export const INBOX_KIND_LABEL = Object.freeze({ 'needs-ok': 'Needs your OK', adoption: 'Channel answer', edit: 'Edit', 'run-finished': 'Finished', 'run-stopped': 'Stopped', 'prompt-change': 'Prompt change', routed: 'For your channel' });
+export const INBOX_KIND_LABEL = Object.freeze({ 'needs-ok': 'Needs your OK', adoption: 'Channel answer', edit: 'Edit', 'run-finished': 'Finished', 'run-stopped': 'Stopped', 'prompt-change': 'Prompt change', routed: 'For your channel', 'workflow-review': 'Needs your OK', 'workflow-budget': 'Needs a budget', 'workflow-draft': 'Needs a budget', 'workflow-finished': 'Workflow finished', 'workflow-stopped': 'Workflow stopped' });

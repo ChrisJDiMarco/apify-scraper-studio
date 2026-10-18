@@ -1,0 +1,126 @@
+{
+  "//": "Built-in playbooks: ready-made, editable setups for common marketing jobs. Setting one up (src/shared/workflow-core.js instantiatePlaybook) makes a research program, or uses one as it is, plus a workflow; a playbook never runs anything itself. Text may use {{brand}}, {{topic}}, {{competitors}}, {{product}} and {{launchDate}} (and {{launchDate+N}} for N days later); each must be a declared input except brand, which comes from the workspace. Programs leave `ai` empty so Model routing decides every AI task. test/playbooks.test.js instantiates every playbook for both editions.",
+  "version": 1,
+  "playbooks": [
+    {
+      "id": "weekly-seo-trend-watch", "version": 1, "name": "Weekly SEO trend watch", "category": "Trends", "icon": "TrendingUp",
+      "summary": "Every Monday morning, find what changed in search last week, approve the strongest trends and turn them into blog, newsletter and social assets.",
+      "outcome": "Up to 3 trend reports and channel assets every week",
+      "editions": ["semrush", "general"],
+      "inputs": [
+        { "id": "topic", "label": "Topic to follow", "kind": "text", "required": true, "placeholder": "SEO", "default": "SEO", "max": 120 },
+        { "id": "program", "label": "Copy accounts from", "kind": "program", "required": false }
+      ],
+      "research": { "mode": "program", "sourceFrom": "pick-program", "program": { "name": "{{topic}} weekly watch", "query": "{{topic}}", "lookbackDays": 7, "maxThemes": 6, "budgets": { "collectionUsd": 8, "aiUsd": 20 } } },
+      "trigger": { "kind": "schedule", "schedule": { "frequency": "weekly", "time": "08:00", "weekday": 1 } },
+      "steps": [
+        { "kind": "research" },
+        { "kind": "approve", "mode": "rules", "rules": [{ "momentum": ["rising", "new"], "priority": ["FAST-TRACK", "STRONG"] }], "maxApprove": 3, "otherwise": "review", "waitHours": 48, "afterWait": "continue", "channels": [], "note": "" },
+        { "kind": "reports" },
+        { "kind": "assets", "channels": ["blog", "newsletter", "social"], "pictures": true, "teamNotes": "" },
+        { "kind": "monday", "alsoAtReview": true },
+        { "kind": "notify", "audience": ["editor", "admin"], "slackSummary": true }
+      ],
+      "notes": { "research": "", "reports": "" },
+      "budgetHint": { "perRunUsd": 45 }
+    },
+    {
+      "id": "competitor-launch-watch", "version": 1, "name": "Competitor launch watch", "category": "Competitors", "icon": "Swords",
+      "summary": "Every morning, check what your competitors launched, priced or changed in the last two days, and brief sales, PR and social on the ones that matter.",
+      "outcome": "Up to 2 competitor briefs a day, with sales, PR and social assets",
+      "editions": ["semrush", "general"],
+      "inputs": [
+        { "id": "competitors", "label": "Competitors", "kind": "names", "required": true, "placeholder": "Acme, Globex", "max": 300 },
+        { "id": "accounts", "label": "Their accounts", "kind": "accounts", "required": true, "placeholder": "@acme, r/acme, https://www.linkedin.com/company/acme", "max": 4000 }
+      ],
+      "research": { "mode": "program", "sourceFrom": "accounts", "program": { "name": "Competitor launches: {{competitors}}", "query": "Launches, pricing changes and new features from {{competitors}}", "lookbackDays": 2, "maxThemes": 4, "budgets": { "collectionUsd": 4, "aiUsd": 14 } } },
+      "trigger": { "kind": "schedule", "schedule": { "frequency": "daily", "time": "09:00" } },
+      "steps": [
+        { "kind": "research" },
+        { "kind": "approve", "mode": "rules", "rules": [{ "priority": ["FAST-TRACK", "STRONG"] }], "maxApprove": 2, "otherwise": "skip", "waitHours": 48, "afterWait": "continue", "channels": [], "note": "" },
+        { "kind": "reports" },
+        { "kind": "assets", "channels": ["enterprise", "pr", "social"], "pictures": false, "teamNotes": "" },
+        { "kind": "monday", "alsoAtReview": false }
+      ],
+      "notes": { "research": "", "reports": "Lead with what changed and how it compares to {{brand}}; no roadmap speculation." },
+      "budgetHint": { "perRunUsd": 30 }
+    },
+    {
+      "id": "product-launch-pulse", "version": 1, "name": "Product launch pulse", "category": "Launches", "icon": "Rocket",
+      "summary": "Around a launch, run a quick scan every 6 hours to see how people are reacting, until three days after launch day.",
+      "outcome": "A short trends report every 6 hours in editors’ and admins’ Inbox",
+      "editions": ["semrush", "general"],
+      "inputs": [
+        { "id": "product", "label": "Product or launch name", "kind": "text", "required": true, "placeholder": "Semrush One", "max": 120 },
+        { "id": "launchDate", "label": "Launch day", "kind": "date", "required": true },
+        { "id": "program", "label": "Read accounts from", "kind": "program", "required": true }
+      ],
+      "research": { "mode": "quick-scan", "sourceFrom": "pick-program", "quickScan": { "topic": "{{product}}", "depth": "standard", "platforms": [], "lookbackHours": 6 } },
+      "trigger": { "kind": "schedule", "schedule": { "frequency": "hourly", "everyHours": 6, "time": "08:00", "until": "{{launchDate+3}}" } },
+      "steps": [
+        { "kind": "quick-scan" },
+        { "kind": "notify", "audience": ["editor", "admin"], "slackSummary": true }
+      ],
+      "notes": { "research": "", "reports": "" },
+      "budgetHint": { "perRunUsd": 10 }
+    },
+    {
+      "id": "newsletter-prep", "version": 1, "name": "Newsletter prep", "category": "Content", "icon": "Mail",
+      "summary": "Every Thursday, gather the week’s rising trends, wait a day for your OK, and draft the newsletter pieces for the ones you keep.",
+      "outcome": "Up to 4 newsletter-ready trends every Thursday",
+      "editions": ["semrush", "general"],
+      "inputs": [
+        { "id": "topic", "label": "Newsletter topic", "kind": "text", "required": true, "placeholder": "Search marketing", "default": "Search marketing", "max": 120 },
+        { "id": "program", "label": "Copy accounts from", "kind": "program", "required": false }
+      ],
+      "research": { "mode": "program", "sourceFrom": "pick-program", "program": { "name": "{{topic}} newsletter", "query": "{{topic}}", "lookbackDays": 7, "maxThemes": 6, "budgets": { "collectionUsd": 6, "aiUsd": 18 } } },
+      "trigger": { "kind": "schedule", "schedule": { "frequency": "weekly", "time": "09:00", "weekday": 4 } },
+      "steps": [
+        { "kind": "research" },
+        { "kind": "approve", "mode": "rules", "rules": [{ "momentum": ["rising", "new"], "priority": ["FAST-TRACK", "STRONG", "MONITOR"] }], "maxApprove": 4, "otherwise": "review", "waitHours": 24, "afterWait": "continue", "channels": [], "note": "" },
+        { "kind": "reports" },
+        { "kind": "assets", "channels": ["newsletter"], "semrushChannels": ["newsletter", "explodingtopics"], "pictures": false, "teamNotes": "" },
+        { "kind": "monday", "alsoAtReview": false }
+      ],
+      "notes": { "research": "", "reports": "" },
+      "budgetHint": { "perRunUsd": 32 }
+    },
+    {
+      "id": "pr-angle-finder", "version": 1, "name": "PR angle finder", "category": "PR", "icon": "Megaphone",
+      "summary": "Every morning, look for one new, data-backed story a journalist would cover, and draft the pitch and social posts for it.",
+      "outcome": "At most one PR angle a day, with a pitch and social posts",
+      "editions": ["semrush", "general"],
+      "inputs": [
+        { "id": "topic", "label": "Beat to watch", "kind": "text", "required": true, "placeholder": "Search and AI", "default": "Search and AI", "max": 120 },
+        { "id": "program", "label": "Copy accounts from", "kind": "program", "required": false }
+      ],
+      "research": { "mode": "program", "sourceFrom": "pick-program", "program": { "name": "{{topic}} PR angles", "query": "{{topic}}", "lookbackDays": 2, "maxThemes": 3, "budgets": { "collectionUsd": 4, "aiUsd": 12 } } },
+      "trigger": { "kind": "schedule", "schedule": { "frequency": "daily", "time": "08:00" } },
+      "steps": [
+        { "kind": "research" },
+        { "kind": "approve", "mode": "rules", "rules": [{ "velocity": ["NEW", "EMERGING"], "priority": ["FAST-TRACK", "STRONG"] }], "maxApprove": 1, "otherwise": "skip", "waitHours": 48, "afterWait": "continue", "channels": [], "note": "" },
+        { "kind": "reports" },
+        { "kind": "assets", "channels": ["pr", "social"], "pictures": false, "teamNotes": "" }
+      ],
+      "notes": { "research": "Prefer data-backed, counter-intuitive findings a journalist would cover.", "reports": "" },
+      "budgetHint": { "perRunUsd": 20 }
+    },
+    {
+      "id": "blank", "version": 1, "name": "Start from scratch", "category": "Trends", "icon": "Plus", "blank": true,
+      "summary": "Choose the trigger, the research and every step yourself.",
+      "outcome": "Your own workflow",
+      "editions": ["semrush", "general"],
+      "inputs": [
+        { "id": "program", "label": "Research program", "kind": "program", "required": true }
+      ],
+      "research": { "mode": "program", "sourceFrom": "pick-program", "program": null },
+      "trigger": { "kind": "manual" },
+      "steps": [
+        { "kind": "research" },
+        { "kind": "approve", "mode": "review", "rules": [], "maxApprove": 3, "otherwise": "review", "waitHours": 48, "afterWait": "stop", "channels": [], "note": "" }
+      ],
+      "notes": { "research": "", "reports": "" },
+      "budgetHint": { "perRunUsd": 0 }
+    }
+  ]
+}

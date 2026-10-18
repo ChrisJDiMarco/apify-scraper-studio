@@ -88,7 +88,7 @@ describe('Next up', () => {
 
   it('asks an admin to connect Apify when it is missing', () => {
     const rows = nextSteps({ state: { ...state(), keys: {} }, can: yes, now: NOW });
-    expect(rows.at(-1)).toMatchObject({ kind: 'setup', action: { kind: 'open', target: { kind: 'page', page: 'settings' } } });
+    expect(rows.at(-1)).toMatchObject({ kind: 'setup', action: { kind: 'open', target: { kind: 'page', page: 'settings', section: 'sources' } } });
     expect(nextSteps({ state: { ...state(), keys: {} }, can: only('decideResearchTheme'), now: NOW }).some((row) => row.kind === 'setup')).toBe(false);
   });
 });
@@ -99,6 +99,8 @@ describe('Setup checklist', () => {
     const mac = setupChecklist({ state: empty, web: false });
     expect(mac.items.map((item) => item.id)).toEqual(['apify', 'ai', 'program', 'pictures', 'address']);
     expect(mac).toMatchObject({ done: 0, complete: false });
+    // Each Settings step opens the section that does it (settings-sections.js ids).
+    expect(Object.fromEntries(mac.items.filter((item) => item.action.target?.page === 'settings').map((item) => [item.id, item.action.target.section]))).toEqual({ apify: 'sources', ai: 'ai', pictures: 'ai', address: 'web-address' });
     const channels = [{ id: 'blog' }, { id: 'social' }];
     const web = setupChecklist({ state: { ...empty, team: { memberCount: 3 } }, web: true, team: { members: [{ id: 'm1', channelId: 'blog' }] }, channels });
     expect(web.items.map((item) => item.id)).toEqual(['apify', 'ai', 'program', 'team', 'owners', 'pictures']);

@@ -59,7 +59,7 @@ Semrush marketing roles. Every person has one role; the server enforces it on ev
 
 Admins can add up to 12 **custom roles** built on Editor or Channel owner, from the templates Viewer, Analyst and
 Channel reviewer, and adjust any person's access per capability (deny wins). The model is
-25 capabilities over 167 RPC methods; with no policy edits the defaults are admin 167 methods, editor 112, channel owner 13. Details:
+27 capabilities over 172 RPC methods; with no policy edits the defaults are admin 172 methods, editor 108, channel owner 13. Details:
 [docs/roles-and-access.md](docs/roles-and-access.md).
 
 Two layouts, chosen per person: **Simple** (the default; Home, Trends, Reports, Assets, Inbox, Calendar, Ask AI) and
@@ -169,7 +169,18 @@ Ask AI reads at runtime). This is the developer's view, with the code that owns 
   (`choices.js`, localStorage).
 - **Home: the weekly briefing.** `weekly-briefing.jsx`. Needs your OK, What changed (trend history), Ready for
   channels, Shipped, Working now; **Next up** (ranked next steps per role, `next-steps.js`), an admin **Get the studio
-  ready** checklist, and **Copy briefing for Slack** with deep links when a Studio web address exists.
+  ready** checklist, and **Copy briefing for Slack** with deep links when a Studio web address exists. Admins who manage
+  research programs also get a **Research programs** panel (`home-programs.jsx`, rows from `program-summary.js`):
+  schedule, next and last run, sources, budgets (See costs only), Run now (the layout's estimate confirmation),
+  Pause/Resume schedule (Resume confirms the caps) and **Edit**, a quick-edit drawer (`program-drawer.jsx`) holding every
+  program setting in groups with jump chips, Save/Discard, the unsaved-change guard, a schedule-on confirmation with
+  caps and estimate, and a conflict banner (`baseUpdatedAt`). The form itself is `program-editor.jsx`, shared with the
+  Research programs page.
+- **Settings.** `settings-view.jsx` with a left section nav (`settings-nav.jsx`): sticky beside the page, a **Jump to**
+  menu under 860px, a status dot per section, scroll-spy (`section-spy.js`) and `#/settings/<section>` links
+  (`deep-links.js`). The section list, page order and dot rules live in `settings-sections.js`; a new section is an entry
+  there plus a renderer in `settings-view.jsx`. Connection diagnostics names keys the studio can't read (`keyProblems`)
+  and data files it set aside (`storeRecovery`).
 - **Trends.** Simple's Trends (List or Board) and Advanced's Trend board (`trend-board-view.jsx`, `trend-board.js`):
   stages Needs your OK → Approved → Being written → Ready, plus Skipped. Yes / Skip with Undo, **Yes, with a note…**
   routing to channels, **Show 2 real posts** (the free `readTrendPosts` read), momentum badges, **Write reports** with
@@ -207,12 +218,35 @@ Ask AI reads at runtime). This is the developer's view, with the code that owns 
   runs).
 - **Create content.** One-off drafts from a source (`content-studio.js` deliverables), Advanced only.
 - **Data tools** (legacy, Advanced, capability `dataTools`): Search platforms, Scrapers (recipes with Apify budget and
-  timeout), Import research, Datasets, Dataset reports, Compare snapshots, Ask your datasets, Playbooks, Workflows (the
-  v5 mission engine, `v5-core.js`), Activity.
+  timeout), Import research, Brief starters (formerly Playbooks; `marketing-templates.js`), Datasets, Dataset reports,
+  Compare snapshots, Ask your datasets, Activity.
+- **Workflows and playbooks** (Advanced › Automate; capabilities `readWorkflows`, `manageWorkflows`; budgets and
+  playbook setup under `managePrograms`). A workflow is a trigger (schedule, every few hours for quick scans, whenever a
+  program runs, or by hand) and ordered steps: Find trends or Quick scan → Approve trends (rules, wait for review, or
+  all) → Write reports → Make channel assets → Update Monday.com → Tell the team. `workflow-engine.js` (30-second tick
+  plus a debounced poke on every studio change) decides deterministically and starts the studio's own pipelines through
+  `content-workspace.js` (`startResearchRunFor`, `startQuickScanFor`, `reviewSignals`, `closeReviewFor`,
+  `reportAssetsForRun`, `createAssetKit`), credited to `workflow:<id>` (AsyncLocalStorage `actingAs` in index.js).
+  Unattended spend needs an approved per-run and per-month budget bound to `budgetHash` (`workflow-core.js`); each paid
+  step commits its child's hard cap, so a run can't commit more than its cap. The owner's access is re-checked before
+  every step (`access.canIdentityCall`). Playbooks (`playbooks.json`, six built in plus team ones) set up a program and
+  a workflow; program notes and an assets step's notes are added to prompts only when set. Store:
+  `content-studio/workflows.json` (`workflow-store.js`). The old v5 missions, intent planner and action graphs are gone.
 - **Analytics** (admins): funnel, channel table, trend × channel matrix, spend this month (`team-analytics.js`).
 - **Integrations.** Apify (`apify-runner.js`, `research-collection.js`), Anthropic/Claude (`anthropic-runner.js`,
   `claude-runner.js`), Codex (`codex-runner.js`), OpenAI images (`image-provider.js`), Google Sheets bridge and Drive
-  (`google-sheets-webhook.gs`, `bridge-delivery.js`, `google-delivery.js`), Monday.com (`monday-sync.js`).
+  (`google-sheets-webhook.gs`, `bridge-delivery.js`, `google-delivery.js`), Monday.com (`monday-engine.js`,
+  `monday-sync.js`, `monday-cards.js`, `monday-store.js`; instant updates: [docs/web-deploy.md](docs/web-deploy.md#instant-monday-updates)).
+- **Monday.com** (Settings → Monday.com, admins). Connect with a token (tested with `me` before it is saved), pick or
+  make a board, match each studio field to a column (`src/shared/monday.json` is the field catalog and pins the API
+  version), choose sync rules, **Start syncing**. Two-way: the server builds the cards (`monday-cards.js` mirrors the
+  Trend board's stage rules) and pushes only changed columns (per-field hashes) in aliased chunks of 10, at most 200
+  changes per run; it reads changes back by webhook on the web (`POST /hooks/monday/<secret>`) or by polling, and takes
+  Yes or Skip only while a trend waits for an OK, from an allowed person (`decideResearchTheme` with an internal
+  Monday actor, `via: 'monday'`). Idempotent: a Studio key column, keys persisted `unsure` before creates and looked up
+  before anything is created again, and only an `itemMissing` answer ever clears an item ID. Conflicts: the studio owns
+  every field after review (Monday changes are changed back, three times an hour at most); comments are Monday's. Sync
+  now is a cancellable `monday` job. Chips on Trends cards in both layouts; the sync log in Settings and on Trends.
 
 ## Configuration reference
 
@@ -283,6 +317,19 @@ saved in Settings wins, and the studio removes these from the AI tools' environm
 | `OPENROUTER_API_KEY` | The OpenRouter connection (any model through one key; Settings → AI connections). |
 | `FAL_KEY` | The fal.ai connection (pictures and short videos). |
 
+**Workspaces** (`src/main/workspace-policy.js`; both builds)
+
+The package.json field `studioWorkspace` (`{ "mode": "single", "id": "semrush", "editionId": "semrush", "name": "Main" }`,
+on for the Semrush package) gives the studio exactly one workspace, shown as **Main**, with no workspace switcher and no
+New workspace. Other workspaces are hidden (archived), never deleted. `studioDefaultWorkspace` still picks the first
+workspace in multi mode. See [RUNBOOK.md](RUNBOOK.md#one-workspace-builds-semrush-package) for what the switch does to
+existing data and how to undo it.
+
+| Variable | Purpose |
+| --- | --- |
+| `STUDIO_WORKSPACE_MODE` | `single` or `multi`; overrides the package field (the browser studio and development). The test suite and `scripts/desktop-smoke.cjs` set `multi`. |
+| `STUDIO_WORKSPACE_NAME` | The one workspace's name in single mode (1 to 60 characters, default `Main`). |
+
 **Backups** (`scripts/studio-backup.cjs`)
 
 | Variable | Purpose |
@@ -326,11 +373,14 @@ Everything lives in one data folder: `~/Library/Application Support/apify-scrape
   ai-spend.json          today's recorded AI spend (only with STUDIO_DAILY_AI_BUDGET_USD)
   datasets/ exports/ assets/ workspaces/ workbooks/      Data tools files, exports, Sheets imports and edits
   help/images/           Ask AI pictures          help/calls/  per-question temp folders
-  v5/                    the Workflows engine: events.jsonl, projection.json, jobs/, bundles/
+  v5/                    the retired v5 log: events.jsonl (only Scrapers' recipe versions are still read)
   content-studio/
     .studio-owner.json   the data-folder lock (process, host, boot, 30-second heartbeat)
     state.json           workspaces, programs, research and content runs, assets, trends (the studio service)
     team.json            people, custom roles, role policy, sign-in links, channel answers, activity, access log (v2)
+    monday.json          Monday.com: account, a board link per workspace, the item map, people cache, today's calls
+    workflows.json       workflows, their runs (100 kept each, 2,000 in all) and team playbooks (version 1)
+    monday-log.jsonl     the Monday.com sync log (newest 2,000 rows)
     runs/<runId>/        input, evidence, assignments, theme-stats, *.validated.json, report and asset files
     collections/ datasets/ dataset-index.json            collected posts and their index
     ask/<sha256(identity)[0:32]>/   one person's Ask AI index, conversations (c/), memory.json
@@ -344,6 +394,8 @@ Everything lives in one data folder: `~/Library/Application Support/apify-scrape
   listed in `state.storeRecovery`; a file that can't be read stops startup rather than being overwritten.
 - **One writer.** The owner lock keeps a second process off the folder. Synchronous stores (`team-store.js`) assume it.
 - **Migrations.** `team.json` v1 → v2 upgrades on load (`MIGRATIONS[1]`); a newer `team.json` refuses to start.
+  The one-way Monday setup in `config.json` (`monday`) moves into `content-studio/monday.json` once at startup, item IDs
+  kept and sync left manual until an admin turns it on (`migrateLegacy`).
   `migrateSemrushBrandDefaults` updates the Semrush brand preset in `state.json`. There are no downgrades: back up
   before upgrading.
 - **Retention limits in code:** Ask AI 200 conversations and 300 active memory items per person; team activity
@@ -382,6 +434,14 @@ Everything lives in one data folder: `~/Library/Application Support/apify-scrape
   job's cap) and an AI budget (each call reserves about 3× its estimate, at least $0.50, at most $100). Ask AI is capped
   at $0.75 per call, scaled by model price. Custom scrapers default to $5 and 15 minutes on Apify; a test sample to $1
   and 3 minutes. Studio-wide: `STUDIO_AI_CONCURRENCY` and `STUDIO_DAILY_AI_BUDGET_USD`.
+- **Workflows spend only inside an approved budget.** A workflow runs on its own only with an admin-approved per-run
+  and per-month budget whose `budgetHash` still matches its paid setup (program caps and models, quick scan, how many
+  trends, channels and pictures, cadence). Before each paid step the engine adds the child's own hard cap (research:
+  the program's AI + collection budgets; quick scan: its derived caps; each asset set: min(plan cap, what's left)) to
+  what the run has committed and checks the month; otherwise the run waits (`waiting-budget`, an Inbox row for
+  approvers). Manual runs confirm an estimate, and a workflow without a budget asks for a one-off cap. Model routing
+  decides every model (the engine resolves the tasks for its preflight and estimate); the engine itself makes no AI
+  calls. On Codex, estimates stand in for spend (`spentEstimated`).
 - **Codex is not metered.** Codex reports no cost, so caps are guides there ("On Codex the studio can’t cap AI spend…")
   and the daily budget doesn't count it.
 - **Ask AI cost.** Its prompt prefix (instructions, spots and the whole app guide) is about 185,000 characters (184K for an editor, 188K for an admin). On the
@@ -472,7 +532,7 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
 - **Split `src/main/index.js`** (about 3,900 lines) along its existing seams: the IPC registry and gate; keys and
   encryption (`KEY_NAMES`, `getKey`, `encryptValue`); state assembly (`publicState`, `emitState`); the Ask AI section
   (`helpContext`, lookups, `helpResolveActions`, `hydrateCards`, `answerHelp`, about 1,000 lines); Data tools and the
-  v5 Workflows engine; setup files; Google bridge and delivery glue. Move one seam at a time behind the same handlers.
+  setup files; Google bridge and delivery glue. Move one seam at a time behind the same handlers.
 - **Split `src/main/content-workspace.js`** (about 1,800 lines): research runs and the scheduler, quick scans,
   content runs and kits, exports, prompt-lab glue, trend-history sources, workspaces and brand knowledge.
 - **An async job protocol** for long calls. Ask AI answers, dataset reports and scraper runs hold one HTTP request
@@ -521,7 +581,11 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
   (damaged files copied aside), though the startup log says Settings does. Add a Clear action and a banner.
 - `ask-store.js` and `prompt-store.js` move a file aside on any read error other than "not found", including a
   transient I/O error.
-- Optional: debounce `emitState`; cache the v5 events replay.
+- Optional: debounce `emitState`.
+- Workflows: Ask AI has no run-workflow / set-workflow buttons or workflows block in its live context yet; the program
+  editor (`program-editor.jsx`) doesn't mount `ProgramNotesFields` (notes are set in playbook setup and kept on save);
+  `trend-cards` parity lives in `monday-cards.js` (the Monday area's server cards) and `helpTrendStage` stays in
+  index.js; desktop schedules run only while the app is open. Workflows run only in the active workspace.
 - No per-person limit on Ask AI questions in flight.
 - Codex's `web_search` tool stays on (turning it off risks a config error on older CLIs).
 
@@ -565,12 +629,12 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
 
 ### Cleanup, dependencies and release
 
-- 13 IPC methods have no UI caller (`generateAssets`, `saveCard`, `moveCard`, `saveAsset`, `exportAssetPack`,
-  `saveMission`, `listMissions`, `getJob`, `readEvidence`, `openAssetsFolder`, `setThemeStatus`, `readReferenceDoc`,
-  `readStudioRun`). Some are still used by Workflows (`executeIntentStep`, `retryJob`), and `generateAssets` starts paid
-  AI with no estimate screen. The comment block above them in `index.js` says how to remove one safely.
-- Dead exports in used files (`PaletteHint`, `Panel`, `isPreview`, `readyLine`, `findNavItem`, parts of
-  `dashboard.js`, `evaluateArtifact` in `v5-ui-core.js`) and about 84 unused CSS classes in `styles.css`,
+- A few IPC methods have no UI caller (`saveAsset`, `exportAssetPack`, `readEvidence`, `openAssetsFolder`,
+  `setThemeStatus`, `readReferenceDoc`, `readStudioRun`). The comment block above them in `index.js` says how to remove
+  one safely. The v5 mission, intent and card methods (`generateAssets` among them) were removed with Workflows; the
+  `data.workflow-asset-pack` prompt and AI task they used are still listed and now unused.
+- Dead exports in used files (`Panel`, `isPreview`, `readyLine`, `findNavItem`, parts of `dashboard.js`) and about
+  84 unused CSS classes in `styles.css`,
   `semrush-tools.css`, `premium.css` and `workflow.css`.
 - Two ESLint rules-of-hooks false positives (`useReport` in `content-studio-view.jsx`, `useWorkbook` in
   `research-knowledge.jsx` are plain async functions); rename them and delete the override in `eslint.config.js`.
@@ -636,7 +700,8 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
 | Quick scan | a research run with `origin: 'quick-scan'` |
 | Research program | `programs` in `state.json`; `research-program.js` |
 | Edition | `editionId`: `'semrush'` or `'general'` |
-| Scrapers / Workflows / Playbooks / Activity | pages `automation` (recipes) / `missions` (v5 engine) / `templates` (`marketing-templates.js`) / `runs` |
+| Scrapers / Brief starters / Activity | pages `automation` (recipes) / `templates` (`marketing-templates.js`) / `runs` |
+| Workflows / Playbooks | pages `workflows` / `playbooks` (`missions` is an alias); `workflow-engine.js`, `playbooks.json` |
 | Dataset reports / Ask your datasets | pages `reports` (under the `data-tools` page group; analyses) / `chat` (`askFindings`, `findings-chat.js`) |
 | Ask AI | `help:*` channels, `help-assistant.js`, `askHelp` |
 | Show me target | a `data-spot` attribute plus an entry in `help-spots.json` |

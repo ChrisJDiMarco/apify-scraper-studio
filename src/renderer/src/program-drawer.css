@@ -1,0 +1,59 @@
+/* Home's quick editor for a research program: a sheet docked right, above the Ask AI drawer and the bottom nav (80) and
+   below dialogs (85), so Discard and Turn on schedule confirmations show over it. Full screen under 860px. Tokens only;
+   the reused .cs-* program fields read --cs-* tokens, mapped here to the frame's --s-* set. */
+.pd-backdrop { position: fixed; inset: 0; z-index: 84; display: flex; justify-content: flex-end; background: color-mix(in srgb, var(--s-ink, #181e15) 45%, transparent); animation: pd-fade 180ms var(--s-ease, ease) both; }
+.pd-sheet {
+  --cs-ink: var(--s-ink, #181e15); --cs-muted: var(--s-muted, #62685e); --cs-border: var(--s-line, #e3e8e4); --cs-border-accent: var(--s-accent, #c190ff); --cs-accent: var(--s-ink, #181e15); --cs-soft: var(--s-soft, #f1eaff); --cs-paper: var(--s-card, #fff);
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; width: min(600px, 100vw); height: 100dvh; padding-bottom: env(safe-area-inset-bottom); color: var(--s-ink, #181e15); background: var(--s-card, #fff); border-left: 1px solid var(--s-line, #e3e8e4); box-shadow: var(--s-shadow, 0 12px 32px rgba(0, 0, 0, .12)); outline: none; animation: pd-slide 220ms var(--s-ease, ease) both;
+}
+.pd-head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px 12px; border-bottom: 1px solid var(--s-line, #e3e8e4); }
+.pd-head-copy { flex: 1; min-width: 0; }
+.pd-eyebrow { font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted, #62685e); }
+.pd-head h2 { margin: 2px 0 4px; font-size: 19px; line-height: 1.25; letter-spacing: -.3px; overflow-wrap: anywhere; }
+.pd-head p { margin: 0; font-size: 13px; color: var(--s-muted, #62685e); }
+.pd-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+
+.pd-jump { display: flex; gap: 6px; padding: 10px 20px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--s-line, #e3e8e4); background: var(--s-card, #fff); }
+.pd-chip { position: relative; flex: none; min-height: 30px; padding: 4px 12px; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--s-ink, #181e15); background: var(--s-bg, #f4f6f5); border: 1px solid transparent; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.pd-chip:hover { border-color: var(--s-line-strong, #cfd6d0); }
+.pd-chip[aria-current="true"] { color: var(--s-soft-ink, #5a2fa0); background: var(--s-soft, #f1eaff); }
+.pd-chip:focus-visible { outline: 2px solid var(--s-focus, var(--s-ink, #181e15)); outline-offset: 2px; }
+.pd-chip-dot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--s-danger, #8a2f1c); vertical-align: middle; }
+
+.pd-body { min-height: 0; overflow-y: auto; padding: 4px 20px 24px; overscroll-behavior: contain; }
+.pd-body fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.pe-group { display: grid; gap: 12px; padding: 18px 0; border-bottom: 1px solid var(--s-line, #e3e8e4); scroll-margin-top: 8px; }
+.pe-group:last-child { border-bottom: 0; }
+.pe-group > h3 { margin: 0; font-size: 15px; letter-spacing: -.2px; }
+.pe-group.has-error > h3::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 8px; border-radius: 50%; background: var(--s-danger, #8a2f1c); vertical-align: middle; }
+.pe-group .cs-group-intro, .pd-sheet .cs-estimate-note { margin: 0; font-size: 13px; color: var(--s-muted, #62685e); }
+.pd-sheet :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { width: 100%; min-height: 38px; padding: 7px 10px; font: inherit; font-size: 14px; color: var(--s-ink, #181e15); background: var(--s-card, #fff); border: 1px solid var(--s-line-strong, #cfd6d0); border-radius: var(--s-radius-control, 12px); box-sizing: border-box; }
+.pd-sheet textarea { min-height: 96px; resize: vertical; }
+.pd-sheet :is(input, select, textarea):focus-visible { outline: 2px solid var(--s-focus, var(--s-ink, #181e15)); outline-offset: 1px; }
+.pd-sheet .cs-source-group { background: var(--s-card, #fff); border-color: var(--s-line, #e3e8e4); }
+.pd-sheet .cs-source-group.selected { border-color: var(--s-accent, #c190ff); }
+.pd-sheet .cs-field label, .pd-sheet .cs-check strong { color: var(--s-ink, #181e15); }
+.pd-sheet .cs-field small, .pd-sheet .cs-check small { color: var(--s-muted, #62685e); }
+.pd-sheet .cs-ai-stages.is-open > div { display: grid; gap: 12px; }
+.pd-sheet .cs-ai-stages.is-open p { margin: 0; font-size: 13px; color: var(--s-muted, #62685e); }
+
+.pd-foot { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 20px; background: var(--s-card, #fff); border-top: 1px solid var(--s-line, #e3e8e4); }
+.pd-foot-status { flex: 1 1 200px; min-width: 0; }
+.pd-foot-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.pd-status { margin: 0; font-size: 13px; color: var(--s-muted, #62685e); }
+.pd-error { margin: 0; font-size: 13px; color: var(--s-danger, #8a2f1c); }
+.pd-conflict { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; font-size: 13px; color: var(--s-warn-ink, #6b5413); background: var(--s-warn, #fff4dc); border-radius: var(--s-radius-control, 12px); }
+.pd-conflict svg { flex: none; margin-top: 2px; }
+.pd-conflict p { margin: 0 0 6px; }
+.pd-conflict-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+@keyframes pd-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pd-slide { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+@media (max-width: 860px) {
+  .pd-sheet { width: 100vw; border-left: 0; }
+  .pd-head, .pd-jump, .pd-foot { padding-left: 16px; padding-right: 16px; }
+  .pd-body { padding-left: 16px; padding-right: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pd-backdrop, .pd-sheet { animation: none; }
+}

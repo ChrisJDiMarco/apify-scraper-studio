@@ -305,6 +305,37 @@ function buildTrendHistory(source = {}, { now = new Date() } = {}) {
     span: { from: dates[0] || '', to: dates.at(-1) || '' }, weeks, runs, trends, categories: categoryRows(trends, weeks, source.taxonomy) };
 }
 
+// Momentum at review time ("momentum when found"), for workflow approval rules: the run waiting for review has only
+// discovery counts, so each of its trends is compared on the discovery basis with the same trend's previous research run
+// (this run's discovery share against that run's), with the tracker's MOMENTUM thresholds. 'new' on a first appearance.
+// Quick scans are left out. → { [themeId]: 'new' | 'rising' | 'steady' | 'fading' } for the run's discovered themes.
+function reviewMomentum(source = {}, runId = '') {
+  const ordered = (Array.isArray(source.runs) ? source.runs : []).filter((run) => run?.id && originOf(run) === 'research').map((run) => ({ run, date: runDate(run), origin: 'research' }))
+    .sort((a, b) => a.date.localeCompare(b.date) || String(a.run.createdAt || '').localeCompare(String(b.run.createdAt || '')) || a.run.id.localeCompare(b.run.id));
+  const at = ordered.findIndex((entry) => entry.run.id === runId);
+  if (at < 0) return {};
+  const observed = ordered.slice(0, at + 1).filter((entry) => observedRun(entry.run));
+  const nodes = [];
+  for (const entry of observed) {
+    const seen = new Set();
+    for (const theme of runThemes(entry.run)) { if (seen.has(theme.id)) continue; seen.add(theme.id); nodes.push({ ...entry, runId: entry.run.id, theme, profile: profileOf(theme), nameKey: trendNameKey(theme.name) }); }
+  }
+  // Discovery numbers only: tagged counts and history snapshots would put later runs on a different basis.
+  const raw = isObject(source.themeStats) ? source.themeStats : {};
+  const stats = Object.fromEntries(Object.entries(raw).map(([id, entry]) => [id, { retained: entry?.retained, discoveryEligible: entry?.discoveryEligible, discovery: entry?.discovery || {} }]));
+  const empty = new Map(); const result = {};
+  for (const group of linkAppearances(nodes, Array.isArray(source.repository) ? source.repository : [])) {
+    const mine = group.filter((index) => nodes[index].runId === runId);
+    if (!mine.length) continue;
+    const latest = appearanceOf(nodes[mine[0]], stats, empty);
+    const earlier = group.filter((index) => nodes[index].runId !== runId).map((index) => appearanceOf(nodes[index], stats, empty)).filter((entry) => share(entry.share) !== null);
+    const previous = earlier.at(-1) || null;
+    const momentum = previous ? shareDirection(latest, previous) || 'steady' : group.some((index) => nodes[index].runId !== runId) ? 'steady' : 'new';
+    for (const index of mine) result[nodes[index].theme.id] = momentum;
+  }
+  return result;
+}
+
 const reportOf = (trend) => trend.reports.find((report) => report.deliverableId === 'evidence-report') || trend.reports[0] || null;
 // The renderer's trend shape (Home, Trends cards, the Trend board, chat trend cards).
 function compactTrend(trend) {
@@ -491,4 +522,4 @@ function buildTrendTrackerWorkbook(source = {}, { now = new Date() } = {}) {
     sheets: [timelineSheet(history), weeklySheet(history), categorySheet(history), runLogSheet(source)] };
 }
 
-module.exports = { TREND_TRACKER_ID, TRACKER_SHEETS, MOMENTUM, SIMILARITY, MOMENTUM_LABELS, trendNameKey, trendSimilarity, isoWeek, runThemes, computeThemeStats, momentumFor, buildTrendHistory, compactTrend, trendChanges, trendMemoryDigest, findTrend, normalizeText, queryTerms, rankPosts, buildTrendTrackerWorkbook };
+module.exports = { TREND_TRACKER_ID, TRACKER_SHEETS, MOMENTUM, SIMILARITY, MOMENTUM_LABELS, trendNameKey, trendSimilarity, isoWeek, runThemes, computeThemeStats, momentumFor, reviewMomentum, buildTrendHistory, compactTrend, trendChanges, trendMemoryDigest, findTrend, normalizeText, queryTerms, rankPosts, buildTrendTrackerWorkbook };

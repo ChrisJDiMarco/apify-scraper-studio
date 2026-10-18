@@ -182,17 +182,3 @@
 .ws-replies { display: grid; gap: 6px; margin: 0; padding: 0 0 0 14px; list-style: none; border-left: 2px solid var(--ws-line); font-size: 12px; line-height: 1.5; color: var(--ws-ink); }
 @media (max-width: 800px) { .ws-summary-cta { grid-template-columns: auto 1fr; } .ws-summary-cta > button { grid-column: 1 / -1; justify-self: start; } }
 
-/* Workflows. */
-.ws-field { display: grid; gap: 6px; font-size: 12px; font-weight: 600; }
-.ws-field select, .ws-field textarea { font-weight: 400; }
-.ws-suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
-.ws .ws-suggestion { min-height: 30px; padding: 5px 11px; border: 1px solid var(--ws-line); border-radius: 999px; background: var(--ws-paper); color: var(--ws-ink); font-size: 11px; font-weight: 500; box-shadow: none; }
-.ws .ws-suggestion:hover:not(:disabled) { background: var(--ws-accent-soft); border-color: color-mix(in srgb, var(--ws-ink) 20%, var(--ws-line)); }
-.ws-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; counter-reset: step; }
-.ws-steps li { position: relative; padding: 2px 0 2px 38px; counter-increment: step; }
-.ws-steps li::before { content: counter(step); position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font-size: 11px; font-weight: 700; background: var(--ws-accent-soft); color: var(--ws-ink); }
-.ws-steps strong { font-size: 13px; }
-.ws-steps p { margin: 3px 0 0; font-size: 12px; line-height: 1.5; color: var(--ws-muted); }
-.ws-plan-empty { display: grid; justify-items: center; align-content: center; gap: 6px; min-height: 220px; text-align: center; color: var(--ws-muted); }
-.ws-plan-empty h3 { color: var(--ws-ink); }
-.mission-details.ws-card > summary { cursor: pointer; font-size: 13px; font-weight: 600; }

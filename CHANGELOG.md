@@ -41,8 +41,53 @@ below is merged (0.4.0 is suggested) and tag that commit.
   (24), `engines`, `"private": true`, `.env.example`, Electron fuses, a `basic-ftp` override (production audit clean).
 - **Docs**: `HANDOFF.md`, `ARCHITECTURE.md`, `RUNBOOK.md`, `SECURITY.md`, `CONTRIBUTING.md`, this changelog,
   `docs/README.md`, the docs archive, `scripts/make-handoff.sh` and `test/docs-consistency.test.js`.
+- **Settings section nav** (wave 3): a left nav grouped Collection, AI, Brand, Integrations and Studio, sticky on wide
+  screens and a **Jump to** menu on narrow ones, with a status dot per section, scroll-spy, keyboard support and
+  `#/settings/<section>` links (`settings-sections.js`, `settings-nav.jsx`, `section-spy.js`). Setup steps open their
+  section. Connection diagnostics names saved keys that can't be read and data files that were set aside.
+- **One-workspace builds** (wave 3): package.json `studioWorkspace` (on for the Semrush package) and
+  `STUDIO_WORKSPACE_MODE` / `STUDIO_WORKSPACE_NAME` give the studio one workspace, **Main**, with no switcher. Other
+  workspaces are hidden, never deleted (backup `state.before-single-workspace.json`; undo with
+  `STUDIO_WORKSPACE_MODE=multi`).
+- **Home → Research programs** (wave 3, admins): schedule, next and last run, sources and budgets per program, with Run
+  now, Pause/Resume schedule and a quick-edit drawer holding every program setting (`home-programs.jsx`,
+  `program-drawer.jsx`, `program-editor.jsx`). The program form gains Theme match confidence and Accept matches
+  automatically at; saving an edited program now sends `baseUpdatedAt`, so a save over someone else's is refused.
+- **Monday.com, plug and play and two-way** (wave 3B): Settings → Monday.com connects with a tested token, picks or
+  makes a board, matches columns and stage labels, and sets sync rules with a call-budget estimate. The server builds
+  the cards and sends only changed columns, on its own (as changes happen, hourly or daily) or on Sync now (a background
+  job); changes come back by webhook on the web (`POST /hooks/monday/<secret>`) or polling, with Yes/Skip accepted only
+  while a trend waits for an OK. Studio key lookups and persisted `unsure` creates stop duplicates; a sync log, chips on
+  Trends cards in both layouts, Open in Monday, comments, owner and dates (`monday-engine.js`, `monday-cards.js`,
+  `monday-store.js`, `src/shared/monday.json`, `monday-settings.jsx`, `monday-ui.jsx`). New methods: `connectMonday`,
+  `testMondayConnection`, `listMondayBoards`, `readMondayBoard`, `createMondayBoard`, `fixMondayBoard`,
+  `saveMondayLink`, `disconnectMonday`, `readMondaySyncLog`, `readMondayItem`.
+- **Workflows and playbooks, rebuilt** (wave 3B, Advanced › Automate): workflows are saved automations over research
+  programs and quick scans: a schedule (or every few hours for quick scans), whenever a program runs, or by hand; then
+  Find trends or Quick scan → Approve trends (rules on momentum when found, priority and speed; wait for review; or all)
+  → Write reports → Make channel assets → Update Monday.com → Tell the team. A step rail, run history with links,
+  Pause/Resume/Stop/Try again, Pause all for admins, approved per-run and per-month budgets bound to a hash of the paid
+  setup, owner access re-checked per step, auto-pause after three failures (`workflow-engine.js`, `workflow-store.js`,
+  `src/shared/workflow-core.js`, `workflow-steps.json`, `workflows-view.jsx`, `workflow-editor.jsx`). Playbooks
+  (`playbooks.json`: Weekly SEO trend watch, Competitor launch watch, Product launch pulse, Newsletter prep, PR angle
+  finder, Start from scratch, plus team playbooks) set up a program and a workflow in a six-step sheet with the cost
+  (`playbooks-view.jsx`, `playbook-setup.jsx`). Program **notes for the AI** and an assets step's notes go into the
+  prompts only when set. Home **Automations** card, Inbox rows (waiting for an OK, needs a budget, draft to approve,
+  finished, stopped), Activity entries, palette **Run <workflow>…**, New › Playbook. Capabilities `readWorkflows` and
+  `manageWorkflows` (policy version 2); 13 new methods: `estimateWorkflow`, `readWorkflowRun`, `previewPlaybook`,
+  `saveWorkflow`, `setWorkflowStatus`, `deleteWorkflow`, `runWorkflow`, `cancelWorkflowRun`, `retryWorkflowRun`,
+  `approveWorkflowBudget`, `applyPlaybook`, `savePlaybook`, `deletePlaybook`.
 
 ### Changed
+- Data tools' **Playbooks** are now **Brief starters** (under Collect); Data tools has no Automate group.
+- **Removed** the v5 mission engine, the intent planner and the action graphs (and their second scheduler, onboarding,
+  evals and release diagnostics), with 16 methods: `listMissions`, `saveMission`, `runMission`, `runActionGraph`,
+  `pauseMission`, `scheduleMission`, `exportMissionBundle`, `planIntent`, `runIntent`, `runIntentAction`, `retryJob`,
+  `generateAssets`, `saveCard`, `moveCard`, `getJob`, `readJobLog`. `state.v5` is `{ recipeVersions }`, read from
+  `v5/events.jsonl` only when it changes; the folder stays on disk. `mission-command.jsx` became `command-palette.jsx`.
+- `syncTrendBoardToMonday` takes `{ keys?, full? }` and returns `{ jobId, queued }`; the renderer no longer sends cards.
+  `saveMondayBoard` and `clearMondayBoard` are replaced by `saveMondayLink` and `disconnectMonday`. The Monday board
+  setup moves from `config.json` to `content-studio/monday.json` on first start (sync stays manual until turned on).
 - **Breaking (browser studio)**: company sign-in requires `STUDIO_TRUSTED_PROXY_CIDRS` or `STUDIO_PROXY_SECRET`;
   the launcher refuses to run as root without `STUDIO_RUN_AS`.
 - The data-folder lock records host, boot and a 30-second heartbeat and takes over locks left by killed processes

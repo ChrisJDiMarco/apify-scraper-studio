@@ -186,8 +186,6 @@
 .app-shell[data-edition="semrush"] .thread-replies p { border-color: var(--st-lavender); }
 .app-shell[data-edition="semrush"] .cluster-score { color: var(--st-ink); background: var(--st-mint); border-color: var(--st-line); }
 .app-shell[data-edition="semrush"] :is(.asset-edit-form select, .asset-factory select, .asset-library-tools select, .dataset-tools select, .context-select) { color: var(--st-ink); border-color: var(--st-line); }
-.app-shell[data-edition="semrush"] :is(.v5-hero-copy, .v5-mission-card, .v5-action-graph, .v5-evidence-browser, .v5-job-monitor, .v5-artifact-studio, .v5-release, .v5-diagnostics, .v5-watch-panel) { background: var(--st-surface); border-color: var(--st-line); }
-.app-shell[data-edition="semrush"] .v5-icon { color: var(--st-ink); }
 
 /* The collection overview remains a useful secondary home, with the same palette. */
 .app-shell[data-edition="semrush"] .home-view .welcome-card { background: linear-gradient(120deg, var(--st-mint), var(--st-lavender-soft)); border-color: var(--st-line); }

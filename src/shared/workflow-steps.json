@@ -1,0 +1,22 @@
+{
+  "//": "The workflow step catalog, read by the main process (src/shared/workflow-core.js, src/main/workflow-engine.js) and the renderer (workflow-model.js, workflow-editor.jsx). `methods` are the RPC methods a step calls for its owner: the engine checks the owner may still call every one before the step runs. `spends` steps run only inside the workflow's approved budget (or a one-off cap the person confirmed). Icons are lucide component names.",
+  "steps": {
+    "research": { "label": "Find trends", "icon": "Radar", "spends": true, "methods": ["startResearchRun"], "source": true },
+    "quick-scan": { "label": "Quick scan", "icon": "ScanSearch", "spends": true, "methods": ["startQuickScan"], "source": true },
+    "approve": { "label": "Approve trends", "icon": "CircleCheck", "spends": false, "methods": ["decideResearchTheme", "approveResearchThemes"] },
+    "reports": { "label": "Write reports", "icon": "FileText", "spends": true, "methods": ["continueResearchRun"] },
+    "assets": { "label": "Make channel assets", "icon": "Images", "spends": true, "methods": ["createAssetKit"] },
+    "monday": { "label": "Update Monday.com", "icon": "SquareKanban", "spends": false, "methods": ["syncTrendBoardToMonday"] },
+    "notify": { "label": "Tell the team", "icon": "Bell", "spends": false, "methods": [] }
+  },
+  "order": ["research", "quick-scan", "approve", "reports", "assets", "monday", "notify"],
+  "afterResearch": ["approve", "reports", "assets", "monday", "notify"],
+  "afterQuickScan": ["notify"],
+  "momentum": { "new": "New", "rising": "Rising", "steady": "Steady", "fading": "Fading" },
+  "priority": { "FAST-TRACK": "Fast-track", "STRONG": "Strong", "MONITOR": "Monitor", "LOW": "Low" },
+  "velocity": { "NEW": "New", "EMERGING": "Emerging", "ACCELERATING": "Accelerating" },
+  "approveModes": { "rules": "Approve by rules", "review": "Wait for someone’s OK", "all": "Approve every trend" },
+  "audiences": { "admin": "Admins", "editor": "Editors" },
+  "triggers": { "schedule": "On a schedule", "program-run": "Whenever a program runs", "manual": "Only when someone starts it" },
+  "limits": { "workflows": 30, "runsPerWorkflow": 100, "runsTotal": 2000, "playbooks": 30, "steps": 8, "rules": 4, "maxApprove": [1, 6], "waitHours": [1, 336], "defaultWaitHours": 48, "notesChars": 600, "noteChars": 280, "channels": 10, "everyHours": [1, 2, 3, 4, 6, 8, 12], "untilDays": 31, "nameChars": 80, "descriptionChars": 280, "oneOffCapUsd": [0.5, 1000], "budgetUsd": [0.5, 5000], "failuresBeforePause": 3 }
+}

@@ -190,8 +190,9 @@ describe('the gate on the browser studio', () => {
     const team = await chris('team:list');
     expect(team.access).toMatchObject({ rev: expect.any(Number), groups: expect.any(Array), roles: expect.arrayContaining([expect.objectContaining({ id: 'editor', builtIn: true })]) });
     expect(team.members.find((member) => member.id === 'member-riley')).toMatchObject({ role: 'editor', roleLabel: 'Editor', base: 'editor', grants: [], denies: [], capabilities: expect.arrayContaining(['startResearch', 'viewPrompts']) });
-    // Turn off Start research for Editor: Riley is refused, naming it, and her state no longer lists it.
-    const saved = await chris('team:role-policy', { rev: team.access.rev, builtIn: { editor: { grant: [], deny: ['startResearch'] } } });
+    // Turn off Start research for Editor (and Build and run workflows, which needs it): Riley is refused, naming it, and
+    // her state no longer lists it.
+    const saved = await chris('team:role-policy', { rev: team.access.rev, builtIn: { editor: { grant: [], deny: ['startResearch', 'manageWorkflows'] } } });
     expect(saved).toMatchObject({ affected: expect.any(Number), access: { rev: team.access.rev + 1 } });
     expect(saved).not.toHaveProperty('audit');
     await expect(riley('studio:startResearchRun', { programId: 'program-pulse' })).rejects.toMatchObject({ status: 403, code: 'capabilityOff', message: expect.stringContaining('“Start research”') });

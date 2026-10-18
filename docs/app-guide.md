@@ -16,7 +16,8 @@ The research pipeline reproduces the team's earlier n8n "Golden Thread" workflow
 - Each workspace has an **edition**, fixed at creation. **Semrush workspace** has Semrush branding, prompts tuned to SEO and search marketing, starter brand knowledge, and Semrush editorial formats (Backlinko, Exploding Topics, Search Engine Land). **General** (listed as **Your brand**) runs the same pipeline for any brand.
 - A fresh install has **Semrush workspace** and **Your workspace** (General). The Mac app opens in the Semrush workspace, where the sidebar shows the Semrush wordmark and "Research & content studio": the Semrush edition of Scraper Studio.
 - Admins switch workspaces with the workspace switcher at the top of the left sidebar (the workspace's name, with your role and layout under it). Its list ends with **New workspace**, which opens a **Create a workspace** form in Brand knowledge; **New → Workspace** does the same. Editors and channel owners see the workspace name there and follow the studio's active workspace.
-- Settings (keys, the Claude connection, Google and Monday.com) apply to every workspace on the Mac. Only admins see Settings.
+- Some builds, like the Semrush package, have one workspace, **Main** (Semrush edition): the sidebar shows only its name, with no switcher and no **New workspace**, and its name can't be changed. Settings → **Files & workspace** says so.
+- Settings (keys, the Claude connection, Google and Monday.com) apply to every workspace on the Mac; a Monday.com board is linked per workspace. Only admins see Settings.
 
 ### The flow, end to end
 
@@ -84,7 +85,7 @@ Advanced layout, Semrush workspace: **Research** (**Home**, **Inbox**, **Researc
 
 Advanced layout, General workspace: **Workspace** (**Content studio**, with its own tabs for Overview, Research programs, Trend board, Create content, Library and Brand knowledge; **Overview**, the collection overview; **Sheets**; **Inbox**; **Calendar**).
 
-Both editions then have **Data tools**, a group that opens and closes and stays as you left it on this computer: **Collect** (**Search platforms**, **Scrapers**, **Import research**), **Analyze** (**Datasets**, **Dataset reports**, **Compare snapshots**, **Ask your datasets**), **Automate** (**Playbooks**, **Workflows**), then **Activity**. It starts closed where the studio has a content workspace. While it's closed, its button names the Data tools page you have open. The Semrush sidebar has no Collection overview; its tools are all under Data tools. A role without data tools doesn't see the group.
+Both editions then have **Data tools**, a group that opens and closes and stays as you left it on this computer: **Collect** (**Search platforms**, **Scrapers**, **Import research**, **Brief starters**), **Analyze** (**Datasets**, **Dataset reports**, **Compare snapshots**, **Ask your datasets**), then **Activity**. After **Content** (Semrush) or **Workspace** (General) comes **Automate** (**Playbooks**, **Workflows**), for roles that can see workflows. It starts closed where the studio has a content workspace. While it's closed, its button names the Data tools page you have open. The Semrush sidebar has no Collection overview; its tools are all under Data tools. A role without data tools doesn't see the group.
 
 In the Advanced layout, the top bar shows the workspace name and the page you're on (workspace › page), a working note while quick tasks run, and **Refresh workspace**. Search and Ask AI live in the sidebar.
 
@@ -97,7 +98,7 @@ In the Advanced layout, the top bar shows the workspace name and the page you're
 - **Research programs**: **Find new trends with <program>** shows the estimate and asks before it starts.
 - **Prompts** (**Open prompt: <name>**) and **People** (**People: <name>**), for admins.
 - **Create**: the same things as **New**.
-- **Actions**: switch layout (or **Back to Simple**), **Open Ask AI**, **Write reports**, **Copy briefing for Slack**, **Mark Inbox read**, **Create a new scraper** and saved workflows.
+- **Actions**: switch layout (or **Back to Simple**), **Open Ask AI**, **Write reports**, **Copy briefing for Slack**, **Mark Inbox read**, **Create a new scraper**, and **Run <workflow>…** and **Workflows: <name>** for each workflow.
 - Whatever you type can go to Ask AI: the last result is **Ask AI: <what you typed>**.
 
 Pages show their ⌘ number. ↑ and ↓ move, Enter opens, Esc closes.
@@ -206,6 +207,7 @@ These pages and tools are for a marketing team that uses the studio every day: w
 - **Ready for your channels**: once you've picked **My channels**, the newest reports open to those channels, with their answers.
 - **Shipped**: channels that said this week they're using a trend, with the link to what went out, and files marked **Published**.
 - **Working now**: what's running, while something runs.
+- **Research programs** (admins who manage programs, right column): each program's schedule (**Schedule on**, **Paused** or **On demand**), **Next:** and **Last:** run, its sources (X, Reddit, LinkedIn counts) and its per-run budgets with the last run's cost. **Run now** starts it after the usual estimate; **Edit** opens a quick editor beside the page with every program setting in groups (**Name & focus**, **Sources**, **Schedule & dates**, **Budgets & estimate**, **AI models**, **Automation**, **Advanced**), jump buttons, **Save program**, **Discard** and **Open full page**. Turning a schedule on asks first, with the caps and the estimate. The **…** menu has **Pause schedule** / **Resume schedule** (Resume confirms the caps) and **Open in Research programs**. **Add program** opens the same editor empty.
 
 Above the cards:
 
@@ -432,6 +434,8 @@ Models: Claude Fable 5.1, Claude Opus 5.5, Claude Sonnet 5.5, Claude Haiku 4.5. 
 | **Reddit communities per Apify run** | 6 | Smaller groups run in parallel and finish sooner |
 | **Apify runs at once per platform** | 4 | Parallel Apify jobs per platform |
 | **Tagging batch size per platform** | X 50, LinkedIn 40, Reddit 50 | Posts per tagging batch |
+| **Theme match confidence** | 0.55 | A tagged post joins a theme at this confidence or higher |
+| **Accept matches automatically at** | 0.7 | Matches below this wait for review |
 | **Include undated evidence in a dated search** | Off | Keep posts with no date |
 
 **Save research program** never starts a run. With **Enable scheduled runs** ticked, it schedules the next run.
@@ -565,7 +569,7 @@ Columns:
 
 An empty column says what comes next. Cards show the priority tier (hover it to see the score), the momentum badge (**New**, **Rising**, **Steady** or **Fading**, from the Trend tracker), novelty, name, description, number of sources (posts cited during discovery), how many research runs found it ("Seen in N runs", or velocity **New** / **Seen twice** for a first or second sighting), a small chart of posts per run once it was seen more than once, taxonomy category, platforms, date and program. In Needs your OK, use **Yes** and **Skip**; the arrow beside **Yes** holds **Yes, with a note…** (see [Saying yes with a note](#saying-yes-with-a-note)), and **Why it matters** with **Show 2 real posts** sits on each card. Decided cards say who decided and when, with any note and the channels it's for. In Approved, use **Undo**. You can also drag cards between Needs your OK, Approved and Skipped. Decisions are only possible while the run is awaiting review.
 
-Newest runs come first, then higher tiers, then more evidence. **Find new trends** (for roles that can start or set up research; others see which admin to ask) opens Research programs. With Monday.com connected, **Sync to <board>** sends every card to your board (see [Settings](#settings)); Monday items keep their own status names (Potential trend, Approved, In production, Ready to use, Passed).
+Newest runs come first, then higher tiers, then more evidence. **Find new trends** (for roles that can start or set up research; others see which admin to ask) opens Research programs. With a Monday.com board linked, the header shows when trends were last sent, **Sync now** and **See log**, and each card has a chip: **Monday · <label>** (opens the item), **Waiting to send**, **Couldn't send** (editors get **Retry**), **Removed on Monday** or **Changed on Monday**, plus owner, due date and Monday notes. Admins without a board see **Connect Monday.com** (see [Settings](#settings)).
 
 ## Trend tracking over time
 
@@ -675,21 +679,33 @@ The **Data tools** group in the Advanced sidebar holds the tools for collecting 
   - **Search platforms**: a quick topic or account search across Reddit, X and LinkedIn in three tabs: **Search brief**, **Sources & filters** and **Review & run**. **Results per source** defaults to 10 (maximum 50; Reddit needs at least 10). **Apify budget per source (USD)** defaults to $0.25. Click **Search selected sources**.
   - **Scrapers**: save and run your own Apify Actor or saved-task recipes. Each run has an Apify budget and timeout (by default $5 and 15 minutes, shown on the scraper); a run stopped at its limit keeps its rows, marked as stopped early. **Test a small sample** is capped at $1 and 3 minutes, shows as "<name> (test)" under **N running**, and can be stopped there.
   - **Import research**: bring in CSV, JSON or JSONL with column mapping.
+  - **Brief starters** (formerly Playbooks): eight guided research briefs over a dataset or public pages, such as Competitor positioning brief and Voice of customer brief.
 - **Analyze**
   - **Datasets**: browse collections with the **Explorer**, **Signals**, **Conversations**, **Topics** and **Coverage** tabs. Export CSV or JSONL.
   - **Dataset reports** (formerly AI reports): reports the AI writes from one dataset, with a review and approval panel and exports. These are not the trends reports from research.
   - **Compare snapshots**: compare two collections of the same sources over time.
   - **Ask your datasets** (formerly Chat with findings): ask questions across up to eight datasets, with checked citations. Posts collected by research programs aren't datasets yet, so the page points you to Ask AI, which can search them.
-- **Automate**
-  - **Playbooks**: eight guided marketing briefs, such as Competitor positioning brief and Voice of customer brief.
-  - **Workflows**: describe a goal, preview the steps, then **Run reviewed plan**.
 - **Activity**: a timeline of collections, research (quick scans included), content and AI work. It shows **Running now**, **Waiting on you**, **Needs attention** and **AI spend this week**. Select an entry for details, actions and **Technical details**.
 
-In the General workspace, the sidebar's **Overview** is the collection overview: shortcuts to collections, playbooks, scrapers and recent activity. The Semrush sidebar leaves it out.
+In the General workspace, the sidebar's **Overview** is the collection overview: shortcuts to collections, brief starters, scrapers and recent activity. The Semrush sidebar leaves it out.
+
+
+## Workflows and playbooks
+
+**Workflows** (Advanced › Automate) are saved automations. Triggers: a schedule (daily, weekly, monthly, or every few hours until a last day, for quick scans), **Whenever “<program>” runs**, or by hand. Steps, in order: **Find trends** (a research program) or **Quick scan**; **Approve trends** (by rules, by waiting for someone’s OK, or every trend); **Write reports**; **Make channel assets**; **Update Monday.com**; **Tell the team** (an Inbox row, with **Copy summary for Slack**). After a quick scan, only Tell the team.
+
+- Rules use **momentum when found** (compared with the program’s last run), priority and speed. A person’s Yes or Skip always wins; trends nobody decided are skipped when the wait ends (or the run stops, if you chose that).
+- Nothing runs on its own until an admin approves a budget: **Each run** and **Each month**, never more. A run that would go over waits (**Needs a bigger budget**, in the Inbox). Changing what it may spend (program caps, channels, pictures, how many trends, how often) needs a new approval. **Run now…** always shows the cost first; a workflow without a budget asks for a cap for that run. On Codex the caps are guides.
+- A workflow runs with its owner’s access. If the owner loses a step, it pauses and an admin can **Take over**. Three failed runs in a row pause it too. **Try again** picks up where a run stopped and never pays twice.
+- On the Mac, schedules run while the studio is open. A program’s own schedule and a scheduled workflow can’t both run it.
+
+**Playbooks** (Automate, **New › Playbook**, or Home’s **Automations** card) are ready-made setups: Weekly SEO trend watch, Competitor launch watch, Product launch pulse, Newsletter prep, PR angle finder, or Start from scratch. **Set up** walks through six steps (Basics, Research, Approval, Reports and assets, Schedule and sharing, Review and cost). It makes a research program (accounts copied from yours, or entered) or uses one as it is, then the workflow. **Notes for the research**, **for the writers** and **for channel assets** are added to the prompts for that workflow only. **Save and turn on** approves the budget; people who can’t approve choose **Save for an admin to approve**.
 
 ## Settings
 
-Sections, top to bottom:
+A section list on the left (a **Jump to** menu on a phone) groups the page: **Collection**, **AI**, **Brand**, **Integrations** and **Studio**. A dot beside a section shows its state: green when it's set up, amber when it needs setup (Apify not connected, a Monday.com board to choose), red when something is broken (a saved key the studio can't read, a failed sync). Choosing a section scrolls to it; setup buttons elsewhere open the right section, and a link like `#/settings/monday` opens it directly.
+
+Sections, top to bottom (Monday.com comes after Google Sheets):
 
 - **Connect your tools**: badges for **Apify saved / Apify missing** and **Sheets saved / Sheets optional**.
 - **Source collection** (first, in both editions; marked **Setup needed** until the Apify token is saved, and Settings in the sidebar shows an amber dot until then): **Apify API token** (**Save**, and **Clear**, which is off when nothing is saved) and **Maximum rows to download** (the most rows the studio downloads from one scraper run; each scraper's own settings decide how much it collects and what it costs, and research programs set their own limits).
@@ -699,7 +715,7 @@ Sections, top to bottom:
 - **Model routing** (admins): which connection, model and effort each AI job uses (finding trends, tagging, reports, every channel asset, pictures, the short video, Ask AI, data tools), with a typical cost and a status per job. Start from a preset (**Balanced**, the tuned default; **Lowest cost**; **Highest quality**); its effect is shown before anything is saved. **Test…** runs one job's prompt on the sample after showing its estimate. **Save routing** applies it to new runs; runs that already started keep what they started with. A research program can choose its own model for a stage (**AI for this program**); that wins for its runs.
 - **Brand reference images**: what the studio's pictures should look like. One set per kind of picture: in the Semrush workspace **Semrush campaign graphics** (Social Team — Hero Graphic), **Search Engine Land editorial heroes** and **Search Engine Land social graphics**; in the general workspace **Campaign graphics**. Each set holds up to 6 PNG, JPEG or WebP pictures under 10 MB: **Add style example…** and **Add approved logo…** (one logo per set; n8n's SEL hero used five style examples and the 2026 SEL logo). A picture's menu switches it between **Style example** and **Approved logo**, and the bin button removes it after you confirm. The pictures are kept in the studio's data folder (in the browser studio, on the studio server). Every picture the studio draws sends its set: channel asset pictures, Create content pictures, Ask AI pictures (Ask AI picks the set) and picture test runs in Prompts. A run keeps the set it started with.
 - **Google Docs**: **Google Docs access token** with **Connect Docs** and **Disconnect**. Tokens expire.
-- **Monday.com**: **Monday.com API token** (**Connect**, **Disconnect**) and **Board ID** (**Use this board**, **Forget board**). Each trend card becomes an item whose Status column follows the card's stage, in Monday's own words: Needs your OK is **Potential trend**, Approved is **Approved**, Being written is **In production**, Ready is **Ready to use**, and Skipped is **Passed**. A Long text column holds notes.
+- **Monday.com**: four steps. **Connect** (paste a token from Monday: profile picture → Developers → My access tokens; it is tested first), **Board** (**Use a board I have**, a pasted board link, or **Make a new board for me**), **Match columns** (each studio field to a Monday column, Stage labels, groups; **Add the missing columns** adds Studio key, which stops duplicates) and **Sync rules** (send as changes happen, hourly, daily or on **Sync now**; Yes and Skip from Monday; comments, owner and dates; check instantly or every few minutes; deleted items), with an estimate of Monday API calls a day. **Start syncing**. Then a summary with **Sync now**, **Retry failed**, **Edit setup**, **Pause syncing**, the **Sync log** and **How sync decides**. Yes or Skip on Monday counts only while a trend waits for an OK; later changes are changed back. Writing reports always starts in the studio. **Disconnect…** leaves items on Monday.
 - **Google Sheets** (the Sheets bridge): **Apps Script webhook URL**, the working spreadsheet and tabs, **Google Drive folders** for trend reports, toolkits, other Docs and Sheets exports, plus **Save sheet settings**, **Test bridge**, **Archive + clear**, **Pull working sheet** and **Replay**.
 - **Studio web address** (Mac only): the browser studio's address, so **Copy link** works on the Mac and links open in the browser studio. Leave it blank and Copy link stays hidden on the Mac.
 - **Share your setup**:
@@ -707,8 +723,8 @@ Sections, top to bottom:
   - **Import a setup file**: **Import setup…** previews the file: workspace, programs ("updates the existing program" when you already have it), what changes, and warnings. Then **Import this setup** or **Cancel**.
   - Importing replaces the brand knowledge, products, taxonomy and reference documents of the first workspace with the same edition, adds or updates the file's programs, keeps your other programs and run history, and switches to that workspace. Imported schedules arrive paused. **Save the Apify token from this file** stores the token if the file has one.
   - A file holding the token is like a password: anyone with it can spend on that Apify account. Share it only internally. A file holds up to 50 programs and 20 reference documents.
-- **Connection diagnostics**: **Check connections** reads every AI connection's status again (free). Cards show the Apify token, each AI connection, and the local data folder (in the browser studio, the studio server).
-- **Local files & workspace details**: **Open data folder** and **Open workspace**.
+- **Connection diagnostics**: **Check connections** reads every AI connection's status again (free). Cards show the Apify token, each AI connection, and the local data folder (in the browser studio, the studio server). A red note at the top names any saved key the studio can't read, and any data file it had to set aside at start.
+- **Local files & workspace details**: **Open data folder** and **Open workspace**. In a one-workspace build it also says "This build has one workspace" and lists workspaces kept on disk but hidden.
 
 In the browser studio, keys and tokens are saved on the studio server, and the fields say so ("Saved on the studio server").
 

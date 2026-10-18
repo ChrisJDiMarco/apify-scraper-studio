@@ -179,47 +179,57 @@ describe('state broadcasts', () => {
     const app = desktop(root, { fsModule });
     const payloadReads = () => reads.filter((file) => file === payload).length;
     try {
+      // The retired v5 projection is gone (state.v5 carries only Scrapers' recipe versions); the dataset intelligence in
+      // every push and evidence search share one parse per payload.
       const first = app.call('state'); app.call('state'); app.call('state');
+      expect(Object.keys(first.v5)).toEqual(['recipeVersions']);
       expect(payloadReads()).toBe(1);
-      expect(first.v5.datasetProfiles[0]).toMatchObject({ datasetId: 'dataset-1', rowCount: 2 });
-      expect(first.v5.evidenceSummary.total).toBeGreaterThan(0);
+      const found = app.call('search-evidence', { query: 'AI search' }); app.call('search-evidence', { query: 'AI search' });
+      expect(payloadReads()).toBe(1);
+      expect(found.length).toBeGreaterThan(0);
       fs.writeFileSync(payload, JSON.stringify({ rawItems: [], items: [row('1'), row('2'), row('3')] }));
-      expect(app.call('state').v5.datasetProfiles[0].rowCount).toBe(3);
+      expect(app.call('search-evidence', { query: 'AI search' }).length).toBeGreaterThan(found.length);
       expect(payloadReads()).toBe(2);
     } finally { app.close(); }
   });
 });
 
 describe('Monday.com sync', () => {
-  it('gives up on a request that doesn’t answer in time and stops the sync there', async () => {
+  it('gives up on a request that doesn’t answer in time, and never sends a create again after one', async () => {
     const monday = mainRequire('./monday-sync');
     let calls = 0;
     const fetchImpl = (_url, options) => new Promise((_resolve, reject) => { calls++; options.signal.addEventListener('abort', () => reject(options.signal.reason)); });
-    const request = monday.createMondayClient({ token: 'fixture-monday', fetchImpl, timeoutMs: 20 });
-    await expect(request('query { me { id } }')).rejects.toThrow('Monday.com did not answer in time. Try the sync again shortly.');
+    const request = monday.createMondayClient({ token: 'fixture-monday', fetchImpl, timeoutMs: 20, sleep: async () => {} });
+    await expect(request('query { me { id } }', {}, { idempotent: true })).rejects.toMatchObject({ kind: 'timeout', message: 'Monday.com didn’t answer in time.' });
     calls = 0;
-    const result = await monday.syncTrendCards(request, { boardId: '123' }, [{ key: 'a', stage: 'potential', name: 'A' }, { key: 'b', stage: 'potential', name: 'B' }]);
-    expect(result.failed).toEqual([{ key: 'a', name: 'A', error: 'Monday.com did not answer in time. Try the sync again shortly.' }]);
-    expect(calls).toBe(1); // the second card wasn't tried
+    const results = await monday.pushChunk(request, '123', [{ kind: 'create', name: 'A', values: {} }, { kind: 'create', name: 'B', values: {} }]);
+    expect(results.map((row) => row.error?.kind)).toEqual(['timeout', 'timeout']);
+    expect(calls).toBe(1); // one aliased request, not resent: the engine looks these keys up before creating anything
   });
 
-  it('runs one sync at a time, so two people syncing at once never create the same item twice', async () => {
+  it('runs one sync at a time on the real main process, so two people syncing at once never create the same item twice', async () => {
     const root = temp('safety-monday-');
-    fs.writeFileSync(path.join(root, 'config.json'), JSON.stringify({ keys: {}, monday: { boardId: '123', boardName: 'Trends', statusColumnId: 'status', notesColumnId: '', itemIds: {} } }));
+    fs.mkdirSync(path.join(root, 'content-studio'), { recursive: true });
+    const theme = { id: 't1', name: 'Trend A', description: 'Described.', evidenceIds: ['e1'], platforms: ['x'] };
+    fs.writeFileSync(path.join(root, 'content-studio', 'state.json'), JSON.stringify({ version: 1, activeWorkspaceId: 'general', workspaces: [{ id: 'general', name: 'Your workspace', editionId: 'general', knowledge: {}, products: [], createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' }], programs: [], researchRuns: [{ id: 'run-a', type: 'research', workspaceId: 'general', programId: '', title: 'Pulse', status: 'awaiting-review', createdAt: '2026-10-10T00:00:00Z', discoveredThemes: [theme], themes: [theme], decisions: {}, decisionsBy: {} }], contentRuns: [], themes: [], history: [], detections: [], assets: [], exports: [], datasetOwners: {} }));
+    fs.writeFileSync(path.join(root, 'content-studio', 'monday.json'), JSON.stringify({ version: 1, account: null, links: { general: { rev: 1, active: true, linkedAt: '2026-10-01T00:00:00Z', boardId: '123', boardName: 'Trends', columns: { stage: 'status', studioKey: 'studio_key' }, columnInfo: { status: { title: 'Stage', type: 'status' }, studio_key: { title: 'Studio key', type: 'text' } }, statusLabels: {}, groups: { by: 'none', ids: {}, defaultGroupId: 'topics' }, push: { mode: 'manual', from: 'all', includeSkipped: true, postUpdates: false }, pull: { mode: 'manual' }, onDeleted: 'leave' } }, items: {}, people: {}, usage: {} }));
     const requests = [];
     vi.stubGlobal('fetch', async (_url, options) => {
       const body = JSON.parse(options.body); requests.push({ query: body.query, signal: options.signal });
       await new Promise((resolve) => setTimeout(resolve, 10));
-      const data = body.query.includes('create_item') ? { create_item: { id: `item-${requests.length}` } } : { change_multiple_column_values: { id: body.variables.item } };
+      const data = body.query.includes('items_page_by_column_values') ? { items_page_by_column_values: { items: [] } } : { c0: { id: `item-${requests.length}`, url: 'https://x.monday.com/boards/123/pulses/1' } };
       return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     });
-    const app = desktop(root, { env: { MONDAY_API_TOKEN: 'fixture-monday' } });
+    const app = desktop(root, { env: { MONDAY_API_TOKEN: 'fixture-monday', STUDIO_WORKSPACE_MODE: 'multi' } });
     try {
-      const cards = [{ key: 'trend-a', stage: 'potential', name: 'Trend A' }];
-      const [first, second] = await Promise.all([app.call('sync-trend-board-to-monday', { cards }), app.call('sync-trend-board-to-monday', { cards })]);
-      expect(first).toMatchObject({ created: 1, updated: 0 }); expect(second).toMatchObject({ created: 0, updated: 1 });
+      const [first, second] = await Promise.all([app.call('sync-trend-board-to-monday', { cards: [{ key: 'ignored', name: 'Sent by a browser' }] }), app.call('sync-trend-board-to-monday', {})]);
+      expect(first.jobId).toMatch(/^monday-/); expect(second.jobId).toBe(first.jobId); // the second joins the first
+      for (let i = 0; i < 100 && requests.filter((request) => request.query.includes('create_item')).length < 1; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 80));
       expect(requests.filter((request) => request.query.includes('create_item'))).toHaveLength(1);
+      expect(requests.some((request) => request.query.includes('Sent by a browser'))).toBe(false); // the server builds the cards
       expect(requests.every((request) => request.signal instanceof AbortSignal)).toBe(true); // each request has a time limit
+      expect(app.call('state').monday.items['run-a:t1']).toMatchObject({ state: 'synced' });
     } finally { app.close(); }
   });
 });

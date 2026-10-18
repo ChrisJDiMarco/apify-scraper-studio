@@ -5,13 +5,31 @@ import { LINK_KINDS, deepLinkTarget, linkFor, normalizeOrigin, parseHash, restor
 const memory = () => { const map = new Map(); return { getItem: (key) => (map.has(key) ? map.get(key) : null), setItem: (key, value) => map.set(key, String(value)), removeItem: (key) => map.delete(key), map }; };
 
 describe('share links', () => {
-  it('reads the four kinds of link and nothing else', () => {
-    expect(LINK_KINDS).toEqual(['report', 'trend', 'assets', 'prompt']);
+  it('reads the five kinds of link and nothing else', () => {
+    expect(LINK_KINDS).toEqual(['report', 'trend', 'assets', 'prompt', 'settings']);
     expect(parseHash('#/report/asset-1')).toEqual({ kind: 'report', id: 'asset-1' });
     expect(parseHash('#/trend/theme-aio')).toEqual({ kind: 'trend', id: 'theme-aio' });
     expect(parseHash('#/assets/theme%3Atheme-aio')).toEqual({ kind: 'assets', id: 'theme:theme-aio' });
     expect(parseHash('#/prompt/trends-report/')).toEqual({ kind: 'prompt', id: 'trends-report' });
-    for (const hash of ['', '#', '#signin=abc', '#/report/', '#/report/../etc', '#/report/a%2Fb', '#/report/a b', '#/report/%E0%A4%A', '#/settings/x', '#/report/<script>', 'report/asset-1']) expect(parseHash(hash)).toBeNull();
+    for (const hash of ['', '#', '#signin=abc', '#/report/', '#/report/../etc', '#/report/a%2Fb', '#/report/a b', '#/report/%E0%A4%A', '#/settings/Monday', '#/settings/a/b', '#/settingsx', '#/report/<script>', 'report/asset-1']) expect(parseHash(hash)).toBeNull();
+  });
+
+  it('opens a Settings section from #/settings/<section> or #settings/<section>', () => {
+    expect(parseHash('#/settings/monday')).toEqual({ kind: 'settings', id: 'monday' });
+    expect(parseHash('#settings/ai')).toEqual({ kind: 'settings', id: 'ai' });
+    expect(parseHash('#/settings')).toEqual({ kind: 'settings', id: '' });
+    expect(parseHash('#settings/')).toEqual({ kind: 'settings', id: '' });
+    expect(linkFor('settings', 'sources', { origin: 'https://studio.example.com' })).toBe('https://studio.example.com/#/settings/sources');
+    expect(linkFor('settings', '', { origin: 'https://studio.example.com' })).toBe('https://studio.example.com/#/settings');
+    expect(linkFor('settings', 'Bad Id', { origin: 'https://studio.example.com' })).toBe('');
+    expect(deepLinkTarget({ kind: 'settings', id: 'images' })).toEqual({ kind: 'page', page: 'settings', section: 'images' });
+    expect(deepLinkTarget({ kind: 'settings', id: '' })).toEqual({ kind: 'page', page: 'settings', section: '' });
+    // Survives a sign-in like the other links.
+    const storage = memory();
+    expect(stashDeepLink('#/settings/monday', storage, 1000)).toEqual({ kind: 'settings', id: 'monday' });
+    expect(takeStashedDeepLink(storage, 2000)).toEqual({ kind: 'settings', id: 'monday' });
+    expect(stashDeepLink('#/settings', storage, 1000)).toEqual({ kind: 'settings', id: '' });
+    expect(takeStashedDeepLink(storage, 2000)).toEqual({ kind: 'settings', id: '' });
   });
 
   it('turns a link into the place it opens', () => {

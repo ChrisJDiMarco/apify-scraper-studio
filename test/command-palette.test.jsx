@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import React, { useState } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CommandPalette } from '../src/renderer/src/mission-command.jsx';
+import { CommandPalette } from '../src/renderer/src/command-palette.jsx';
 
 afterEach(cleanup);
 

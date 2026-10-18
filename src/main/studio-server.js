@@ -33,6 +33,8 @@ const MAX_PROXY_SESSIONS = 5000; // SSO people's View as entries; the oldest goe
 const NO_ACCESS_CHANNELS = new Set(['app-meta', 'state']); // all a signed-in person without a role may call
 const TRANSFER_MS = 10 * 60000; // uploads and downloads live this long
 const MAX_JSON_BYTES = 29000000;
+// POST /hooks/monday/<secret>: Monday.com webhook bodies (64 KB) and events a minute across the studio (1,200).
+const HOOK_LIMITS = require('../shared/monday.json').limits;
 const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 const MAX_PENDING_UPLOADS = 10; // per person; one call takes up to five, and the oldest gives way
 const MAX_PENDING_UPLOAD_BYTES = 1024 * 1024 * 1024; // the whole server: uploads sit on the data volume until used
@@ -118,6 +120,7 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
   // so an SSO admin's View as lasts until the server restarts. Both live in memory: a deploy signs link users out.
   const sessions = new Map(); const proxySessions = new Map(); const attempts = new Map(); const uploads = new Map(); const downloads = new Map(); const streams = new Set();
   let draining = false; let inFlight = 0;
+  const hookWindow = { minute: 0, count: 0 };
   const people = () => (typeof runtime.provided === 'function' && runtime.provided('people')) || null;
   const log = (event) => { const entry = { at: new Date().toISOString(), ...event }; const provider = people(); if (provider?.logEvent) provider.logEvent(entry); else if (logEvent) logEvent(entry); else console.log(JSON.stringify(entry)); };
   // Anyone can send the header, so its refusals are logged at most once a minute per address.
@@ -473,6 +476,24 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
         if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Unsupported method.' });
         if (url.pathname === '/healthz') return send(res, 200, { ok: true });
         const state = readiness(); return send(res, state.ready ? 200 : 503, state);
+      }
+      // Monday.com webhooks (monday-engine.js receiveHook), before the same-origin check (Monday sends no Origin) and before
+      // sign-in: the 64-hex secret in the path is the only credential, and the log names the route, never the secret.
+      // Payload values are never applied; the engine re-reads the item from Monday's API.
+      if (url.pathname.startsWith('/hooks/')) {
+        req.studioRoute = '/hooks/monday/:secret';
+        res.setHeader('X-Request-Id', requestId); res.once('close', () => logRequest(req, res, requestId, started));
+        const secret = url.pathname.match(/^\/hooks\/monday\/([a-f0-9]{64})$/)?.[1];
+        const hooks = typeof runtime.provided === 'function' ? runtime.provided('mondayHook') : null;
+        if (!secret || !hooks) return send(res, 404, { error: 'Unknown endpoint.' });
+        if (req.method !== 'POST') return send(res, 405, { error: 'Unsupported method.' });
+        if (draining) return send(res, 503, { error: 'The studio is restarting. Try again in a minute.' }, { 'Retry-After': '60' }); // Monday retries for 30 minutes
+        const minute = Math.floor(Date.now() / 60000); if (hookWindow.minute !== minute) { hookWindow.minute = minute; hookWindow.count = 0; }
+        if (++hookWindow.count > HOOK_LIMITS.hookEventsPerMinute) return send(res, 429, { error: 'Too many events.' }, { 'Retry-After': '60' });
+        let body;
+        try { body = await json(req, HOOK_LIMITS.hookBodyBytes); } catch (error) { return send(res, error.status === 413 ? 413 : 400, { error: error.status === 413 ? 'Request too large.' : 'Send JSON.' }); }
+        const answer = await hooks.receive(secret, body);
+        return send(res, Number.isInteger(answer?.status) ? answer.status : 200, answer?.body && typeof answer.body === 'object' ? answer.body : {});
       }
       if (url.pathname.startsWith('/api/')) {
         req.studioRoute = url.pathname.replace(/^\/api\/download\/.*/, '/api/download/:id').slice(0, 80);

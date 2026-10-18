@@ -34,7 +34,7 @@ const navLabels = () => within(screen.getByRole('navigation', { name: 'Main' }))
 describe('workspace navigation', () => {
   it('lists the workspace pages, then Data tools (open where there is no content studio), then Settings', async () => {
     await openApp();
-    expect(navLabels()).toEqual(['Content studio', 'Overview', 'Sheets', 'Inbox', 'Calendar', 'Data tools', 'Search platforms', 'Scrapers', 'Import research', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Playbooks', 'Workflows', 'Activity', 'Settings']);
+    expect(navLabels()).toEqual(['Content studio', 'Overview', 'Sheets', 'Inbox', 'Calendar', 'Data tools', 'Search platforms', 'Scrapers', 'Import research', 'Brief starters', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Activity', 'Settings']);
     expect(nav('Data tools')).toHaveAttribute('aria-expanded', 'true');
     // Search and Ask AI moved from the top bar into the sidebar.
     expect(screen.getByRole('button', { name: 'Search reports, trends and pages' })).toHaveAttribute('data-spot', 'nav.find');
@@ -166,6 +166,19 @@ describe('Simple mode', () => {
     // Home is the weekly briefing; the trend waiting for an OK leads it.
     expect(screen.getByRole('heading', { level: 2, name: /^Needs your OK/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Yes, use it: AI search visibility/ })).toBeInTheDocument();
+  });
+
+  it('opens the Settings section a #/settings link names', async () => {
+    const scrolled = [];
+    Element.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.id); };
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { callback(0); return 1; });
+    window.history.replaceState(null, '', '/#/settings/web-address');
+    try {
+      await openSimple();
+      expect(await screen.findByRole('navigation', { name: 'Settings sections' })).toBeInTheDocument();
+      await waitFor(() => expect(scrolled).toContain('settings-web-address'));
+      expect(window.location.hash).toBe(''); // a reload doesn't reopen it
+    } finally { frame.mockRestore(); delete Element.prototype.scrollIntoView; window.history.replaceState(null, '', '/'); }
   });
 
   it('reads a report and decides a trend in one tap', async () => {

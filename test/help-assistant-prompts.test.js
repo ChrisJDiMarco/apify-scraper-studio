@@ -43,6 +43,14 @@ describe('Ask AI reads its own saved prompt', () => {
     expect(editor).toContain('the pages, with Prompts in the Studio group');
     expect(parts({ context: { layout: 'simple', role: 'editor' }, role: 'editor' })).not.toContain('Studio group');
   });
+  it('says a one-workspace build has no switcher, and is unchanged otherwise', () => {
+    const context = { layout: 'simple', role: 'admin' };
+    expect(parts({ context, role: 'admin', singleWorkspace: null })).toBe(parts({ context, role: 'admin' }));
+    expect(parts({ context, role: 'admin' })).toContain('left sidebar for both layouts: the workspace switcher;');
+    const single = parts({ context, role: 'admin', singleWorkspace: { name: 'Main' } });
+    expect(single).toContain('left sidebar for both layouts: the workspace name (this studio has one workspace, Main; there is no switcher);');
+    expect(single).not.toContain('the workspace switcher;');
+  });
   it('names the Show me spots on pages both layouts share in Advanced, and keeps People & access from editors', () => {
     const admin = parts({ context: { layout: 'classic', role: 'admin' }, role: 'admin', promptAccess: { ...EDITOR, admin: true } });
     expect(admin).toContain('the spots on pages both layouts share (inbox.*, calendar.*, prompts.*, people.*)');

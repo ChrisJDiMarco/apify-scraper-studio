@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 import workspaceModule from '../src/main/content-workspace.js';
 import content from '../src/shared/content-studio.js';
-import mondaySync from '../src/main/monday-sync.js';
 import { buildTrendBoard, generationPlan } from '../src/shared/trend-board.js';
 import fixture from './helpers/research-ai-fixture.js';
 const { createContentWorkspace } = workspaceModule;
@@ -117,39 +116,5 @@ describe('trend board layout', () => {
   });
 });
 
-describe('Monday.com sync', () => {
-  const cards = [{ key: 'r1:t1', stage: 'potential', name: 'Reporting friction', description: 'Manual work.', evidenceCount: 12, platforms: ['reddit', 'x'], programName: 'Weekly pulse' }, { key: 'r1:t2', stage: 'ready', name: 'Pricing confusion', evidenceCount: 1, platforms: [] }];
-
-  it('finds the status and notes columns from a board ID', async () => {
-    const request = vi.fn(async () => ({ boards: [{ id: '42', name: 'Content pipeline', columns: [{ id: 'name', type: 'name' }, { id: 'status_1', type: 'status' }, { id: 'notes', type: 'long_text' }] }] }));
-    await expect(mondaySync.describeBoard(request, '42')).resolves.toMatchObject({ boardId: '42', boardName: 'Content pipeline', statusColumnId: 'status_1', notesColumnId: 'notes', warnings: [] });
-    expect(() => mondaySync.validateBoardId('board-42')).toThrow(/numeric/);
-  });
-
-  it('creates new items, updates known ones, and recreates items deleted on Monday', async () => {
-    const calls = [];
-    const request = vi.fn(async (query, variables) => {
-      calls.push({ query, variables });
-      if (query.includes('change_multiple_column_values')) throw new Error('Monday.com: Item not found');
-      return { create_item: { id: `item-${calls.length}` } };
-    });
-    const result = await mondaySync.syncTrendCards(request, { boardId: '42', statusColumnId: 'status_1', notesColumnId: 'notes', itemIds: { 'r1:t2': 'gone' } }, cards);
-    expect(result).toMatchObject({ created: 2, updated: 0, failed: [] });
-    expect(result.itemIds['r1:t2']).not.toBe('gone');
-    const first = JSON.parse(calls[0].variables.values);
-    expect(first).toEqual({ status_1: { label: 'Potential trend' }, notes: { text: expect.stringContaining('12 sources from reddit, x.') } });
-    expect(calls.at(-1).variables.name).toBe('Pricing confusion');
-  });
-
-  it('stops early when the token is rejected and reports clear errors', async () => {
-    const fetchImpl = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }));
-    const request = mondaySync.createMondayClient({ token: 'bad', fetchImpl });
-    const result = await mondaySync.syncTrendCards(request, { boardId: '42', statusColumnId: 's' }, cards);
-    expect(result.failed).toHaveLength(1);
-    expect(result.failed[0].error).toMatch(/rejected the token/);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe('bad');
-    expect(() => mondaySync.createMondayClient({ token: '' })).toThrow(/Connect Monday.com/);
-    expect(() => mondaySync.validateCards([{ key: 'x', stage: 'nowhere' }])).toThrow(/board position/);
-  });
-});
+// The Monday.com sync's own tests: test/monday-sync.test.js, monday-cards.test.js (stage parity with this board),
+// monday-engine.test.js, monday-store.test.js and monday-webhook.test.js.

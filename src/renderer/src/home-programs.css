@@ -1,0 +1,26 @@
+/* Home → Research programs (admins): one row per program inside a wb-card. Tokens only. */
+.hp-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.hp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--s-line, #e3e8e4); }
+.hp-row:first-child { border-top: 0; padding-top: 2px; }
+.hp-copy { display: grid; gap: 4px; min-width: 0; }
+.hp-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.wb-page button.hp-name { min-height: 0; padding: 0; box-shadow: none; font: inherit; font-size: 14.5px; font-weight: 650; line-height: 1.35; text-align: left; color: var(--s-ink, #181e15); background: none; border: 0; cursor: pointer; overflow-wrap: anywhere; }
+.wb-page button.hp-name:hover { text-decoration: underline; text-underline-offset: 2px; }
+.hp-chip { display: inline-flex; align-items: center; min-height: 22px; padding: 1px 8px; font: inherit; font-size: 11.5px; font-weight: 650; border: 0; border-radius: 999px; white-space: nowrap; }
+.hp-chip.tone-active { color: var(--s-ink, #181e15); background: var(--s-bg, #f4f6f5); }
+.hp-chip.tone-review { color: var(--s-soft-ink, #5a2fa0); background: var(--s-soft, #f1eaff); }
+.wb-page button.hp-chip { min-height: 22px; cursor: pointer; box-shadow: none; }
+.hp-chip.tone-problem { color: var(--s-danger, #8a2f1c); background: var(--s-danger-soft, #fbe7df); }
+.hp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--s-muted, #62685e); }
+.hp-meta svg { flex: none; }
+.hp-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 0; padding: 0; list-style: none; }
+.hp-chips li { padding: 1px 8px; font-size: 12px; font-weight: 600; color: var(--s-muted, #62685e); background: var(--s-bg, #f4f6f5); border-radius: 999px; }
+.hp-chips li.is-empty { font-weight: 500; }
+.hp-problem { margin: 2px 0 0; padding: 6px 10px; font-size: 12.5px; color: var(--s-danger, #8a2f1c); background: var(--s-danger-soft, #fbe7df); border-radius: var(--s-radius-control, 12px); }
+.hp-actions { display: flex; align-items: center; gap: 6px; align-self: start; }
+.wb-page .hp-actions :is(.wb-primary, .wb-quiet) { min-height: 32px; padding: 5px 12px; }
+.hp-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+@media (max-width: 560px) {
+  .hp-row { grid-template-columns: minmax(0, 1fr); }
+  .hp-actions { flex-wrap: wrap; }
+}

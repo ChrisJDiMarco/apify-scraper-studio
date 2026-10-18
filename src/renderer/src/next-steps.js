@@ -134,7 +134,7 @@ export function nextSteps({ state = {}, viewer = {}, can = () => false, board: g
   }
 
   // 8. Setup that blocks research.
-  if (state.keys && !state.keys.APIFY_API_TOKEN && can('saveSettings')) add({ id: 'setup:apify', kind: 'setup', tone: 'attention', title: 'Connect Apify to start collecting', detail: 'Research reads posts through your Apify account. It takes about a minute in Settings.', action: { kind: 'open', target: { kind: 'page', page: 'settings' }, label: 'Open Settings' } });
+  if (state.keys && !state.keys.APIFY_API_TOKEN && can('saveSettings')) add({ id: 'setup:apify', kind: 'setup', tone: 'attention', title: 'Connect Apify to start collecting', detail: 'Research reads posts through your Apify account. It takes about a minute in Settings.', action: { kind: 'open', target: { kind: 'page', page: 'settings', section: 'sources' }, label: 'Open Settings' } });
 
   return rows;
 }
@@ -153,15 +153,15 @@ export function setupChecklist({ state = {}, web = false, team = null, channels 
   const owned = new Set(members.filter((member) => member.channelId && !member.disabled).map((member) => member.channelId));
   const covered = channels.filter((channel) => owned.has(channel.id)).length;
   const items = [
-    { id: 'apify', label: 'Connect Apify', detail: 'Research collects posts through it.', done: Boolean(state.keys?.APIFY_API_TOKEN), action: { kind: 'open', target: { kind: 'page', page: 'settings' }, label: 'Open Settings' } },
-    { id: 'ai', label: state.settings?.aiProvider === 'codex' ? 'Check that Codex works' : 'Check that Claude works', detail: 'Check connections in Settings tries the route research uses.', done: aiChecked(state.settings) || runs.some((run) => ['succeeded', 'partial', 'awaiting-review'].includes(run.status)), action: { kind: 'open', target: { kind: 'page', page: 'settings' }, label: 'Check in Settings' } },
+    { id: 'apify', label: 'Connect Apify', detail: 'Research collects posts through it.', done: Boolean(state.keys?.APIFY_API_TOKEN), action: { kind: 'open', target: { kind: 'page', page: 'settings', section: 'sources' }, label: 'Open Settings' } },
+    { id: 'ai', label: state.settings?.aiProvider === 'codex' ? 'Check that Codex works' : 'Check that Claude works', detail: 'Check connections in Settings tries the route research uses.', done: aiChecked(state.settings) || runs.some((run) => ['succeeded', 'partial', 'awaiting-review'].includes(run.status)), action: { kind: 'open', target: { kind: 'page', page: 'settings', section: 'ai' }, label: 'Check in Settings' } },
     { id: 'program', label: 'Save your first research program', detail: 'The accounts and communities research follows.', done: list(studio.programs).some(mine), action: { kind: 'create', create: 'program', label: 'New program' } },
     ...(web ? [
       { id: 'team', label: 'Invite your editors', detail: 'They say yes to trends and write reports.', done: (Number(state.team?.memberCount) || members.length) > 1, action: { kind: 'create', create: 'person', label: 'Invite people' } },
       ...(team && channels.length ? [{ id: 'owners', label: `Give each channel an owner (${count(covered)} of ${count(channels.length)})`, detail: 'Channel owners get the briefs and say what they used.', done: covered >= channels.length, action: { kind: 'open', target: { kind: 'page', page: 'people' }, label: 'Open People & access' } }] : []),
     ] : []),
-    { id: 'pictures', label: 'Turn on pictures', detail: 'Optional. Hero graphics for channel assets and Ask AI.', optional: true, done: Boolean(state.keys?.OPENAI_API_KEY) || Boolean(studio.capabilities?.imagesConfigured), action: { kind: 'open', target: { kind: 'page', page: 'settings' }, label: 'Open Settings' } },
-    ...(!web ? [{ id: 'address', label: 'Add the Studio web address', detail: 'Optional. Share links and the Slack briefing then link into the browser studio.', optional: true, done: Boolean(state.settings?.studioWebAddress), action: { kind: 'open', target: { kind: 'page', page: 'settings' }, label: 'Open Settings' } }] : []),
+    { id: 'pictures', label: 'Turn on pictures', detail: 'Optional. Hero graphics for channel assets and Ask AI.', optional: true, done: Boolean(state.keys?.OPENAI_API_KEY) || Boolean(studio.capabilities?.imagesConfigured), action: { kind: 'open', target: { kind: 'page', page: 'settings', section: 'ai' }, label: 'Open Settings' } },
+    ...(!web ? [{ id: 'address', label: 'Add the Studio web address', detail: 'Optional. Share links and the Slack briefing then link into the browser studio.', optional: true, done: Boolean(state.settings?.studioWebAddress), action: { kind: 'open', target: { kind: 'page', page: 'settings', section: 'web-address' }, label: 'Open Settings' } }] : []),
   ];
   const required = items.filter((item) => !item.optional);
   return { items, done: items.filter((item) => item.done).length, total: items.length, complete: required.every((item) => item.done), allDone: items.every((item) => item.done) };

@@ -23,7 +23,7 @@ function MarketingStarters({ onNavigate }) {
     <section className="marketing-starters" aria-labelledby="marketing-starters-title">
       <div className="section-heading">
         <div><h3 id="marketing-starters-title">Start with a question worth answering.</h3><p>Choose a ready-made research brief. Add your context and the pages you want to explore.</p></div>
-        <Button className="text-button" onClick={() => onNavigate('templates')}>{`Explore all ${MARKETING_TEMPLATES.length} playbooks`}<ArrowRight size={14} /></Button>
+        <Button className="text-button" onClick={() => onNavigate('templates')}>Explore brief starters<ArrowRight size={14} /></Button>
       </div>
       <div className="marketing-starter-grid">
         {STARTERS.map(({ id, icon: Icon, label, tone }) => {

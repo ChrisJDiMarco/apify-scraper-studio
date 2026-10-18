@@ -108,6 +108,8 @@ export function decidedLine(by, decision = 'approved') {
   if (!by || !['approved', 'passed'].includes(decision)) return '';
   const verb = decision === 'passed' ? 'Skipped' : 'Approved';
   if (by.id === 'system' || by.auto) return `${verb} automatically${by.at ? ` · ${shortDate(by.at)}` : ''}`;
+  // A Yes or Skip someone gave on the team's Monday.com board (the Monday.com sync, via 'monday').
+  if (by.via === 'monday') return [`${String(by.name || 'Someone').replace(/ \(Monday\.com\)$/, '')} said ${decision === 'passed' ? 'Skip' : 'Yes'} on Monday.com`, shortDate(by.at)].filter(Boolean).join(' · ');
   return [`${verb}${by.name ? ` by ${by.name}` : ''}`, shortDate(by.at)].filter(Boolean).join(' · ');
 }
 // `channelName(id)` names a routed channel; without routing the yes was for every channel.

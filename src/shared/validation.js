@@ -148,31 +148,6 @@ function webAddressValue(value) {
   return `${url.origin}${url.pathname.replace(/\/(index\.html)?$/i, '')}`;
 }
 
-function validateMoveCardPayload(value) {
-  const payload = optionalRecord(value, 'Move card payload');
-  return {
-    cardId: validateId(payload.cardId, 'Card ID'),
-    column: validateId(payload.column, 'Column'),
-    card: payload.card == null ? null : optionalRecord(payload.card, 'Card'),
-  };
-}
-
-function validateCardPayload(value) {
-  const payload = optionalRecord(value, 'Card');
-  return {
-    ...payload,
-    id: payload.id ? validateId(payload.id, 'Card ID') : '',
-    title: stringValue(payload.title, 'Card title', { required: true, max: 180 }),
-    description: stringValue(payload.description, 'Card description', { max: 2000 }),
-    column: stringValue(payload.column || 'detected', 'Column', { max: 80 }),
-    tags: stringArray(payload.tags, 'Tags', { maxItems: 20, maxLength: 40 }),
-    datasetId: payload.datasetId ? validateId(payload.datasetId, 'Dataset ID') : '',
-    signalCount: stringValue(payload.signalCount, 'Signal count', { max: 80 }),
-    signalChange: stringValue(payload.signalChange, 'Signal change', { max: 80 }),
-    priority: stringValue(payload.priority || 'normal', 'Priority', { max: 80 }),
-  };
-}
-
 function validateAssetPayload(value) {
   const payload = optionalRecord(value, 'Asset');
   return {
@@ -185,15 +160,6 @@ function validateAssetPayload(value) {
     markdown: stringValue(payload.markdown, 'Markdown', { max: 200000 }),
     status: stringValue(payload.status || 'draft', 'Status', { max: 80 }),
     evidenceIds: stringArray(payload.evidenceIds, 'Evidence IDs', { maxItems: 500, maxLength: 180 }),
-  };
-}
-
-function validateGenerateAssetsPayload(value) {
-  const payload = optionalRecord(value, 'Asset generation payload');
-  return {
-    card: validateCardPayload(payload.card),
-    assetTypeIds: stringArray(payload.assetTypeIds, 'Asset type IDs', { maxItems: 50, maxLength: 120 }),
-    datasetId: payload.datasetId ? validateId(payload.datasetId, 'Dataset ID') : '',
   };
 }
 
@@ -215,67 +181,6 @@ function validateAnalysisPayload(value) {
   };
 }
 
-function validateIntentPayload(value) {
-  const payload = optionalRecord(value, 'Intent payload');
-  return {
-    command: stringValue(payload.command, 'Command', { required: true, max: 1000 }),
-    datasetId: payload.datasetId ? validateId(payload.datasetId, 'Dataset ID') : '',
-  };
-}
-
-function validateIntentActionPayload(value) {
-  const payload = optionalRecord(value, 'Intent action payload');
-  const action = enumValue(payload.action, 'Intent action', ['run-recipe', 'analyze-dataset', 'export-dataset', 'create-card']);
-  const args = optionalRecord(payload.args, 'Intent action args');
-  const common = {
-    id: payload.id ? validateId(payload.id, 'Intent action ID') : action,
-    label: stringValue(payload.label || action, 'Intent action label', { max: 180 }),
-    action,
-  };
-
-  if (action === 'run-recipe') return { ...common, args: { recipeId: validateId(args.recipeId, 'Recipe ID') } };
-  if (action === 'analyze-dataset') return { ...common, args: validateAnalysisPayload(args) };
-  if (action === 'export-dataset') return { ...common, args: { ...validateExportPayload(args), reveal: false } };
-  return {
-    ...common,
-    args: {
-      datasetId: validateId(args.datasetId, 'Dataset ID'),
-      title: stringValue(args.title, 'Card title', { max: 180 }),
-    },
-  };
-}
-
-function validateMissionPayload(value) {
-  const payload = optionalRecord(value, 'Mission');
-  return {
-    ...payload,
-    id: payload.id ? validateId(payload.id, 'Mission ID') : '',
-    name: stringValue(payload.name, 'Mission name', { required: true, max: 180 }),
-    presetId: stringValue(payload.presetId || 'lead-sheet', 'Mission preset', { max: 120 }),
-    status: stringValue(payload.status || 'active', 'Mission status', { max: 80 }),
-    goal: stringValue(payload.goal || payload.description, 'Mission goal', { max: 2000 }),
-    recipeIds: stringArray(payload.recipeIds, 'Recipe IDs', { maxItems: 200, maxLength: 180 }),
-    datasetIds: stringArray(payload.datasetIds, 'Dataset IDs', { maxItems: 500, maxLength: 180 }),
-    analysisIds: stringArray(payload.analysisIds, 'Analysis IDs', { maxItems: 500, maxLength: 180 }),
-    cardIds: stringArray(payload.cardIds, 'Card IDs', { maxItems: 500, maxLength: 180 }),
-    assetIds: stringArray(payload.assetIds, 'Asset IDs', { maxItems: 500, maxLength: 180 }),
-  };
-}
-
-function validateSchedulePayload(value) {
-  const payload = optionalRecord(value, 'Schedule');
-  const cadence = enumValue(payload.cadence || 'manual', 'Schedule cadence', ['manual', 'hourly', 'daily', 'weekly', 'monthly']);
-  return {
-    cadence,
-    timezone: stringValue(payload.timezone || 'UTC', 'Timezone', { max: 80 }),
-    quiet: boolValue(payload.quiet),
-    threshold: intValue(payload.threshold, 'Meaningful-change threshold', { min: 1, max: 10, fallback: 3 }),
-    paused: boolValue(payload.paused),
-    lastRunAt: stringValue(payload.lastRunAt, 'Last run date', { max: 80 }),
-    nextRunAt: stringValue(payload.nextRunAt, 'Next run date', { max: 80 }),
-  };
-}
-
 function validateRecipeVersionPayload(value) {
   const payload = optionalRecord(value, 'Recipe version payload');
   const version = optionalRecord(payload.version, 'Recipe version');
@@ -292,20 +197,6 @@ function validateRecipeVersionPayload(value) {
   };
 }
 
-function validateJobPayload(value) {
-  const payload = optionalRecord(value, 'Job');
-  return {
-    ...payload,
-    id: validateId(payload.id, 'Job ID'),
-    missionId: payload.missionId ? validateId(payload.missionId, 'Mission ID') : '',
-    kind: stringValue(payload.kind, 'Job kind', { required: true, max: 80 }),
-    status: enumValue(payload.status || 'queued', 'Job status', ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'paused']),
-    title: stringValue(payload.title || payload.kind, 'Job title', { max: 180 }),
-    error: stringValue(payload.error, 'Job error', { max: 5000 }),
-    progress: intValue(payload.progress, 'Job progress', { min: 0, max: 100, fallback: 0 }),
-  };
-}
-
 module.exports = {
   boolValue,
   enumValue,
@@ -317,19 +208,11 @@ module.exports = {
   stringValue,
   validateAnalysisPayload,
   validateAssetPayload,
-  validateCardPayload,
   validateExportPayload,
-  validateGenerateAssetsPayload,
   validateId,
-  validateIntentActionPayload,
-  validateIntentPayload,
-  validateJobPayload,
   validateKeyName,
   validateKeyValue,
-  validateMissionPayload,
-  validateMoveCardPayload,
   validateRecipeVersionPayload,
-  validateSchedulePayload,
   validateSettings,
   validateSheetSettings,
 };

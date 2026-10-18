@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/renderer/src/App.jsx';
 import { DatasetsView } from '../src/renderer/src/dataset-report-views.jsx';
-import { CommandPalette, MissionCommandCenter } from '../src/renderer/src/mission-command.jsx';
+import { CommandPalette } from '../src/renderer/src/command-palette.jsx';
 import { Empty, StatusBanner } from '../src/renderer/src/ui.jsx';
 
 afterEach(() => cleanup());
@@ -51,105 +51,11 @@ describe('renderer safety states', () => {
     expect(onNavigate).toHaveBeenCalledWith('automation');
   });
 
-  it('renders V5 mission command with evidence, jobs, artifacts, and release diagnostics', () => {
-    const state = {
-      recipes: [{ id: 'recipe-1', name: 'Lead recipe' }],
-      datasets: [{ id: 'dataset-1', name: 'Lead dataset', itemCount: 12 }],
-      analyses: [],
-      cards: [],
-      assets: [{ id: 'asset-1', title: 'LinkedIn Post', status: 'done', channel: 'LinkedIn' }],
-      v5: {
-        activeMissionId: 'mission-1',
-        missions: [{ id: 'mission-1', name: 'Lead Mission', goal: 'Find sourced leads', recipeIds: ['recipe-1'], datasetIds: ['dataset-1'] }],
-        jobs: [{ id: 'job-1', title: 'Build report', kind: 'codex', status: 'failed', attempts: 2 }],
-        evidenceSummary: { total: 2, sample: [{ id: 'evidence-1', text: 'Acme needs automation', sourceUrl: 'https://example.com' }] },
-        observability: { totalRuns: 3, failureRate: 0, totalItems: 42, avgItemsPerRun: 14 },
-        release: { notarization: { status: 'missing-credentials' }, signing: { status: 'configured' }, update: { status: 'disabled' } },
-        missionPresets: [{ id: 'lead-sheet' }],
-        schedules: {},
-      },
-    };
-
-    render(
-      <MissionCommandCenter
-        state={state}
-        selectedDataset={state.datasets[0]}
-        busy={false}
-        onRunMission={vi.fn()}
-        onRunActionGraph={vi.fn()}
-        onPauseMission={vi.fn()}
-        onScheduleMission={vi.fn()}
-        onExportMissionBundle={vi.fn()}
-        onSearchEvidence={vi.fn()}
-        onRetryJob={vi.fn()}
-        onReadJobLog={vi.fn()}
-        onNavigate={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText('Workflow control')).toBeInTheDocument();
-    expect(screen.getByText('Lead Mission')).toBeInTheDocument();
-    expect(screen.getByText('Evidence graph')).toBeInTheDocument();
-    expect(screen.getByText('Job history')).toBeInTheDocument();
-    expect(screen.getByText('Artifact studio')).toBeInTheDocument();
-  });
-
-  it('runs edited V5 action graphs and exposes retryable job logs', async () => {
-    const onRunActionGraph = vi.fn();
-    const onRetryJob = vi.fn();
-    const onReadJobLog = vi.fn(async () => 'Mission failed\nretry me');
-    const state = {
-      recipes: [{ id: 'recipe-1', name: 'Lead recipe' }],
-      datasets: [{ id: 'dataset-1', name: 'Lead dataset', itemCount: 12 }],
-      assets: [],
-      v5: {
-        activeMissionId: 'mission-1',
-        missions: [{ id: 'mission-1', name: 'Lead Mission', goal: 'make me a lead sheet', recipeIds: ['recipe-1'], datasetIds: ['dataset-1'] }],
-        jobs: [{ id: 'job-1', title: 'Build report', kind: 'mission', status: 'failed', attempts: 1 }],
-        evidenceSummary: { total: 0, sample: [] },
-        observability: {},
-        release: { notarization: {}, signing: {}, update: {} },
-        missionPresets: [],
-        schedules: {},
-        evals: { passed: 0, total: 0, avgScore: 0 },
-        onboarding: { done: 1, total: 4, next: { label: 'Save a recipe' } },
-      },
-    };
-
-    render(
-      <MissionCommandCenter
-        state={state}
-        selectedDataset={state.datasets[0]}
-        busy={false}
-        onRunMission={vi.fn()}
-        onRunActionGraph={onRunActionGraph}
-        onPauseMission={vi.fn()}
-        onScheduleMission={vi.fn()}
-        onExportMissionBundle={vi.fn()}
-        onSearchEvidence={vi.fn()}
-        onRetryJob={onRetryJob}
-        onReadJobLog={onReadJobLog}
-        onNavigate={vi.fn()}
-      />,
-    );
-
-    fireEvent.change(screen.getByLabelText('analyze-dataset label'), { target: { value: 'Build sourced report' } });
-    screen.getByRole('button', { name: /Run edited graph/ }).click();
-    expect(onRunActionGraph).toHaveBeenCalledWith(expect.objectContaining({
-      steps: expect.arrayContaining([expect.objectContaining({ label: 'Build sourced report' })]),
-    }));
-
-    screen.getByRole('button', { name: 'Retry' }).click();
-    expect(onRetryJob).toHaveBeenCalledWith('job-1');
-    screen.getByRole('button', { name: 'Log' }).click();
-    expect(await screen.findByText(/retry me/)).toBeInTheDocument();
-  });
-
   it('runs command palette items through the provided action handler', () => {
     const onRun = vi.fn();
-    render(<CommandPalette open items={[{ id: 'run', label: 'Run active mission', shortcut: 'Cmd+Enter' }]} onClose={vi.fn()} onRun={onRun} />);
+    render(<CommandPalette open items={[{ id: 'run', label: 'Run Weekly SEO watch…', shortcut: 'Cmd+Enter' }]} onClose={vi.fn()} onRun={onRun} />);
 
-    screen.getByRole('button', { name: /Run active mission/ }).click();
-    expect(onRun).toHaveBeenCalledWith({ id: 'run', label: 'Run active mission', shortcut: 'Cmd+Enter' });
+    screen.getByRole('button', { name: /Run Weekly SEO watch/ }).click();
+    expect(onRun).toHaveBeenCalledWith({ id: 'run', label: 'Run Weekly SEO watch…', shortcut: 'Cmd+Enter' });
   });
 });

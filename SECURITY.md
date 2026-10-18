@@ -50,7 +50,12 @@ edition (Mac or browser), steps to reproduce and any log `ref`.
 - **Projection**: each viewer receives only the state its role may see; roles without See costs never receive money
   figures (`stripMoney`), and channel owners get only their channel.
 - Errors that would expose providers, models, billing or settings become "Ask <admin>" lines for non-admins.
-- During a drain, paid methods are refused with 503 `restarting`.
+- During a drain, paid methods are refused with 503 `restarting`, and the workflow engine starts nothing new.
+- **Workflows** run unattended but act with their owner's access, checked before every step
+  (`access.canIdentityCall`); a lost capability pauses the workflow for an admin. Nothing they start spends outside an
+  admin-approved per-run and per-month budget bound to a hash of the paid setup, and their decisions are credited to
+  the workflow, not to a person. Only the engine may link a child run to a workflow (`createAssetKit` refuses a
+  `workflow` field from any other caller).
 
 ## Secrets at rest and in memory
 
@@ -76,8 +81,16 @@ messages written for people have server paths removed, and unexpected errors rea
 | Report text (up to 16,000 characters), run details, trend history, earlier conversations, a keyword search of collected posts (12 posts: platform, author, text up to 400 characters, link, date), spend | The AI route | Ask AI's second call, when a question needs a lookup | `helpLookup` |
 | Art direction and brand reference images | OpenAI Images | Pictures (channel assets, Ask AI, Create content) | `image-provider.js` |
 | Report and asset files, datasets | Google (Docs, Drive, Sheets through the bridge) | Only when someone publishes or exports | `bridge-delivery.js`, `google-delivery.js`, `workbooks.js` |
-| Trend cards (name, stage, notes) | Monday.com | Only on **Sync to <board>** | `monday-sync.js` |
+| Trend cards: name, stage, studio key, priority, category, momentum, sources count, program, date found, who decided (name and note), report and studio links, channel answers (channel, using or not, planned date, link), notes | Monday.com | Automatically when an admin turns sync on (as changes happen, hourly or daily), or on **Sync now** | `monday-engine.js`, `monday-cards.js`, `monday-sync.js` |
+| From Monday: item status (Yes or Skip while a trend waits for an OK), owner, planned date, comments (plain text, ten per item, treated as data), deletions | The studio's `content-studio/monday.json` | On each check (webhook or poll) | `monday-engine.js` |
 | Prompt versions, Ask AI memory | Stay in the data folder | — | `prompt-store.js`, `ask-store.js` |
+
+Monday.com webhooks (`POST /hooks/monday/<64-hex secret>`) skip sign-in and the same-origin check: the 32-byte
+random secret in the URL is the credential (only its sha256 is stored), the request log shows the route but never the
+secret, bodies are capped at 64 KB and 1,200 events a minute, and payload values are never applied. A webhook only
+queues a re-read of a linked item through the API with the studio's token, so a forged call can at most cause a re-read.
+Yes or Skip from Monday counts only while a trend waits for an OK, from a studio member matched by email who may decide
+trends (web default) or anyone who can edit the board (the Mac, which has no member list); it never starts paid work.
 
 API keys and tokens never enter prompts. Ask AI's memory refuses secret-shaped text (`looksSecret`). Collected posts
 contain third-party personal data (names, handles, post text): see retention below.
@@ -92,6 +105,10 @@ Posts and documents are attacker-controllable text. Mitigations:
 - Ask AI can't act on its own: it proposes buttons, links and web addresses only from what it was given (unknown web
   links show as plain text; studio links must resolve to real items), and each click is re-checked against the role.
   It can't change settings, keys, people or roles, delete anything for good or send messages.
+- Notes for the AI (a program's notes, a workflow's notes for channel assets) are admin-written text placed after the
+  instructions and before any untrusted data, refuse key-shaped text and never override the prompt's rules.
+- Workflow approval rules read only computed scores (momentum, priority, speed, counts), never post text, and make
+  no AI calls, so a post can't talk a workflow into approving it.
 - Residual risk: a crafted post could steer a report's wording or an Ask AI suggestion. Human review (Yes/Skip, the
   report editor, confirmations) is the backstop.
 
@@ -104,6 +121,7 @@ Posts and documents are attacker-controllable text. Mitigations:
 | Team activity / access log | 5,000 / 2,000 rows. |
 | Browser transfers | Uploads and downloads expire after 10 minutes; the transfer folder is emptied at every start; export copies older than `STUDIO_EXPORT_DAYS` (7) are removed at start. |
 | Backups | As long as the operator keeps them (`--keep`). They contain everything above. |
+| Workspaces hidden by a one-workspace build | Kept on disk with all their records (hidden, not deleted), plus a one-time `content-studio/state.before-single-workspace.json` (0600, a copy of `state.json` from before the switch). Delete both deliberately if that data must go; see RUNBOOK. |
 
 Semrush should set a retention policy for collected posts and conversations (see HANDOFF decisions).
 

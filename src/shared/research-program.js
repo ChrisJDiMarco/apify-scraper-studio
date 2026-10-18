@@ -190,6 +190,7 @@ function validateResearchProgram(input = {}) {
   const legacyTaggingSize = number(input.taggingBatchSize, 'taggingBatchSize', 10, 200, DEFAULT_RESEARCH_PROGRAM.taggingBatchSize, true);
   const sizes = input.taggingBatchSizes === undefined ? {} : object(input.taggingBatchSizes, 'taggingBatchSizes');
   const delivery = input.delivery === undefined ? {} : object(input.delivery, 'delivery');
+  const notes = programNotes(input.notes);
   return {
     id: string(input.id, 'id', 160) || `program-${digest(name + JSON.stringify(sourceGroups))}`, name, query, sourceGroups, window: { startDate, endDate, ...(startAt ? { startAt } : {}) }, schedule,
     targetPerPlatform: number(input.targetPerPlatform, 'targetPerPlatform', 1, MAX_EVIDENCE_ITEMS, 3000, true),
@@ -206,7 +207,29 @@ function validateResearchProgram(input = {}) {
     budgets: { collectionUsd: number(budgets.collectionUsd, 'budgets.collectionUsd', 0.01, 1000, DEFAULT_RESEARCH_PROGRAM.budgets.collectionUsd), aiUsd: number(budgets.aiUsd, 'budgets.aiUsd', 0.01, 1000, DEFAULT_RESEARCH_PROGRAM.budgets.aiUsd) }, thresholds,
     ai: validateResearchAi(input.ai), collection: validateCollectionSettings(input.collection),
     delivery: { publishToDrive: bool(delivery.publishToDrive, 'delivery.publishToDrive', false) },
+    // Absent unless the program has notes, so programs without them keep their exact validated shape.
+    ...(notes ? { notes } : {}),
   };
+}
+
+// Notes for the AI (workflows and playbooks, SPEC-3): admin-written guidance added to the research prompts (research) and
+// the trends report and editorial toolkit prompts (reports) after their instructions. Up to 600 characters each; text that
+// looks like a key or token is refused. null when both are empty.
+const NOTES_MAX = 600;
+const NOTE_SECRET = /(?:sk-[a-z0-9_-]{12,}|apify_api_[a-z0-9]{8,}|xox[abpr]-[a-z0-9-]{8,}|gh[pousr]_[a-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\bey[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.)/i;
+function programNotes(input) {
+  if (input === undefined || input === null) return null;
+  object(input, 'notes');
+  const out = {};
+  for (const key of ['research', 'reports']) {
+    const value = input[key] === undefined || input[key] === null ? '' : input[key];
+    if (typeof value !== 'string') fail(`notes.${key}`, 'Notes for the AI must be text.');
+    const text = value.replace(/\r\n?/g, '\n').trim();
+    if (text.length > NOTES_MAX) fail(`notes.${key}`, `Keep notes for the AI under ${NOTES_MAX} characters.`);
+    if (NOTE_SECRET.test(text)) fail(`notes.${key}`, 'These notes look like they contain a password, key or token. Remove it and save again.');
+    out[key] = text;
+  }
+  return out.research || out.reports ? out : null;
 }
 
 // n8n Config: a run without a start date searches the last `lookbackDays` (default 7) up to now.

@@ -87,7 +87,7 @@ function buildTrendAnalytics({ contentStudio = {}, adoptions = [], activity = []
     const tier = theme.scoring?.priorityTier || ready.get(theme.id)?.priorityTier || discovered?.scoring?.priorityTier || '';
     const firstDetectedAt = theme.firstDetectedAt || earliest(runs.map((run) => run.createdAt));
     const routedTo = decision === 'approved' ? list(by?.channels).filter((id) => typeof id === 'string') : [];
-    return [theme.id, { themeId: theme.id, name: ready.get(theme.id)?.name || theme.name || discovered?.name || 'Untitled trend', firstDetectedAt, decision, decidedBy: decision !== 'pending' && by ? { name: by.name || '', at: by.at || null, ...(by.note ? { note: String(by.note) } : {}) } : null, routedTo, priority: PRIORITY[tier] || null }];
+    return [theme.id, { themeId: theme.id, name: ready.get(theme.id)?.name || theme.name || discovered?.name || 'Untitled trend', firstDetectedAt, decision, decidedBy: decision !== 'pending' && by ? { name: by.name || '', at: by.at || null, ...(by.note ? { note: String(by.note) } : {}), ...(String(by.id || '').startsWith('workflow:') || by.id === 'system' ? { automatic: true } : {}) } : null, routedTo, priority: PRIORITY[tier] || null }];
   }));
   // Routing comes from the decision on the run that made the brief ready (readyTrends), else the trend's newest decision.
   const routedTo = (trend) => (trend?.decidedBy ? list(trend.decidedBy.channels) : list(info.get(trend?.themeId)?.routedTo));
@@ -179,6 +179,16 @@ function describe(row, { trendName, channelName }) {
       return `${who} changed ${person}’s access${as ? ` to ${as}` : ''}`;
     }
     case 'link-issued': return `${who} made a new sign-in link for ${person}`;
+    // Workflows: a run that started or ended, and changes to a workflow (its name in quotes). Never a person's decision.
+    case 'workflow-run': {
+      const name = quote(detail.workflowName || 'a workflow');
+      if (detail.status === 'started') return `${who} started ${name}`;
+      return `${name} ${({ succeeded: 'finished', partial: 'finished with some steps needing attention', failed: 'stopped with a problem', cancelled: 'was stopped' })[detail.status] || 'finished'}`;
+    }
+    case 'workflow-changed': {
+      const name = quote(detail.workflowName || 'a workflow');
+      return ({ created: `${who} set up ${name}`, edited: `${who} edited ${name}`, 'budget-approved': `${who} approved the budget for ${name}`, paused: `${who} paused ${name}`, resumed: `${who} turned ${name} back on`, deleted: `${who} deleted ${name}`, 'taken-over': `${who} took over ${name}`, 'paused-all': `${who} paused every workflow` })[detail.change] || `${who} changed ${name}`;
+    }
     case 'research-started': return detail.origin === 'quick-scan' ? `${who} ran a quick scan on ${quote(detail.topic || 'a topic')}` : `${who} started a search with ${quote(detail.programName || 'a research program')}`;
     default: return `${who} made a change`;
   }

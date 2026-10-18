@@ -364,20 +364,6 @@ describe('Claude-backed findings and outputs', () => {
     expect(app.invoke('state').jobs).toEqual([]);
     expect(app.spawns).toEqual([]);
   });
-
-  it('routes existing asset generation through Claude and persists its receipt', async () => {
-    const assetType = mainRequire('../shared/asset-workflow.json').assetTypes[0];
-    const output = { assets: [{ assetType: assetType.id, title: 'Reporting campaign', channel: assetType.channel, markdown: 'Make campaign reporting easier.', evidenceIds: ['fixture-run:post-1'] }] };
-    const app = withDataset({ cliResults: [{ stdout: claudeSuccess(output) }] });
-    await app.invoke('generate-assets', {
-      datasetId: 'fixture-dataset', assetTypeIds: [assetType.id],
-      card: { id: 'fixture-card', title: 'Campaign reporting', description: 'Respond to the collected customer need.', column: 'detected' },
-    });
-    expectConstrainedClaude(app.spawns[0]);
-    const asset = app.disk().assets[0];
-    expect(asset).toMatchObject({ status: 'done', markdown: output.assets[0].markdown, aiReceipt: { provider: 'claude', actualModel: model } });
-    expect(fs.readFileSync(asset.assetPath, 'utf8')).toBe(output.assets[0].markdown);
-  });
 });
 
 describe('Ask AI', () => {

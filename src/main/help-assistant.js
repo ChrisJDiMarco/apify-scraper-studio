@@ -14,7 +14,7 @@ const promptTemplate = require('../shared/prompt-template');
 
 const HELP_PAGES = {
   overview: 'Overview', research: 'Research programs', sheets: 'Sheets', board: 'Trend board', create: 'Create content', library: 'Library', knowledge: 'Brand knowledge',
-  dashboard: 'Collection overview', templates: 'Playbooks', search: 'Search platforms', chat: 'Ask your datasets', automation: 'Scrapers', datasets: 'Datasets', reports: 'Dataset reports', runs: 'Activity', imports: 'Import research', compare: 'Compare snapshots', missions: 'Workflows', settings: 'Settings',
+  dashboard: 'Collection overview', templates: 'Brief starters', search: 'Search platforms', chat: 'Ask your datasets', automation: 'Scrapers', datasets: 'Datasets', reports: 'Dataset reports', runs: 'Activity', imports: 'Import research', compare: 'Compare snapshots', playbooks: 'Playbooks', workflows: 'Workflows', settings: 'Settings',
   prompts: 'Prompts', // only for people who can open the Prompt Library (pagesFor)
 };
 // Both layouts turn these into buttons; nothing runs until the person clicks, and paid work asks again. The model's line
@@ -65,7 +65,7 @@ function promptRights(access) {
 }
 const PROMPT_SPOT = (id) => id === 'nav.prompts' || id.startsWith('prompts.');
 // The Advanced data-tools pages, which hide as one group ('data-tools' in viewer.hiddenPages).
-const DATA_TOOL_PAGES = ['search', 'automation', 'imports', 'datasets', 'reports', 'compare', 'chat', 'templates', 'missions', 'runs'];
+const DATA_TOOL_PAGES = ['search', 'automation', 'imports', 'datasets', 'reports', 'compare', 'chat', 'templates', 'runs'];
 // What this person's role holds, as the main process read it at the question's entry (index.js helpReach): allowed = the
 // methods they may call (null = no limit: an admin, or a caller that passes nothing), hiddenPages = viewer.hiddenPages,
 // costs = whether they may see costs (the spend lookup), drive = whether Google Drive publishing is connected.
@@ -198,14 +198,16 @@ function relatedText(related) {
 // chat), so the model may still list more lookups; without attachments the prompt is byte-for-byte what it was.
 const LOOKUP_LINE = '\n- LOOKUP RESULTS are present below: answer from them and leave lookups empty.';
 const ATTACHED_LINE = '\n- LOOKUP RESULTS below include what they attached to this question. Answer from them; list more lookups only when the answer needs something else.';
-function helpPromptParts({ question, history = [], context = {}, guide = '', lookups = null, attached = false, role = context.role || 'admin', memory = [], summary = '', pending = [], blocks = null, trace = false, promptAccess = null, access = null, related = [] }) {
+function helpPromptParts({ question, history = [], context = {}, guide = '', lookups = null, attached = false, role = context.role || 'admin', memory = [], summary = '', pending = [], blocks = null, trace = false, promptAccess = null, access = null, related = [], singleWorkspace = null }) {
   const simple = context.layout !== 'classic'; const editor = isEditor(role); const rights = promptRights(promptAccess); const reach = reachOf(access);
   const studio = studioPages(role, rights); const kinds = actionsFor(rights, reach, role);
   const transcript = transcriptOf(history); const earlier = transcriptOf(pending); const recalled = relatedText(related);
   // The four editable blocks (identity, howToAnswer, trendMemory, pictures) come from the workspace's saved text or the
   // defaults (src/shared/prompt-defaults.json); the role-specific lines stay computed here, as required {{values}}.
   const b = promptTemplate.promptBlocks('assistant.ask-ai', 'general', blocks, { trace });
-  const layoutAndRole = `- The studio has a left sidebar for both layouts: the workspace switcher${editor ? ' (with their role)' : ''}; New, Search and Ask AI; the pages${studio ? `, with ${editor ? `${studio} in the Studio group` : `the Studio group (${studio}) for admins`}` : ''}; and at the bottom the Simple | Advanced switch and the account menu (${editor ? '' : 'View as, '}My channels, Keyboard shortcuts). CURRENT LAYOUT below says which layout they are using; name what that layout shows. Suggest up to 3 short follow-up questions in "followUps".${editor ? `
+  // A one-workspace build (singleWorkspace: { name }) has no switcher; the sentence is unchanged otherwise (prompt goldens).
+  const switcher = singleWorkspace?.name ? `the workspace name (this studio has one workspace, ${singleWorkspace.name}; there is no switcher)` : 'the workspace switcher';
+  const layoutAndRole = `- The studio has a left sidebar for both layouts: ${switcher}${editor ? ' (with their role)' : ''}; New, Search and Ask AI; the pages${studio ? `, with ${editor ? `${studio} in the Studio group` : `the Studio group (${studio}) for admins`}` : ''}; and at the bottom the Simple | Advanced switch and the account menu (${editor ? '' : 'View as, '}My channels, Keyboard shortcuts). CURRENT LAYOUT below says which layout they are using; name what that layout shows. Suggest up to 3 short follow-up questions in "followUps".${editor ? `
 - This person is an Editor: they can't change settings, keys, people or research programs. When something needs one of those, tell them to ask an admin; never send them to Settings.` : ''}`;
   const picturesOffRule = editor ? 'say "Pictures are off. Ask an admin to turn them on."' : 'explain that connecting a picture model in **Settings → AI connections** (an OpenAI or fal.ai key) turns pictures on.';
   const editReport = Boolean(kinds['edit-report']);
@@ -658,7 +660,7 @@ const cleanTurns = (turns, limit, size) => (Array.isArray(turns) ? turns : []).f
 // finishing). `attached` ([{ kind, ref }]) is what they attached to the question (a report dragged into the chat): each
 // is read before the first round, so the answer starts from it. Without either, askHelp behaves exactly as before.
 // When the answer is stopped or fails, the error carries `partial`: the text shown so far, cleaned like an answer's links.
-async function askHelp({ question, history, page } = {}, { generate, context, guide = '', readLookup, imagesOn = false, imageSizes = IMAGE_SIZES, imageFamilies = ['campaign'], role = 'admin', memory = [], summary = '', pending = [], programs, hydrate, resolve, blocks = null, promptAccess = null, access = null, related = [], params = {}, progress = null, attached = [] } = {}) {
+async function askHelp({ question, history, page } = {}, { generate, context, guide = '', readLookup, imagesOn = false, imageSizes = IMAGE_SIZES, imageFamilies = ['campaign'], role = 'admin', memory = [], summary = '', pending = [], programs, hydrate, resolve, blocks = null, promptAccess = null, access = null, related = [], params = {}, progress = null, attached = [], singleWorkspace = null } = {}) {
   const text = String(question || '').trim();
   if (!text) throw new Error('Type a question first.');
   if (text.length > 2000) throw new Error('Keep the question under 2,000 characters.');
@@ -689,7 +691,7 @@ async function askHelp({ question, history, page } = {}, { generate, context, gu
   // what it showed; otherwise anything held is shown, and a route that sent nothing (or stopped short) shows the rest of
   // its answer now, so every route ends the same way.
   const call = async (given, round, attachedNow = false) => {
-    const parts = helpPromptParts({ question: text, history: turns, context: live, guide, lookups: given, attached: attachedNow, role, memory: recalled, summary: clip(summary, 2000), pending: earlier, blocks, promptAccess, access, related });
+    const parts = helpPromptParts({ question: text, history: turns, context: live, guide, lookups: given, attached: attachedNow, role, memory: recalled, summary: clip(summary, 2000), pending: earlier, blocks, promptAccess, access, related, singleWorkspace });
     const thinking = `think-${round}`; const routeStep = `route-${round}`;
     let held = ''; let holding = round === 0; let thought = false; let routed = false;
     const settle = () => { if (thought) return; thought = true; note('step', { id: thinking, kind: 'thinking', label: 'Thinking', status: 'done' }); };

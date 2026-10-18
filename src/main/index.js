@@ -29,6 +29,10 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { ApifyClient } = require('apify-client');
 const { createContentWorkspace } = require('./content-workspace');
+// Workflows and playbooks (SPEC-3 wave 3B): the engine runs children as the workflow (actingAs), its own store.
+const { AsyncLocalStorage } = require('async_hooks');
+const { createWorkflowEngine } = require('./workflow-engine');
+const { createWorkflowStore } = require('./workflow-store');
 const { acquireStudioOwnerLock } = require('./studio-owner-lock');
 // Roles and access (docs/roles-and-access.md): the team store, the policy and the gate every handler passes.
 const { createTeamStore } = require('./team-store');
@@ -51,8 +55,6 @@ const { CHAT_SCHEMA, buildFindingsContext, normalizeFindingsAnswer } = require('
 // Prompt Library: the data tools' prompts read the active workspace's saved text (contentWorkspace.promptEffective).
 const dataPrompts = require('../shared/data-prompts');
 const { brandContextBlock } = require('../shared/findings-chat');
-const workflow = require('../shared/asset-workflow.json');
-const monday = require('./monday-sync');
 let autoUpdater = null;
 try {
   ({ autoUpdater } = WEB_RUNTIME ? require('./web-runtime') : require('electron-updater'));
@@ -60,51 +62,33 @@ try {
   autoUpdater = null;
 }
 const { createApifyRunner, discoverApifyResource: discoverApifyResourceLive } = require('../shared/apify-runner');
-const { SCHEMAS, buildAnalysisContext, buildAssetPrompt, buildPrompt, codexExecSupport, parseJsonlEvents, reportPresetById, validateAiOutput } = require('../shared/codex-runner');
+const { SCHEMAS, buildAnalysisContext, buildPrompt, codexExecSupport, parseJsonlEvents, reportPresetById, validateAiOutput } = require('../shared/codex-runner');
 const { buildArchiveClearRequest, buildDatasetWriteRequests, buildPingRequest, buildSheetReadRequest, isRetryableSheetMessage, isRetryableSheetStatus } = require('../shared/google-sheets');
-const { buildStudioIntelligence, planIntent } = require('../shared/intelligence');
+const { buildStudioIntelligence } = require('../shared/intelligence');
 const { normalizeItem, toCsv, toJsonl } = require('../shared/normalize');
 const packageConfig = require('../../package.json');
+// One workspace (the Semrush package: package.json studioWorkspace) or several; STUDIO_WORKSPACE_MODE / _NAME override.
+const workspacePolicy = require('./workspace-policy').resolveWorkspacePolicy({ packageConfig, env: process.env });
 const { DEFAULT_RUN_OPTIONS, abortAfterMs, publicRecipe, testRunOptions, toId, validateRecipe } = require('../shared/recipe');
 const {
   validateAnalysisPayload,
   validateAssetPayload,
-  validateCardPayload,
   validateExportPayload,
-  validateGenerateAssetsPayload,
   validateId,
-  validateIntentActionPayload,
-  validateIntentPayload,
-  validateJobPayload,
   validateKeyValue,
   validateKeyName,
-  validateMissionPayload,
-  validateMoveCardPayload,
   validateRecipeVersionPayload,
-  validateSchedulePayload,
   validateSettings,
   stringValue,
 } = require('../shared/validation');
 const {
-  MISSION_PRESETS,
   appendEvent,
-  buildActionGraph,
   buildDatasetProfileV2,
   buildEvidenceIndex,
-  buildObservability,
-  buildReleaseDiagnostics,
   createEvent,
-  createMission,
-  createMissionBundle,
-  dueSchedules,
-  migrateLegacyDataToEvents,
-  nextScheduleAt,
   projectEvents,
   readEvents,
-  scoreEvalSuite,
   searchEvidence,
-  validateActionGraph,
-  validateSchedule,
 } = require('../shared/v5-core');
 const { ensureWorkspace, isPathInside, safeFilename } = require('../shared/workspace');
 
@@ -119,8 +103,6 @@ const cancelledJobs = new Set();
 let mainWindow;
 let dataCache = null;
 let configCache = null;
-let scheduleTimer = null;
-const runningScheduledMissions = new Set();
 const activeChats = new Set();
 
 function now() {
@@ -353,43 +335,39 @@ function getKey(name) {
   catch { return ''; } // Keep Settings reachable when a development file needs repair.
 }
 
-// Monday.com: the token lives with the other encrypted keys; board setup and item IDs live in config.
-function publicMonday() {
-  const saved = loadConfig().monday || {};
-  return { connected: Boolean(getKey('MONDAY_API_TOKEN')), boardId: saved.boardId || '', boardName: saved.boardName || '', statusColumnId: saved.statusColumnId || '', notesColumnId: saved.notesColumnId || '', syncedCount: Object.keys(saved.itemIds || {}).length, lastSyncedAt: saved.lastSyncedAt || '', lastError: saved.lastError || '', warnings: saved.warnings || [] };
-}
-
-async function saveMondayBoard({ boardId } = {}) {
-  const request = monday.createMondayClient({ token: getKey('MONDAY_API_TOKEN') });
-  const board = await monday.describeBoard(request, boardId);
+// Monday.com (monday-engine.js; HANDOFF.md → Monday.com): the token lives with the other encrypted keys; the board link,
+// item map and sync log live in content-studio/monday.json and monday-log.jsonl (monday-store.js), so sync bookkeeping
+// never rewrites config.json. The engine is made once the content workspace, team store and access gate exist (below
+// them); emitState, the handlers and the quit flow reach it through this variable.
+let mondayEngine = null;
+// Connect saves the token only after Monday accepted it (same storage as save-key).
+function saveMondayToken(value) {
+  const validValue = validateKeyValue('MONDAY_API_TOKEN', value);
+  if (keyProblem('MONDAY_API_TOKEN') === 'mismatch') throw Object.assign(new Error(`The saved ${KEY_LABELS.MONDAY_API_TOKEN} was saved with a different STUDIO_SECRET_KEY, so it wasn’t replaced. Start the studio with the original STUDIO_SECRET_KEY to use it, or choose Clear for this key first and then save the new one.`), { status: 409, code: 'keyMismatch' });
   const config = loadConfig();
-  const previous = config.monday?.boardId === board.boardId ? config.monday : {};
-  config.monday = { ...board, itemIds: previous.itemIds || {}, lastSyncedAt: previous.lastSyncedAt || '', lastError: '' };
+  config.keys.MONDAY_API_TOKEN = encryptValue(validValue);
+  if (config.disabledKeys) delete config.disabledKeys.MONDAY_API_TOKEN;
   saveConfig();
-  emitState();
-  return publicMonday();
 }
-
-// One sync at a time across the studio: a second editor's sync waits for the first and starts from its saved item IDs,
-// so no trend gets two Monday items. A board switched or cleared during a sync keeps the new setup.
-let mondayQueue = Promise.resolve();
-function syncTrendBoardToMonday(payload = {}) {
-  const run = mondayQueue.then(() => syncTrendBoardToMondayNow(payload));
-  mondayQueue = run.catch(() => {});
-  return run;
-}
-async function syncTrendBoardToMondayNow({ cards } = {}) {
-  const start = loadConfig().monday;
-  if (!start?.boardId) throw new Error('Choose a Monday.com board in Settings first.');
-  const token = getKey('MONDAY_API_TOKEN'); if (!token) throw new Error(keyNeeded('MONDAY_API_TOKEN', 'Connect Monday.com in Settings first.'));
-  const result = await monday.syncTrendCards(monday.createMondayClient({ token }), start, cards);
+function clearMondayToken() {
   const config = loadConfig();
-  if (config.monday?.boardId === start.boardId) {
-    config.monday = { ...config.monday, itemIds: result.itemIds, lastSyncedAt: new Date().toISOString(), lastError: result.failed[0]?.error || '' };
-    saveConfig();
-    emitState();
-  }
-  return { created: result.created, updated: result.updated, failed: result.failed.length, error: result.failed[0]?.error || '' };
+  delete config.keys.MONDAY_API_TOKEN;
+  config.disabledKeys = { ...(config.disabledKeys || {}), MONDAY_API_TOKEN: true };
+  saveConfig();
+}
+// The studio's address for Open in studio links and the webhook URL: STUDIO_PUBLIC_ORIGIN, else the browser request's
+// own origin (already checked by studio-server), else the Mac app's Studio web address. '' when none is known.
+function mondayOrigin() {
+  const pick = (value) => String(value || '').trim().replace(/\/+$/, '');
+  const value = pick(process.env.STUDIO_PUBLIC_ORIGIN) || (WEB_RUNTIME ? pick(require('./web-runtime').currentCall()?.origin) : pick(loadData().settings.studioWebAddress));
+  return /^https?:\/\/[^\s?#]+$/i.test(value) ? value : '';
+}
+// Sync now (and a Workflows step): a background job ('monday' in the job tray) that the server builds the cards for; a
+// legacy `cards` field is ignored and a repeat joins the run in flight. Returns { jobId, queued } straight away.
+function syncTrendBoardToMonday(payload = {}) {
+  if (!mondayEngine) throw new Error('Monday.com isn’t ready yet. Try again in a moment.');
+  const { keys, full, force } = payload && typeof payload === 'object' ? payload : {};
+  return mondayEngine.syncNow({ keys, full: full === true, ...(force === undefined ? {} : { force: Boolean(force) }) });
 }
 
 // The browser studio never receives server file locations: path fields in records shrink to their file name.
@@ -408,10 +386,10 @@ function withoutServerPaths(state) {
 
 function publicState() {
   const data = loadData();
-  const v5 = publicV5State(data);
   return withoutServerPaths({
     ...data,
-    contentStudio: contentWorkspace.publicState(),
+    // Workflows ride along with the studio: workflows, workflowRuns (latest 10 each), team playbooks, workflowSummary.
+    contentStudio: workflowsInto(contentWorkspace.publicState()),
     recipes: data.recipes.map(publicRecipe),
     intelligence: studioIntelligence(data),
     keys: Object.fromEntries(KEY_NAMES.map((name) => [name, Boolean(getKey(name))])),
@@ -419,12 +397,20 @@ function publicState() {
     // and data or settings files that were damaged and copied aside at startup. Names only, never values or paths.
     keyProblems: keyProblems(),
     ...(storeRecovery.length ? { storeRecovery: storeRecovery.map((entry) => ({ ...entry })) } : {}),
-    monday: publicMonday(),
+    monday: mondayEngine ? mondayEngine.publicState() : { connected: Boolean(getKey('MONDAY_API_TOKEN')), account: null, link: null, items: {} },
     jobs: Array.from(jobs.values()),
-    v5,
+    // The one part of the retired v5 projection still in use: Scrapers' saved recipe versions.
+    v5: { recipeVersions: publicRecipeVersions() },
     // What one Ask AI question costs, for the line under its question box (amounts stripped without See costs).
     help: { estimate: helpCostEstimate() },
   });
+}
+// The workflow engine's share of the studio state (empty until the engine exists; roles.js empties it without
+// readWorkflows, and money is stripped without seeCosts like every *Usd field).
+function workflowsInto(studio) {
+  const empty = { workflows: [], workflowRuns: [], playbooks: [], workflowSummary: { active: 0, paused: 0, drafts: 0, waiting: 0, monthSpentUsd: 0, monthCapUsd: 0 } };
+  let extra = empty; try { extra = workflowEngine ? workflowEngine.publicState(studio.activeWorkspaceId, { programs: studio.programs }) : empty; } catch (error) { console.warn(`Workflows could not be read: ${error.message}`); }
+  return { ...studio, ...extra };
 }
 
 function studioIntelligence(data = loadData()) {
@@ -464,6 +450,7 @@ function emit(channel, payload) {
 // View as preview survives every push. The browser studio broadcasts the base, and studio-server writes each live-update
 // stream through the people provider's view(), which projects it per person; nothing goes to a browser unprojected.
 function emitState() {
+  mondayEngine?.noteChange(); // Monday.com 'As changes happen': a push 15 s after the first change
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const base = publicState();
   emit('state-changed', WEB_RUNTIME ? base : access.project(base, access.currentViewer()));
@@ -488,14 +475,6 @@ function v5EventsFile() {
   return dataPath('v5', 'events.jsonl');
 }
 
-function v5ProjectionFile() {
-  return dataPath('v5', 'projection.json');
-}
-
-function v5JobLogPath(jobId) {
-  return dataPath('v5', 'jobs', `${safeFilename(jobId)}.log`);
-}
-
 function readV5EventsSafe() {
   try {
     return readEvents(v5EventsFile());
@@ -506,218 +485,32 @@ function readV5EventsSafe() {
   }
 }
 
+// v5/events.jsonl: the retired v5 event log. Only recipe versions (Scrapers) are still written and read here; the old
+// missions, jobs and schedules in it stay on disk, unread.
 function appendV5Event(type, payload, options = {}) {
+  ensureDirs();
   const event = createEvent(type, payload, options);
   appendEvent(v5EventsFile(), event);
-  writeJson(v5ProjectionFile(), buildV5Projection(loadData()));
   return event;
 }
 
-function legacyHasData(data = {}) {
-  return ['recipes', 'runs', 'datasets', 'analyses', 'cards', 'assets', 'intentRuns'].some((key) => Array.isArray(data[key]) && data[key].length);
-}
-
-function ensureV5Seed(data = loadData()) {
-  ensureDirs();
-  const events = readV5EventsSafe();
-  if (events.length) return events;
-  const seedEvents = migrateLegacyDataToEvents(data);
-  for (const event of seedEvents) appendEvent(v5EventsFile(), event);
-  return legacyHasData(data) ? seedEvents : seedEvents;
-}
-
-// A missing or damaged dataset payload never breaks the whole command center (derivedFor falls back to nothing).
+// A missing or damaged dataset payload never breaks evidence search (derivedFor falls back to nothing).
 function buildAllEvidence(data = loadData()) {
   pruneDerived(data);
   return (data.datasets || []).flatMap((dataset) => derivedFor(dataset).evidence);
 }
 
-// Profiles are cached with their payload; only the freshness age moves with the clock, so it is recomputed on each read.
-function buildDatasetProfilesV2(data = loadData()) {
-  return (data.datasets || []).map((dataset) => {
-    const profile = derivedFor(dataset).profile;
-    const newest = Date.parse(profile?.freshness?.newest || '');
-    return Number.isFinite(newest) && profile.freshness ? { ...profile, freshness: { ...profile.freshness, ageHours: Math.round((Date.now() - newest) / 36e5) } } : profile;
-  });
-}
-
-function buildV5Projection(data = loadData()) {
-  const events = ensureV5Seed(data);
-  const projection = projectEvents(events);
-  return {
-    ...projection,
-    recipes: data.recipes.map(publicRecipe),
-    recipeVersions: Object.fromEntries(Object.entries(projection.recipeVersions || {}).map(([id, versions]) => [id, versions.map(publicRecipe)])),
-    runs: data.runs || [],
-    datasets: data.datasets || [],
-    analyses: data.analyses || [],
-    cards: data.cards || [],
-    assets: data.assets || [],
-  };
-}
-
-function commandPaletteItems(projection, data = loadData()) {
-  const mission = projection.missions.find((item) => item.id === projection.activeMissionId) || projection.missions[0] || null;
-  return [
-    { id: 'run-active-mission', label: mission ? `Run ${mission.name}` : 'Run active mission', action: 'runMission', args: { missionId: mission?.id || '' }, shortcut: 'Cmd+Enter' },
-    { id: 'new-mission', label: 'New mission', action: 'navigate', args: { view: 'dashboard' }, shortcut: 'Cmd+N' },
-    { id: 'open-recipes', label: 'Open recipe builder', action: 'navigate', args: { view: 'automation' }, shortcut: 'Cmd+R' },
-    { id: 'open-datasets', label: 'Search datasets', action: 'navigate', args: { view: 'datasets' }, shortcut: 'Cmd+F' },
-    { id: 'open-artifacts', label: 'Open artifact studio', action: 'navigate', args: { view: 'assets' }, shortcut: 'Cmd+Shift+A' },
-  ].filter((item) => item.args?.missionId !== '' || item.id !== 'run-active-mission' || data.recipes.length);
-}
-
-function buildOnboardingState(data = loadData(), projection = buildV5Projection(data)) {
-  const mission = projection.missions.find((item) => item.id === projection.activeMissionId) || projection.missions[0] || null;
-  const steps = [
-    { id: 'token', label: 'Connect Apify', done: Boolean(getKey('APIFY_API_TOKEN')), view: 'settings' },
-    { id: 'recipe', label: 'Save a recipe', done: Boolean(data.recipes.length), view: 'automation' },
-    { id: 'dataset', label: 'Run a dataset', done: Boolean(data.datasets.length), view: 'automation' },
-    { id: 'mission', label: 'Schedule a mission', done: Boolean(mission && projection.schedules[mission.id]), view: 'dashboard' },
-  ];
-  return {
-    done: steps.filter((step) => step.done).length,
-    total: steps.length,
-    steps,
-    next: steps.find((step) => !step.done) || null,
-  };
-}
-
-function buildLocalEvalSuite(data = loadData(), evidence = buildAllEvidence()) {
-  const cases = (data.assets || []).slice(0, 12).map((asset) => ({
-    id: asset.id,
-    name: asset.title || asset.id,
-    artifact: asset,
-    evidence,
-    minScore: asset.status === 'approved' ? 85 : 70,
-  }));
-  if (!cases.length) {
-    cases.push({
-      id: 'empty-workspace-smoke',
-      name: 'Empty workspace smoke',
-      artifact: { markdown: 'No generated assets have been evaluated yet.', evidenceIds: [] },
-      evidence,
-      minScore: 10,
-    });
+// Each scraper's saved versions, newest first: the `recipe-version-saved` events only, read again only when the log
+// file changes (state.v5 = { recipeVersions }), so a state push never replays the whole log.
+let recipeVersionCache = { key: '', value: {} };
+function publicRecipeVersions() {
+  let stat; try { stat = fs.statSync(v5EventsFile()); } catch (_) { return {}; }
+  const key = `${stat.size}:${stat.mtimeMs}`;
+  if (recipeVersionCache.key !== key) {
+    const projection = projectEvents(readV5EventsSafe().filter((event) => event?.type === 'recipe-version-saved'));
+    recipeVersionCache = { key, value: Object.fromEntries(Object.entries(projection.recipeVersions || {}).map(([id, versions]) => [id, versions.map(publicRecipe)])) };
   }
-  return scoreEvalSuite(cases);
-}
-
-function publicV5State(data = loadData()) {
-  const projection = buildV5Projection(data);
-  const evidence = buildAllEvidence(data);
-  const datasetProfiles = buildDatasetProfilesV2(data);
-  const observability = buildObservability({ ...projection, ...data });
-  const releasePackageConfig = process.env.APIFY_STUDIO_AUTO_UPDATE_URL
-    ? { ...packageConfig, build: { ...(packageConfig.build || {}), publish: { provider: 'generic', url: process.env.APIFY_STUDIO_AUTO_UPDATE_URL } } }
-    : packageConfig;
-  const release = buildReleaseDiagnostics({ platform: process.platform, env: process.env, packageConfig: releasePackageConfig });
-  return {
-    ...projection,
-    missionPresets: MISSION_PRESETS,
-    datasetProfiles,
-    onboarding: buildOnboardingState(data, projection),
-    evals: buildLocalEvalSuite(data, evidence),
-    evidenceSummary: {
-      total: evidence.length,
-      datasets: Object.fromEntries((data.datasets || []).map((dataset) => [
-        dataset.id,
-        evidence.filter((item) => item.datasetId === dataset.id).length,
-      ])),
-      sample: evidence.slice(0, 8),
-    },
-    observability,
-    release,
-    commandPalette: commandPaletteItems(projection, data),
-  };
-}
-
-function saveMission(payload) {
-  const valid = validateMissionPayload(payload);
-  const mission = createMission(valid);
-  appendV5Event('mission-saved', { mission });
-  emitState();
-  return mission;
-}
-
-function pauseMission(missionId) {
-  const validMissionId = validateId(missionId, 'Mission ID');
-  appendV5Event('mission-status-changed', { missionId: validMissionId, status: 'paused' });
-  emitState();
-  return publicV5State().missions.find((mission) => mission.id === validMissionId);
-}
-
-function scheduleMission(payload) {
-  const record = payload && typeof payload === 'object' ? payload : {};
-  const missionId = validateId(record.missionId, 'Mission ID');
-  const baseSchedule = validateSchedule(validateSchedulePayload(record.schedule || record));
-  const schedule = {
-    ...baseSchedule,
-    nextRunAt: baseSchedule.nextRunAt || nextScheduleAt(baseSchedule, { from: now() }),
-  };
-  appendV5Event('mission-scheduled', { missionId, schedule });
-  appendV5Event('mission-status-changed', { missionId, status: schedule.paused ? 'paused' : 'watching' });
-  emitState();
-  return { missionId, ...schedule };
-}
-
-async function runMission(missionId, options = {}) {
-  const projection = publicV5State();
-  const mission = projection.missions.find((item) => item.id === validateId(missionId, 'Mission ID'));
-  if (!mission) throw new Error('Mission not found.');
-  const data = loadData();
-  const dataset = data.datasets.find((item) => mission.datasetIds.includes(item.id)) || data.datasets[0] || null;
-  const recipe = data.recipes.find((item) => mission.recipeIds.includes(item.id)) || data.recipes[0] || null;
-  const graph = buildActionGraph(mission.goal || mission.name, { ...data, selectedDatasetId: dataset?.id || '', recipes: recipe ? [recipe] : data.recipes, intelligence: studioIntelligence(data) });
-  const validation = validateActionGraph(graph);
-  if (!validation.canRun) throw new Error(validation.errors.join(' ') || graph.missing.join(' ') || 'Mission is not runnable.');
-  const jobId = toId('mission-job');
-  const logsPath = v5JobLogPath(jobId);
-  appendV5Event('job-started', { id: jobId, missionId: mission.id, kind: 'mission', title: mission.name, sourceAction: { action: 'run-mission', args: { missionId: mission.id } }, logsPath });
-  fs.writeFileSync(logsPath, `Mission ${mission.name} started ${now()}\n${JSON.stringify(graph, null, 2)}\n`);
-  try {
-    const result = await runPlannedIntent(
-      { ...graph, intent: graph.presetId, profile: null, summary: graph.steps.map((step) => step.label).join(' -> ') },
-      { jobId, logsPath, completedStepIds: options.completedStepIds || [] },
-    );
-    fs.appendFileSync(logsPath, `Mission completed ${now()}\n`);
-    appendV5Event('job-finished', { id: jobId, status: 'succeeded', artifacts: result.results || [], metrics: { completedSteps: result.completedSteps || 0, completedStepIds: result.completedStepIds || [] } });
-    return { mission, graph, result };
-  } catch (error) {
-    fs.appendFileSync(logsPath, `Mission failed ${now()}\n${error.message || String(error)}\n`);
-    appendV5Event('job-finished', { id: jobId, status: 'failed', error: error.message || String(error), metrics: { completedStepIds: error.completedStepIds || [] } });
-    throw error;
-  } finally {
-    emitState();
-  }
-}
-
-async function runActionGraph(payload) {
-  const record = payload && typeof payload === 'object' ? payload : {};
-  const graph = record.graph && typeof record.graph === 'object' ? record.graph : record;
-  const validation = validateActionGraph(graph);
-  if (!validation.canRun) throw new Error(validation.errors.join(' ') || graph.missing?.join(' ') || 'Action graph is not runnable.');
-  const jobId = toId('graph-job');
-  const logsPath = v5JobLogPath(jobId);
-  appendV5Event('job-started', { id: jobId, kind: 'mission', title: graph.title || graph.command || 'Action graph', sourceAction: { action: 'run-action-graph', args: { graph } }, logsPath });
-  fs.writeFileSync(logsPath, `Action graph started ${now()}\n${JSON.stringify(graph, null, 2)}\n`);
-  try {
-    const result = await runPlannedIntent({
-      ...graph,
-      command: graph.command || graph.title || 'Action graph',
-      intent: graph.presetId || 'custom-action-graph',
-      summary: graph.steps.map((step) => step.label).join(' -> '),
-      canRun: true,
-      missing: [],
-    }, { jobId, logsPath });
-    appendV5Event('job-finished', { id: jobId, status: 'succeeded', artifacts: result.results || [], metrics: { completedSteps: result.completedSteps || 0, completedStepIds: result.completedStepIds || [] } });
-    emitState();
-    return { graph, result };
-  } catch (error) {
-    appendV5Event('job-finished', { id: jobId, status: 'failed', error: error.message || String(error), metrics: { completedStepIds: error.completedStepIds || [] } });
-    emitState();
-    throw error;
-  }
+  return recipeVersionCache.value;
 }
 
 async function discoverApifyResource(payload) {
@@ -731,7 +524,7 @@ function saveRecipeVersion(payload) {
   const valid = validateRecipeVersionPayload(payload);
   appendV5Event('recipe-version-saved', valid);
   emitState();
-  return publicV5State().recipeVersions[valid.recipeId]?.[0] || valid.version;
+  return publicRecipeVersions()[valid.recipeId]?.[0] || valid.version;
 }
 
 // ── Paid long calls: one request ID, one piece of work ──
@@ -808,32 +601,6 @@ async function testRecipe(payload) {
   } finally { testingRecipes.delete(busyKey); apifyRunControllers.delete(jobId); }
 }
 
-function getJob(jobId) {
-  const id = validateId(jobId, 'Job ID');
-  const job = publicV5State().jobs.find((item) => item.id === id);
-  if (!job) throw new Error('Job not found.');
-  return job;
-}
-
-async function retryJob(jobId) {
-  const job = getJob(jobId);
-  const action = job.sourceAction || {};
-  if (action.action === 'run-mission' && action.args?.missionId) {
-    return runMission(action.args.missionId, { retryOf: job.id, completedStepIds: job.metrics?.completedStepIds || [] });
-  }
-  if (action.action === 'run-action-graph' && action.args?.graph) {
-    return runActionGraph({ graph: action.args.graph, retryOf: job.id });
-  }
-  throw new Error('Job has no retryable source action.');
-}
-
-function readJobLog(jobId) {
-  const job = getJob(jobId);
-  const logsPath = job.logsPath || v5JobLogPath(job.id);
-  if (!fs.existsSync(logsPath)) return '';
-  return fs.readFileSync(logsPath, 'utf8');
-}
-
 function searchEvidenceRecords(payload) {
   const record = payload && typeof payload === 'object' ? payload : { query: payload };
   return searchEvidence(buildAllEvidence(), String(record.query || ''), { limit: Number(record.limit) || 25 });
@@ -844,14 +611,6 @@ function readEvidenceRecord(evidenceId) {
   const evidence = buildAllEvidence().find((item) => item.id === id);
   if (!evidence) throw new Error('Evidence not found.');
   return evidence;
-}
-
-function exportMissionBundle(missionId) {
-  const projection = publicV5State();
-  const bundle = createMissionBundle(validateId(missionId, 'Mission ID'), { ...projection, evidence: buildAllEvidence() });
-  const filePath = path.join(browserDownloadFolder() || dataPath('v5', 'bundles'), `${safeFilename(bundle.mission.name)}-${Date.now()}.json`);
-  writeJson(filePath, bundle);
-  return forBrowser({ filePath, bundle }, filePath);
 }
 
 function exportAssetPack(payload = {}) {
@@ -873,17 +632,6 @@ function exportAssetPack(payload = {}) {
 }
 
 function recoverInterruptedJobs() {
-  const projection = publicV5State();
-  for (const job of projection.jobs || []) {
-    if (['queued', 'running', 'paused'].includes(job.status)) {
-      appendV5Event('job-finished', {
-        id: job.id,
-        status: 'failed',
-        error: 'App restarted before this job finished. Retry from the job ledger.',
-        metrics: { ...(job.metrics || {}), recoverable: true },
-      });
-    }
-  }
   const data = loadData();
   let changed = false;
   for (const key of ['runs', 'analyses', 'intentRuns', 'conversations']) {
@@ -894,45 +642,6 @@ function recoverInterruptedJobs() {
     });
   }
   if (changed) saveData();
-}
-
-async function checkDueSchedules() {
-  const projection = publicV5State();
-  const due = dueSchedules(projection.schedules, { now: now() });
-  for (const schedule of due) {
-    if (!schedule.missionId || runningScheduledMissions.has(schedule.missionId)) continue;
-    runningScheduledMissions.add(schedule.missionId);
-    const runAt = now();
-    appendV5Event('mission-scheduled', {
-      missionId: schedule.missionId,
-      schedule: {
-        ...validateSchedule(schedule),
-        lastRunAt: runAt,
-        nextRunAt: nextScheduleAt({ ...schedule, nextRunAt: '', lastRunAt: runAt }, { from: runAt }),
-      },
-    });
-    runMission(schedule.missionId).catch((error) => {
-      appendV5Event('job-finished', {
-        id: toId('schedule-error'),
-        missionId: schedule.missionId,
-        kind: 'schedule',
-        title: 'Scheduled mission failed',
-        status: 'failed',
-        error: error.message || String(error),
-      });
-    }).finally(() => {
-      runningScheduledMissions.delete(schedule.missionId);
-      emitState();
-    });
-  }
-}
-
-function startScheduleLoop() {
-  clearInterval(scheduleTimer);
-  scheduleTimer = setInterval(() => {
-    checkDueSchedules().catch(() => null);
-  }, 60 * 1000);
-  checkDueSchedules().catch(() => null);
 }
 
 function createWindow() {
@@ -1095,42 +804,6 @@ async function openPathOrThrow(filePath) {
   const error = await shell.openPath(filePath);
   if (error) throw new Error(error);
   return true;
-}
-
-function saveCard(payload) {
-  const data = loadData();
-  const valid = validateCardPayload(payload);
-  const card = {
-    ...valid,
-    id: valid.id || toId('card'),
-    column: valid.column || 'detected',
-    createdAt: payload?.createdAt || now(),
-    updatedAt: now(),
-  };
-  if (!card.title) throw new Error('Card title is required.');
-  upsertById(data.cards, card);
-  saveData();
-  emitState();
-  return card;
-}
-
-function moveCard(payload) {
-  const data = loadData();
-  const valid = validateMoveCardPayload(payload);
-  if (!workflow.columns.some((item) => item.id === valid.column)) throw new Error('Unknown Kanban column.');
-  const existing = data.cards.find((item) => item.id === valid.cardId);
-  const next = {
-    ...(valid.card || {}),
-    ...(existing || {}),
-    id: valid.cardId,
-    column: valid.column,
-    title: existing?.title || valid.card?.title || valid.cardId,
-    updatedAt: now(),
-  };
-  upsertById(data.cards, next);
-  saveData();
-  emitState();
-  return next;
 }
 
 function saveAsset(payload) {
@@ -1532,115 +1205,6 @@ async function importWorkingSheets() {
   }
 }
 
-async function generateAssets({ card, assetTypeIds, datasetId }) {
-  const data = loadData();
-  const valid = validateGenerateAssetsPayload({ card, assetTypeIds, datasetId });
-  const selectedTypes = workflow.assetTypes.filter((asset) => valid.assetTypeIds.includes(asset.id));
-  if (!valid.card?.id) throw new Error('Card is required.');
-  if (!selectedTypes.length) throw new Error('Select at least one asset type.');
-
-  const cardRecord = saveCard({ ...valid.card, column: 'generating' });
-  const assetIds = selectedTypes.map((assetType) => `${cardRecord.id}-${assetType.id}`);
-  for (const assetType of selectedTypes) {
-    const queuedAsset = {
-      id: `${cardRecord.id}-${assetType.id}`,
-      cardId: cardRecord.id,
-      assetType: assetType.id,
-      title: assetType.name,
-      channel: assetType.channel,
-      markdown: '',
-      status: 'running',
-      evidenceIds: [],
-      createdAt: now(),
-      updatedAt: now(),
-    };
-    queuedAsset.assetPath = assetMarkdownPath(queuedAsset);
-    fs.mkdirSync(path.dirname(queuedAsset.assetPath), { recursive: true });
-    fs.writeFileSync(queuedAsset.assetPath, queuedAsset.markdown);
-    upsertById(data.assets, queuedAsset);
-  }
-
-  const assetRunId = toId('assets');
-  startJob({ id: assetRunId, kind: 'assets', status: 'running', title: cardRecord.title, cancellable: true, startedAt: now() });
-  saveData();
-  emitState();
-
-  const workspaceDir = ensureWorkspace(dataPath('workspaces'), cardRecord.projectId || 'default');
-  const runDir = path.join(workspaceDir, safeFilename(assetRunId));
-  fs.mkdirSync(runDir, { recursive: true });
-  const dataset = valid.datasetId ? data.datasets.find((item) => item.id === valid.datasetId) : null;
-  const datasetPayload = dataset ? readDatasetPayload(dataset.id) : { items: [] };
-  const contextPath = path.join(runDir, 'asset-context.json');
-  const schemaPath = path.join(runDir, 'asset-pack.schema.json');
-  const outputPath = path.join(runDir, 'asset-pack.json');
-
-  writeJson(contextPath, {
-    card: cardRecord,
-    requestedAssets: selectedTypes,
-    dataset,
-    items: (datasetPayload.items || []).slice(0, 80),
-    analyses: data.analyses.filter((analysis) => !valid.datasetId || analysis.datasetId === valid.datasetId).slice(0, 10),
-  });
-  writeJson(schemaPath, SCHEMAS.assetPack);
-
-  try {
-    // The instruction is the Prompt Library's "Workflow asset pack" text in the active workspace (defaults otherwise).
-    const prompt = dataPrompts.assetPackPrompt(fs.readFileSync(contextPath, 'utf8'), { blocks: contentWorkspace.promptEffective('data.workflow-asset-pack').blocks });
-    const result = await generateStructuredOutput({ taskId: 'data.workflow-asset-pack', schema: SCHEMAS.assetPack, prompt, workspaceDir: runDir, outputPath, jobId: assetRunId });
-    const { stdout, stderr } = result;
-    const events = parseJsonlEvents(stdout);
-    const output = validateAiOutput('assetPack', readJson(outputPath, null));
-
-    const completedTypes = new Set();
-    for (const generated of output.assets) {
-      const assetType = selectedTypes.find((item) => item.id === generated.assetType);
-      if (!assetType) continue;
-      completedTypes.add(assetType.id);
-      const doneAsset = {
-        id: `${cardRecord.id}-${generated.assetType}`,
-        cardId: cardRecord.id,
-        assetType: generated.assetType,
-        title: generated.title || assetType.name,
-        channel: generated.channel || assetType.channel,
-        markdown: generated.markdown,
-        status: 'done',
-        evidenceIds: generated.evidenceIds || [],
-        outputPath,
-        eventCount: events.length,
-        aiReceipt: result.receipt,
-        stderr: stderr.slice(-1200),
-        createdAt: now(),
-        updatedAt: now(),
-      };
-      doneAsset.assetPath = assetMarkdownPath(doneAsset);
-      fs.mkdirSync(path.dirname(doneAsset.assetPath), { recursive: true });
-      fs.writeFileSync(doneAsset.assetPath, doneAsset.markdown);
-      upsertById(data.assets, doneAsset);
-    }
-    for (const assetType of selectedTypes) {
-      if (completedTypes.has(assetType.id)) continue;
-      const assetId = `${cardRecord.id}-${assetType.id}`;
-      const existing = data.assets.find((asset) => asset.id === assetId);
-      if (existing) upsertById(data.assets, { ...existing, status: 'failed', error: 'AI did not return this asset.', updatedAt: now() });
-    }
-    const column = completedTypes.size === selectedTypes.length ? 'ready' : 'in-review';
-    upsertById(data.cards, { ...cardRecord, column, assetsReady: `${completedTypes.size}/${selectedTypes.length}`, updatedAt: now() });
-    finishJob(assetRunId, { status: 'succeeded' });
-    saveData();
-    return { cardId: cardRecord.id, assetIds, outputPath, output };
-  } catch (error) {
-    const status = wasCancelled(assetRunId) ? 'cancelled' : 'failed';
-    for (const assetId of assetIds) {
-      const existing = data.assets.find((asset) => asset.id === assetId);
-      if (existing) upsertById(data.assets, { ...existing, status, error: error.message, updatedAt: now() });
-    }
-    upsertById(data.cards, { ...cardRecord, column: 'in-review', error: error.message, updatedAt: now() });
-    failJob(assetRunId, error);
-    saveData();
-    throw error;
-  }
-}
-
 async function runRecipe(recipeId) {
   const data = loadData();
   const recipe = data.recipes.find((item) => item.id === recipeId);
@@ -1940,145 +1504,6 @@ async function analyzeDataset({ datasetId, kind, reportPresetId }) {
   }
 }
 
-function planIntentCommand(payload) {
-  const valid = validateIntentPayload(payload);
-  return planIntent(valid.command, { ...publicState(), selectedDatasetId: valid.datasetId });
-}
-
-async function executeIntentStep(step, plan) {
-  if (step.action === 'run-recipe') return runRecipe(step.args.recipeId);
-  if (step.action === 'analyze-dataset') return analyzeDataset(step.args);
-  if (step.action === 'export-dataset') return exportDataset({ ...step.args, reveal: false });
-  if (step.action === 'generate-assets') {
-    const data = loadData();
-    const dataset = data.datasets.find((item) => item.id === step.args.datasetId);
-    const card = saveCard({
-      title: step.args.title || `${dataset?.name || 'Dataset'} asset pack`,
-      description: `Smart command: ${plan.command}`,
-      column: 'generating',
-      tags: ['asset-pack', plan.presetId || plan.intent].filter(Boolean),
-      datasetId: dataset?.id || '',
-      signalCount: dataset?.itemCount || '',
-      signalChange: 'Asset factory',
-      priority: 'smart',
-    });
-    const assetTypeIds = workflow.presets.find((preset) => preset.id === step.args.presetId)?.assetTypeIds || workflow.presets[0]?.assetTypeIds || [];
-    return generateAssets({ card, assetTypeIds, datasetId: dataset?.id || '' });
-  }
-  if (step.action === 'create-card') {
-    const data = loadData();
-    const dataset = data.datasets.find((item) => item.id === step.args.datasetId);
-    const profile = plan.profile || {};
-    return saveCard({
-      title: step.args.title || `${dataset?.name || 'Dataset'} follow-up`,
-      description: `Smart command: ${plan.command}`,
-      column: 'detected',
-      tags: ['smart-plan', profile.kind].filter(Boolean),
-      datasetId: dataset?.id || '',
-      signalCount: dataset?.itemCount || '',
-      signalChange: profile.label || 'Smart plan',
-      priority: 'smart',
-    });
-  }
-  throw new Error(`Unsupported smart action: ${step.action}`);
-}
-
-async function runIntent(payload) {
-  const plan = planIntentCommand(payload);
-  return runPlannedIntent(plan);
-}
-
-function planFromIntentAction(payload) {
-  const step = validateIntentActionPayload(payload);
-  const state = publicState();
-  const datasetId = step.args.datasetId || '';
-  const profile = datasetId ? (state.intelligence?.datasetProfiles || []).find((item) => item.datasetId === datasetId) || null : null;
-  return {
-    command: step.label,
-    intent: 'next-best-action',
-    confidence: 1,
-    targetDatasetId: datasetId,
-    targetRecipeId: step.args.recipeId || '',
-    profile,
-    steps: [{ ...step, why: 'Queued as the next best action for the current workspace.' }],
-    missing: [],
-    canRun: true,
-    summary: step.label,
-  };
-}
-
-async function runIntentAction(payload) {
-  return runPlannedIntent(planFromIntentAction(payload));
-}
-
-async function runPlannedIntent(plan, options = {}) {
-  if (!plan.canRun) throw new Error(plan.missing.join(' ') || 'Smart command is not runnable yet.');
-
-  const data = loadData();
-  const intentRunId = toId('intent');
-  const completedStepIds = [...(options.completedStepIds || [])];
-  const completedSet = new Set(completedStepIds);
-  const record = {
-    id: intentRunId,
-    command: plan.command,
-    status: 'running',
-    plan,
-    startedAt: now(),
-  };
-  upsertById(data.intentRuns, record);
-  startJob({ id: intentRunId, kind: 'intent', status: 'running', title: plan.command, cancellable: false, startedAt: record.startedAt });
-  saveData();
-  emitState();
-
-  try {
-    const results = [];
-    for (const [index, step] of plan.steps.entries()) {
-      if (completedSet.has(step.id)) {
-        results.push({ stepId: step.id, action: step.action, skipped: true });
-        continue;
-      }
-      if (options.jobId) {
-        appendV5Event('job-progressed', {
-          id: options.jobId,
-          progress: Math.round((index / plan.steps.length) * 100),
-          status: 'running',
-          logsPath: options.logsPath || '',
-          metrics: { completedStepIds },
-        });
-        if (options.logsPath) fs.appendFileSync(options.logsPath, `Step ${index + 1}/${plan.steps.length}: ${step.action} ${now()}\n`);
-      }
-      results.push({ stepId: step.id, action: step.action, result: await executeIntentStep(step, plan) });
-      completedStepIds.push(step.id);
-      completedSet.add(step.id);
-    }
-    const complete = {
-      ...record,
-      status: 'succeeded',
-      finishedAt: now(),
-      completedSteps: results.length,
-      completedStepIds,
-      results,
-    };
-    upsertById(data.intentRuns, complete);
-    finishJob(intentRunId, { status: 'succeeded' });
-    saveData();
-    return complete;
-  } catch (error) {
-    error.completedStepIds = completedStepIds;
-    const failed = {
-      ...record,
-      status: 'failed',
-      error: error.message || String(error),
-      finishedAt: now(),
-      completedStepIds,
-    };
-    upsertById(data.intentRuns, failed);
-    failJob(intentRunId, error);
-    saveData();
-    throw error;
-  }
-}
-
 function safeServiceError(error) {
   return String(error?.message || error || 'Service request failed.').replace(/apify_api_[A-Za-z0-9]+/g, '[redacted]').replace(/([?&]token=)[^&\s]+/g, '$1[redacted]').slice(0, 2000);
 }
@@ -2307,12 +1732,20 @@ catch (error) { dialog.showErrorBox('Team data could not be read', error.message
 // the broadcast state: the help:* methods read them for the person asking.
 const askStore = require('./ask-store').createAskStore({ root: dataPath('content-studio', 'ask') });
 const studioHost = createStudioHost({ root: dataPath('content-studio'), getApifyToken: () => getKey('APIFY_API_TOKEN'), model: () => loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL });
+// Workflows: work a workflow starts is credited to it ({ id: 'workflow:<id>', name }) while its step runs; the engine is
+// created below, once access exists, and hears every content change (poke) and every program run a person starts.
+const actingAs = new AsyncLocalStorage();
+const isWorkflowCall = () => String(actingAs.getStore()?.id || '').startsWith('workflow:');
+let workflowEngine = null;
 const contentWorkspace = createContentWorkspace({
   // A first launch opens in the edition this build is packaged for; saved state always wins after that.
   defaultWorkspaceId: packageConfig.studioDefaultWorkspace || 'general',
+  // Single mode keeps one workspace, Main, and hides the others without deleting them (workspace-policy.js).
+  workspacePolicy,
   // Who started a run, decided a trend or edited a report: the person making this call (read once at each method's entry).
-  actor: () => access.actorForCall(),
-  root: dataPath('content-studio'), emit: emitState,
+  actor: () => actingAs.getStore() || access.actorForCall(),
+  root: dataPath('content-studio'), emit: () => { emitState(); workflowEngine?.poke(); },
+  isWorkflowCall, hooks: { onResearchRunStarted: (run) => workflowEngine?.onResearchRunStarted(run) },
   // Each concurrent call gets its own process key so cancelling a run stops all of them. A prompt test run passes its own
   // jobId (its job in the tray), so Cancel there stops it.
   runAI: args => generateStructuredOutput({ ...args, jobId: args.jobId || `${args.runId}::${path.basename(args.outputPath || 'call')}` }),
@@ -2376,6 +1809,35 @@ if (WEB_RUNTIME) require('./web-runtime').provide('people', {
   viewKey: (identity, session) => access.viewKeyFor(identity, session),
   logEvent: (event) => teamStore.logEvent(event),
 });
+// ── Monday.com ───────────────────────────────────────────────────────────────────────────────────
+// The two-way sync (monday-engine.js): one queue for all Monday I/O, a 60 s scheduler started with the window, and on the
+// web the POST /hooks/monday/<secret> receiver studio-server dispatches to (runtime.provided('mondayHook')). Sync now is a
+// cancellable 'monday' job in the tray; its AbortController sits with the API requests so Cancel and quitting stop it.
+let mondayStore;
+try { mondayStore = require('./monday-store').createMondayStore({ root: dataPath('content-studio') }); }
+catch (error) { dialog.showErrorBox('Monday.com sync data could not be read', error.message); app.exit(1); throw error; }
+mondayEngine = require('./monday-engine').createMondayEngine({
+  store: mondayStore, getToken: () => getKey('MONDAY_API_TOKEN'), saveToken: saveMondayToken, clearToken: clearMondayToken,
+  workspace: contentWorkspace, teamStore, access, web: WEB_RUNTIME, origin: mondayOrigin, emitState,
+  jobs: {
+    start: (job) => {
+      const controller = new AbortController(); apiRequests.set(job.id, controller);
+      startJob({ ...job, status: 'running', startedAt: now(), progress: 0, cancellable: true }); // the tray's Cancel (cancel-job) aborts it
+      const settle = () => { apiRequests.delete(job.id); cancelledJobs.delete(job.id); };
+      return { signal: controller.signal, progress: (value) => { const entry = jobs.get(job.id); if (entry) jobs.set(job.id, { ...entry, progress: value }); }, finish: (patch = {}) => { settle(); finishJob(job.id, patch); }, fail: (error) => { settle(); failJob(job.id, error); } };
+    },
+  },
+});
+if (WEB_RUNTIME) require('./web-runtime').provide('mondayHook', { receive: (secret, body) => mondayEngine.receiveHook(secret, body) });
+// The one-way sync before wave 3B kept its board in config.json; it moves into the Monday store once, unchanged in
+// behaviour (manual push and pull) until an admin turns automatic sync on. Called at startup, after config.json loaded.
+function startMondaySync() {
+  try {
+    const config = loadConfig();
+    if (config.monday) { mondayStore.migrateLegacy(config.monday, contentWorkspace.activeWorkspaceId()); delete config.monday; saveConfig(); }
+  } catch (error) { console.warn(`The Monday.com board setup could not be moved: ${error.message}`); }
+  mondayEngine.start();
+}
 // The gate. Every handler below is registered through handle(), so every IPC/RPC call is checked against the caller's
 // role before it runs (deny by default), a channel owner's payload is rebuilt from an allowlist, and what they get back
 // is projected. It stays synchronous and never touches `event`: synchronous handlers (app-meta, state, save-key…) still
@@ -2414,6 +1876,8 @@ const taskNeeds = (taskId) => aiRouting.task(taskId)?.needs || {};
 for (const method of studioMethods) handle(`studio:${method}`, async (_, payload) => {
   // A program already searching is caught before the model check, which can cost a few cents on the Claude app.
   if (method === 'startResearchRun') contentWorkspace.checkResearchIdle(payload || {});
+  // A program schedule on top of a scheduled workflow for the same program would run twice (refused both ways).
+  if (method === 'saveResearchProgram') workflowEngine?.assertNoScheduleConflict(payload || {});
   if (STUDIO_PREFLIGHT[method]) { const tasks = STUDIO_PREFLIGHT[method](payload) || []; if (tasks.length) await aiConnections.preflight(tasks, { needs: taskNeeds }); }
   // The browser studio's run export is a temporary copy, zipped for the download and then removed (offerBrowserFolder).
   if (method === 'exportStudioRun' && WEB_RUNTIME) return offerBrowserFolder(contentWorkspace.exportStudioRun(payload, { temporary: true }));
@@ -2421,6 +1885,46 @@ for (const method of studioMethods) handle(`studio:${method}`, async (_, payload
   if (method === 'exportStudioRun') return forBrowser(result, result?.path);
   return method === 'openStudioAsset' ? forBrowser(result) : result; // the file itself downloads through the shell
 });
+
+// ── Workflows and playbooks (SPEC-3 wave 3B; src/main/workflow-engine.js) ───────────────────────────
+// Saved automations over research programs, quick scans, approvals, reports, channel assets and Monday.com, in
+// content-studio/workflows.json. The engine decides on its own (no AI calls) and starts the studio's own pipelines as
+// the workflow (actingAs), after checking its owner may still call each step's methods (access.canIdentityCall).
+const kitFoldersFor = (editionId) => require('../shared/asset-kit').kitFolders(editionId);
+// Every AI task a workflow's steps run, resolved on Model routing the way each pipeline will resolve it.
+function workflowTasks(workflow, programs = contentWorkspace.publicState().programs || []) {
+  const program = programs.find((row) => row.id === workflow?.steps?.[0]?.programId) || null;
+  const tasks = [];
+  for (const step of workflow?.steps || []) {
+    if (step.kind === 'research') tasks.push(...aiRouting.resolveMany(aiRouting.taskIdsFor('startResearchRun'), { program }));
+    if (step.kind === 'quick-scan') { let ai = program?.ai; try { ai = contentWorkspace.quickScanAi({ programId: step.programId, scan: step.scan }) || ai; } catch (_) { /* the program's own */ } tasks.push(...aiRouting.resolveMany(['quickScans.discovery', 'quickScans.synthesis', 'quickScans.report'], { program: { ai } })); }
+    if (step.kind === 'assets') {
+      const deliverableIds = kitFoldersFor(contentWorkspace.activeEditionId()).filter((folder) => (step.channels || []).includes(folder.id)).flatMap((folder) => folder.deliverableIds);
+      tasks.push(...aiRouting.resolveMany(['assets.default', ...aiRouting.taskIdsFor('createAssetKit', { pictures: step.pictures !== false && mediaRouter.ready('pictures.kit-image'), deliverableIds })]));
+    }
+  }
+  return tasks;
+}
+workflowEngine = createWorkflowEngine({
+  store: (() => { try { return createWorkflowStore({ file: dataPath('content-studio', 'workflows.json'), writeJson }); } catch (error) { dialog.showErrorBox('Workflows could not be read', error.message); app.exit(1); throw error; } })(),
+  workspace: contentWorkspace, clock: () => new Date(), emit: emitState,
+  preflight: async (workflow) => { const tasks = workflowTasks(workflow); if (tasks.length) await aiConnections.preflight(tasks, { needs: taskNeeds }); },
+  describeRoutes: async (workflow, programs) => { const tasks = workflowTasks(workflow, programs); return { models: [...new Set(tasks.map((task) => task.modelLabel || task.model).filter(Boolean))], uncapped: tasks.some((task) => task.metered === false) }; },
+  // Monday.com (src/main/monday-engine.js): the workflow's trends go out by key; the board's own cards decide their fields.
+  monday: { connected: () => { const state = mondayEngine?.publicState(); return Boolean(state?.connected && state.link?.active); }, syncCards: ({ workspaceId, cards }) => mondayEngine.push(workspaceId, { keys: cards.map((card) => card.key), force: true }) },
+  canIdentityCall: (identityId, method) => access.canIdentityCall(identityId, method),
+  logActivity: (kind, workspaceId, detail, by) => { try { teamStore.log(kind, workspaceId, detail, by); } catch (_) { /* the log never stops a workflow */ } },
+  runAs: (actor, fn) => actingAs.run(actor, fn),
+  isDraining: () => WEB_RUNTIME && Boolean(require('./web-runtime').settings?.draining),
+  desktop: !WEB_RUNTIME,
+});
+// Who is calling, for the engine (admins may pause every workflow at once).
+const workflowCaller = () => ({ ...access.actorForCall(), admin: access.currentViewer()?.base === 'admin' });
+const WORKFLOW_METHODS = { estimateWorkflow: 'estimate', readWorkflowRun: 'readRun', previewPlaybook: 'previewPlaybook', saveWorkflow: 'save', setWorkflowStatus: 'setStatus', deleteWorkflow: 'remove', cancelWorkflowRun: 'cancelRun', approveWorkflowBudget: 'approveBudget', applyPlaybook: 'applyPlaybook', savePlaybook: 'savePlaybook', deletePlaybook: 'deletePlaybook' };
+for (const [method, fn] of Object.entries(WORKFLOW_METHODS)) handle(`studio:${method}`, (_, payload) => workflowEngine[fn](payload || {}, workflowCaller()));
+// Starting work joins a run already started for the same request (a retried click never starts two).
+handle('studio:runWorkflow', (_, payload) => onceForRequest('runWorkflow', payload, () => workflowEngine.run(payload || {}, workflowCaller())));
+handle('studio:retryWorkflowRun', (_, payload) => onceForRequest('retryWorkflowRun', payload, () => workflowEngine.retryRun(payload || {}, workflowCaller())));
 
 // Browser studio: the folder of the browser request being answered, where a file to download is written (studio-server
 // sweeps it after ten minutes); '' on the Mac, or for work no request is waiting on (a Workflows step).
@@ -2504,21 +2008,11 @@ handle('app-meta', () => ({
 // Each person's own view of the state: everything for admins and editors, their channel for a channel owner, nothing for
 // someone without a role (src/main/roles.js projectState).
 handle('state', () => access.project(publicState(), access.currentViewer()));
-handle('list-missions', () => publicV5State().missions);
-handle('save-mission', (_, payload) => saveMission(payload));
-handle('run-mission', (_, missionId) => runMission(missionId));
-handle('run-action-graph', (_, payload) => runActionGraph(payload));
-handle('pause-mission', (_, missionId) => pauseMission(missionId));
-handle('schedule-mission', (_, payload) => scheduleMission(payload));
 handle('discover-apify-resource', (_, payload) => discoverApifyResource(payload));
 handle('test-recipe', (_, payload) => onceForRequest('testRecipe', payload, () => testRecipe(payload)));
 handle('save-recipe-version', (_, payload) => saveRecipeVersion(payload));
-handle('get-job', (_, jobId) => getJob(jobId));
-handle('retry-job', (_, jobId) => retryJob(jobId));
-handle('read-job-log', (_, jobId) => readJobLog(jobId));
 handle('search-evidence', (_, payload) => searchEvidenceRecords(payload));
 handle('read-evidence', (_, evidenceId) => readEvidenceRecord(evidenceId));
-handle('export-mission-bundle', (_, missionId) => exportMissionBundle(missionId));
 handle('export-asset-pack', (_, payload) => exportAssetPack(payload));
 handle('refresh-apify-actors', () => refreshApifyActors());
 handle('search-sources', (_, payload) => onceForRequest('searchSources', payload, () => { const { requestId: _requestId, ...request } = payload || {}; return searchSources(request); }));
@@ -3495,6 +2989,7 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
     const blocks = helpSafe(() => contentWorkspace.promptEffective('assistant.ask-ai').blocks);
     const admin = Boolean(reach?.admin) || !reach;
     const reply = await helpAssistant.askHelp({ question, history, page }, {
+      singleWorkspace: workspacePolicy.mode === 'single' ? { name: workspacePolicy.name } : null,
       guide: appGuide(), context: (view) => helpContext(view, role, promptAccess, { admin }), role, imagesOn: mediaRouter.ready('pictures.ask-ai'), imageFamilies: helpSafe(() => (contentWorkspace.publicState().workspaces.find((row) => row.id === workspaceId)?.brandImageSets || []).map((set) => set.id), []), imageSizes: HELP_IMAGE_SIZES, memory, summary, pending, programs, blocks, promptAccess, access: reach, related,
       // What action params are checked against: this workspace's channels, the studio's roles (admins), and today.
       params: { channels: helpChannels(), roles: admin ? helpRoleOptions() : [], today: new Date() },
@@ -3938,9 +3433,6 @@ handle('setup:apply', async (_, { token, saveApifyToken = false } = {}) => {
 handle('open-source-url', (_, value) => { const url = new URL(String(value)); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('Unsupported source link.'); return shell.openExternal(url.href); });
 handle('check-codex', () => checkCodexCli());
 handle('test-image-provider', () => imageProvider.checkAccess());
-handle('plan-intent', (_, payload) => planIntentCommand(payload));
-handle('run-intent', (_, payload) => runIntent(payload));
-handle('run-intent-action', (_, payload) => runIntentAction(payload));
 
 handle('save-key', (_, { keyName, value }) => {
   const validKey = validateKeyName(keyName, KEY_NAMES);
@@ -3952,6 +3444,7 @@ handle('save-key', (_, { keyName, value }) => {
   config.keys[validKey] = encryptValue(validValue);
   if (config.disabledKeys) delete config.disabledKeys[validKey];
   saveConfig(); aiRoutes.invalidate(); aiConnections.invalidate();
+  if (validKey === 'MONDAY_API_TOKEN') mondayEngine?.tokenSaved();
   return publicState().keys;
 });
 
@@ -3961,6 +3454,8 @@ handle('clear-key', (_, keyName) => {
   delete config.keys[validKey];
   config.disabledKeys = { ...(config.disabledKeys || {}), [validKey]: true };
   saveConfig(); aiRoutes.invalidate(); aiConnections.invalidate();
+  // Monday.com links pause (reason 'token') instead of staying half-configured.
+  if (validKey === 'MONDAY_API_TOKEN') { mondayEngine?.tokenCleared(); emitState(); }
   return publicState().keys;
 });
 
@@ -4006,17 +3501,25 @@ handle('delete-recipe', (_, recipeId) => {
 // Workflows plan with a generate-assets step) starts paid AI work with only the per-call aiMaxBudgetUsd cap and no
 // estimate screen. Removing a method means taking it out of studio-api-channels.json, src/preload/index.js and
 // roles.json together (test/roles.test.js keeps them in step).
-handle('save-card', (_, payload) => saveCard(payload));
-handle('move-card', (_, payload) => moveCard(payload));
 handle('save-asset', (_, payload) => saveAsset(payload));
-handle('generate-assets', (_, payload) => generateAssets(payload));
 // recipeId, or { recipeId, requestId } so a retried request joins the run already going (onceForRequest).
 handle('run-recipe', (_, payload) => { const input = typeof payload === 'string' ? { recipeId: payload } : payload || {}; return onceForRequest('runRecipe', input, () => runRecipe(validateId(input.recipeId, 'Recipe ID'))); });
 handle('read-dataset', (_, datasetId) => readDatasetPayload(validateId(datasetId, 'Dataset ID')));
 handle('export-dataset', (_, payload) => exportDataset(payload));
 handle('test-sheets-bridge', () => testSheetsBridge());
-handle('save-monday-board', (_, payload) => saveMondayBoard(payload));
-handle('clear-monday-board', () => { const config = loadConfig(); delete config.monday; saveConfig(); emitState(); return publicState(); });
+// Monday.com (monday-engine.js): setup is Settings (admins); Sync now and the log are Export and publish; an item's
+// notes are See research. Each payload is checked inside the engine.
+const mondayPayload = (payload) => (payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {});
+handle('monday:connect', (_, payload) => mondayEngine.connect(mondayPayload(payload)));
+handle('monday:test', () => mondayEngine.test());
+handle('monday:boards', (_, payload) => mondayEngine.listBoards(mondayPayload(payload)));
+handle('monday:board', (_, payload) => mondayEngine.readBoard(mondayPayload(payload)));
+handle('monday:create-board', (_, payload) => mondayEngine.createBoard(mondayPayload(payload)));
+handle('monday:fix-board', (_, payload) => mondayEngine.fixBoard(mondayPayload(payload)));
+handle('monday:save-link', (_, payload) => mondayEngine.saveLink(mondayPayload(payload)));
+handle('monday:disconnect', (_, payload) => mondayEngine.disconnect(mondayPayload(payload)));
+handle('monday:log', (_, payload) => mondayEngine.readLog(mondayPayload(payload)));
+handle('monday:item', (_, payload) => mondayEngine.readItem(mondayPayload(payload)));
 handle('sync-trend-board-to-monday', (_, payload) => syncTrendBoardToMonday(payload));
 handle('archive-and-clear-sheets', (_, payload) => archiveAndClearSheets(payload));
 handle('import-working-sheets', () => importWorkingSheets());
@@ -4088,9 +3591,13 @@ app.whenReady().then(() => {
     try { const cutoff = Date.now() - keepDays * 86400000; for (const entry of fs.readdirSync(dataPath('exports'), { withFileTypes: true })) { const target = dataPath('exports', entry.name); if (fs.statSync(target).mtimeMs < cutoff) fs.rmSync(target, { recursive: true, force: true }); } } catch (_) { /* nothing to remove */ }
   }
   contentWorkspace.startResearchScheduler();
-  // Explicit local launch preference; normal launches keep the saved workspace.
+  workflowEngine.start(); // after the research scheduler: recovers interrupted workflow runs, then ticks every 30 s
+  // Explicit local launch preference; normal launches keep the saved workspace. A one-workspace build ignores it.
   const requestedWorkspace = process.argv.find(argument => argument.startsWith("--studio-workspace="))?.split("=")[1];
-  if (["general", "semrush"].includes(requestedWorkspace)) contentWorkspace.selectContentWorkspace(requestedWorkspace);
+  const appliedPolicy = contentWorkspace.workspacePolicy();
+  console.log(JSON.stringify({ event: 'workspace-policy', mode: workspacePolicy.mode, mainId: appliedPolicy.mainId || '', archived: (contentWorkspace.publicState().workspacePolicy?.archived || []).length }));
+  if (requestedWorkspace && workspacePolicy.mode === 'single') console.warn(`--studio-workspace=${requestedWorkspace} is ignored: this build has one workspace, ${workspacePolicy.name}.`);
+  else if (["general", "semrush"].includes(requestedWorkspace)) contentWorkspace.selectContentWorkspace(requestedWorkspace);
   configureAutoUpdates();
   app.setAboutPanelOptions({ applicationName: APP_NAME, applicationVersion: app.getVersion(), copyright: 'Chris DiMarco' });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -4098,7 +3605,7 @@ app.whenReady().then(() => {
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]));
   createWindow();
-  startScheduleLoop();
+  startMondaySync(); // the Mac app syncs only while it is open; the next tick after a sleep catches up
 });
 
 // What would be lost by quitting now: research/content runs, background jobs (chat, analyses, scraper
@@ -4106,7 +3613,8 @@ app.whenReady().then(() => {
 function activeWorkSummary() {
   const lines = [];
   for (const run of contentWorkspace.activeWork?.() || []) lines.push(`${run.kind === 'research' ? 'Research run' : 'Content run'}: ${run.title}${run.stage ? ` (${run.stage})` : ''}`);
-  for (const job of jobs.values()) if (job.status === 'running') lines.push(`${({ chat: 'Chat answer', run: 'Scraper run', assets: 'Asset generation', intent: 'Search' })[job.kind] || 'Analysis'}: ${job.title || 'in progress'}`);
+  for (const job of jobs.values()) if (job.status === 'running') lines.push(job.kind === 'monday' ? job.title : `${({ chat: 'Chat answer', run: 'Scraper run', assets: 'Asset generation', intent: 'Search' })[job.kind] || 'Analysis'}: ${job.title || 'in progress'}`);
+  const monday = mondayEngine?.activeLine(); if (monday) lines.push(monday); // an automatic Monday.com sync (Sync now is a job above)
   const requests = jobProcesses.size + apiRequests.size;
   if (!lines.length && requests) lines.push(`${requests} AI request${requests === 1 ? '' : 's'} in progress`);
   return lines;
@@ -4120,7 +3628,7 @@ function stopAllWork() {
   for (const run of apifyRunControllers.values()) Promise.resolve().then(() => run.abort?.()).catch(() => { /* already settled */ });
 }
 // The browser studio stops with its server process (no quit dialog there): stop schedules and in-flight AI work.
-if (WEB_RUNTIME) app.once('quit', () => { contentWorkspace.stopResearchScheduler(); stopAllWork(); });
+if (WEB_RUNTIME) app.once('quit', () => { contentWorkspace.stopResearchScheduler(); workflowEngine?.stop(); mondayEngine?.stop(); stopAllWork(); });
 let quitConfirmed = false;
 app.on('before-quit', (event) => {
   const busy = quitConfirmed ? [] : activeWorkSummary();
@@ -4137,6 +3645,8 @@ app.on('before-quit', (event) => {
     return;
   }
   contentWorkspace.stopResearchScheduler();
+  workflowEngine?.stop();
+  mondayEngine?.stop();
   stopAllWork();
 });
 

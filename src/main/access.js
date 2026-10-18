@@ -289,8 +289,25 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     return { role: viewer.base, roleId: viewer.roleId, channelId: viewer.channelId, preview: viewer.preview };
   }
   const viewKeyFor = (identity, session) => policy.viewKey(viewerFor(identity, session));
+  // Whether this person (no session, so no preview) may call a method: the Monday.com sync's check that a member matched
+  // by email holds decideResearchTheme before their Yes or Skip on Monday counts.
+  function allows(identity, method) {
+    if (!identity?.role || identity.disabled) return false;
+    const viewer = viewerFor(identity, null);
+    return mayCall(viewer, method, baseOf(viewer));
+  }
+  // Whether a workflow's owner, by identity id, may still call a method (checked before every step a workflow runs). The
+  // Mac's one person ('local') and the web's admin password ('owner') are admins; a removed or disabled member, or one
+  // whose role lost the capability, may not.
+  function canIdentityCall(identityId, method) {
+    const id = text(identityId);
+    if (id === 'local' || id === 'owner') return true;
+    const member = typeof teamStore.memberById === 'function' ? teamStore.memberById(id) : null;
+    const identity = member && typeof teamStore.identityFor === 'function' ? teamStore.identityFor(member, 'workflow') : null;
+    return allows(identity, method);
+  }
 
-  return { identityForCall, sessionForCall, viewerFor, currentViewer, actorForCall, check, after, projectResult, rewriteError, project, canUpload, effectiveFor, viewKeyFor, policy: policyNow };
+  return { identityForCall, sessionForCall, viewerFor, currentViewer, actorForCall, check, after, projectResult, rewriteError, project, canUpload, effectiveFor, viewKeyFor, allows, canIdentityCall, policy: policyNow };
 }
 
 module.exports = { createAccess, SYSTEM, SCOPE_METHODS, UPLOAD_METHODS, AUDITED };

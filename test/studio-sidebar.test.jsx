@@ -47,6 +47,14 @@ describe('StudioSidebar: head', () => {
     expect(switcher).toHaveFocus();
   });
 
+  it('only names the workspace in a one-workspace build', () => {
+    sidebar({ singleWorkspace: true, workspaces: [{ id: 'semrush', name: 'Main', editionId: 'semrush' }] });
+    expect(screen.queryByRole('button', { name: /^Workspace:/ })).not.toBeInTheDocument();
+    const card = screen.getByRole('group', { name: 'Workspace: Main' });
+    expect(card).toHaveAttribute('data-spot', 'nav.workspace');
+    expect(card).toHaveTextContent('Admin · Simple');
+  });
+
   it('asks before switching everyone’s workspace on the web', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
     const { onSelectWorkspace } = sidebar({ web: true });
@@ -113,7 +121,7 @@ describe('StudioSidebar: New, Search and Ask AI', () => {
     expect(create).toHaveAttribute('aria-keyshortcuts', 'Alt+Meta+N');
     fireEvent.click(create);
     const menu = screen.getByRole('menu', { name: 'New' });
-    expect(within(menu).getAllByRole('menuitem').map((row) => row.getAttribute('aria-label') || row.textContent)).toEqual(['Find new trends', 'Quick scan', 'Channel assets', 'Content from a report', 'Picture', 'Research program', 'Person', 'Workspace']);
+    expect(within(menu).getAllByRole('menuitem').map((row) => row.getAttribute('aria-label') || row.textContent)).toEqual(['Find new trends', 'Quick scan', 'Channel assets', 'Content from a report', 'Picture', 'Research program', 'Playbook', 'Person', 'Workspace']);
     expect(within(menu).getByRole('menuitem', { name: 'Quick scan' })).toHaveAccessibleDescription('A small, recent scan, sized and priced by Ask AI.');
     expect(within(menu).getAllByRole('separator')).toHaveLength(1);
     // Arrow keys move through the rows; Esc closes and gives focus back.
