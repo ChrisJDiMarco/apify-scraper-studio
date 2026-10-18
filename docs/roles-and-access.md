@@ -37,7 +37,7 @@ the No access screen.
    (`spends`) on an editor base, because paid work shows its estimate first. A channel base never needs costs.
 
 The methods are the union of the capabilities' methods (a channel base: intersected with `channelSafeMethods`). With
-no policy edits this is exactly the old fixed matrix: admin 180 methods, editor 116, channel owner 19
+no policy edits this is exactly the old fixed matrix: admin 187 methods, editor 116, channel owner 19
 (`test/roles.test.js` and `test/docs-consistency.test.js` check these numbers).
 
 Channels are the ten asset-kit folders in `src/shared/kit-folders.json` `folders` (main reads them through
@@ -200,7 +200,7 @@ of role may ever hold it. “Spends” marks paid work (it needs See costs on an
 | | `editBrand` Edit brand knowledge | A | editor | | taxonomy, reference docs, brand images, product registry, `deleteBrandProfile` |
 | | `manageWorkspaces` Switch workspaces | A | editor | | `selectContentWorkspace, saveContentWorkspace` |
 | | `seeAnalytics` See team analytics | A | editor | | `getTrendAnalytics` |
-| Admin only (locked) | `settings` Settings and connections | A | none | | keys, settings, AI and connection checks, Monday.com setup (`connectMonday`, `saveMondayLink`, `disconnectMonday` …), data folders, setup files, sheet maintenance, `setPromptLock` |
+| Admin only (locked) | `settings` Settings and connections | A | none | | keys, settings, AI and connection checks, Monday.com setup (`connectMonday`, `saveMondayLink`, `disconnectMonday` …), the Google Drive folder sync (`connectDriveSync`, `saveDriveSync`, `startDriveBackfill`, `readDriveSyncLog` …), data folders, setup files, sheet maintenance, `setPromptLock` |
 | | `manageAccess` People and access | A | none | | `getTeam, saveMember, removeMember, createSignInLink, revokeSignInLink, setViewAs, saveRolePolicy, saveRole, deleteRole, saveMemberAccess, inviteMembers, readAccessLog, previewAccess` |
 
 `channelSafeMethods` = the core methods plus every method with a channel scope in `access.js` (`SCOPE_METHODS.channel`):

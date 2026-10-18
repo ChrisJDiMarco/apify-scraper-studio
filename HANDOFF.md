@@ -34,6 +34,10 @@ worth a report, writes an evidence-backed **trends report** and **editorial tool
 report into a full set of **channel assets** (blog, newsletter, paid media, PR, social, affiliate, enterprise sales,
 Backlinko, Exploding Topics, Search Engine Land) with pictures.
 
+For a one-page visual overview of the loop, Ask AI, automations and the architecture, open
+[docs/how-it-works.pdf](docs/how-it-works.pdf) (source: `docs/how-it-works.html`; regenerate with
+`npx electron scripts/render-how-it-works.cjs`).
+
 The research pipeline is a port of the team's earlier n8n "Golden Thread" workflow (same Actors, batch sizes, scoring
 and sheet layout; see [docs/n8n-parity.md](docs/n8n-parity.md)). Stages:
 
@@ -59,7 +63,7 @@ Semrush marketing roles. Every person has one role; the server enforces it on ev
 
 Admins can add up to 12 **custom roles** built on Editor or Channel owner, from the templates Viewer, Analyst and
 Channel reviewer, and adjust any person's access per capability (deny wins). The model is
-28 capabilities over 180 RPC methods; with no policy edits the defaults are admin 180 methods, editor 116, channel owner 19. Details:
+28 capabilities over 187 RPC methods; with no policy edits the defaults are admin 187 methods, editor 116, channel owner 19. Details:
 [docs/roles-and-access.md](docs/roles-and-access.md).
 
 Two layouts, chosen per person: **Simple** (the default; Home, Trends, Reports, Assets, Inbox, Calendar, Ask AI) and
@@ -267,6 +271,29 @@ Ask AI reads at runtime). This is the developer's view, with the code that owns 
   before anything is created again, and only an `itemMissing` answer ever clears an item ID. Conflicts: the studio owns
   every field after review (Monday changes are changed back, three times an hour at most); comments are Monday's. Sync
   now is a cancellable `monday` job. Chips on Trends cards in both layouts; the sync log in Settings and on Trends.
+- **Google Drive folder sync** (Settings → Google Drive, admins; `drive-settings.jsx`, `drive-sync.js`,
+  `drive-client.js`). An admin connects once: a Google **service account** (the pasted JSON key is signed in with an
+  RS256 JWT over `node:crypto`, exchanged at `oauth2.googleapis.com/token` for an hour-long token cached until a minute
+  before expiry, then saved encrypted as `GOOGLE_DRIVE_SERVICE_ACCOUNT`; Settings shows its email to share the folder
+  with, as Editor), or the Google Docs access token as a fallback; then a folder link (My Drive or a shared drive,
+  checked for `canAddChildren`). One studio-wide switch, **Add every new report to Drive**, replaces the per-program
+  `delivery.publishToDrive` (programs that had it turn the switch on once, `migratedPrograms`; their setting is kept and
+  still runs the old `publishRun` route only while no folder is connected, `hooks.legacyDrivePublish`). Content writes
+  call `hooks.onAssetChanged` (`saveTextAsset`, `persistImageVariant`, `editStudioAsset`, `restoreStudioAsset`,
+  `writeReportMarkdown`, `clearReportEdits`): a new trends report, toolkit or quick scan report goes out ~10 s later,
+  an edit ~60 s after the last change (queue persisted in `drive-sync.json`, one Drive call at a time). Folders mirror
+  the Library (`<yyyy-mm-dd> · <program>/<trend>/`, `Quick scan · <topic>/`, channel assets in
+  `…/<trend>/Channel assets · <date>/<channel team>/` when **Include channel assets** is on), found or made by name
+  under the chosen folder and kept in an id map per folder; folders carry a `studioKey` tag and files a `studioAsset`
+  tag, so a lost map never duplicates. The Doc is created from the report HTML (`safeGoogleDocHtml`, Drive converts it)
+  and later edits PATCH the same file (a toolkit links its trends report's Doc). Drive v3 with `supportsAllDrives=true`,
+  429/5xx retried with backoff (Retry-After honored; a create is never re-sent after a 5xx or lost answer, since Drive
+  may have made it, and the next attempt finds the tagged copy), a temporary failure re-queued for 5 minutes up to
+  three times (an edit saved mid-send stays queued; with the switch off or no sign-in the queue waits, rechecked each minute),
+  errors in plain words (folder not shared, key refused, Drive API off, no storage). **Copy existing reports** is a
+  cancellable `drive` job; the sync log keeps 200 rows with **Retry**. Readers show **Open in Drive** from
+  `contentStudio.driveLinks` (`roles.js` empties it without Read reports and assets); Monday cards fall back to it.
+  Server-side on the web; on the Mac only while the app is open. No AI spend.
 
 ## Configuration reference
 
@@ -337,6 +364,10 @@ saved in Settings wins, and the studio removes these from the AI tools' environm
 | `OPENROUTER_API_KEY` | The OpenRouter connection (any model through one key; Settings → AI connections). |
 | `FAL_KEY` | The fal.ai connection (pictures and short videos). |
 
+`GOOGLE_DRIVE_SERVICE_ACCOUNT` (the Google Drive folder sync's service account key) is in `KEY_NAMES` but is a saved key
+only: Settings → Google Drive saves it after Google accepts it, save-key refuses it, and there is no environment
+fallback. No new environment variables.
+
 **Workspaces** (`src/main/workspace-policy.js`; both builds)
 
 The package.json field `studioWorkspace` (`{ "mode": "single", "id": "semrush", "editionId": "semrush", "name": "Main" }`,
@@ -403,6 +434,7 @@ Everything lives in one data folder: `~/Library/Application Support/apify-scrape
     report-docs/         the report editor: <assetId>.json (Yjs state, versions list) and <assetId>.versions/
     report-notes.json    notes on reports, replies, mentions and each person's note Inbox items (version 1)
     monday-log.jsonl     the Monday.com sync log (newest 2,000 rows)
+    drive-sync.json      Google Drive folder sync: folder, switches, an id map per folder, the queue, the log (200 rows)
     runs/<runId>/        input, evidence, assignments, theme-stats, *.validated.json, report and asset files
     collections/ datasets/ dataset-index.json            collected posts and their index
     ask/<sha256(identity)[0:32]>/   one person's Ask AI index, conversations (c/), memory.json
@@ -616,6 +648,18 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
 - No per-person limit on Ask AI questions in flight.
 - Codex's `web_search` tool stays on (turning it off risks a config error on older CLIs).
 
+### Google Drive folder sync
+
+- One way only: a Doc edited in Drive is overwritten by the next edit in the studio, and a report deleted in the studio
+  stays in Drive. Drafts from Create content and short videos aren't copied; pictures go as PNG files.
+- The folder layout is decided when a file is first copied; renaming a program or trend later doesn't move or rename
+  folders already in Drive (the file is updated where it is).
+- Only the active workspace is synced (single-workspace builds have one). The Mac app syncs only while it is open;
+  what is queued goes out at the next start.
+- Channel owners don't see **Open in Drive** (their view carries no report list). Older Drive receipts from
+  **Save to Google Docs** (`publishRun`) are separate files from the folder sync's Docs.
+- Uploads are multipart, so files over 5 MB are refused with a plain message (large pictures stay in the studio).
+
 ### Report editor and notes
 
 - The Markdown written on each save is the saving browser's. It is checked against the server's document only when the
@@ -766,6 +810,7 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
 | --- | --- | --- |
 | [README.md](README.md) | Everyone | The front door. |
 | [HANDOFF.md](HANDOFF.md) | Developers taking over | This file. |
+| [docs/how-it-works.pdf](docs/how-it-works.pdf) | Everyone | One-page diagram of how the studio works, end to end. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Developers | Runtime model, contracts, extension points. |
 | [RUNBOOK.md](RUNBOOK.md) | Operators | Install, release, deploy, back up, upgrade, recover. |
 | [SECURITY.md](SECURITY.md) | Security reviewers, operators | Trust boundaries, data flows, hardening, gaps. |

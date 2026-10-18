@@ -200,6 +200,13 @@
     "readMondaySyncLog": "monday:log",
     "readMondayItem": "monday:item",
     "syncTrendBoardToMonday": "sync-trend-board-to-monday",
+    "connectDriveSync": "drive:connect",
+    "saveDriveSync": "drive:save",
+    "testDriveSync": "drive:test",
+    "startDriveBackfill": "drive:backfill",
+    "retryDriveSync": "drive:retry",
+    "disconnectDriveSync": "drive:disconnect",
+    "readDriveSyncLog": "drive:log",
     "archiveAndClearSheets": "archive-and-clear-sheets",
     "importWorkingSheets": {
       "channel": "import-working-sheets",

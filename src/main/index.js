@@ -93,7 +93,9 @@ const {
 const { ensureWorkspace, isPathInside, safeFilename } = require('../shared/workspace');
 
 const APP_NAME = 'Scraper Studio';
-const KEY_NAMES = ['APIFY_API_TOKEN', 'ANTHROPIC_API_KEY', 'GOOGLE_SHEETS_WEBHOOK_URL', 'GOOGLE_DOCS_ACCESS_TOKEN', 'OPENAI_API_KEY', 'MONDAY_API_TOKEN', 'OPENROUTER_API_KEY', 'FAL_KEY'];
+// GOOGLE_DRIVE_SERVICE_ACCOUNT: the Google Drive folder sync's service account key (Settings → Google Drive saves it after
+// signing in with it; save-key refuses it, and it has no environment fallback).
+const KEY_NAMES = ['APIFY_API_TOKEN', 'ANTHROPIC_API_KEY', 'GOOGLE_SHEETS_WEBHOOK_URL', 'GOOGLE_DOCS_ACCESS_TOKEN', 'OPENAI_API_KEY', 'MONDAY_API_TOKEN', 'OPENROUTER_API_KEY', 'FAL_KEY', 'GOOGLE_DRIVE_SERVICE_ACCOUNT'];
 const CODEX_TIMEOUT_MS = 10 * 60 * 1000;
 const jobs = new Map();
 const jobProcesses = new Map();
@@ -313,7 +315,7 @@ function keyProblem(name) {
   return problem;
 }
 function keyProblems() { return Object.fromEntries(KEY_NAMES.map((name) => [name, keyProblem(name)]).filter(([, problem]) => problem)); }
-const KEY_LABELS = { APIFY_API_TOKEN: 'Apify token', ANTHROPIC_API_KEY: 'Anthropic API key', GOOGLE_SHEETS_WEBHOOK_URL: 'Google Sheets bridge link', GOOGLE_DOCS_ACCESS_TOKEN: 'Google Drive token', OPENAI_API_KEY: 'OpenAI key', MONDAY_API_TOKEN: 'Monday.com token', OPENROUTER_API_KEY: 'OpenRouter key', FAL_KEY: 'fal.ai key' };
+const KEY_LABELS = { APIFY_API_TOKEN: 'Apify token', ANTHROPIC_API_KEY: 'Anthropic API key', GOOGLE_SHEETS_WEBHOOK_URL: 'Google Sheets bridge link', GOOGLE_DOCS_ACCESS_TOKEN: 'Google Drive token', OPENAI_API_KEY: 'OpenAI key', MONDAY_API_TOKEN: 'Monday.com token', OPENROUTER_API_KEY: 'OpenRouter key', FAL_KEY: 'fal.ai key', GOOGLE_DRIVE_SERVICE_ACCOUNT: 'Google Drive service account key' };
 // The message for a key a call needs but can't use: why, when the saved one can't be read, else `missing`.
 function keyNeeded(name, missing) {
   const problem = keyProblem(name);
@@ -328,7 +330,7 @@ function getKey(name) {
     saved = '';
     if (!reportedKeyProblems.has(name)) { reportedKeyProblems.add(name); console.warn(`Saved key ${name} could not be decrypted${keyProblem(name) ? `: ${KEY_PROBLEM_COPY[keyProblem(name)]}` : ''}.`); }
   }
-  saved ||= process.env[name];
+  if (name !== 'GOOGLE_DRIVE_SERVICE_ACCOUNT') saved ||= process.env[name];
   if (saved) return saved;
   if (name !== 'OPENAI_API_KEY') return '';
   try { return readLocalImageKey({ appPath: app.getAppPath?.(), credentialFile: config.imageCredentialFile, enabled: !app.isPackaged && process.env.STUDIO_DISABLE_LOCAL_ENV !== '1' }); }
@@ -362,6 +364,29 @@ function mondayOrigin() {
   const value = pick(process.env.STUDIO_PUBLIC_ORIGIN) || (WEB_RUNTIME ? pick(require('./web-runtime').currentCall()?.origin) : pick(loadData().settings.studioWebAddress));
   return /^https?:\/\/[^\s?#]+$/i.test(value) ? value : '';
 }
+// Google Drive folder sync (drive-sync.js; HANDOFF.md → Google Drive folder sync): the service account key is an
+// encrypted key like the others; the folder, id map, queue and log live in content-studio/drive-sync.json. Made once the
+// content workspace exists (below it); publicState, the content hooks and the handlers reach it through this variable.
+let driveSync = null;
+function saveDriveServiceAccount(json) {
+  if (keyProblem('GOOGLE_DRIVE_SERVICE_ACCOUNT') === 'mismatch') throw Object.assign(new Error(`The saved ${KEY_LABELS.GOOGLE_DRIVE_SERVICE_ACCOUNT} was saved with a different STUDIO_SECRET_KEY, so it wasn’t replaced. Start the studio with the original STUDIO_SECRET_KEY to use it, or choose Disconnect first and then connect the new key.`), { status: 409, code: 'keyMismatch' });
+  const config = loadConfig();
+  config.keys.GOOGLE_DRIVE_SERVICE_ACCOUNT = encryptValue(String(json));
+  if (config.disabledKeys) delete config.disabledKeys.GOOGLE_DRIVE_SERVICE_ACCOUNT;
+  saveConfig();
+}
+function clearDriveServiceAccount() {
+  const config = loadConfig();
+  delete config.keys.GOOGLE_DRIVE_SERVICE_ACCOUNT;
+  saveConfig();
+}
+// The Drive sync's sign-in: the saved service account, else the Google Docs access token (the older route), else none.
+function driveCredentials() {
+  const raw = getKey('GOOGLE_DRIVE_SERVICE_ACCOUNT');
+  if (raw) { try { const key = JSON.parse(raw); if (key?.client_email && key?.private_key) return { mode: 'service-account', key }; } catch (_) { /* an unreadable key reads as not connected */ } }
+  const token = getKey('GOOGLE_DOCS_ACCESS_TOKEN');
+  return token ? { mode: 'token', token } : null;
+}
 // Sync now (and a Workflows step): a background job ('monday' in the job tray) that the server builds the cards for; a
 // legacy `cards` field is ignored and a repeat joins the run in flight. Returns { jobId, queued } straight away.
 function syncTrendBoardToMonday(payload = {}) {
@@ -390,7 +415,7 @@ function publicState() {
     ...data,
     // Workflows ride along with the studio: workflows, workflowRuns (latest 10 each), team playbooks, workflowSummary;
     // and noteCounts, the notes on each report (each person's own mentions are added per person by access.project).
-    contentStudio: notesInto(workflowsInto(contentWorkspace.publicState())),
+    contentStudio: driveLinksInto(notesInto(workflowsInto(contentWorkspace.publicState()))),
     recipes: data.recipes.map(publicRecipe),
     intelligence: studioIntelligence(data),
     keys: Object.fromEntries(KEY_NAMES.map((name) => [name, Boolean(getKey(name))])),
@@ -399,6 +424,8 @@ function publicState() {
     keyProblems: keyProblems(),
     ...(storeRecovery.length ? { storeRecovery: storeRecovery.map((entry) => ({ ...entry })) } : {}),
     monday: mondayEngine ? mondayEngine.publicState() : { connected: Boolean(getKey('MONDAY_API_TOKEN')), account: null, link: null, items: {} },
+    // Settings → Google Drive (drive-sync.js): the folder, the switches and how syncing is going. Never the key.
+    driveSync: driveSync ? driveSync.publicState() : { connected: false, mode: '', email: '', folder: null, autoAdd: false, includeChannelAssets: false, rev: 0, files: 0, failed: 0, waiting: 0, lastSyncAt: '', lastError: '', backfill: null, lastBackfill: null, migratedPrograms: 0 },
     jobs: Array.from(jobs.values()),
     // The one part of the retired v5 projection still in use: Scrapers' saved recipe versions.
     v5: { recipeVersions: publicRecipeVersions() },
@@ -412,6 +439,13 @@ function workflowsInto(studio) {
   const empty = { workflows: [], workflowRuns: [], playbooks: [], workflowSummary: { active: 0, paused: 0, drafts: 0, waiting: 0, monthSpentUsd: 0, monthCapUsd: 0 } };
   let extra = empty; try { extra = workflowEngine ? workflowEngine.publicState(studio.activeWorkspaceId, { programs: studio.programs }) : empty; } catch (error) { console.warn(`Workflows could not be read: ${error.message}`); }
   return { ...studio, ...extra };
+}
+
+// { [assetId]: url } of the active workspace's reports the Google Drive folder sync has copied, for Open in Drive
+// (roles.js empties it without Read reports and assets).
+function driveLinksInto(studio) {
+  let links = {}; try { links = driveSync ? driveSync.links((studio.assets || []).map((asset) => asset.id)) : {}; } catch (error) { console.warn(`Google Drive links could not be read: ${error.message}`); }
+  return { ...studio, driveLinks: links };
 }
 
 // { [assetId]: { open, total } } for the active workspace's reports and assets with notes (report-notes.js).
@@ -1725,6 +1759,10 @@ function aiCapabilitiesNow() {
   return { routing: { text: `${text.routeLabel} · ${text.modelLabel}`, textRoute: text.route, imagesReady, videosReady, imageLabel: `${picture.routeLabel} · ${picture.modelLabel}`, imageRoute: picture.route, videoLabel: `${clip.routeLabel} · ${clip.modelLabel}`, videoSeconds: clip.video?.durationSeconds || 0 }, imagesConfigured: imagesReady, videosConfigured: videosReady, imageProvider: picture.routeLabel, imageModel: picture.model };
 }
 const googleDelivery = require('./google-delivery').createGoogleDelivery({ getAccessToken: () => getKey('GOOGLE_DOCS_ACCESS_TOKEN') });
+// What a research program's form says about Drive: whether every new report is added to the admin's folder, and its name.
+function driveCapabilities() {
+  try { const drive = driveSync?.publicState(); return { driveAutoAdd: Boolean(drive?.autoAdd && drive?.folder && drive?.connected), driveFolderName: drive?.folder?.name || '' }; } catch (_) { return { driveAutoAdd: false, driveFolderName: '' }; }
+}
 // Both desktop and browser hosts own this same storage boundary exclusively.
 let releaseStudioOwner;
 try { releaseStudioOwner = acquireStudioOwnerLock(dataPath('content-studio')); }
@@ -1756,7 +1794,14 @@ const contentWorkspace = createContentWorkspace({
   // Who started a run, decided a trend or edited a report: the person making this call (read once at each method's entry).
   actor: () => actingAs.getStore() || access.actorForCall(),
   root: dataPath('content-studio'), emit: () => { emitState(); workflowEngine?.poke(); },
-  isWorkflowCall, hooks: { onResearchRunStarted: (run) => workflowEngine?.onResearchRunStarted(run), onAssetEdited: (event) => reportDocs?.outsideEdit(event) },
+  isWorkflowCall, hooks: {
+    onResearchRunStarted: (run) => workflowEngine?.onResearchRunStarted(run), onAssetEdited: (event) => reportDocs?.outsideEdit(event),
+    // Google Drive folder sync: every report written or edited is queued; a program's old "Publish reports to Google
+    // Drive" runs only until a folder is connected; Monday.com cards link the Drive copy.
+    onAssetChanged: (event) => driveSync?.assetChanged(event),
+    legacyDrivePublish: (program) => (driveSync ? driveSync.legacyPublish(program) : Boolean(program?.delivery?.publishToDrive)),
+    driveLink: (assetId) => driveSync?.linkFor(assetId) || '',
+  },
   // Each concurrent call gets its own process key so cancelling a run stops all of them. A prompt test run passes its own
   // jobId (its job in the tray), so Cancel there stops it.
   runAI: args => generateStructuredOutput({ ...args, jobId: args.jobId || `${args.runId}::${path.basename(args.outputPath || 'call')}` }),
@@ -1785,7 +1830,7 @@ const contentWorkspace = createContentWorkspace({
     startJob({ ...job, status: 'running', startedAt: now() });
     return { finish: (patch = {}) => { wasCancelled(job.id); finishJob(job.id, patch); }, fail: (error) => { wasCancelled(job.id); failJob(job.id, error); }, cancelled: () => cancelledJobs.has(job.id) };
   },
-  capabilities: () => ({ aiProvider: loadData().settings.aiProvider || 'auto', textModel: loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL, ...aiCapabilities(), googleConfigured: Boolean(getKey('GOOGLE_DOCS_ACCESS_TOKEN')), googlePublishConfigured: Boolean(googlePublishVia()), googlePublishVia: googlePublishVia() }),
+  capabilities: () => ({ aiProvider: loadData().settings.aiProvider || 'auto', textModel: loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL, ...aiCapabilities(), googleConfigured: Boolean(getKey('GOOGLE_DOCS_ACCESS_TOKEN')), googlePublishConfigured: Boolean(googlePublishVia()), googlePublishVia: googlePublishVia(), ...driveCapabilities() }),
   importSource: async (payload = {}) => {
     if (payload.url) {
       // A connected Google account reads private docs; a doc shared by link reads without one.
@@ -1824,22 +1869,34 @@ if (WEB_RUNTIME) require('./web-runtime').provide('people', {
 // The two-way sync (monday-engine.js): one queue for all Monday I/O, a 60 s scheduler started with the window, and on the
 // web the POST /hooks/monday/<secret> receiver studio-server dispatches to (runtime.provided('mondayHook')). Sync now is a
 // cancellable 'monday' job in the tray; its AbortController sits with the API requests so Cancel and quitting stop it.
+// A background job the tray's Cancel (cancel-job) stops: its AbortController sits with the API requests, so Cancel and
+// quitting abort it. Monday.com's Sync now and Google Drive's Copy existing reports.
+function cancellableJob(job) {
+  const controller = new AbortController(); apiRequests.set(job.id, controller);
+  startJob({ ...job, status: 'running', startedAt: now(), progress: 0, cancellable: true });
+  const settle = () => { apiRequests.delete(job.id); cancelledJobs.delete(job.id); };
+  return { signal: controller.signal, abort: () => controller.abort(), progress: (value) => { const entry = jobs.get(job.id); if (entry) jobs.set(job.id, { ...entry, progress: value }); }, finish: (patch = {}) => { settle(); finishJob(job.id, patch); }, fail: (error) => { settle(); failJob(job.id, error); } };
+}
 let mondayStore;
 try { mondayStore = require('./monday-store').createMondayStore({ root: dataPath('content-studio') }); }
 catch (error) { dialog.showErrorBox('Monday.com sync data could not be read', error.message); app.exit(1); throw error; }
 mondayEngine = require('./monday-engine').createMondayEngine({
   store: mondayStore, getToken: () => getKey('MONDAY_API_TOKEN'), saveToken: saveMondayToken, clearToken: clearMondayToken,
   workspace: contentWorkspace, teamStore, access, web: WEB_RUNTIME, origin: mondayOrigin, emitState,
-  jobs: {
-    start: (job) => {
-      const controller = new AbortController(); apiRequests.set(job.id, controller);
-      startJob({ ...job, status: 'running', startedAt: now(), progress: 0, cancellable: true }); // the tray's Cancel (cancel-job) aborts it
-      const settle = () => { apiRequests.delete(job.id); cancelledJobs.delete(job.id); };
-      return { signal: controller.signal, progress: (value) => { const entry = jobs.get(job.id); if (entry) jobs.set(job.id, { ...entry, progress: value }); }, finish: (patch = {}) => { settle(); finishJob(job.id, patch); }, fail: (error) => { settle(); failJob(job.id, error); } };
-    },
-  },
+  jobs: { start: (job) => cancellableJob(job) },
 });
 if (WEB_RUNTIME) require('./web-runtime').provide('mondayHook', { receive: (secret, body) => mondayEngine.receiveHook(secret, body) });
+// ── Google Drive folder sync ─────────────────────────────────────────────────────────────────────
+// drive-sync.js: an admin connects a service account (or the Docs access token) and a folder once; every report written
+// or edited is copied there (a minute after an edit), Copy existing reports is a cancellable 'drive' job, and the Mac app
+// syncs only while it is open (what is waiting goes out at the next start). Server-side on the web. Never spends AI money.
+try {
+  driveSync = require('./drive-sync').createDriveSync({
+    root: dataPath('content-studio'), workspace: contentWorkspace, credentials: driveCredentials,
+    saveServiceAccount: saveDriveServiceAccount, clearServiceAccount: clearDriveServiceAccount, emitState,
+    jobs: { start: (job) => cancellableJob(job) },
+  });
+} catch (error) { dialog.showErrorBox('Google Drive sync data could not be read', error.message); app.exit(1); throw error; }
 // The one-way sync before wave 3B kept its board in config.json; it moves into the Monday store once, unchanged in
 // behaviour (manual push and pull) until an admin turns automatic sync on. Called at startup, after config.json loaded.
 function startMondaySync() {
@@ -3538,6 +3595,7 @@ handle('test-image-provider', () => imageProvider.checkAccess());
 
 handle('save-key', (_, { keyName, value }) => {
   const validKey = validateKeyName(keyName, KEY_NAMES);
+  if (validKey === 'GOOGLE_DRIVE_SERVICE_ACCOUNT') throw Object.assign(new Error('Connect the service account in Settings → Google Drive, which checks the key with Google before saving it.'), { status: 400 });
   const validValue = validateKeyValue(validKey, value);
   // A key saved under another STUDIO_SECRET_KEY is the only copy the original server key can still read: it is replaced
   // only after an admin clears it on purpose.
@@ -3623,6 +3681,16 @@ handle('monday:disconnect', (_, payload) => mondayEngine.disconnect(mondayPayloa
 handle('monday:log', (_, payload) => mondayEngine.readLog(mondayPayload(payload)));
 handle('monday:item', (_, payload) => mondayEngine.readItem(mondayPayload(payload)));
 handle('sync-trend-board-to-monday', (_, payload) => syncTrendBoardToMonday(payload));
+// Google Drive folder sync (drive-sync.js): Settings → Google Drive, admins only (roles.json `settings`). Each payload is
+// checked inside drive-sync.
+const drivePayload = (payload) => (payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {});
+handle('drive:connect', (_, payload) => driveSync.connect(drivePayload(payload)));
+handle('drive:save', (_, payload) => driveSync.save(drivePayload(payload)));
+handle('drive:test', () => driveSync.test());
+handle('drive:backfill', () => driveSync.startBackfill());
+handle('drive:retry', (_, payload) => driveSync.retry(drivePayload(payload)));
+handle('drive:disconnect', () => driveSync.disconnect());
+handle('drive:log', (_, payload) => driveSync.readLog(drivePayload(payload)));
 handle('archive-and-clear-sheets', (_, payload) => archiveAndClearSheets(payload));
 handle('import-working-sheets', () => importWorkingSheets());
 handle('export-dataset-to-sheets', (_, payload) => exportDatasetToSheets(payload));
@@ -3708,6 +3776,7 @@ app.whenReady().then(() => {
   ]));
   createWindow();
   startMondaySync(); // the Mac app syncs only while it is open; the next tick after a sleep catches up
+  driveSync?.start(); // moves old per-program Drive publishing onto the switch once, then sends what is waiting
 });
 
 // What would be lost by quitting now: research/content runs, background jobs (chat, analyses, scraper
@@ -3715,8 +3784,9 @@ app.whenReady().then(() => {
 function activeWorkSummary() {
   const lines = [];
   for (const run of contentWorkspace.activeWork?.() || []) lines.push(`${run.kind === 'research' ? 'Research run' : 'Content run'}: ${run.title}${run.stage ? ` (${run.stage})` : ''}`);
-  for (const job of jobs.values()) if (job.status === 'running') lines.push(job.kind === 'monday' ? job.title : `${({ chat: 'Chat answer', run: 'Scraper run', assets: 'Asset generation', intent: 'Search' })[job.kind] || 'Analysis'}: ${job.title || 'in progress'}`);
+  for (const job of jobs.values()) if (job.status === 'running') lines.push(job.kind === 'monday' || job.kind === 'drive' ? job.title : `${({ chat: 'Chat answer', run: 'Scraper run', assets: 'Asset generation', intent: 'Search' })[job.kind] || 'Analysis'}: ${job.title || 'in progress'}`);
   const monday = mondayEngine?.activeLine(); if (monday) lines.push(monday); // an automatic Monday.com sync (Sync now is a job above)
+  const drive = driveSync?.activeLine(); if (drive) lines.push(drive); // reports going to Google Drive (Copy existing reports is a job above)
   const requests = jobProcesses.size + apiRequests.size;
   if (!lines.length && requests) lines.push(`${requests} AI request${requests === 1 ? '' : 's'} in progress`);
   return lines;
@@ -3730,7 +3800,7 @@ function stopAllWork() {
   for (const run of apifyRunControllers.values()) Promise.resolve().then(() => run.abort?.()).catch(() => { /* already settled */ });
 }
 // The browser studio stops with its server process (no quit dialog there): stop schedules and in-flight AI work.
-if (WEB_RUNTIME) app.once('quit', () => { contentWorkspace.stopResearchScheduler(); workflowEngine?.stop(); mondayEngine?.stop(); stopAllWork(); });
+if (WEB_RUNTIME) app.once('quit', () => { contentWorkspace.stopResearchScheduler(); workflowEngine?.stop(); mondayEngine?.stop(); driveSync?.stop(); stopAllWork(); });
 let quitConfirmed = false;
 app.on('before-quit', (event) => {
   const busy = quitConfirmed ? [] : activeWorkSummary();
@@ -3749,6 +3819,7 @@ app.on('before-quit', (event) => {
   contentWorkspace.stopResearchScheduler();
   workflowEngine?.stop();
   mondayEngine?.stop();
+  driveSync?.stop();
   stopAllWork();
 });
 

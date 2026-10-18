@@ -1,0 +1,48 @@
+/* Settings → Google Drive (drive-settings.jsx) and Open in Drive on reports. Token-only (--s-*, set by the studio frame in
+   both layouts); the fallbacks keep a bare mount readable. Everything wraps, so it fits a phone-width column. */
+.gd-settings { display: grid; gap: 14px; min-width: 0; }
+.gd-muted { margin: 0; color: var(--s-muted, #62685e); font-size: 12px; line-height: 1.45; }
+.gd-message { display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: 8px 10px; border-radius: var(--s-radius-control, 12px); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.gd-message.is-ok { background: var(--s-mint, #dceeeb); color: var(--s-mint-ink, #1f5a4c); }
+.gd-message.is-problem { background: var(--s-danger-soft, #fbe7df); color: var(--s-danger, #8a2f1c); }
+.gd-message svg { flex: none; margin-top: 2px; }
+.gd-step { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-row, 16px); background: var(--s-card, #fff); color: var(--s-ink, #181e15); min-width: 0; }
+.gd-step h4 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; }
+.gd-step-number { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: var(--s-soft, #f1eaff); color: var(--s-soft-ink, #5a2fa0); font-size: 12px; font-weight: 700; flex: none; }
+.gd-help, .gd-share { margin: 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.gd-share { padding: 8px 10px; border-radius: var(--s-radius-control, 12px); background: var(--s-soft, #f1eaff); color: var(--s-soft-ink, #5a2fa0); font-weight: 600; }
+.gd-email { overflow-wrap: anywhere; }
+.gd-help a, .gd-log a { display: inline-flex; align-items: center; gap: 3px; color: var(--s-soft-ink, #5a2fa0); font-weight: 600; }
+.gd-field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; min-width: 0; }
+.gd-field textarea, .gd-field input { min-width: 0; max-width: 100%; padding: 7px 10px; border: 1px solid var(--s-line-strong, #cfd6d0); border-radius: var(--s-radius-control, 12px); background: var(--s-card, #fff); color: var(--s-ink, #181e15); font: inherit; font-size: 13px; font-weight: 400; }
+.gd-field textarea { resize: vertical; font-family: var(--s-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; }
+.gd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.gd-row input { flex: 1 1 220px; }
+.gd-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gd-actions button, .gd-row button, .gd-progress button { display: inline-flex; align-items: center; gap: 6px; }
+.gd-end { justify-content: flex-end; }
+.gd-check { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; cursor: pointer; }
+.gd-check input { margin-top: 3px; flex: none; }
+.gd-check span { display: grid; gap: 2px; min-width: 0; }
+.gd-check small { color: var(--s-muted, #62685e); font-size: 12px; line-height: 1.45; }
+.gd-facts { display: grid; gap: 6px; margin: 0; font-size: 13px; }
+.gd-facts div { display: grid; grid-template-columns: minmax(70px, max-content) 1fr; gap: 10px; }
+.gd-facts dt { color: var(--s-muted, #62685e); font-weight: 600; }
+.gd-facts dd { margin: 0; line-height: 1.45; }
+.gd-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.gd-details { border-top: 1px solid var(--s-line, #e3e8e4); padding-top: 10px; }
+.gd-details summary { cursor: pointer; font-size: 13px; font-weight: 700; }
+.gd-details[open] summary { margin-bottom: 10px; }
+.gd-details .gd-help + .gd-help, .gd-details .gd-field { margin-top: 8px; }
+.gd-log { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; max-height: 360px; overflow: auto; }
+.gd-log-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; padding: 7px 4px; border-bottom: 1px solid var(--s-line, #e3e8e4); font-size: 13px; }
+.gd-log-when { flex: 0 0 76px; color: var(--s-muted, #62685e); font-size: 12px; }
+.gd-log-what { display: grid; gap: 1px; flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.gd-log-what small { color: var(--s-muted, #62685e); font-size: 12px; }
+.gd-log-what .gd-log-error { color: var(--s-danger, #8a2f1c); }
+.gd-log-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+:is(.gd-check input, .gd-details summary, .gd-log a, .gd-help a, .gd-open-drive):focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 2px; }
+@media (max-width: 560px) {
+  .gd-facts div { grid-template-columns: 1fr; gap: 2px; }
+  .gd-log-when { flex-basis: 100%; }
+}

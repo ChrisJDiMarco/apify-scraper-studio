@@ -64,6 +64,7 @@ edition (Mac or browser), steps to reproduce and any log `ref`.
 | Provider keys saved in Settings | `config.json`: on the Mac encrypted with Electron `safeStorage` (the keychain; the app refuses to save when it isn't available); on the web AES-256-GCM with `STUDIO_SECRET_KEY`. The page only ever learns whether a key is saved. |
 | `STUDIO_SECRET_KEY`, `STUDIO_PASSWORD`, `STUDIO_PROXY_SECRET` | Read once from `STUDIO_SECRETS_FD` or `STUDIO_SECRETS_FILE`, deleted from `process.env`, kept in memory. Started as root with `STUDIO_RUN_AS`, the server reads a root-only file and then switches user, so neither the file nor (on Linux) its memory and starting environment are readable to its own user. Secrets set as environment variables still work, with a startup warning. |
 | Sign-in links | SHA-256 hashes in `team.json`. |
+| The Google Drive service account key | Saved like the provider keys (`config.json`, `GOOGLE_DRIVE_SERVICE_ACCOUNT`, encrypted), only after Google accepts it, and only five fields (type, email, private key, key id, project). No environment fallback, refused by save-key, never sent to the page (Settings shows the service account's email). Access tokens it gets live in memory only. `drive-sync.json` holds folder and file ids and the sync log, never the key. |
 | The Apify token in setup files | Only when the exporter ticks **Include the shared Apify token**; such a file is written owner-only and is as sensitive as the token. |
 | Dev-only | `.env.local` in a checkout may hold an `OPENAI_API_KEY` for `npm run dev` (git-ignored; never in a package; `STUDIO_DISABLE_LOCAL_ENV=1` turns it off). `.claude/launch.json` may hold preview passwords (git-ignored). |
 
@@ -81,6 +82,8 @@ messages written for people have server paths removed, and unexpected errors rea
 | Report text (up to 16,000 characters), run details, trend history, earlier conversations, a keyword search of collected posts (12 posts: platform, author, text up to 400 characters, link, date), spend | The AI route | Ask AI's second call, when a question needs a lookup | `helpLookup` |
 | Art direction and brand reference images | OpenAI Images | Pictures (channel assets, Ask AI, Create content) | `image-provider.js` |
 | Report and asset files, datasets | Google (Docs, Drive, Sheets through the bridge) | Only when someone publishes or exports | `bridge-delivery.js`, `google-delivery.js`, `workbooks.js` |
+| Trends reports, editorial toolkits and quick scan reports (the rendered report page, edits included), plus channel assets (text as Docs, PNG pictures) when that option is on; folder names (run date, program name, trend name, quick scan topic, channel team); the asset id as a file tag | Google Drive (`www.googleapis.com`), into the one folder an admin chose | Automatically once an admin connects Settings → Google Drive and turns on **Add every new report to Drive** (a few seconds after a report is written, a minute after an edit), on **Copy existing reports**, and on **Retry** | `drive-sync.js`, `drive-client.js` |
+| A signed JWT (the service account email, the Drive scope, an hour's expiry) | Google's token endpoint (`oauth2.googleapis.com`, fixed in code; a key file's own `token_uri` is ignored) | When the cached access token is within a minute of expiring | `drive-client.js` |
 | Trend cards: name, stage, studio key, priority, category, momentum, sources count, program, date found, who decided (name and note), report and studio links, channel answers (channel, using or not, planned date, link), notes | Monday.com | Automatically when an admin turns sync on (as changes happen, hourly or daily), or on **Sync now** | `monday-engine.js`, `monday-cards.js`, `monday-sync.js` |
 | From Monday: item status (Yes or Skip while a trend waits for an OK), owner, planned date, comments (plain text, ten per item, treated as data), deletions | The studio's `content-studio/monday.json` | On each check (webhook or poll) | `monday-engine.js` |
 | Prompt versions, Ask AI memory | Stay in the data folder | — | `prompt-store.js`, `ask-store.js` |
@@ -91,6 +94,12 @@ secret, bodies are capped at 64 KB and 1,200 events a minute, and payload values
 queues a re-read of a linked item through the API with the studio's token, so a forged call can at most cause a re-read.
 Yes or Skip from Monday counts only while a trend waits for an OK, from a studio member matched by email who may decide
 trends (web default) or anyone who can edit the board (the Mac, which has no member list); it never starts paid work.
+
+The Google Drive folder sync acts as the service account, which can reach only what was shared with it: give it Editor
+on the one folder (or Contributor on a shared drive), nothing broader. Its scope is full Drive (`auth/drive`) because it
+must write into a folder a person created; Google limits it to shared items. It never reads files it didn't make, never
+deletes anything (a report deleted in the studio stays in Drive), and it spends no AI money. Open in Drive links reach
+only roles with Read reports and assets; whether they open depends on Drive's own sharing.
 
 API keys and tokens never enter prompts. Ask AI's memory refuses secret-shaped text (`looksSecret`). Collected posts
 contain third-party personal data (names, handles, post text): see retention below.
@@ -121,6 +130,7 @@ Posts and documents are attacker-controllable text. Mitigations:
 | Team activity / access log | 5,000 / 2,000 rows. |
 | Browser transfers | Uploads and downloads expire after 10 minutes; the transfer folder is emptied at every start; export copies older than `STUDIO_EXPORT_DAYS` (7) are removed at start. |
 | Backups | As long as the operator keeps them (`--keep`). They contain everything above. |
+| Copies in Google Drive (folder sync) | In Drive, under the organization's Drive retention; the studio never deletes them. Disconnect stops new copies and removes the key; the id map in `drive-sync.json` stays so a reconnect doesn't copy twice. |
 | Workspaces hidden by a one-workspace build | Kept on disk with all their records (hidden, not deleted), plus a one-time `content-studio/state.before-single-workspace.json` (0600, a copy of `state.json` from before the switch). Delete both deliberately if that data must go; see RUNBOOK. |
 
 Semrush should set a retention policy for collected posts and conversations (see HANDOFF decisions).

@@ -10,6 +10,9 @@
 // file). settings-view.jsx renders every section component with the common section props ({ state, meta, api, busy,
 // role, layout, web, onSaveKey, onClearKey, onSaveSettings }). Its status dot reads state.monday ({ connected, link: {
 // boardId, paused, problems, counts } }).
+//
+// Google Drive: `DriveSettings` from ./drive-settings.jsx (the folder sync: connect, folder, the studio-wide switch, Copy
+// existing reports, the sync log). Its status dot reads state.driveSync (src/main/drive-sync.js publicState()).
 export const SETTINGS_GROUPS = Object.freeze([
   { id: 'connect', label: 'Collection' },
   { id: 'ai', label: 'AI' },
@@ -23,8 +26,9 @@ export const SETTINGS_SECTIONS = Object.freeze([
   { id: 'ai', group: 'ai', label: 'AI connections', spot: 'settings.ai-connections' },
   { id: 'models', group: 'ai', label: 'Model routing', spot: 'settings.model-routing', when: (c) => Boolean(c.has?.models) },
   { id: 'brand-images', group: 'brand', label: 'Brand reference images', spot: 'settings.brand-images', when: (c) => Boolean(c.has?.brandImages) },
+  { id: 'google-drive', group: 'integrations', label: 'Google Drive', spot: 'settings.google-drive' },
   { id: 'google-docs', group: 'integrations', label: 'Google Docs', spot: 'settings.google-docs', collapsible: true },
-  { id: 'google-sheets', group: 'integrations', label: 'Google Sheets & Drive', spot: 'settings.google-sheets', collapsible: true },
+  { id: 'google-sheets', group: 'integrations', label: 'Google Sheets', spot: 'settings.google-sheets', collapsible: true },
   { id: 'monday', group: 'integrations', label: 'Monday.com', spot: 'settings.monday', when: (c) => Boolean(c.has?.monday) },
   { id: 'web-address', group: 'studio', label: 'Studio web address', spot: 'settings.web-address', when: (c) => !c.web },
   { id: 'share', group: 'studio', label: 'Share your setup', spot: 'settings.share', when: (c) => Boolean(c.has?.setupShare) },
@@ -35,7 +39,7 @@ export const SETTINGS_SECTION_IDS = Object.freeze(SETTINGS_SECTIONS.map((section
 
 // Older names that still open the right section: links and help spots written before AI connections replaced
 // "Writing & research" and "Image generation".
-export const SECTION_ALIASES = Object.freeze({ writing: 'ai', claude: 'ai', images: 'ai', pictures: 'ai', 'ai-connections': 'ai', routing: 'models', 'model-routing': 'models', brand: 'brand-images', sheets: 'google-sheets', drive: 'google-sheets', docs: 'google-docs', address: 'web-address', setup: 'share' });
+export const SECTION_ALIASES = Object.freeze({ writing: 'ai', claude: 'ai', images: 'ai', pictures: 'ai', 'ai-connections': 'ai', routing: 'models', 'model-routing': 'models', brand: 'brand-images', sheets: 'google-sheets', drive: 'google-drive', 'drive-sync': 'google-drive', docs: 'google-docs', address: 'web-address', setup: 'share' });
 export const sectionId = (value) => { const id = String(value || '').trim().toLowerCase(); return SETTINGS_SECTION_IDS.includes(id) ? id : SECTION_ALIASES[id] || ''; };
 
 // A help spot's section (settings.monday → monday), for Show me steps that point into Settings.
@@ -76,6 +80,15 @@ export function sectionStatus(id, ctx = {}) {
     const workspace = list(studio.workspaces).find((row) => row.id === studio.activeWorkspaceId);
     const count = list(workspace?.brandImageSets).reduce((sum, set) => sum + list(set.images).length, 0);
     return count ? tone('ready', `${count} ${count === 1 ? 'picture' : 'pictures'}`) : tone('neutral', 'Optional');
+  }
+  if (id === 'google-drive') {
+    // state.driveSync: { connected, folder, autoAdd, failed } (drive-sync.js publicState()).
+    const drive = state.driveSync || {};
+    if (problems.GOOGLE_DRIVE_SERVICE_ACCOUNT) return tone('problem', 'Can’t read saved key');
+    if (!drive.connected) return tone('neutral', 'Optional');
+    if (!drive.folder) return tone('attention', 'Choose a folder');
+    if (Number(drive.failed) > 0) return tone('problem', 'Some files failed');
+    return drive.autoAdd ? tone('ready', 'Syncing') : tone('neutral', 'Switch off');
   }
   if (id === 'google-docs') {
     if (problems.GOOGLE_DOCS_ACCESS_TOKEN) return tone('problem', 'Can’t read saved token');

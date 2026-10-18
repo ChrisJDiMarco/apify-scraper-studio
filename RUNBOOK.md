@@ -14,7 +14,7 @@ the "what do I do" companion. Background: [HANDOFF.md](HANDOFF.md).
 
 Outbound hosts the server calls: `api.anthropic.com`, `api.apify.com` (and Apify dataset storage), `api.openai.com`,
 `docs.googleapis.com`, `www.googleapis.com`, `docs.google.com` and `script.google.com` (Google delivery and the Sheets
-bridge), `api.monday.com`. Corporate proxies: Node 24 honours `HTTPS_PROXY`/`NO_PROXY` with `NODE_USE_ENV_PROXY=1`
+bridge), `oauth2.googleapis.com` (the Google Drive folder sync's service account sign-in), `api.monday.com`. Corporate proxies: Node 24 honours `HTTPS_PROXY`/`NO_PROXY` with `NODE_USE_ENV_PROXY=1`
 (check it on the Node patch you deploy); add an inspecting CA with `NODE_EXTRA_CA_CERTS`.
 
 ## Install for development
@@ -180,6 +180,11 @@ npm run restore -- --from /var/backups/scraper-studio/scraper-studio-backup-<tim
   roles show **See workflows and playbooks** and **Build and run workflows** as New and off; Admin and Editor get them.
 - Monday.com: the board setup in `config.json` (`monday`) moves to `content-studio/monday.json` on first start, with sync
   left manual; a damaged `monday.json` is copied aside and the next sync finds its items again by Studio key.
+- Google Drive folder sync: `content-studio/drive-sync.json` (v1) is new. On first start, if any research program had
+  **Publish reports to Google Drive** on, the studio-wide **Add every new report to Drive** switch is turned on once
+  (`migratedPrograms`); the programs' own setting is kept and used only until a Drive folder is connected. A damaged
+  `drive-sync.json` is copied aside; the next sync finds its files again by their `studioAsset` tag, so nothing is
+  copied twice.
 
 ## Recover from a stuck data-folder lock
 
@@ -207,6 +212,7 @@ On the Mac, "Workspace already in use" means another copy of the app (or a serve
 | A person's sign-in link | People & access → the person → **Make a new sign-in link** (ends the old one) or **Turn off link**. |
 | `STUDIO_PROXY_SECRET` | Change it in the proxy's configuration and the secrets file together, then restart both. |
 | `STUDIO_SECRET_KEY` | There is no re-encryption tool. Note which keys are saved, put the new value in the secrets file, restart: saved keys now show as saved under a different key (the startup `secrets-check` log line names them). In Settings choose **Clear** for each and save it again. |
+| The Google Drive service account key | Google Cloud → IAM & Admin → Service accounts → the studio's account → **Keys** → **Add key** → **Create new key** → JSON. In the studio: Settings → Google Drive → **Replace key**, paste the new file, **Connect** (it is checked with Google before it replaces the old one), then **Test**. The folder, its sharing and every file id stay, because the account (its email) is the same. Then delete the old key in Google Cloud and the downloaded JSON file from wherever it was saved. A *new* service account has a new email: share the Drive folder with it as Editor before **Test**; files the old account made stay in place and are updated by the new one. |
 | The Sheets bridge URL | Apps Script → **New deployment** (a new URL), archive the old deployment, paste the new URL in Settings. |
 | A leaked source zip or folder | Rotate every key that was in it. A folder copy of a developer checkout can contain `.env.local` (a dev OpenAI key) and `.claude/launch.json` (preview passwords); use `scripts/make-handoff.sh` instead (below). |
 
@@ -247,6 +253,10 @@ store. Never bodies, passwords, tokens, cookies or keys. `STUDIO_LOG_LEVEL=debug
 | "Monday.com sync is paused: … token" | The token's owner left or the token was revoked | Connect a new token (see rotation); nothing on Monday changes meanwhile |
 | "Monday.com's daily API limit is used up" | The plan's daily calls ran out (1,000 on Free, Basic, Standard) | It resumes after midnight UTC; check less often or send hourly (Settings shows the estimate) |
 | "Monday couldn't reach this studio" | Webhooks blocked by company sign-in or no public https address | Add the `/hooks/monday/` bypass ([docs/web-deploy.md](docs/web-deploy.md#instant-monday-updates)); it polls every 5 minutes meanwhile |
+| Settings → Google Drive says "can see the folder but can't add files" or "can't see that folder" | The folder isn't shared with the service account, or only as Viewer | Share it with the address Settings shows, as Editor (shared drive: Contributor or higher), then **Test** and **Retry** in the sync log |
+| "Google says there's no Drive storage left for these files" | A service account has no Drive storage of its own; files it makes in a My Drive folder count against it | Use a folder in a shared drive (recommended), then **Copy existing reports** |
+| "Google didn't accept this service account key" | The key was deleted or disabled in Google Cloud, or the host clock is wrong | Check the clock (NTP), then rotate the key (see rotation) |
+| "The Google Drive API is turned off …" | The service account's Cloud project doesn't have the Drive API enabled | APIs & Services → Library → Google Drive API → Enable; **Test** |
 | "Changed back … on Monday" in the sync log | Someone (or a Monday automation) changed a stage the studio owns | Expected; after three in an hour the item shows **Changed on Monday** until **Sync now** |
 
 ## Live verification (costs money)

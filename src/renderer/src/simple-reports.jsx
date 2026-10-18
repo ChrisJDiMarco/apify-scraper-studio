@@ -138,6 +138,15 @@ export function ReportShareMenu({ api, studio = null, asset, markdown = '', shar
   ]} />;
 }
 
+// Open in Drive, for any reader: the report's copy in the admin's Drive folder (Settings → Google Drive), from
+// studio.driveLinks (the Google Drive folder sync's file ids; roles.js empties it for roles that can't read reports).
+export function DriveOpenButton({ api, studio = null, assetId = '', className = '' }) {
+  const url = assetId ? String(studio?.driveLinks?.[assetId] || '') : '';
+  if (!/^https:\/\//.test(url)) return null;
+  const open = () => (api?.openSourceUrl ? api.openSourceUrl(url) : window.open(url, '_blank', 'noopener'));
+  return <button type="button" className={['gd-open-drive', className].filter(Boolean).join(' ')} data-spot="report.drive" title="Open this report’s copy in Google Drive" onClick={open}><ExternalLink size={15} aria-hidden="true" />Open in Drive</button>;
+}
+
 // Props as SimpleMode's earlier SimpleReports, plus `tree` (buildLibraryTree) and `onOpenAssets(folderKey)`, which
 // opens a trend's folder in Assets. `studio` (state.contentStudio) adds the run facts (How this was made), the Google
 // Docs option and the brand check; `linkOrigin` is the address share links use (deep-links.js shareOrigin; on the web
@@ -285,6 +294,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
           <button type="button" data-spot="report.copy" disabled={!markdown} onClick={copy}>{copied ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}{copied ? 'Copied' : 'Copy text'}</button>
           <button type="button" data-spot="report.file" disabled={busy} onClick={() => action(() => api.openStudioAsset({ assetId: selected.id }), web ? 'Download started.' : '')}>{web ? <Download size={15} aria-hidden="true" /> : <FolderOpen size={15} aria-hidden="true" />}{web ? 'Download' : 'Open file'}</button>
           {shareLink && <button type="button" data-spot="report.link" onClick={copyLink}><Link2 size={15} aria-hidden="true" />Copy link</button>}
+          <DriveOpenButton api={api} studio={studio} assetId={selected.id} />
           <ReportShareMenu api={api} studio={studio} asset={selected} markdown={markdown} shareLink={shareLink} action={action} busy={busy} disabled={loading} onToast={showToast} />
           {can('createAssetKit') && <button type="button" data-spot="report.make-assets" {...writeProps(viewer, busy)} onClick={() => onMakeAssets(selected)}><Images size={15} aria-hidden="true" />Make channel assets</button>}
           {onAsk && <span className="simple-split" role="group" aria-label="Ask AI about this report"><button type="button" data-spot="report.ask" className="simple-primary" {...writeProps(viewer, !markdown)} onClick={() => ask('next')}><Sparkles size={15} aria-hidden="true" />Ask AI about this</button>

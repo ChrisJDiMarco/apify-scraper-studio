@@ -12,6 +12,7 @@ import { SETTINGS_SECTION_IDS, sectionId, sectionStatus, visibleSections } from 
 import { revealSection, useSectionSpy } from './section-spy.js';
 import { SettingsNav } from './settings-nav.jsx';
 import { MondaySettings } from './monday-settings.jsx';
+import { DriveSettings } from './drive-settings.jsx';
 import './settings-view.css';
 
 // The Mac app's "Studio web address": the browser studio's address, so Copy link in reports, the Library and channel
@@ -44,7 +45,7 @@ const DRIVE_FOLDERS = [
 const driveFolders = (sheets = {}) => Object.fromEntries(DRIVE_FOLDERS.map(({ key }) => [key, sheets?.[key] || '']));
 const sheetFormOf = (sheets = {}) => ({ workingSpreadsheetUrl: sheets?.workingSpreadsheetUrl || '', archiveFolderId: sheets?.archiveFolderId || '', twitterTab: sheets?.twitterTab || 'Twitter', linkedinTab: sheets?.linkedinTab || 'LinkedIn', redditTab: sheets?.redditTab || 'Reddit', ...driveFolders(sheets) });
 // Names for the saved keys a problem banner talks about (the server's own list is in src/main/index.js KEY_LABELS).
-const KEY_LABELS = { APIFY_API_TOKEN: 'Apify token', ANTHROPIC_API_KEY: 'Anthropic API key', GOOGLE_SHEETS_WEBHOOK_URL: 'Google Sheets bridge link', GOOGLE_DOCS_ACCESS_TOKEN: 'Google Drive token', OPENAI_API_KEY: 'OpenAI key', MONDAY_API_TOKEN: 'Monday.com token', OPENROUTER_API_KEY: 'OpenRouter key', FAL_KEY: 'fal.ai key' };
+const KEY_LABELS = { APIFY_API_TOKEN: 'Apify token', ANTHROPIC_API_KEY: 'Anthropic API key', GOOGLE_SHEETS_WEBHOOK_URL: 'Google Sheets bridge link', GOOGLE_DOCS_ACCESS_TOKEN: 'Google Drive token', OPENAI_API_KEY: 'OpenAI key', MONDAY_API_TOKEN: 'Monday.com token', OPENROUTER_API_KEY: 'OpenRouter key', FAL_KEY: 'fal.ai key', GOOGLE_DRIVE_SERVICE_ACCOUNT: 'Google Drive service account key' };
 
 function SourcesSection({ state, busy, semrush, savedHere, onSaveKey, onClearKey, onSaveSettings }) {
   const [token, setToken] = useState('');
@@ -117,7 +118,7 @@ function GoogleSheetsSection({ state, busy, savedHere, onSaveKey, onClearKey, on
       </label>
     </div>
     <div className="panel-head compact">
-      <div><h3>Google Drive folders</h3><p>{bridge ? 'Publish to Google Drive creates native Google Docs through this bridge, with no access token to paste or renew.' : 'Save the webhook URL above to publish reports as Google Docs without an access token.'} Paste a folder link or ID.</p></div>
+      <div><h3>Folders for one-off Docs and exports</h3><p>Used by Send to Google Docs and Sheets exports. To add every report to Drive automatically, use Settings → Google Drive. {bridge ? 'This bridge creates native Google Docs with no access token to paste or renew.' : 'Save the webhook URL above to publish through the bridge without an access token.'} Paste a folder link or ID.</p></div>
     </div>
     <div className="field-grid two">
       {DRIVE_FOLDERS.map(({ key, label, hint }) => (
@@ -231,6 +232,7 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
     ai: () => <AiConnections state={state} meta={meta} api={setupApi} busy={busy} onSaveKey={onSaveKey} onClearKey={onClearKey} onOpenRouting={setupApi?.previewAiRouting ? () => go('models', { viaKeyboard: false }) : undefined} />,
     models: setupApi?.previewAiRouting ? () => <ModelRouting state={state} api={setupApi} busy={busy} role={role} layout={layout || state.settings?.uiMode} /> : null,
     'brand-images': setupApi?.addBrandImage ? () => <BrandImages api={setupApi} workspace={activeWorkspace} busy={busy} imagesConfigured={imagesConfigured} /> : null,
+    'google-drive': setupApi?.connectDriveSync ? () => <DriveSettings {...common} /> : null, // drive-settings.jsx (folder sync)
     'google-docs': () => <GoogleDocsSection {...common} />,
     'google-sheets': () => <GoogleSheetsSection {...common} onTestSheetsBridge={onTestSheetsBridge} onArchiveAndClearSheets={onArchiveAndClearSheets} onImportWorkingSheets={onImportWorkingSheets} onReplaySheetRun={onReplaySheetRun} />,
     monday: () => <MondaySettings {...common} />, // monday-settings.jsx (connect, board, mapping, two-way sync, the log)
@@ -243,7 +245,7 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
   const ctx = { state, web, has: { models: Boolean(renderers.models), brandImages: Boolean(renderers['brand-images']), monday: Boolean(renderers.monday), setupShare: Boolean(renderers.share) } };
   const sections = visibleSections(ctx).filter((section) => typeof renderers[section.id] === 'function');
   const ids = sections.map((section) => section.id);
-  const statuses = useMemo(() => Object.fromEntries(ids.map((id) => [id, sectionStatus(id, ctx)]).filter(([, status]) => status)), [ids.join('|'), state.keys, state.keyProblems, state.settings, state.contentStudio, state.monday, state.sheetRuns, state.storeRecovery]); // eslint-disable-line react-hooks/exhaustive-deps
+  const statuses = useMemo(() => Object.fromEntries(ids.map((id) => [id, sectionStatus(id, ctx)]).filter(([, status]) => status)), [ids.join('|'), state.keys, state.keyProblems, state.settings, state.contentStudio, state.monday, state.driveSync, state.sheetRuns, state.storeRecovery]); // eslint-disable-line react-hooks/exhaustive-deps
   const spy = useSectionSpy({ ids, enabled: role === 'admin' });
   const element = (id) => (typeof document === 'undefined' ? null : document.getElementById(`settings-${id}`));
   function go(id, { viaKeyboard = false, smooth = true } = {}) {

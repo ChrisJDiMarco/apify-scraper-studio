@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scraper Studio · How it works</title>
+<!-- One-page infographic for the handoff. Rendered to docs/how-it-works.pdf by scripts/render-how-it-works.cjs
+     (npx electron scripts/render-how-it-works.cjs). Tabloid landscape: 17 × 11 in = 1632 × 1056 CSS px. -->
+<style>
+  :root {
+    --ink: #181e15; --muted: #62685e; --faint: #868e84; --line: #e3e8e4; --line-strong: #cfd6d0;
+    --bg: #f4f6f5; --card: #ffffff; --accent: #c190ff; --accent-strong: #a873f2; --soft: #f1eaff; --soft-ink: #5a2fa0;
+    --mint: #dceeeb; --mint-ink: #1f5a4c; --warm: #fff4dc; --warm-ink: #6b5413; --sky: #e6f0fb; --sky-ink: #1f4a78;
+  }
+  @page { size: 17in 11in; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1632px; height: 1056px; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { position: relative; width: 1632px; height: 1056px; padding: 34px 48px 26px; display: grid; gap: 14px;
+    grid-template-rows: auto auto 1fr auto auto auto; overflow: hidden;
+    background: radial-gradient(1200px 520px at 92% -10%, rgba(193,144,255,.22), transparent 60%),
+                radial-gradient(900px 480px at -10% 110%, rgba(31,90,76,.10), transparent 60%), var(--bg); }
+
+  /* Header */
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+  .brand { display: flex; align-items: center; gap: 16px; }
+  .mark { width: 54px; height: 54px; border-radius: 16px; display: grid; place-items: center; background: var(--ink); color: #fff; box-shadow: 0 8px 20px rgba(24,30,21,.18); }
+  h1 { font-size: 36px; line-height: 1; letter-spacing: -1.2px; font-weight: 750; }
+  .sub { margin-top: 6px; font-size: 15.5px; color: var(--muted); }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .chip { padding: 7px 13px; font-size: 13px; font-weight: 650; border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--ink); }
+  .chip.accent { background: var(--soft); border-color: transparent; color: var(--soft-ink); }
+
+  /* Ask AI band */
+  .ask { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: center; padding: 14px 20px; border-radius: 20px;
+    color: #fff; background: linear-gradient(115deg, #2a2140 0%, #3d2a66 45%, #5a2fa0 100%); box-shadow: 0 14px 32px rgba(58,36,110,.25); }
+  .ask h2 { font-size: 20px; letter-spacing: -.4px; display: flex; align-items: center; gap: 10px; }
+  .ask p { margin-top: 5px; font-size: 13px; line-height: 1.45; color: rgba(255,255,255,.82); }
+  .ask-items { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .ask-item { padding: 9px 11px; border-radius: 14px; background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.14); }
+  .ask-item strong { display: block; font-size: 13px; }
+  .ask-item span { display: block; margin-top: 2px; font-size: 11.5px; line-height: 1.4; color: rgba(255,255,255,.78); }
+
+  /* The loop */
+  .loop-wrap { display: grid; grid-template-rows: auto 1fr; gap: 10px; min-height: 0; }
+  .section-label { font-size: 12px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; gap: 10px; }
+  .section-label::after { content: ""; flex: 1; height: 1px; background: var(--line-strong); }
+  .loop { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0; align-items: stretch; }
+  .stage { position: relative; margin-right: 26px; padding: 14px 15px 12px; border-radius: 20px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 6px 18px rgba(24,30,21,.06); display: flex; flex-direction: column; gap: 8px; }
+  .stage:last-child { margin-right: 0; }
+  .stage:not(:last-child)::after { content: ""; position: absolute; right: -22px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%);
+    background: no-repeat center/18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a873f2' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12h14M13 6l6 6-6 6'/></svg>"); }
+  .stage-top { display: flex; align-items: center; justify-content: space-between; }
+  .ico { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; }
+  .ico svg { width: 19px; height: 19px; }
+  .n { font-size: 12px; font-weight: 750; color: var(--faint); letter-spacing: .06em; }
+  .stage h3 { font-size: 18px; letter-spacing: -.3px; }
+  .stage ul { list-style: none; display: grid; gap: 5px; }
+  .stage li { font-size: 12.5px; line-height: 1.38; color: var(--muted); padding-left: 13px; position: relative; }
+  .stage li::before { content: ""; position: absolute; left: 0; top: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--line-strong); }
+  .where { margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--faint); }
+  .where b { color: var(--ink); font-weight: 650; }
+  .t-purple { background: var(--soft); color: var(--soft-ink); } .t-mint { background: var(--mint); color: var(--mint-ink); }
+  .t-warm { background: var(--warm); color: var(--warm-ink); } .t-sky { background: var(--sky); color: var(--sky-ink); }
+  .t-ink { background: #eceff0; color: var(--ink); }
+
+  /* Three panels */
+  .panels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .panel { padding: 12px 16px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); }
+  .panel h4 { font-size: 15px; display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+  .panel h4 .ico { width: 30px; height: 30px; border-radius: 9px; } .panel h4 .ico svg { width: 16px; height: 16px; }
+  .rows { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 14px; }
+  .row strong { display: block; font-size: 13px; }
+  .row span { display: block; font-size: 11.5px; line-height: 1.38; color: var(--muted); margin-top: 1px; }
+
+  /* Under the hood */
+  .hood { display: grid; grid-template-columns: 250px 34px 300px 34px 1fr; align-items: stretch; padding: 12px 16px; border-radius: 18px; background: #1d2419; color: #eef2ee; }
+  .hood .col { display: grid; gap: 8px; align-content: start; }
+  .hood .box { padding: 8px 11px; border-radius: 12px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); }
+  .hood .box strong { display: block; font-size: 13px; } .hood .box span { display: block; font-size: 11.5px; line-height: 1.4; color: #b9c2b8; margin-top: 2px; }
+  .hood .core { background: linear-gradient(135deg, rgba(193,144,255,.30), rgba(193,144,255,.12)); border-color: rgba(193,144,255,.45); }
+  .hood .arrow { display: grid; place-items: center; color: #a873f2; }
+  .svc { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .svc .box strong { font-size: 12.5px; }
+  .hood-label { font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: #8e978c; margin-bottom: 2px; }
+
+  /* Footer */
+  .foot { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; color: var(--muted); }
+  .foot b { color: var(--ink); }
+  .docs { display: flex; gap: 6px; }
+  .doc { padding: 4px 9px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); font-weight: 650; color: var(--ink); font-size: 12px; }
+  .roles { display: flex; gap: 8px; align-items: center; }
+  .role { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 650; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="head">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c190ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>
+      <div>
+        <h1>Scraper Studio — how it works</h1>
+        <p class="sub">From what marketers are saying right now to channel-ready content, for the Semrush marketing team.</p>
+      </div>
+    </div>
+    <div class="chips">
+      <span class="chip accent">Mac app + web studio, one shared core</span>
+      <span class="chip">Version 0.3.0</span>
+      <span class="chip">Handoff · October 2026</span>
+    </div>
+  </header>
+
+  <section class="ask" aria-label="Ask AI">
+    <div>
+      <h2><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>Ask AI runs the whole loop</h2>
+      <p>Streams answers, remembers people and decisions, and turns requests into buttons. Nothing paid starts without a click and an estimate.</p>
+    </div>
+    <div class="ask-items">
+      <div class="ask-item"><strong>“Small scan, last few hours”</strong><span>Sizes a quick scan, prices it, then writes a trends report and posts it back.</span></div>
+      <div class="ask-item"><strong>Acts across the app</strong><span>Yes / Skip with notes, write reports, make assets, set status, open anything.</span></div>
+      <div class="ask-item"><strong>Grounded cards</strong><span>Trends, reports, runs, charts and real quoted posts — numbers from the studio, never invented.</span></div>
+      <div class="ask-item"><strong>Memory</strong><span>Saved conversations, remembered preferences, trend history across runs.</span></div>
+      <div class="ask-item"><strong>Edits prompts</strong><span>Explains any prompt and proposes a change you apply in one click.</span></div>
+    </div>
+  </section>
+
+  <section class="loop-wrap" aria-label="The research to content loop">
+    <div class="section-label">The loop · research to channel-ready content</div>
+    <div class="loop">
+      <article class="stage">
+        <div class="stage-top"><span class="ico t-sky"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span><span class="n">01</span></div>
+        <h3>Collect</h3>
+        <ul><li>Apify collects posts from saved X accounts, LinkedIn profiles and subreddits.</li><li>Programs run on demand or on a schedule; every run is capped and priced first.</li></ul>
+        <div class="where"><b>Research programs</b> · Quick scans</div>
+      </article>
+      <article class="stage">
+        <div class="stage-top"><span class="ico t-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></span><span class="n">02</span></div>
+        <h3>Find trends</h3>
+        <ul><li>AI reads the posts in batches and names clear trends.</li><li>The Trend tracker follows each one across runs: new, rising, steady, fading.</li></ul>
+        <div class="where"><b>Trends</b> · Trend board · Sheets</div>
+      </article>
+      <article class="stage">
+        <div class="stage-top"><span class="ico t-warm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.6 2.5L16 9.5"/></svg></span><span class="n">03</span></div>
+        <h3>Decide</h3>
+        <ul><li>The team says Yes or Skip, with a note and the channels it suits.</li><li>Approval rules and Monday.com statuses can decide too.</li></ul>
+        <div class="where"><b>Needs your OK</b> · Inbox · Monday</div>
+      </article>
+      <article class="stage">
+        <div class="stage-top"><span class="ico t-mint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg></span><span class="n">04</span></div>
+        <h3>Write</h3>
+        <ul><li>Approved trends get a trends report and an editorial toolkit, evidence linked.</li><li>Teammates co-edit in a minimal editor, leave notes, keep every version.</li></ul>
+        <div class="where"><b>Reports</b> · Library · Prompts</div>
+      </article>
+      <article class="stage">
+        <div class="stage-top"><span class="ico t-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12"/><circle cx="8.5" cy="10" r="1.5"/><path d="M17 16l-4-4-7 7"/></svg></span><span class="n">05</span></div>
+        <h3>Make</h3>
+        <ul><li>One report becomes every channel asset, from blog and newsletter to paid, PR and social.</li><li>Pictures and short videos follow the brand reference images.</li></ul>
+        <div class="where"><b>Assets</b> · Make channel assets</div>
+      </article>
+      <article class="stage">
+        <div class="stage-top"><span class="ico t-ink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></span><span class="n">06</span></div>
+        <h3>Ship</h3>
+        <ul><li>Assets move Draft → In review → Approved → Scheduled → Published.</li><li>Reports land in Google Drive; trends sync to Monday.com.</li></ul>
+        <div class="where"><b>Calendar</b> · Analytics · Drive</div>
+      </article>
+    </div>
+  </section>
+
+  <section class="panels" aria-label="Automate, sync and control">
+    <div class="panel">
+      <h4><span class="ico t-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6V3M12 21v-3M6 12H3M21 12h-3M7.8 7.8L5.6 5.6M18.4 18.4l-2.2-2.2M7.8 16.2l-2.2 2.2M18.4 5.6l-2.2 2.2"/><circle cx="12" cy="12" r="3"/></svg></span>Automate</h4>
+      <div class="rows">
+        <div class="row"><strong>Playbooks</strong><span>Ready-made recipes for common marketing jobs, with a preview and cost.</span></div>
+        <div class="row"><strong>Workflows</strong><span>Schedule → research → rules → reports → assets → sync, inside an approved budget.</span></div>
+        <div class="row"><strong>Quick scans</strong><span>Hour-level looks at one topic, sized from plain words.</span></div>
+        <div class="row"><strong>Next up</strong><span>Home shows the one or two things each person should do now.</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h4><span class="ico t-mint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M3 21v-5h5M21 3v5h-5"/></svg></span>Stay in sync</h4>
+      <div class="rows">
+        <div class="row"><strong>Monday.com</strong><span>Two-way: trends, stages, owners, dates and links, with a sync log.</span></div>
+        <div class="row"><strong>Google Drive</strong><span>Every report saved to a shared folder as a Google Doc, kept current on edit.</span></div>
+        <div class="row"><strong>Sheets &amp; Trend tracker</strong><span>Run workbooks and a cross-run tracker, exportable.</span></div>
+        <div class="row"><strong>Inbox &amp; share links</strong><span>Mentions, decisions and finished runs; links open the exact item.</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h4><span class="ico t-warm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></span>Control</h4>
+      <div class="rows">
+        <div class="row"><strong>Model routing</strong><span>Pick the service, model and effort for every AI task, with presets.</span></div>
+        <div class="row"><strong>Prompt Library</strong><span>Every prompt editable, versioned and testable; runs keep their version.</span></div>
+        <div class="row"><strong>People &amp; access</strong><span>Admin, Editor, Channel owner and custom roles, built from capabilities.</span></div>
+        <div class="row"><strong>Cost guards</strong><span>Estimates before paid work, run caps, optional daily AI limits.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hood" aria-label="Under the hood">
+    <div class="col">
+      <div class="hood-label">People use</div>
+      <div class="box"><strong>Mac app (Electron)</strong><span>Signed universal build; one person, local data folder.</span></div>
+      <div class="box"><strong>Web studio (Node)</strong><span>Behind company sign-in (SSO proxy) or personal links; live updates over SSE.</span></div>
+    </div>
+    <div class="arrow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+    <div class="col">
+      <div class="hood-label">Shared core</div>
+      <div class="box core"><strong>180 methods, one roles gate</strong><span>Every call checked server-side against 28 capabilities; deny by default; money hidden from roles that can't see costs.</span></div>
+      <div class="box"><strong>Data folder</strong><span>State, runs and evidence, team &amp; roles, Ask AI memory, prompts, report docs and notes, sync logs. Backups and restore scripts.</span></div>
+    </div>
+    <div class="arrow"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+    <div class="col">
+      <div class="hood-label">Services it calls</div>
+      <div class="svc">
+        <div class="box"><strong>Apify</strong><span>Post collection</span></div>
+        <div class="box"><strong>Claude Code · Anthropic</strong><span>Plan sign-in or API key</span></div>
+        <div class="box"><strong>Codex · OpenAI</strong><span>ChatGPT plan, key, images</span></div>
+        <div class="box"><strong>OpenRouter</strong><span>Any text model</span></div>
+        <div class="box"><strong>fal.ai</strong><span>Images and video</span></div>
+        <div class="box"><strong>Google</strong><span>Drive, Docs, Sheets</span></div>
+        <div class="box"><strong>Monday.com</strong><span>Two-way board sync</span></div>
+        <div class="box"><strong>Your data stays yours</strong><span>Keys encrypted at rest</span></div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <div class="roles"><b>Roles</b>
+      <span class="role t-purple">Admin · everything</span><span class="role t-mint">Editor · research, write, make</span><span class="role t-warm">Channel owner · their channel's trends and assets</span>
+    </div>
+    <div class="docs"><span>Start here:</span><span class="doc">HANDOFF.md</span><span class="doc">ARCHITECTURE.md</span><span class="doc">RUNBOOK.md</span><span class="doc">SECURITY.md</span><span class="doc">CONTRIBUTING.md</span></div>
+  </footer>
+</div>
+</body>
+</html>

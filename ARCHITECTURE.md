@@ -32,7 +32,7 @@ when the build changes. Errors the server didn't expect reach the browser as "So
 
 ## The RPC method registry
 
-`src/shared/studio-api-channels.json` lists every method the UI calls (180) and the main-process channel it maps to
+`src/shared/studio-api-channels.json` lists every method the UI calls (187) and the main-process channel it maps to
 (`studio:*`, `help:*`, `team:*` and older ones such as `save-key`). Three things must agree with it:
 
 1. `src/preload/index.js`: the Mac bridge, written by hand (`invoke('studio:x', payload)`).
@@ -74,6 +74,7 @@ See [HANDOFF.md → Data model and storage](HANDOFF.md#data-model-and-storage) f
 | `content-studio/state.json` and `runs/` | `content-workspace.js` | The studio service: workspaces, programs, runs, assets. |
 | `content-studio/team.json` | `team-store.js` | Synchronous, atomic, versioned (v2). |
 | `content-studio/monday.json`, `monday-log.jsonl` | `monday-store.js` | Monday.com: per-workspace board link (setup saves check `rev`, 409 `mondaySetupChanged`), item map, people cache, calls today; the sync log (2,000 rows). Webhook secrets stored as sha256 only. |
+| `content-studio/drive-sync.json` | `drive-sync.js` | Google Drive folder sync: the chosen folder and switches (saves check `rev`, 409 `driveSetupChanged`), an id map per folder (folders by logical key, files by asset id), the queue, the sync log (200 rows). The service account key is in `config.json` (`GOOGLE_DRIVE_SERVICE_ACCOUNT`). |
 | `content-studio/ask/` | `ask-store.js` | Per-person folders keyed by a hash of the identity id. |
 | `content-studio/prompts/`, `prompt-tests/` | `prompt-store.js`, `prompt-lab.js` | Prompt versions per workspace. |
 | `content-studio/.studio-owner.json` | `studio-owner-lock.js` | One process per folder; heartbeat every 30 s; stale-lock takeover rules in [RUNBOOK.md](RUNBOOK.md#recover-from-a-stuck-data-folder-lock). |
@@ -297,6 +298,10 @@ content (`eslint.config.js`).
   Children are started through `runAs(actor)` (an `AsyncLocalStorage` in index.js), so content-workspace's `who()`
   credits `workflow:<id>`; `createAssetKit` accepts a `workflow` link only under that actor. The web drain and quit
   call `stop()`.
+- **Google Drive folder sync** (`drive-sync.js`): content writes call `hooks.onAssetChanged`; a new report is sent
+  about 10 s later and an edit about 60 s after the last change, one Drive conversation at a time (a promise chain), so
+  two saves never create the same folder. Copy existing reports is a cancellable `drive` job (`cancellableJob` in
+  `index.js`, shared with Monday's Sync now); `activeWorkSummary()` lists an automatic send through `activeLine()`.
 - **Monday.com** (`monday-engine.js`): one serialized queue for every Monday call (a repeat of a queued run joins it).
   A 60 s tick sends hourly or daily pushes, polls, runs a full check every 6 hours and checks webhooks daily; `emitState`
   calls `noteChange()` so 'As changes happen' sends 15 s after the first change. Sync now is a `monday` job with its

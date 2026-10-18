@@ -10,7 +10,7 @@ import { SETTINGS_SECTION_IDS } from '../src/renderer/src/settings-sections.js';
 // that move between links, a Jump to menu on narrow screens, and #/settings/<section> requests.
 const base = (extra = {}) => ({ keys: {}, settings: { maxItems: 1000, sheets: {} }, sheetRuns: [], ...extra });
 // Every section present: a Monday.com stand-in through extraSections, so this doesn't depend on that build's component.
-const props = (extra = {}) => ({ state: base(), meta: {}, onSaveKey: vi.fn(async () => true), onClearKey: vi.fn(), onSaveSettings: vi.fn(), setupApi: { previewAiRouting: vi.fn(() => new Promise(() => {})), getAiConnections: vi.fn(() => new Promise(() => {})), addBrandImage: vi.fn(), openSetupFile: vi.fn() }, extraSections: { monday: () => <section className="settings-block"><h3>Monday.com</h3></section> }, ...extra });
+const props = (extra = {}) => ({ state: base(), meta: {}, onSaveKey: vi.fn(async () => true), onClearKey: vi.fn(), onSaveSettings: vi.fn(), setupApi: { previewAiRouting: vi.fn(() => new Promise(() => {})), getAiConnections: vi.fn(() => new Promise(() => {})), addBrandImage: vi.fn(), openSetupFile: vi.fn(), connectDriveSync: vi.fn() }, extraSections: { monday: () => <section className="settings-block"><h3>Monday.com</h3></section> }, ...extra });
 let scrolled;
 beforeEach(() => {
   scrolled = [];

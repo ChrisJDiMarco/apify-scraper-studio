@@ -6,7 +6,36 @@ Version numbers come from `package.json`, and 0.3.0 covers two days of work (the
 redesign on Oct 17), so a DMG labelled 0.3.0 may predate the redesign. Bump the version when the final build-out
 below is merged (0.4.0 is suggested) and tag that commit.
 
-## [Unreleased]: final build-out for the handoff (2026-10-17, uncommitted at the time of writing)
+## [Unreleased]: wave 3 (2026-10-17 to 2026-10-18)
+
+Commits `eb5cf1c`, `aead244`, `844fe6d`, `5a43ee0`, `ccca103` and the Google Drive sync commit that follows them.
+Design record: [docs/design-review/SPEC-3.md](docs/design-review/SPEC-3.md).
+
+### Added
+- **AI connections and model routing**: Claude Code and Codex through their subscription sign-in, and API keys for
+  Anthropic, OpenAI, OpenRouter (any text model) and fal.ai (images and video). An admin **Model routing** page sets
+  the connection, model and effort for every AI task (`src/shared/ai-tasks.json`, `src/main/ai-routing.js`); runs
+  snapshot what they resolved.
+- **Streaming Ask AI**: answers stream as they are written (IPC on the Mac, SSE on the web), with live progress.
+- **Automatic scan reports**: a quick scan started from Ask AI writes a short trends report and posts it back into the
+  conversation; full research runs started from chat post their trends for Yes / Skip.
+- **Brand references on every picture**: every image path sends the brand reference set for that picture family.
+- **Monday.com two-way sync**: connect, board picker, column and status mapping, webhooks, a sync log.
+- **Workflows and Playbooks** rebuilt: a playbook catalog and a workflow engine with per-run and per-month budgets.
+- **Settings section nav**, **single "Main" workspace** for the Semrush package, and an admin **Research programs**
+  panel on Home with a quick-edit drawer.
+- **Docs-style report editor**: rich text, live co-editing on the web, version history, and teammate notes anchored
+  to text with threads, mentions and resolve. Markdown stays the saved form.
+- **Google Drive folder sync**: an admin connects a service account and a folder; every new report (and optionally
+  channel assets) is saved as a Google Doc in folders that mirror the Library and updated after edits, with
+  backfill, a sync log and Retry (`src/main/drive-client.js`, `src/main/drive-sync.js`).
+- **docs/how-it-works.pdf**: a one-page diagram of the studio for the handoff.
+
+### Fixed
+- A logic sweep fixed about 55 lost hand-offs and illogical flows, including Trend board → Create content opening
+  without the trend (the page error boundary remounted the view; it now resets by key instead).
+
+## [Unreleased]: final build-out for the handoff (2026-10-17, commit `db3448f`)
 
 ### Added
 - **Browser studio operations**: `/healthz` and `/readyz`; drain on SIGTERM/SIGINT (`STUDIO_DRAIN_SECONDS`) with paid

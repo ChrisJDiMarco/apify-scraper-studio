@@ -232,6 +232,18 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     if (typeof hooks.onAssetEdited !== 'function') return;
     try { hooks.onAssetEdited({ assetId: asset.id, kind, markdown, by }); } catch (_) { /* the editor catches up the next time the report opens */ }
   }
+  // Every report or channel asset written, edited or restored (hooks.onAssetChanged): the Google Drive folder sync
+  // (drive-sync.js) queues it. reason: 'created' | 'edited' | 'restored'. Never stops a save.
+  // The report's Doc in the admin's Drive folder (drive-sync.js), when the folder sync has copied it.
+  function driveLink(assetId) { if (typeof hooks.driveLink !== 'function') return ''; try { const url = String(hooks.driveLink(assetId) || ''); return /^https:\/\//.test(url) ? url : ''; } catch (_) { return ''; } }
+  function legacyDrivePublish(program) {
+    if (typeof hooks.legacyDrivePublish !== 'function') return Boolean(program?.delivery?.publishToDrive);
+    try { return Boolean(hooks.legacyDrivePublish(program)); } catch (_) { return false; }
+  }
+  function assetChanged(asset, reason) {
+    if (typeof hooks.onAssetChanged !== 'function') return;
+    try { hooks.onAssetChanged({ assetId: asset.id, workspaceId: asset.workspaceId, reason }); } catch (_) { /* the next save or Copy existing reports catches up */ }
+  }
   const MAX_VIDEO_RESULT_BYTES = 60 * 1024 * 1024;
   function assetResult(asset) {
     if (asset.kind === 'video') {
@@ -568,7 +580,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   }
   function saveTextAsset(run, deliverable, output) {
     const asset = { id: id('asset'), workspaceId: run.workspaceId, runId: run.id, deliverableId: deliverable.id, title: output.title, kind: 'text', channel: deliverable.channel, format: deliverable.extension || 'markdown', createdAt: stamp(), reviewStatus: 'draft' };
-    write(file(run.id, `${asset.id}.json`), output); fs.writeFileSync(file(run.id, `${asset.id}.md`), content.renderContentExport(output)); fs.writeFileSync(file(run.id, `${asset.id}.html`), content.renderContentExport(output, { format: 'html' })); state.assets.unshift(asset); return asset;
+    write(file(run.id, `${asset.id}.json`), output); fs.writeFileSync(file(run.id, `${asset.id}.md`), content.renderContentExport(output)); fs.writeFileSync(file(run.id, `${asset.id}.html`), content.renderContentExport(output, { format: 'html' })); state.assets.unshift(asset); assetChanged(asset, 'created'); return asset;
   }
   const knownCost = receipt => Number.isFinite(receipt?.costUsd) && receipt.costUsd >= 0;
   const promptHash = (deliverable, index) => createHash('sha256').update(deliverable.variantPrompts?.[index] || deliverable.prompt || '').digest('hex');
@@ -660,7 +672,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     writeBytes(file(run.id, `${asset.id}.svg`), `<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024"><title>Embedded raster image — pixels are not editable vectors</title><image width="1536" height="1024" href="data:image/png;base64,${generated.png.toString('base64')}"/></svg>`);
     write(file(run.id, `${job.id}.variant-${index}.json`), { asset, promptHash: promptHash(deliverable, index), pngHash: createHash('sha256').update(generated.png).digest('hex') });
     state.assets.unshift(asset); job.assetIds = [...new Set([...(job.assetIds || []), asset.id])]; job.assetId ||= asset.id;
-    imageAccounting(run, job); save(); return asset;
+    imageAccounting(run, job); save(); assetChanged(asset, 'created'); return asset;
   }
   async function performImages(run, job, deliverable, input) {
     if ((deliverable.variantPrompts || [deliverable.prompt]).some(prompt => typeof prompt !== 'string' || prompt.length > 32000)) throw new Error('Image prompts must be 32,000 characters or fewer. Shorten the source brief or brand context, or generate written outputs separately. No image request was sent.');
@@ -1088,7 +1100,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       run.reservedUsd -= Math.max(0, allocation - reportRun.reservedUsd); save();
     }
     run.status = run.reportRunIds.length && run.reportRunIds.every(entry => state.contentRuns.find(r => r.id === entry.runId)?.status === 'succeeded') ? 'succeeded' : run.reportRunIds.length ? 'partial' : 'succeeded'; run.message = 'Classification complete. Review the paired reports and any outputs needing attention.';
-    if (program.delivery?.publishToDrive && publishCampaign && run.reportRunIds.length) {
+    // A program's own "Publish reports to Google Drive" (before the folder sync) runs only while no Drive folder is
+    // connected; once one is, Settings → Google Drive's studio-wide switch decides (hooks.legacyDrivePublish).
+    if (legacyDrivePublish(program) && publishCampaign && run.reportRunIds.length) {
       try { await publishRun(run); run.message = 'Reports are ready and published to Google Drive.'; }
       catch (error) { run.warnings = [...new Set([...(run.warnings || []), `Google Drive publishing needs attention: ${safeError(error)}`])]; }
     }
@@ -2041,7 +2055,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if ((asset.edited?.at || '') !== (typeof baseEditedAt === 'string' ? baseEditedAt : '')) { const last = asset.edited || asset.restored || {}; throw refusal('editConflict', { name: last.by?.name || 'Someone', time: when(last.at) }, 409); }
       writeEdit(asset, markdown);
       asset.edited = { at: stamp(), by }; delete asset.restored; save();
-      editedOutside(asset, 'edited', markdown, by);
+      editedOutside(asset, 'edited', markdown, by); assetChanged(asset, 'edited');
       return { asset: copy(asset) };
     },
     // Where a report, draft or picture is in the team's pipeline: Draft → In review → Approved → Scheduled → Published.
@@ -2072,7 +2086,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (!asset.edited) return { asset: copy(asset) };
       delete asset.edited; asset.restored = { at: stamp(), by }; save();
       for (const extension of ['md', 'html']) fs.rmSync(editedFile(asset, extension), { force: true });
-      editedOutside(asset, 'restored', null, by);
+      editedOutside(asset, 'restored', null, by); assetChanged(asset, 'restored');
       return { asset: copy(asset) };
     },
     // Internal (not in studioMethods), for the report editor (report-docs.js). Its shared document has already merged
@@ -2086,6 +2100,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const first = !asset.edited;
       asset.edited = { at: stamp(), by: editorActor(by) }; delete asset.restored;
       if (persist || first) save();
+      assetChanged(asset, 'edited'); // the Drive copy follows a minute after the last change
       return { asset: copy(asset), savedAt: asset.edited.at };
     },
     // Internal: the editor's Restore of the original (restoreStudioAsset without telling the editor about itself).
@@ -2095,6 +2110,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (!asset.edited) return { asset: copy(asset) };
       delete asset.edited; asset.restored = { at: stamp(), by: editorActor(by) }; save();
       for (const extension of ['md', 'html']) fs.rmSync(editedFile(asset, extension), { force: true });
+      assetChanged(asset, 'restored');
       return { asset: copy(asset) };
     },
     // A short video opens (or, on the web, downloads) as its MP4.
@@ -2166,10 +2182,29 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const assets = state.assets.filter(mine); const docLinks = {};
       for (const run of researchRuns) for (const entry of run.reportRunIds || []) {
         const report = contentRuns.find(row => row.id === entry.runId);
-        for (const asset of assets) if (asset.runId === entry.runId && REPORT_DELIVERABLES.includes(asset.deliverableId)) { const url = (run.googleDelivery ? deliveredDoc(run.googleDelivery, asset) : '') || (report?.googleDelivery ? deliveredDoc(report.googleDelivery, asset) : ''); if (url) docLinks[asset.id] = url; }
+        for (const asset of assets) if (asset.runId === entry.runId && REPORT_DELIVERABLES.includes(asset.deliverableId)) { const url = (run.googleDelivery ? deliveredDoc(run.googleDelivery, asset) : '') || (report?.googleDelivery ? deliveredDoc(report.googleDelivery, asset) : '') || driveLink(asset.id); if (url) docLinks[asset.id] = url; }
       }
       let history = null; if (workspaceId === state.activeWorkspaceId) { try { history = trendHistory().history; } catch (_) { history = null; } }
       return { researchRuns, contentRuns, assets, programs: state.programs.filter(mine), editionId: state.workspaces.find(w => w.id === workspaceId)?.editionId || 'general', history, docLinks };
+    },
+    // Internal (not in studioMethods): the Google Drive folder sync (drive-sync.js) reads where each report goes from the
+    // active workspace's runs and programs (callers only read), and each file's page: the report HTML every export uses
+    // (the edit when there is one), with a toolkit's link to its trends report's Doc once that is in Drive, or the PNG.
+    driveSource() {
+      const mine = row => row.workspaceId === state.activeWorkspaceId;
+      return { workspaceId: state.activeWorkspaceId, editionId: state.workspaces.find(w => w.id === state.activeWorkspaceId)?.editionId || 'general', researchRuns: state.researchRuns.filter(mine), contentRuns: state.contentRuns.filter(mine), assets: state.assets.filter(mine), programs: state.programs };
+    },
+    driveDocument(assetId, { trendsDocUrl = '' } = {}) {
+      const asset = state.assets.find(row => row.id === assetId && row.workspaceId === state.activeWorkspaceId);
+      if (!asset) return null;
+      if (asset.kind === 'image') return { asset: copy(asset), png: fs.readFileSync(file(asset.runId, `${safeId(asset.id)}.png`)) };
+      if (asset.kind !== 'text') return null;
+      const url = /^https:\/\/docs\.google\.com\//.test(trendsDocUrl) ? trendsDocUrl : '';
+      if (url && asset.deliverableId === 'editorial-toolkit') {
+        if (assetFile(asset, 'html') === editedFile(asset, 'html')) return { asset: copy(asset), html: withTrendsLink(fs.readFileSync(editedFile(asset, 'html'), 'utf8'), url) };
+        return { asset: copy(asset), html: content.renderContentExport({ ...read(file(asset.runId, `${asset.id}.json`)), trendsDocUrl: url }, { format: 'html' }) };
+      }
+      return { asset: copy(asset), html: fs.readFileSync(assetFile(asset, 'html'), 'utf8') };
     },
     picturesReady,
     // Sheets: every research run with saved evidence opens as a workbook. Reading never starts or changes a run.

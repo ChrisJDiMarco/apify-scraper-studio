@@ -7,6 +7,7 @@ code comments).
 
 | Document | Audience | What it covers |
 | --- | --- | --- |
+| [how-it-works.pdf](how-it-works.pdf) | Everyone | One-page diagram of the studio: the loop, Ask AI, automations, controls and architecture. Edit `how-it-works.html` and run `npx electron scripts/render-how-it-works.cjs`; the script refuses to write a page whose content overflows. |
 | [app-guide.md](app-guide.md) | End users, Ask AI | Every page, control, cost and error message, in the app's own words. Ask AI sends it with every question, so keep it accurate and short. |
 | [web-deploy.md](web-deploy.md) | Operators | The browser studio: configuration table, secrets per platform, company sign-in and proxy trust, health checks, drain, the data-folder lock, timeouts, limits, logs, backups. |
 | [roles-and-access.md](roles-and-access.md) | Developers | The capability model, the gate, identity and sign-in, `team.json`, the People API, analytics definitions, error copy, the test map. |
@@ -18,7 +19,7 @@ code comments).
 | [research/source-options-2026-09-27.md](research/source-options-2026-09-27.md) | Developers | The Apify Actor options researched in September (the four in use are in the app guide's cost tables). |
 | [verification/roles-acceptance.md](verification/roles-acceptance.md) | QA | The manual per-role acceptance checklist; run it when roles, sign-in or navigation change. |
 | [verification/content-studio-live-source.md](verification/content-studio-live-source.md) | Developers | The input brief for the paid `scripts/content-studio-live.cjs` check. |
-| [design-review/REVIEW.md](design-review/REVIEW.md), [SPEC.md](design-review/SPEC.md), [SPEC-2.md](design-review/SPEC-2.md) | Developers | Historical design records of the October 2026 redesign (status headers say what changed since), with before and after screenshots in `design-review/screens/`. |
+| [design-review/REVIEW.md](design-review/REVIEW.md), [SPEC.md](design-review/SPEC.md), [SPEC-2.md](design-review/SPEC-2.md), [SPEC-3.md](design-review/SPEC-3.md) | Developers | Historical design records of the October 2026 redesign (status headers say what changed since), with before and after screenshots in `design-review/screens/`. |
 | [archive/](archive/README.md) | Anyone curious | Superseded September documents, receipts and screenshots, each with a one-line note. |
 
 Root documents: [README.md](../README.md), [HANDOFF.md](../HANDOFF.md), [ARCHITECTURE.md](../ARCHITECTURE.md),

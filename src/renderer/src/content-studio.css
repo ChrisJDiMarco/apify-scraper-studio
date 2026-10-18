@@ -770,6 +770,10 @@
 .cs-estimate-warning { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: 12px; line-height: 1.6; color: #845231; background: #fff7f0; border: 1px solid #e6cbb4; border-radius: 8px; padding: 8px 10px; }
 .cs-estimate-blocked { color: #8a2c22; background: #fdf1ef; border-color: #e7b9b2; }
 .cs-automation-fields { display: grid; gap: 12px; margin-top: 16px; }
+/* A program's Google Drive line: Drive is the studio-wide switch in Settings → Google Drive (drive-settings.jsx). */
+.cs-drive-note { margin: 0; padding-left: 23px; color: var(--cs-ink); font-size: 12px; }
+.cs-drive-note strong { display: block; font-weight: 600; }
+.cs-drive-note small { display: block; margin-top: 4px; color: var(--cs-muted); font-size: 10px; line-height: 1.65; }
 .cs-ai-stages p { margin: 10px 0 12px; font-size: 12px; color: var(--cs-muted); line-height: 1.6; }
 .cs-stage-grid { display: grid; gap: 8px; margin-bottom: 12px; }
 .cs-stage-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.3fr) minmax(0, 0.8fr); gap: 10px; align-items: center; }

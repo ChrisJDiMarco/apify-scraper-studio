@@ -413,6 +413,13 @@ function notesView(studio, noteInbox, viewer, keep = null) {
   return { noteCounts: Object.fromEntries(Object.entries(counts).filter(([id]) => !keep || keep.has(id))), noteMentions: items };
 }
 
+// Open in Drive (drive-sync.js): contentStudio.driveLinks { [assetId]: Google Doc or Drive file url } from the base,
+// emptied for a role without Read reports and assets. Channel owners' view never carries it.
+function driveLinksView(studio, viewer) {
+  if (!own(studio, 'driveLinks')) return {};
+  return { driveLinks: holds(viewer, 'readAssets') && isRecord(studio.driveLinks) ? studio.driveLinks : {} };
+}
+
 // The state a viewer receives. Always a new object; never writes `key: undefined`. Admin and editor bases get the full
 // base plus where each trend is used, less what a read capability the role lacks covers (withoutUnheld) and without
 // money when the role lacks See costs; a channel base gets only its channel's view; someone without a role gets nothing.
@@ -428,7 +435,7 @@ function projectState(base, viewer, { adoptions = [], admins = [], memberCount =
     const { promptChanges, ...studioRest } = studio;
     // A person's own jobs (an Ask AI answer carries ownerId) reach only them, and nobody receives whose job it is.
     const ownJobs = Array.isArray(state.jobs) ? { jobs: state.jobs.filter((job) => job && (!job.ownerId || job.ownerId === viewer?.id)).map(({ ownerId: _ownerId, ...job }) => job) } : {};
-    const full = withoutUnheld({ ...state, ...ownJobs, viewer, team, contentStudio: { ...studioRest, ...(promptChanges !== undefined && seesPrompts(viewer) ? { promptChanges } : {}), adoptionsByTheme: adoptionsByTheme(adoptions, studio.activeWorkspaceId, edition), ...notesView(studio, noteInbox, viewer) } }, viewer);
+    const full = withoutUnheld({ ...state, ...ownJobs, viewer, team, contentStudio: { ...studioRest, ...(promptChanges !== undefined && seesPrompts(viewer) ? { promptChanges } : {}), adoptionsByTheme: adoptionsByTheme(adoptions, studio.activeWorkspaceId, edition), ...notesView(studio, noteInbox, viewer), ...driveLinksView(studio, viewer) } }, viewer);
     if (seesMoney(viewer)) return full;
     const { viewer: _viewer, ...rest } = full;
     return { ...stripMoney(rest), viewer };

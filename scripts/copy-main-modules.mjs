@@ -73,6 +73,9 @@ const copies = [
   ['src/main/monday-store.js', 'out/main/monday-store.js'],
   ['src/main/monday-cards.js', 'out/main/monday-cards.js'],
   ['src/shared/monday.json', 'out/shared/monday.json'],
+  // Google Drive folder sync: service-account sign-in and Drive REST, the sync engine and its store (Settings → Google Drive).
+  ['src/main/drive-client.js', 'out/main/drive-client.js'],
+  ['src/main/drive-sync.js', 'out/main/drive-sync.js'],
   // Workflows and playbooks: the engine, its store, the pure rules and the two catalogs.
   ['src/main/workflow-engine.js', 'out/main/workflow-engine.js'],
   ['src/main/workflow-store.js', 'out/main/workflow-store.js'],

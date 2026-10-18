@@ -106,7 +106,9 @@ export function ProgramAiFields({ draft, setDraft, api, routing: given = null, i
 export function ProgramAutomationFields({ draft, setDraft, capabilities = {} }) {
   return <div className="cs-automation-fields">
     <label className="cs-check"><input type="checkbox" checked={Boolean(draft.autoApproveThemes)} onChange={(event) => setDraft((current) => ({ ...current, autoApproveThemes: event.target.checked }))} /><span><strong>Approve themes automatically</strong><small>Runs end to end without stopping for review, like the n8n workflow. Leave off to choose themes on the Trend board first.</small></span></label>
-    <label className="cs-check"><input type="checkbox" checked={Boolean(draft.delivery?.publishToDrive)} onChange={(event) => setDraft((current) => ({ ...current, delivery: { ...(current.delivery || {}), publishToDrive: event.target.checked } }))} /><span><strong>Publish reports to Google Drive when they are ready</strong><small>{capabilities.googlePublishConfigured ? 'Creates the trends report and toolkit as Google Docs in your configured folders.' : 'Set up the Google Sheets bridge or Drive access in Settings first.'}</small></span></label>
+    {/* Drive is one studio-wide switch now (Settings → Google Drive); a program's saved delivery.publishToDrive is kept and
+        only read until a Drive folder is connected (drive-sync.js legacyPublish). */}
+    <p className="cs-drive-note"><strong>Google Drive</strong><small>{capabilities.driveAutoAdd ? `Every new report is added to “${capabilities.driveFolderName || 'the Drive folder'}” in Google Drive automatically.` : draft.delivery?.publishToDrive ? 'This program still publishes its reports to Google Drive the older way until an admin connects a folder in Settings → Google Drive.' : 'An admin can add every new report to a Google Drive folder in Settings → Google Drive.'}</small></p>
   </div>;
 }
 
