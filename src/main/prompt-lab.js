@@ -9,6 +9,7 @@ const { randomUUID } = require('crypto');
 const template = require('../shared/prompt-template');
 const research = require('../shared/research-program');
 const cases = require('./prompt-cases');
+const { removeQuietly } = require('./cli-runners');
 const SAMPLES = require('../shared/prompt-samples.json');
 const TASKS = require('../shared/ai-tasks.json');
 
@@ -262,7 +263,7 @@ function createPromptLab({ store, workspace, who, callerRole = () => 'admin', ca
       if (stopped) job?.finish?.({ status: 'cancelled' }); else job?.fail?.(error);
     } finally {
       running.delete(key);
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeQuietly(dir); // a folder Windows still holds is removed later; the test's result and record still stand
     }
     const record = store.recordTest(w.id, w.editionId, entry.id, { id: testId, draftHash: draft ? template.hashOf(draft) : '', sample: derived.sampleId, by: author, route: result.receipt?.route || settings.route, model: result.receipt?.model || settings.model, effort: settings.effort, costUsd: result.receipt?.costUsd ?? null, ok: result.ok, status: result.status, problems: result.problems });
     return { testId, ...result, chars: derived.prompt.length, durationMs: Date.now() - started, sampleLabel: derived.sampleLabel, test: record };

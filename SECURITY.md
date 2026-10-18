@@ -61,15 +61,18 @@ edition (Mac or browser), steps to reproduce and any log `ref`.
 
 | Secret | Where |
 | --- | --- |
-| Provider keys saved in Settings | `config.json`: on the Mac encrypted with Electron `safeStorage` (the keychain; the app refuses to save when it isn't available); on the web AES-256-GCM with `STUDIO_SECRET_KEY`. The page only ever learns whether a key is saved. |
+| Provider keys saved in Settings | `config.json`: on the Mac encrypted with Electron `safeStorage` (the keychain; the app refuses to save when it isn't available); on Windows `safeStorage` uses DPAPI, which ties the keys to the Windows user account, not to the app, so any program running as that same user can decrypt them; on the web AES-256-GCM with `STUDIO_SECRET_KEY`. The page only ever learns whether a key is saved. |
 | `STUDIO_SECRET_KEY`, `STUDIO_PASSWORD`, `STUDIO_PROXY_SECRET` | Read once from `STUDIO_SECRETS_FD` or `STUDIO_SECRETS_FILE`, deleted from `process.env`, kept in memory. Started as root with `STUDIO_RUN_AS`, the server reads a root-only file and then switches user, so neither the file nor (on Linux) its memory and starting environment are readable to its own user. Secrets set as environment variables still work, with a startup warning. |
 | Sign-in links | SHA-256 hashes in `team.json`. |
 | The Google Drive service account key | Saved like the provider keys (`config.json`, `GOOGLE_DRIVE_SERVICE_ACCOUNT`, encrypted), only after Google accepts it, and only five fields (type, email, private key, key id, project). No environment fallback, refused by save-key, never sent to the page (Settings shows the service account's email). Access tokens it gets live in memory only. `drive-sync.json` holds folder and file ids and the sync log, never the key. |
 | The Apify token in setup files | Only when the exporter ticks **Include the shared Apify token**; such a file is written owner-only and is as sensitive as the token. |
 | Dev-only | `.env.local` in a checkout may hold an `OPENAI_API_KEY` for `npm run dev` (git-ignored; never in a package; `STUDIO_DISABLE_LOCAL_ENV=1` turns it off). `.claude/launch.json` may hold preview passwords (git-ignored). |
 
-Data folder: 0700, files 0600 (`umask 077`). Server logs never contain bodies, passwords, link tokens, cookies or keys;
-messages written for people have server paths removed, and unexpected errors reach the browser only as a ref.
+Data folder: 0700, files 0600 (`umask 077`) on macOS and Linux. On Windows those modes do nothing: the data folder
+(`%APPDATA%\apify-scraper-studio`) is protected only by the user profile's permissions, and an exported setup file
+written "owner-only" is readable by whoever can read the folder it was saved in. Server logs never contain bodies,
+passwords, link tokens, cookies or keys; messages written for people have server paths removed, and unexpected errors
+reach the browser only as a ref.
 
 ## Data flows
 
@@ -179,6 +182,9 @@ Semrush should set a retention policy for collected posts and conversations (see
 - **The Google Docs token** is pasted by hand and expires; there is no OAuth flow.
 - **Setup files** can carry the Apify token.
 - **Auto-update** code is dead but present; its embedded `app-update.yml` points at a personal GitHub.
+- **The Windows installer is unsigned** until Semrush supplies signing: SmartScreen warns, and WDAC, AppLocker or Smart
+  App Control may block it. Anyone could ship a look-alike installer, so hand it out only from a trusted location with
+  its SHA-256. On Windows, saved keys are readable by any program running as the same user (DPAPI, above).
 - `index.js` honours `ELECTRON_RENDERER_URL` in packaged builds; the entitlements include
   `disable-library-validation`.
 - Dev-only dependency advisories remain (none ship).

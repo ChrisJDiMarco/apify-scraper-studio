@@ -9,6 +9,7 @@
 //   kind: 'simple' (a Simple tab) · 'studio' (an Advanced studio view) · 'app' (an Advanced app page) · 'admin' (a Studio
 //   page in either layout) · 'settings' · 'channel' (a channel owner's tab). `target` is the id that kind opens.
 import KIT from '../../shared/kit-folders.json';
+import { ariaKey, isMac } from './platform.js';
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const ACTIVE = new Set(['queued', 'running']);
@@ -94,9 +95,9 @@ export const GLOBAL_SHORTCUTS = Object.freeze([
   { keys: '⌘\\', label: 'Collapse or expand the sidebar', when: 'rail' },
   { keys: 'Esc', label: 'Close the open menu, dialog or search', when: '' },
 ]);
-const KEY_NAMES = { '⌘': 'Meta', '⌥': 'Alt', '⇧': 'Shift', '⌃': 'Control' };
-// "⌘1" → "Meta+1", "⌥⌘N" → "Alt+Meta+N", for aria-keyshortcuts.
-export const ariaKeys = (shortcut) => [...String(shortcut || '')].map((key) => KEY_NAMES[key] || key).join('+').replace(/\+{2,}/g, '+');
+const KEY_NAMES = { '⌥': 'Alt', '⇧': 'Shift', '⌃': 'Control' };
+// "⌘1" → "Meta+1", "⌥⌘N" → "Alt+Meta+N", for aria-keyshortcuts. ⌘ is Control off the Mac ("Control+1", "Alt+Control+N").
+export const ariaKeys = (shortcut, mac = isMac()) => [...String(shortcut || '')].map((key) => (key === '⌘' ? ariaKey(mac) : KEY_NAMES[key] || key)).join('+').replace(/\+{2,}/g, '+');
 
 const LAYOUTS = Object.freeze([
   { id: 'simple', label: 'Simple', hint: 'The essentials: Home, Trends, Reports, Assets and Ask AI.' },

@@ -97,10 +97,10 @@
     { "id": "reports.row", "tab": "reports", "item": "match", "where": "Reports", "what": "One row in the list (item: the trend name, or the report's exact title for other reports)" },
     { "id": "report.edit", "tab": "reports", "item": "report", "where": "An open report", "what": "Edit: change the report's text in place; drafts and kits made later use the edit (item: report title)" },
     { "id": "report.copy", "tab": "reports", "item": "report", "where": "An open report", "what": "Copy text: copies the whole report as Markdown (item: report title)" },
-    { "id": "report.file", "tab": "reports", "item": "report", "where": "An open report", "what": "Open file (Mac) or Download (browser) (item: report title)" },
+    { "id": "report.file", "tab": "reports", "item": "report", "where": "An open report", "what": "Open file (desktop app) or Download (browser) (item: report title)" },
     { "id": "report.make-assets", "tab": "reports", "item": "report", "where": "An open report", "what": "Make channel assets from this report (item: report title)" },
     { "id": "report.ask", "tab": "reports", "item": "report", "where": "An open report", "what": "Ask AI about this report; the arrow beside it has Summarize for Slack, 3 headline options, PR pitch angle, What would we need to prove this? and Next steps for my team (item: report title)" },
-    { "id": "report.link", "tab": "reports", "item": "report", "where": "An open report", "what": "Copy link: a link that opens this report after sign-in (on the Mac, only once Settings has a Studio web address) (item: report title)" },
+    { "id": "report.link", "tab": "reports", "item": "report", "where": "An open report", "what": "Copy link: a link that opens this report after sign-in (in the desktop app, only once Settings has a Studio web address) (item: report title)" },
     { "id": "report.share", "tab": "reports", "item": "report", "selector": ".simple-reader-tools > .studio-menu-wrap > button", "where": "An open report", "what": "Share: Save to Google Docs (when Drive publishing is set up) or Copy for Google Docs, Copy as slide outline, and Copy a Slack summary (item: report title)" },
     { "id": "report.status", "tab": "reports", "item": "report", "selector": ".simple-doc-metaline .studio-status", "where": "An open report, under its title", "what": "The status chip: Draft, In review, Approved, Scheduled or Published; Published asks where it's live (item: report title)" },
     { "id": "report.how", "tab": "reports", "item": "report", "selector": ".how-made", "where": "An open report, at the end", "what": "How this was made: posts per platform, the window, the program, the model and any custom prompts it used, linked to Prompts (item: report title)" },
@@ -132,7 +132,7 @@
 
     { "id": "kit.runs", "tab": "assets", "item": "folder", "where": "A trend's or source's folder, Channel assets", "what": "The sets in this folder, newest first (item: folder title)" },
     { "id": "kit.run", "tab": "assets", "item": "folder", "where": "A report folder", "what": "The open run: its n8n folder name, status, cost and model (item: folder title)" },
-    { "id": "kit.save", "tab": "assets", "item": "folder", "where": "A report folder", "what": "Save folder (Mac, into Downloads) or Download folder (browser, a .zip) (item: folder title)" },
+    { "id": "kit.save", "tab": "assets", "item": "folder", "where": "A report folder", "what": "Save folder (desktop app, into Downloads) or Download folder (browser, a .zip) (item: folder title)" },
     { "id": "kit.drive", "tab": "assets", "item": "folder", "where": "A report folder", "what": "Save to Google Drive (only with Google publishing connected) (item: folder title)" },
     { "id": "kit.finish", "tab": "assets", "item": "folder", "where": "A report folder", "what": "Finish the rest: retries assets that didn't make it (item: folder title)" },
     { "id": "kit.stop", "tab": "assets", "item": "folder", "where": "A report folder", "what": "Stop a run in progress (item: folder title)" },
@@ -173,6 +173,6 @@
     { "id": "settings.google-sheets", "tab": "settings", "open": true, "where": "Settings", "what": "Google Sheets: the bridge, and folders for one-off Docs and exports" },
     { "id": "settings.diagnostics", "tab": "settings", "open": true, "where": "Settings, near the end", "what": "Connection diagnostics: Check connections re-checks every AI connection; the cards show Apify and the rest" },
     { "id": "settings.monday", "tab": "settings", "where": "Settings, Integrations", "what": "Monday.com: connect with a token (with how to get one), pick or make a board, match columns and stage labels, the sync rules, and the sync log" },
-    { "id": "settings.web-address", "tab": "settings", "where": "Settings, on the Mac app only", "what": "Studio web address: the browser studio's address, so Copy link in reports, the Library and channel briefs works on the Mac" }
+    { "id": "settings.web-address", "tab": "settings", "where": "Settings, in the desktop app only", "what": "Studio web address: the browser studio's address, so Copy link in reports, the Library and channel briefs works in the desktop app" }
   ]
 }

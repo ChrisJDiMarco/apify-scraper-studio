@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, Filter } from 'lucide-react';
 import { chipTone, columnLetter, selectionBounds } from '../../shared/sheet-model.js';
+import { keyLabel } from './platform.js';
 
 // A spreadsheet surface that behaves like the Google Sheets people review in: row 1 holds the headers,
 // letters and row numbers frame the cells, and the keyboard does what Sheets does.
@@ -187,7 +188,7 @@ export function SheetGrid({
     return <div key={column} id={isActive ? 'sheet-active-cell' : undefined} role="gridcell" aria-colindex={column + 1} aria-selected={inSelection(row, column) || undefined}
       className={classes.join(' ')} style={style} onMouseDown={(event) => onCellMouseDown(event, row, column)} onDoubleClick={() => startEditing(row, column)}
       onContextMenu={(event) => { event.preventDefault(); if (!inSelection(row, column)) select(row, column); onContextMenu?.({ row, column, x: event.clientX, y: event.clientY }); }}>
-      {spec.type === 'url' && isUrl(text) ? <span className="sheet-link" title={`${text}\n⌘-click to open`}>{text.replace(/^https?:\/\/(www\.)?/i, '')}</span> : spec.chip && text ? <span className="sheet-chip" data-tone={chipTone(text)}>{text}</span> : <span className="sheet-text">{text}</span>}
+      {spec.type === 'url' && isUrl(text) ? <span className="sheet-link" title={`${text}\n${keyLabel('⌘-click')} to open`}>{text.replace(/^https?:\/\/(www\.)?/i, '')}</span> : spec.chip && text ? <span className="sheet-chip" data-tone={chipTone(text)}>{text}</span> : <span className="sheet-text">{text}</span>}
     </div>;
   }
 

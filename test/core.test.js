@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { EventEmitter } from 'node:events';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import recipe from '../src/shared/recipe.js';
 import normalize from '../src/shared/normalize.js';
@@ -29,7 +30,7 @@ const { ensureWorkspace, isPathInside, safeFilename } = workspace;
 const { buildArchiveClearRequest, buildDatasetSheetRows, buildDatasetWriteRequest, buildDatasetWriteRequests, buildPingRequest, buildSheetReadRequest, isRetryableSheetMessage, isRetryableSheetStatus, parseSpreadsheetId } = sheetsBridge;
 const { boolValue, enumValue, intValue, optionalRecord, stringArray, stringValue, validateAnalysisPayload, validateAssetPayload, validateExportPayload, validateId, validateKeyName, validateKeyValue, validateSettings } = validation;
 const workflowConfig = JSON.parse(fs.readFileSync(new URL('../src/shared/asset-workflow.json', import.meta.url), 'utf8'));
-const projectRoot = path.resolve(new URL('..', import.meta.url).pathname);
+const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const requireFromTest = createRequire(import.meta.url);
 
 describe('live Actor engagement fields', () => {
@@ -173,7 +174,7 @@ describe('recipes and redaction', () => {
           if (name === 'apify-client') return { ApifyClient: FakeApifyClient };
           return mainRequire(name);
         },
-        process: { pid: process.pid, platform: process.platform, env: { APIFY_API_TOKEN: 'test-token' } },
+        process: { pid: process.pid, platform: 'darwin', env: { APIFY_API_TOKEN: 'test-token' } },
         __dirname: path.dirname(mainPath),
       }, { filename: mainPath });
       const saved = handlers.get('save-recipe')(null, {

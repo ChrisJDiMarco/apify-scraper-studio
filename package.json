@@ -2,7 +2,7 @@
   "name": "apify-scraper-studio",
   "version": "0.3.0",
   "private": true,
-  "description": "Local macOS workspace for Apify research, source-linked findings, and Claude Opus 5.5 analysis.",
+  "description": "Desktop (macOS and Windows) and browser workspace for Apify research, source-linked findings, and Claude Opus 5.5 analysis.",
   "main": "./out/main/index.js",
   "author": "Chris DiMarco",
   "license": "UNLICENSED",
@@ -21,6 +21,7 @@
     "name": "Main"
   },
   "scripts": {
+    "predev": "install-electron",
     "dev": "electron-vite dev",
     "build": "electron-vite build && node scripts/copy-main-modules.mjs",
     "preview": "npm run build && electron .",
@@ -32,7 +33,7 @@
     "test:desktop": "electron scripts/desktop-smoke.cjs",
     "build:web": "vite build --config vite.web.config.mjs",
     "start:web": "node scripts/studio-web.cjs",
-    "dist:win": "npm run build && electron-builder --win nsis",
+    "dist:win": "npm run build && electron-builder --win --x64 --publish never",
     "start:semrush": "npm run build && electron . --studio-workspace=semrush",
     "icons:mac": "node scripts/build-mac-icon.mjs",
     "dist:mac": "npm run icons:mac && npm run build && electron-builder --mac --universal",
@@ -132,7 +133,7 @@
           ]
         }
       ],
-      "artifactName": "${productName}-${version}-Windows-${arch}.${ext}"
+      "artifactName": "Scraper-Studio-${version}-Windows-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

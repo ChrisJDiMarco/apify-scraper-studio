@@ -11,7 +11,10 @@ const AI_ROUTE_LABELS = { claude: 'the Claude app', 'claude-api': 'the Anthropic
 const ADD_KEY = 'Add an Anthropic API key in Settings → AI connections.';
 const PING_SCHEMA = { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false };
 
-function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, describeError = (error) => error?.message || String(error), now = Date.now }) {
+// `platform` is index.js's process.platform (tests pass their own); Windows is told to use Command Prompt (PowerShell
+// runs npm's .ps1 shim, which a stock PC's execution policy refuses), the Mac Terminal.
+function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, describeError = (error) => error?.message || String(error), now = Date.now, platform = process.platform }) {
+  const shellName = platform === 'win32' ? 'Command Prompt' : 'Terminal';
   // provider → a working route, reused for ten minutes. Kept per provider: 'auto' (a connection check) and 'claude' (the
   // Claude Code runner asking whether the CLI streams) alternate on every Ask AI call and must not re-detect each time.
   const cached = new Map();
@@ -35,8 +38,8 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
   }
   function cliProblem(cli) {
     if (!cli?.installed) return cli?.error || 'The Claude app (Claude Code) is not installed.';
-    if (cli.missingFlags?.length) return `This Claude app (${cli.version}) is too old for Scraper Studio; it lacks ${cli.missingFlags.join(', ')}. Run "claude update" in Terminal.`;
-    if (!cli.loggedIn) return 'The Claude app is not signed in. Run "claude auth login" in Terminal.';
+    if (cli.missingFlags?.length) return `This Claude app (${cli.version}) is too old for Scraper Studio; it lacks ${cli.missingFlags.join(', ')}. Run "claude update" in ${shellName}.`;
+    if (!cli.loggedIn) return `The Claude app is not signed in. Run "claude auth login" in ${shellName}.`;
     return '';
   }
 

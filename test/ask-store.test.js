@@ -33,7 +33,7 @@ describe('conversations', () => {
     const files = fs.readdirSync(h.folder(ALEX));
     expect(files.sort()).toEqual(['c', 'index.json']);
     expect(fs.readdirSync(path.join(h.folder(ALEX), 'c'))).toEqual([`${first.conversation.id}.json`]);
-    expect(fs.statSync(path.join(h.folder(ALEX), 'index.json')).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(fs.statSync(path.join(h.folder(ALEX), 'index.json')).mode & 0o777).toBe(0o600);
     expect(fs.readdirSync(h.folder(ALEX)).some((name) => name.endsWith('.tmp'))).toBe(false);
     // Another person sees nothing, and can't read it by id.
     expect(h.store.listConversations(SAM)).toEqual([]);

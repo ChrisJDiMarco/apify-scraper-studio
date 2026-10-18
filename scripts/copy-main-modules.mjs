@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const copies = [
+  // Every atomic save renames through durable-write (retried on Windows while a scanner holds the file); imports decode
+  // text with text-decode (UTF-16 and Windows ANSI as well as UTF-8).
+  ['src/shared/durable-write.js', 'out/shared/durable-write.js'],
+  ['src/shared/text-decode.js', 'out/shared/text-decode.js'],
   ['src/main/image-provider.js', 'out/main/image-provider.js'],
   ['src/main/ai-limits.js', 'out/main/ai-limits.js'], // STUDIO_AI_CONCURRENCY and STUDIO_DAILY_AI_BUDGET_USD
   ['src/main/local-image-key.js', 'out/main/local-image-key.js'],

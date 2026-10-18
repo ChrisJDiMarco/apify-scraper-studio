@@ -1,10 +1,12 @@
 # Runs on every push and pull request: lint, unit tests, the browser build, prompt goldens and a production audit.
-# The signed macOS DMG is built by hand (npm run dist:mac); see docs/macos-app.md.
+# The signed macOS DMG is built by hand (npm run dist:mac); see docs/macos-app.md. Windows: the suite, the real npm
+# shims for Codex and Claude Code, and an unsigned x64 installer that is installed and launched once.
 name: CI
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Tests mock Electron, so CI never needs its binary.
+  # Electron 42 has no install script, so this does nothing at npm ci; jobs that run Electron clear it anyway.
   ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
 jobs:
@@ -50,3 +52,131 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  windows-test:
+    # Each step after npm ci runs even when an earlier one failed, so one run shows every Windows problem.
+    name: Test (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: ''
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out with LF line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Real npm shims for Codex and Claude Code resolve and start (no sign-in needed)
+        run: |
+          npm install --global @openai/codex@0.156.0 @anthropic-ai/claude-code@2.1.296
+          @'
+          const { spawnSync } = require('node:child_process');
+          const { resolveCli } = require('./src/main/studio-host.js');
+          for (const name of ['codex', 'claude']) {
+            const found = resolveCli(name, { env: process.env, platform: process.platform });
+            if (!found) throw new Error(`${name}: not found on PATH`);
+            if (/\.cmd$/i.test(found.command)) throw new Error(`${name}: resolved to a .cmd shim`);
+            const run = spawnSync(found.command, [...found.prefixArgs, '--version'], { encoding: 'utf8', windowsHide: true, env: { ...process.env, ...found.env } });
+            console.log(`${name}: ${found.command} -> exit ${run.status}: ${(run.stdout || run.stderr || String(run.error)).trim()}`);
+            if (run.status !== 0) process.exit(1);
+          }
+          '@ | node -
+      - run: npm run lint
+        if: ${{ !cancelled() }}
+      - run: npm test
+        if: ${{ !cancelled() }}
+      - name: Prompt goldens unchanged
+        if: ${{ !cancelled() }}
+        run: node scripts/prompt-goldens.mjs --check
+      - run: npm run build:web
+        if: ${{ !cancelled() }}
+      - run: npm run build
+        if: ${{ !cancelled() }}
+      # No desktop smoke (npm run test:desktop) yet: scripts/desktop-smoke.cjs still drives the pre-redesign shell
+      # (nav[aria-label=Primary], Overview, New scraper) and times out on every OS. Add it back once it follows the
+      # redesigned sidebar. The windows-installer job below launches the real packaged app.
+
+  windows-installer:
+    # Independent of windows-test, so the installer is built and launched even while tests are red.
+    name: Package, install and launch (Windows x64, unsigned)
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: ''
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out with LF line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Build the unsigned x64 installer
+        run: npm run dist:win
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-studio-windows-x64
+          path: |
+            dist/*-Windows-x64.exe
+            dist/*-Windows-x64.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+      - name: Install silently, launch once, screenshot
+        run: |
+          $installer = Get-ChildItem dist -Filter '*-Windows-x64.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'No *-Windows-x64.exe in dist/' }
+          $dir = Join-Path $env:RUNNER_TEMP 'ScraperStudio'
+          $setup = Start-Process -FilePath $installer.FullName -ArgumentList '/S', "/D=$dir" -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Installer exited with $($setup.ExitCode)" }
+          $exe = Join-Path $dir 'Scraper Studio.exe'
+          if (-not (Test-Path $exe)) { throw "Installer finished but $exe is missing (wrong-arch package?)" }
+          $out = Join-Path $env:RUNNER_TEMP 'studio-stdout.log'
+          $err = Join-Path $env:RUNNER_TEMP 'studio-stderr.log'
+          $app = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+          $lock = Join-Path $env:APPDATA 'apify-scraper-studio\content-studio\.studio-owner.json'
+          function Read-Shared([string]$file) {
+            if (-not (Test-Path $file)) { return '' }
+            $stream = [IO.File]::Open($file, 'Open', 'Read', 'ReadWrite')
+            try { (New-Object IO.StreamReader($stream)).ReadToEnd() } finally { $stream.Dispose() }
+          }
+          $deadline = (Get-Date).AddSeconds(90); $ready = $false
+          do {
+            Start-Sleep -Seconds 2; $app.Refresh()
+            # An error box (showErrorBox, uncaught exception) keeps the process alive under another title, so require
+            # the real window title plus the data-folder lock the main process takes at startup.
+            $ready = ($app.MainWindowTitle -eq 'Scraper Studio') -and (Test-Path $lock)
+          } until ($ready -or $app.HasExited -or (Get-Date) -gt $deadline)
+          Start-Sleep -Seconds 3
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+          [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+          $bitmap.Save((Join-Path $env:RUNNER_TEMP 'first-launch.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+          Write-Host "stdout: $(Read-Shared $out)"
+          if ($app.HasExited) { throw "App exited with $($app.ExitCode). stderr: $(Read-Shared $err)" }
+          if (-not $ready) { throw "Not ready after 90 s. Top window: '$($app.MainWindowTitle)'. stderr: $(Read-Shared $err)" }
+          Stop-Process -Id $app.Id -Force
+      - name: Upload launch evidence (the screenshot shows the real window frame)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-first-launch
+          path: |
+            ${{ runner.temp }}/first-launch.png
+            ${{ runner.temp }}/studio-stdout.log
+            ${{ runner.temp }}/studio-stderr.log
+          if-no-files-found: warn
+          retention-days: 14

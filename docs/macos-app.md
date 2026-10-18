@@ -15,19 +15,21 @@ npm run dist:mac   # icon, build, then a universal (arm64 + x64) app and DMG
 
 `npm run dist:mac` always builds universal (package.json passes `--universal`) and writes
 `dist/Scraper Studio-<version>-universal.dmg`. Plain `npm run dist` builds only this Mac's architecture; don't ship
-that. `npm run dist:win` builds an NSIS installer for x64; Windows is untested.
+that. The Windows x64 installer (`npm run dist:win`, unsigned for now) has its own steps:
+[RUNBOOK.md → Release the Windows app](../RUNBOOK.md#release-the-windows-app).
 
 - **Signing**: set `CSC_NAME` to the Developer ID Application identity (the name without the
   `Developer ID Application:` prefix). The package excludes `.env`, `.env.*`, PEM, P12, P8 and key files.
 - **Notarization**: runs only when `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` are set. Today two
   things notarize when they are: electron-builder 26 itself, and the `afterSign` hook
-  `scripts/notarize-if-configured.cjs`. Remove the hook (and its `afterSign` line) before a real release so Apple is
-  asked once (see [HANDOFF.md](../HANDOFF.md#known-limitations-and-follow-ups)).
+  `scripts/notarize-if-configured.cjs` (which skips Windows builds). Remove the hook (and its `afterSign` line) before
+  a real release so Apple is asked once (see [HANDOFF.md](../HANDOFF.md#known-limitations-and-follow-ups)).
 - **Electron fuses** are set in `package.json` `build.electronFuses` (no run-as-node, no `NODE_OPTIONS`, no inspector,
   asar integrity, cookie encryption). Check them on the built app with
   `npx @electron/fuses read --app "dist/mac-universal/Scraper Studio.app"`. With `NODE_OPTIONS` off,
   `NODE_EXTRA_CA_CERTS` doesn't work either: test the DMG on a network with TLS inspection before rollout.
-- `npm run release:diagnostics` prints what a release build will contain and what it still needs.
+- `npm run release:diagnostics` was meant to print what a release build contains and still needs; it fails today
+  (see [HANDOFF.md](../HANDOFF.md#cleanup-dependencies-and-release)).
 - After building, `npm run test:desktop` (and `-- --with-data`) runs the desktop smoke test on disposable data.
 
 Record the commit SHA and `shasum -a 256` of each DMG you hand out.

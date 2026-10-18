@@ -1,7 +1,7 @@
 // The same main process runs the Mac app and, with STUDIO_RUNTIME=web, the browser studio on a server
 // (web-runtime.js stands in for Electron there; studio-server.js serves it).
 const WEB_RUNTIME = process.env.STUDIO_RUNTIME === 'web';
-const { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Menu } = WEB_RUNTIME ? require('./web-runtime').electron : require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Menu, nativeTheme } = WEB_RUNTIME ? require('./web-runtime').electron : require('electron');
 // Browser studio: a file the Mac app saves or reveals downloads instead (an export folder as one .zip), and the
 // page never receives server paths. On the Mac this returns the result unchanged.
 const SERVER_PATH_KEYS = ['path', 'filePath', 'folder', 'dir', 'evidencePath', 'markdownPath', 'htmlPath', 'reportPath'];
@@ -25,6 +25,9 @@ if (app.isPackaged) {
   // Exit before constructing services or touching shared state in a second installed process.
   if (!app.requestSingleInstanceLock()) app.exit(0);
 }
+// Windows groups taskbar buttons and pins by this ID; it matches build.appId, the one the installer gives its shortcuts.
+// A literal: the packaged package.json has no build section.
+if (process.platform === 'win32' && !WEB_RUNTIME) app.setAppUserModelId?.('com.chrisdimarco.apifyscraperstudio');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { ApifyClient } = require('apify-client');
@@ -111,7 +114,14 @@ function now() {
   return new Date().toISOString();
 }
 
-function cliEnv() { return studioCliEnv(); }
+// The environment every AI CLI gets: studioCliEnv (no STUDIO_* setting or saved-key variable, the usual install folders on
+// PATH) for this process's own platform, and no variable named in KEY_NAMES, whatever its case (Windows ignores case).
+function cliEnv() {
+  const environment = studioCliEnv({ platform: process.platform, env: process.env });
+  const strip = new Set(KEY_NAMES);
+  for (const name of Object.keys(environment)) if (strip.has(name.toUpperCase())) delete environment[name];
+  return environment;
+}
 
 function dataRoot() {
   return app.getPath('userData');
@@ -193,19 +203,11 @@ function readStoreJson(filePath, label) {
 }
 
 // Atomic and durable: written to a private temp file, flushed, then renamed over the old one, so a crash or power cut
-// leaves the previous file or the new one, never half of either.
+// leaves the previous file or the new one, never half of either. On Windows the rename is retried while a scanner or sync
+// agent holds the file (src/shared/durable-write.js).
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.${process.pid}.tmp`;
-  try {
-    const fd = fs.openSync(tempPath, 'w', 0o600);
-    try { fs.writeFileSync(fd, JSON.stringify(value, null, 2)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-    fs.renameSync(tempPath, filePath);
-  } catch (error) { fs.rmSync(tempPath, { force: true }); throw error; }
-  let folder;
-  try { folder = fs.openSync(path.dirname(filePath), 'r'); fs.fsyncSync(folder); }
-  catch (error) { if (!['EINVAL', 'ENOTSUP', 'EPERM', 'EACCES', 'EISDIR'].includes(error.code)) throw error; }
-  finally { if (folder != null) fs.closeSync(folder); }
+  require('../shared/durable-write').writeFileDurable(filePath, JSON.stringify(value, null, 2), { platform: process.platform, fsImpl: fs });
 }
 
 function dataFile() {
@@ -690,10 +692,11 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1380,
     height: 880,
-    minWidth: 720,
+    minWidth: process.platform === 'win32' ? 560 : 720, // Windows: fits half of a small laptop screen when snapped
     minHeight: 560,
     title: APP_NAME,
-    titleBarStyle: 'hiddenInset',
+    // The Mac's inset traffic lights. Elsewhere the system frame, with the menu bar shown when Alt is pressed.
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : { autoHideMenuBar: true }),
     backgroundColor: '#f6f8f7',
     show: false,
     webPreferences: {
@@ -716,18 +719,37 @@ function createWindow() {
   mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
     if (!isAllowedNavigation(targetUrl)) event.preventDefault();
   });
+  // Off the Mac, closing the only window quits the app (window-all-closed), so the "still running" question is asked
+  // here, while the window can still stay open. Ctrl+W (Window → Close) comes through here too.
+  if (process.platform !== 'darwin' && !WEB_RUNTIME) mainWindow.on('close', (event) => {
+    if (quitConfirmed) return;
+    const busy = activeWorkSummary(); if (!busy.length) return;
+    if (confirmQuitDuringWork(busy, mainWindow)) { quitConfirmed = true; return; }
+    event.preventDefault();
+  });
+  // Windows ends a sign-out, restart or shutdown without the app's quit events, so stop the work and free the data
+  // folder here, or the next launch finds it still claimed.
+  if (process.platform === 'win32' && !WEB_RUNTIME) mainWindow.on('session-end', () => {
+    quitConfirmed = true;
+    try { contentWorkspace.stopResearchScheduler(); workflowEngine?.stop(); mondayEngine?.stop(); driveSync?.stop(); stopAllWork(); }
+    catch (error) { console.error('Stopping work at sign-out:', error.message); }
+    finally { releaseStudioOwner?.(); }
+  });
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    mainWindow.loadFile(RENDERER_FILE);
   }
 }
 
+// The packaged page. It is the only file: page the window may show: another local file, or a file://host/share URL (on
+// Windows an SMB connection that sends the person's sign-in), would run with the studio's preload API.
+const RENDERER_FILE = path.resolve(__dirname, '../renderer/index.html');
 function isAllowedNavigation(targetUrl) {
   try {
     const parsed = new URL(targetUrl);
-    if (parsed.protocol === 'file:') return true;
+    if (parsed.protocol === 'file:') return !parsed.host && path.resolve(require('url').fileURLToPath(parsed)).toLowerCase() === RENDERER_FILE.toLowerCase();
     if (!process.env.ELECTRON_RENDERER_URL) return false;
     const devUrl = new URL(process.env.ELECTRON_RENDERER_URL);
     return parsed.origin === devUrl.origin;
@@ -830,7 +852,7 @@ function localAnalysisPath(analysisId) {
 function assetMarkdownPath(asset) {
   const cardDir = safeFilename(asset.cardId || 'uncategorized');
   const fileName = safeFilename(asset.assetType || asset.id || 'asset');
-  return dataPath('assets', cardDir, `${fileName}.md`);
+  return containedDataPath('assets', path.join(cardDir, `${fileName}.md`));
 }
 
 function localAssetPath(assetId) {
@@ -885,9 +907,11 @@ function exportDataset(exportPayload) {
   const items = payload.items || [];
   const extension = valid.format === 'csv' ? 'csv' : 'jsonl';
   const content = extension === 'csv' ? toCsv(items) : toJsonl(items);
-  const filePath = path.join(browserDownloadFolder() || dataPath('exports'), `${safeFilename(dataset.name || dataset.id)}.${extension}`);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content);
+  const target = path.join(browserDownloadFolder() || dataPath('exports'), `${safeFilename(dataset.name || dataset.id)}.${extension}`);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  // The byte-order mark tells Excel the CSV is UTF-8 (without it, Excel on Windows shows accents and emoji as mojibake).
+  // On Windows, a copy still open in Excel is locked, so the export goes to "<name> (2).csv" instead.
+  const filePath = require('../shared/durable-write').writeFileBesideBusy(target, extension === 'csv' ? `\uFEFF${content}` : content, { platform: process.platform, fsImpl: fs });
   if (valid.reveal && !WEB_RUNTIME) shell.showItemInFolder(filePath);
   return forBrowser({ filePath, itemCount: items.length, format: extension }, filePath);
 }
@@ -1368,29 +1392,48 @@ async function runRecipe(recipeId) {
   }
 }
 
+// Every AI CLI (Claude Code, Codex) starts through here. On Windows its name is first resolved to the program itself
+// (resolveCli in studio-host.js: an npm .cmd shim is read, never run) and no console window opens; a CLI that isn't
+// installed throws ENOENT here, before anything starts, which every caller already reads as "not installed".
+const { resolveCli, killProcessTree } = require('./studio-host');
+const CLI_CHECK_MS = process.platform === 'win32' ? 15000 : 5000; // a first run on Windows waits for the virus scan
+function spawnCliProcess(name, args, options = {}) {
+  const resolved = resolveCli(name, { env: options.env || process.env, platform: process.platform });
+  if (!resolved) throw Object.assign(new Error(`spawn ${name} ENOENT`), { code: 'ENOENT', path: name });
+  return spawn(resolved.command, [...resolved.prefixArgs, ...args], { ...options, env: { ...(options.env || process.env), ...resolved.env }, windowsHide: true, shell: false });
+}
+// Stops a CLI with everything it started (on Windows, taskkill /T: what a CLI starts outlives it there).
+function killCliTree(child) { killProcessTree(child, { platform: process.platform, spawnImpl: spawn, systemRoot: process.env.SystemRoot }); }
+
 function spawnCodex(command, args, cwd, options = {}) {
   const timeoutMs = options.timeoutMs || CODEX_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     // No saved key reaches any AI CLI (studioCliEnv also drops every STUDIO_* setting); see studio-host.js.
     const environment = cliEnv();
-    for (const name of KEY_NAMES) delete environment[name];
     if (command === 'claude') Object.assign(environment, CLAUDE_CLI_ENV);
-    const child = spawn(command, args, { cwd, env: environment });
+    let child;
+    try { child = spawnCliProcess(command, args, { cwd, env: environment }); } catch (error) { reject(error); return; }
     if (options.stdin != null) { child.stdin.on('error', () => {}); child.stdin.end(options.stdin); }
     if (options.jobId) jobProcesses.set(options.jobId, child);
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let timedOut = false;
+    let lastWait = null;
+    const timedOutError = () => new Error(`${options.providerLabel || 'AI'} timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
     const finish = (callback) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(lastWait);
       if (options.jobId) jobProcesses.delete(options.jobId);
       callback();
     };
+    // A timed-out CLI is stopped, and the answer waits (up to 3 s) for it to exit, so its folder is free to remove.
     const timer = setTimeout(() => {
-      child.kill('SIGTERM');
-      finish(() => reject(new Error(`${options.providerLabel || 'AI'} timed out after ${Math.round(timeoutMs / 1000)} seconds.`)));
+      timedOut = true;
+      killCliTree(child);
+      lastWait = setTimeout(() => finish(() => reject(timedOutError())), 3000);
     }, timeoutMs);
 
     child.stdout.on('data', (chunk) => {
@@ -1402,19 +1445,22 @@ function spawnCodex(command, args, cwd, options = {}) {
       stderr += chunk.toString();
     });
     child.on('error', (error) => finish(() => reject(error)));
-    child.on('close', (code, signal) => {
+    // A cancelled job reads as cancelled however it ended: taskkill on Windows reports exit code 1 and no signal.
+    child.on('close', (code) => {
       finish(() => {
-        if (code === 0) resolve({ stdout, stderr });
-        else if (signal === 'SIGTERM' && options.jobId && cancelledJobs.has(options.jobId)) reject(new Error('Job cancelled.'));
+        if (timedOut) reject(timedOutError());
+        else if (code === 0) resolve({ stdout, stderr });
+        else if (options.jobId && cancelledJobs.has(options.jobId)) reject(new Error('Job cancelled.'));
         else { const error = new Error(safeServiceError(stderr || `${options.providerLabel || 'AI'} stopped before finishing (exit code ${code}). Check the connection in Settings, then retry.`)); if (options.keepStdoutOnError) error.stdout = stdout; reject(error); }
       });
     });
   });
 }
 
-function checkCodexCli(timeoutMs = 5000) {
+function checkCodexCli(timeoutMs = CLI_CHECK_MS) {
   return new Promise((resolve) => {
-    const child = spawn('codex', ['--version'], { env: cliEnv() });
+    let child;
+    try { child = spawnCliProcess('codex', ['--version'], { env: cliEnv() }); } catch (error) { resolve({ ok: false, error: error.message }); return; }
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -1425,7 +1471,7 @@ function checkCodexCli(timeoutMs = 5000) {
       resolve(result);
     };
     const timer = setTimeout(() => {
-      child.kill('SIGTERM');
+      killCliTree(child);
       finish({ ok: false, error: 'Codex check timed out.' });
     }, timeoutMs);
 
@@ -1592,6 +1638,7 @@ async function searchSources(payload) {
 
 // Claude routes (the Claude app or an API key) and model checks before spending; see ai-routes.js.
 const aiRoutes = createAiRoutes({
+  platform: process.platform, // PowerShell or Terminal in the sign-in hints; index.js's own value, so test harnesses can set it
   spawn: async (command, args, { cwd, stdin, timeoutMs } = {}) => { await loginShellPathReady; return spawnCodex(command, args, cwd || app.getPath('userData'), { stdin, timeoutMs, providerLabel: 'Claude' }); },
   getKey, getSettings: () => loadData().settings, dataDir: () => dataRoot(), describeError: safeServiceError,
   // New API keys sit on low rate limits; large discovery batches can draw a 429, so retry a little more.
@@ -1621,10 +1668,11 @@ let codexExecHelp = null;
 function codexSupport() {
   if (!codexExecHelp) {
     codexExecHelp = new Promise((resolve) => {
-      let text = ''; let child; let timer = null;
-      const done = () => { if (timer) clearTimeout(timer); resolve(text); };
-      try { child = spawn('codex', ['exec', '--help'], { env: cliEnv() }); } catch (_) { resolve(''); return; }
-      timer = setTimeout(() => { try { child.kill('SIGTERM'); } catch (_) { /* already gone */ } done(); }, 5000);
+      // A --help cut off by the time limit counts as unread (''), so a partial flag list is never kept.
+      let text = ''; let child; let timer = null; let timedOut = false;
+      const done = () => { if (timer) clearTimeout(timer); resolve(timedOut ? '' : text); };
+      try { child = spawnCliProcess('codex', ['exec', '--help'], { env: cliEnv() }); } catch (_) { resolve(''); return; }
+      timer = setTimeout(() => { timedOut = true; killCliTree(child); done(); }, CLI_CHECK_MS);
       child.stdout?.on('data', (chunk) => { text += chunk.toString(); });
       child.on('error', done); child.on('close', done);
     }).then((text) => { if (!text) codexExecHelp = null; return codexExecSupport(text); });
@@ -1656,10 +1704,12 @@ const aiCatalog = require('./ai-catalog').createAiCatalog({ dataDir: () => dataR
 // programs: the active workspace's research programs (their own stage choices, and the newest one's report model for a
 // studio whose routing was never saved).
 const aiRouting = require('./ai-routing').createAiRouting({ getSettings: () => loadData().settings, catalog: aiCatalog, programs: () => { try { return contentWorkspace.routingPrograms(); } catch (_) { return []; } }, isReady: (route) => aiConnections.ready(route) });
-const cliProbe = require('./cli-runners').createCliProbe({ spawn, env: () => { const environment = cliEnv(); for (const name of KEY_NAMES) delete environment[name]; return environment; } });
+// The free status checks (version, sign-in) behind Settings → AI connections; on Windows they get Codex's longer check time.
+const cliProbe = require('./cli-runners').createCliProbe({ spawn: spawnCliProcess, env: () => cliEnv(), kill: killCliTree, ...(process.platform === 'win32' ? { timeoutMs: CLI_CHECK_MS } : {}) });
 const openRouterRunner = require('./openrouter-runner').createOpenRouterRunner({ getKey, privacy: () => aiRouting.current().openrouter.privacy });
 const openAiTextRunner = require('./openai-text-runner').createOpenAiTextRunner({ getKey });
 const aiConnections = require('./ai-connections').createAiConnections({
+  platform: process.platform, // "this PC" and PowerShell on Windows, "this Mac" and Terminal on the Mac
   aiRoutes, getKey, keyProblem, web: WEB_RUNTIME, serverUser: WEB_RUNTIME ? (() => { try { return require('os').userInfo().username; } catch (_) { return ''; } })() : '',
   probeCli: async (command, args) => { await loginShellPathReady; return cliProbe(command, args); },
   catalog: aiCatalog, getRouting: () => { try { return aiRouting.preview(); } catch (_) { return null; } },
@@ -1763,10 +1813,16 @@ const googleDelivery = require('./google-delivery').createGoogleDelivery({ getAc
 function driveCapabilities() {
   try { const drive = driveSync?.publicState(); return { driveAutoAdd: Boolean(drive?.autoAdd && drive?.folder && drive?.connected), driveFolderName: drive?.folder?.name || '' }; } catch (_) { return { driveAutoAdd: false, driveFolderName: '' }; }
 }
-// Both desktop and browser hosts own this same storage boundary exclusively.
+// Both desktop and browser hosts own this same storage boundary exclusively. The installed desktop app, once it holds
+// Electron's single-instance lock, may take over a lock an earlier desktop process left (studio-owner-lock.js).
 let releaseStudioOwner;
-try { releaseStudioOwner = acquireStudioOwnerLock(dataPath('content-studio')); }
-catch (error) { dialog.showErrorBox('Workspace already in use', error.message); app.exit(1); }
+try { releaseStudioOwner = acquireStudioOwnerLock(dataPath('content-studio'), { desktop: !WEB_RUNTIME && app.isPackaged && app.hasSingleInstanceLock?.() === true }); }
+catch (error) {
+  if (WEB_RUNTIME) dialog.showErrorBox('Workspace already in use', error.message);
+  else if (error.code) dialog.showErrorBox('Scraper Studio could not open its data', error.message); // the folder itself: permissions, a full disk
+  else dialog.showErrorBox('Scraper Studio is already open', `Scraper Studio is already running, or it did not close cleanly. If it is not running, delete ${path.join(dataPath('content-studio'), require('./studio-owner-lock').LOCK_FILE)} and open it again.`);
+  app.exit(1);
+}
 app.once('quit', () => releaseStudioOwner?.());
 // The team (people, roles, sign-in links, trend answers, activity and preferences) is content-studio/team.json, inside the
 // folder the owner lock protects. On the web STUDIO_ADMIN_EMAILS names admins that People can't change (company sign-in).
@@ -1812,7 +1868,7 @@ const contentWorkspace = createContentWorkspace({
   routing: { resolve: (taskId, context) => aiRouting.resolve(taskId, context), snapshot: (taskIds, context) => aiRouting.snapshot(taskIds, context), current: () => aiRouting.current(), taskIdForPrompt: (entry) => aiRouting.taskIdForPrompt(entry), priceFor: (route, model, kind, options) => aiCatalog.priceFor(route, model, kind, options), unitsFor: (price, request) => aiCatalog.unitsFor(price, request), mediaProblem: (taskId) => mediaRouter.problem(taskId) },
   getDatasets: () => [...loadData().datasets, ...studioHost.getDatasets()],
   readDataset: datasetId => loadData().datasets.some(d => d.id === datasetId) ? readDatasetPayload(datasetId) : studioHost.readDataset(datasetId),
-  cancelProvider: async runId => { for (const [key, child] of jobProcesses) if (key === runId || key.startsWith(`${runId}::`)) child.kill('SIGTERM'); for (const [key, controller] of apiRequests) if (key === runId || key.startsWith(`${runId}::`)) controller.abort(); await studioHost.cancelProvider(runId); },
+  cancelProvider: async runId => { for (const [key, child] of jobProcesses) if (key === runId || key.startsWith(`${runId}::`)) killCliTree(child); for (const [key, controller] of apiRequests) if (key === runId || key.startsWith(`${runId}::`)) controller.abort(); await studioHost.cancelProvider(runId); },
   openFile: openPathOrThrow,
   publishCampaign: request => publishCampaignVia(request, googleDelivery), // the Sheets bridge when connected, else the Drive token
   // The AI route a quick scan's cost check names ('auto' resolved to the Claude app or the API key), so Codex's
@@ -2098,12 +2154,12 @@ handle('studio:addBrandImage', async (_, payload = {}) => {
   return contentWorkspace.addBrandImage({ workspaceId: payload?.workspaceId, family: payload?.family, role: payload?.role, name: path.basename(filePath), data: fs.readFileSync(filePath) });
 });
 
-// A channel asset kit's folder: the browser downloads it as a .zip; the Mac app copies it into Downloads and shows it.
+// A channel asset kit's folder: the browser downloads it as a .zip; the desktop app copies it into Downloads and shows it (on Windows, names fitted to its path limit).
 // A channel owner's folder holds only their own channel, taken from who they are, never from the request.
 handle('studio:saveAssetKitFolder', async (_, payload = {}) => {
   const viewer = access.currentViewer(); const channels = viewer.role === 'channel' ? [viewer.channelId] : undefined;
   if (WEB_RUNTIME) return offerBrowserFolder(contentWorkspace.exportAssetKit({ runId: payload?.runId }, { channels, temporary: true }));
-  const result = contentWorkspace.exportAssetKit({ runId: payload?.runId }, { into: app.getPath('downloads'), channels });
+  const result = contentWorkspace.exportAssetKit({ runId: payload?.runId }, { into: app.getPath('downloads'), channels, platform: process.platform });
   shell.showItemInFolder(result.path);
   return { folderName: result.folderName, assetCount: result.assetCount, path: result.path, savedTo: 'downloads' };
 });
@@ -2132,7 +2188,9 @@ handle('workbooks:export-xlsx', async (_, payload) => {
   const choice = await dialog.showSaveDialog(mainWindow, { title: 'Download workbook', buttonLabel: 'Save', defaultPath: path.join(app.getPath('downloads'), file.fileName), filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }] });
   if (choice.canceled || !choice.filePath) return null;
   const target = /\.xlsx$/i.test(choice.filePath) ? choice.filePath : `${choice.filePath}.xlsx`;
-  fs.writeFileSync(target, file.buffer);
+  // Excel on Windows locks the workbook it has open, so saving over it fails until it is closed.
+  try { fs.writeFileSync(target, file.buffer); }
+  catch (error) { if (process.platform === 'win32' && require('../shared/durable-write').isBusyError(error)) throw new Error(`Close “${path.basename(target)}” in Excel (or whatever app has it open) and try again.`); throw error; }
   return forBrowser({ path: target, fileName: path.basename(target), bytes: file.buffer.length, sheetCount: file.sheetCount, rowCount: file.rowCount, truncatedCells: file.truncatedCells });
 });
 handle('workbooks:export-google', (_, payload) => exportWorkbookToGoogleSheets(payload));
@@ -2382,7 +2440,7 @@ function helpContext(page, role = 'admin', promptAccess = null, scope = {}) {
   const fileStatuses = (run) => { const counts = {}; for (const asset of (studio.assets || []).filter((row) => row.runId === run.id && row.kind === 'text')) { const status = helpAssetStatus(asset); counts[status] = (counts[status] || 0) + 1; } return counts; };
   return {
     appVersion: app.getVersion(),
-    edition: WEB_RUNTIME ? 'browser studio (shared, on a server)' : 'Mac app',
+    edition: WEB_RUNTIME ? 'browser studio (shared, on a server)' : process.platform === 'win32' ? 'Windows app' : 'Mac app',
     role: role === 'editor' ? 'editor' : 'admin',
     layout: view.layout === 'classic' ? 'classic' : 'simple',
     currentPage: view.id ? { id: String(view.id).slice(0, 40), name: String(view.label || '').slice(0, 80), ...(view.tab ? { tab: String(view.tab).slice(0, 20) } : {}), ...(view.report ? { openReport: String(view.report).slice(0, 160) } : {}), ...(view.folder ? { openFolder: String(view.folder).slice(0, 160) } : {}), ...(view.trend ? { openTrend: String(view.trend).slice(0, 160) } : {}), ...(view.prompt ? { openPrompt: String(view.prompt).slice(0, 120) } : {}) } : null,
@@ -3129,7 +3187,7 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
   const helpBudgetUsd = Math.min(100, Math.round(0.75 * Math.max(1, inputPrice / modelPrice(DEFAULT_CLAUDE_MODEL).input) * 100) / 100);
   const dir = dataPath('help', 'calls', randomUUID()); fs.mkdirSync(dir, { recursive: true });
   const calls = new Set(); const used = [];
-  const stop = { aborted: false, abort() { if (stop.aborted) return; stop.aborted = true; for (const key of calls) { cancelledJobs.add(key); jobProcesses.get(key)?.kill('SIGTERM'); apiRequests.get(key)?.abort(); } } };
+  const stop = { aborted: false, abort() { if (stop.aborted) return; stop.aborted = true; for (const key of calls) { cancelledJobs.add(key); const child = jobProcesses.get(key); if (child) killCliTree(child); apiRequests.get(key)?.abort(); } } };
   apiRequests.set(jobId, stop);
   startJob({ id: jobId, kind: 'chat', title: 'Ask AI answer', cancellable: true, status: 'running', startedAt: now(), ownerId: identityId });
   if (cancelledJobs.has(jobId)) stop.abort(); // Stop arrived before the job did (help:cancel)
@@ -3183,7 +3241,7 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
   } finally {
     if (apiRequests.get(jobId) === stop) apiRequests.delete(jobId);
     for (const key of [jobId, ...used]) cancelledJobs.delete(key);
-    fs.rmSync(dir, { recursive: true, force: true });
+    cliRunners.removeQuietly(dir); // a folder Windows still holds is removed later and never replaces the answer
   }
 }
 
@@ -3549,11 +3607,12 @@ handle('setup:export', async (_, { includeApifyToken = false } = {}) => {
   let bundle = contentWorkspace.exportSetup({ appVersion: app.getVersion() });
   if (includeApifyToken) {
     const token = getKey('APIFY_API_TOKEN');
-    if (!token) throw new Error('No Apify token is saved on this Mac to include. Add it under Settings → Source collection first.');
+    if (!token) throw new Error('No Apify token is saved on this computer to include. Add it under Settings → Source collection first.');
     bundle = attachSetupSecrets(bundle, { APIFY_API_TOKEN: token });
   }
   const fileName = `${bundle.workspace.name} setup ${new Date().toISOString().slice(0, 10)}.json`.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ');
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, { title: 'Export setup', defaultPath: path.join(app.getPath('documents'), fileName), filters: setupFilters });
+  // Downloads, not Documents: on Windows, chmod can't make the file private, and Documents is often synced to OneDrive.
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, { title: 'Export setup', defaultPath: path.join(app.getPath('downloads'), fileName), filters: setupFilters });
   if (canceled || !filePath) return { cancelled: true };
   fs.writeFileSync(filePath, `${JSON.stringify(bundle, null, 2)}\n`, { mode: bundle.secrets ? 0o600 : 0o644 });
   if (bundle.secrets) fs.chmodSync(filePath, 0o600); // `mode` applies only to a new file; an overwritten one keeps its old permissions
@@ -3722,7 +3781,7 @@ handle('cancel-job', async (_, jobId) => {
   if (apiRequest) { apiRequest.abort(); apiRequests.delete(validJobId); }
   cancelledJobs.add(validJobId);
   if (child) {
-    child.kill('SIGTERM');
+    killCliTree(child);
     jobProcesses.delete(validJobId);
   }
   if (apifyRun) {
@@ -3739,6 +3798,21 @@ if (app.isPackaged) app.on('second-instance', () => {
   if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   else { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); }
 });
+
+// The Windows app: temp folders an AI CLI still held when its call ended (Windows keeps a running program's folder busy,
+// so cliRunners.removeQuietly could not delete them then). A later launch removes those a day old; no AI call runs that long.
+function sweepLeftoverCliFolders({ olderThanMs = 86400000 } = {}) {
+  const cutoff = Date.now() - olderThanMs;
+  for (const [folder, prefix] of [[require('os').tmpdir(), 'studio-codex-'], [dataPath('help', 'calls'), ''], [dataPath('content-studio', 'prompt-tests'), 'ptest-']]) {
+    let entries = [];
+    try { entries = fs.readdirSync(folder, { withFileTypes: true }); } catch (_) { continue; } // never made yet
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith(prefix)) continue;
+      const target = path.join(folder, entry.name);
+      try { if (fs.statSync(target).mtimeMs < cutoff) cliRunners.removeQuietly(target); } catch (_) { /* removed meanwhile */ }
+    }
+  }
+}
 
 app.whenReady().then(() => {
   ensureDirs();
@@ -3760,6 +3834,7 @@ app.whenReady().then(() => {
     try { contentWorkspace.pruneExports({ olderThanDays: keepDays }); } catch (error) { console.warn(`Old export copies could not be removed: ${error.message}`); }
     try { const cutoff = Date.now() - keepDays * 86400000; for (const entry of fs.readdirSync(dataPath('exports'), { withFileTypes: true })) { const target = dataPath('exports', entry.name); if (fs.statSync(target).mtimeMs < cutoff) fs.rmSync(target, { recursive: true, force: true }); } } catch (_) { /* nothing to remove */ }
   }
+  if (process.platform === 'win32' && !WEB_RUNTIME) sweepLeftoverCliFolders();
   contentWorkspace.startResearchScheduler();
   workflowEngine.start(); // after the research scheduler: recovers interrupted workflow runs, then ticks every 30 s
   // Explicit local launch preference; normal launches keep the saved workspace. A one-workspace build ignores it.
@@ -3770,10 +3845,18 @@ app.whenReady().then(() => {
   else if (["general", "semrush"].includes(requestedWorkspace)) contentWorkspace.selectContentWorkspace(requestedWorkspace);
   configureAutoUpdates();
   app.setAboutPanelOptions({ applicationName: APP_NAME, applicationVersion: app.getVersion(), copyright: 'Chris DiMarco' });
+  // Off the Mac: About lives in Help, and an installed app's View menu has zoom and full screen but no reload or
+  // developer tools.
+  const mac = process.platform === 'darwin';
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(process.platform === 'darwin' ? [{ label: APP_NAME, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : [{ role: 'fileMenu' }]),
-    { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+    ...(mac ? [{ label: APP_NAME, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : [{ role: 'fileMenu' }]),
+    { role: 'editMenu' },
+    !mac && app.isPackaged ? { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] } : { role: 'viewMenu' },
+    { role: 'windowMenu' },
+    ...(mac ? [] : [{ role: 'help', submenu: [{ label: `About ${APP_NAME}`, click: () => app.showAboutPanel() }] }]),
   ]));
+  // The Windows title bar and menus follow the system's dark mode; the studio is light only.
+  if (process.platform === 'win32' && !WEB_RUNTIME && nativeTheme) nativeTheme.themeSource = 'light';
   createWindow();
   startMondaySync(); // the Mac app syncs only while it is open; the next tick after a sleep catches up
   driveSync?.start(); // moves old per-program Drive publishing onto the switch once, then sends what is waiting
@@ -3793,7 +3876,7 @@ function activeWorkSummary() {
 }
 // Child processes outlive the app unless stopped, and an orphaned `claude --print` keeps spending.
 function stopAllWork() {
-  for (const child of jobProcesses.values()) { try { child.kill('SIGTERM'); } catch (_) { /* already exited */ } }
+  for (const child of jobProcesses.values()) { try { killCliTree(child); } catch (_) { /* already exited */ } }
   jobProcesses.clear();
   for (const controller of apiRequests.values()) controller.abort();
   apiRequests.clear();
@@ -3801,17 +3884,21 @@ function stopAllWork() {
 }
 // The browser studio stops with its server process (no quit dialog there): stop schedules and in-flight AI work.
 if (WEB_RUNTIME) app.once('quit', () => { contentWorkspace.stopResearchScheduler(); workflowEngine?.stop(); mondayEngine?.stop(); driveSync?.stop(); stopAllWork(); });
+// Asks before quitting stops the work in `busy` (activeWorkSummary). True to quit anyway. The title is the Windows
+// caption (the Mac shows none), which would otherwise be the internal app name.
+function confirmQuitDuringWork(busy, parent) {
+  return dialog.showMessageBoxSync(parent, {
+    type: 'warning', title: APP_NAME, buttons: ['Keep working', 'Quit anyway'], defaultId: 0, cancelId: 0, noLink: true,
+    message: busy.length === 1 ? 'Something is still running' : `${busy.length} things are still running`,
+    detail: `${busy.slice(0, 6).join('\n')}${busy.length > 6 ? `\n…and ${busy.length - 6} more` : ''}\n\nQuitting stops the AI work in progress, and that work is lost. Apify collection keeps running on Apify's side. Retry a stopped research run later: it picks up the collected posts and keeps every step it finished.`,
+  }) === 1;
+}
 let quitConfirmed = false;
 app.on('before-quit', (event) => {
   const busy = quitConfirmed ? [] : activeWorkSummary();
   if (busy.length) {
     event.preventDefault();
-    const choice = dialog.showMessageBoxSync(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], {
-      type: 'warning', buttons: ['Keep working', 'Quit anyway'], defaultId: 0, cancelId: 0, noLink: true,
-      message: busy.length === 1 ? 'Something is still running' : `${busy.length} things are still running`,
-      detail: `${busy.slice(0, 6).join('\n')}${busy.length > 6 ? `\n…and ${busy.length - 6} more` : ''}\n\nQuitting stops the AI work in progress, and that work is lost. Apify collection keeps running on Apify's side. Retry a stopped research run later: it picks up the collected posts and keeps every step it finished.`,
-    });
-    if (choice !== 1) return;
+    if (!confirmQuitDuringWork(busy, mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0])) return;
     quitConfirmed = true;
     setImmediate(() => app.quit());
     return;

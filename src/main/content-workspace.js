@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { randomUUID, createHash } = require('crypto');
+const { writeFileDurable } = require('../shared/durable-write');
 const content = require('../shared/content-studio');
 const research = require('../shared/research-program');
 const researchPrompts = require('../shared/research-prompts');
@@ -86,15 +87,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   const active = new Map(); const stopped = new Set(); const publishing = new Set();
   let researchScheduleTimer;
   function file(runId, name) { safeId(runId); const dir = path.join(root, 'runs', runId); fs.mkdirSync(dir, { recursive: true }); return path.join(dir, name); }
-  function writeBytes(target, data) {
-    const temp = `${target}.${process.pid}.tmp`; const fd = fs.openSync(temp, 'w', 0o600);
-    try { fs.writeFileSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-    fs.renameSync(temp, target);
-    let directory;
-    try { directory = fs.openSync(path.dirname(target), 'r'); fs.fsyncSync(directory); }
-    catch (error) { if (!['EINVAL', 'ENOTSUP', 'EPERM', 'EACCES', 'EISDIR'].includes(error.code)) throw error; }
-    finally { if (directory != null) fs.closeSync(directory); }
-  }
+  // A private temp file, fsync, rename (retried on Windows while a scanner holds the file), then fsync the folder; a
+  // failed write leaves no temp file behind (src/shared/durable-write.js).
+  function writeBytes(target, data) { writeFileDurable(target, data); }
   function write(target, data) { writeBytes(target, JSON.stringify(data, null, 2)); }
   function read(target) { return JSON.parse(fs.readFileSync(target, 'utf8')); }
   function save() { write(stateFile, state); emit(); }
@@ -415,7 +410,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds: payload.deliverableIds, imageVariants: payload.imageVariants, prompts: snapshot, ...(Object.keys(references.roles).length ? { references: references.roles } : {}) };
       const plan = content.buildContentPlan(input); const run = { id: runId, workspaceId: w.id, type: 'content', title: source.title || 'Content campaign', ...(source.kind === 'report' && source.id ? { sourceAssetId: source.id } : {}), ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, prompts: promptRecord(snapshot), ai: { version: 2, routing: routing.snapshot(['create.drafts', ...(pictures.length ? ['pictures.content-image'] : [])]) }, ...(Object.keys(references.summary).length ? { references: references.summary } : {}), jobs: plan.deliverables.map(d => ({ id: d.id, label: d.label, kind: d.kind, status: 'queued' })) };
       write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save(); return run;
-    } catch (error) { if (pictures.length) fs.rmSync(path.join(root, 'runs', runId), { recursive: true, force: true }); throw error; }
+    } catch (error) { if (pictures.length) { try { fs.rmSync(path.join(root, 'runs', runId), { recursive: true, force: true }); } catch (_) { /* the error that stopped the run is the one to report */ } } throw error; }
   }
   // ---------- Asset kits (n8n Golden Thread v2: every channel asset from one report) ----------
   // The report a kit is made from. A trend's toolkit and comprehensive report are written as a pair, so the kit reads
@@ -1984,7 +1979,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (payload.workflow !== undefined) { if (!isWorkflowCall()) throw Object.assign(new Error('Only a workflow can link a set of channel assets to its run.'), { status: 403 }); run.workflow = workflowLink(payload.workflow); }
       const keyframeSet = run.ai.routing['video.keyframe'] && !plan.deliverables.some(d => d.id === 'brand-image') ? [{ id: 'brand-image', kind: 'image' }] : [];
       try { const references = Object.fromEntries(Object.entries(snapshotKitReferences(run, w, [...plan.deliverables, ...keyframeSet])).filter(([deliverableId]) => plan.deliverables.some(d => d.id === deliverableId))); if (Object.keys(references).length) run.kit.references = references; }
-      catch (error) { fs.rmSync(path.join(root, 'runs', run.id), { recursive: true, force: true }); throw error; }
+      catch (error) { try { fs.rmSync(path.join(root, 'runs', run.id), { recursive: true, force: true }); } catch (_) { /* the error that stopped the set is the one to report */ } throw error; }
       write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save();
       return launch(run, () => performContent(run));
     },
@@ -1993,7 +1988,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // `temporary` (not listed in state.exports) and removed by the host once the zip is offered.
     // `channels` (the server sets it from a channel owner's own channel) keeps only those channels' folders; the source
     // text goes along only for a trend's set, whose brief everyone with access to the set may read.
-    exportAssetKit({ runId } = {}, { into, channels, temporary = false } = {}) {
+    // `platform` is the desktop app's (index.js passes its process.platform): on 'win32' names are fitted to Windows path
+    // limits. Without it (the browser studio's zip, tests) names are left whole.
+    exportAssetKit({ runId } = {}, { into, channels, temporary = false, platform = '' } = {}) {
       const run = runRecord(runId); if (!run.kit) throw new Error('Only channel asset sets download as folders.');
       const editionId = state.workspaces.find(w => w.id === run.workspaceId)?.editionId || 'general';
       let assets = state.assets.filter(asset => asset.workspaceId === run.workspaceId && asset.runId === run.id);
@@ -2002,20 +1999,31 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         if (!assets.length) throw new Error('Nothing for your channel is ready yet.');
       }
       if (!assets.length) throw new Error('Nothing is ready to download yet.');
-      const exportId = into ? '' : id('export'); const name = kit().safeFileName(run.kit.folderName);
-      let top = into ? path.join(into, name) : path.join(root, 'exports', exportId, name);
+      // The source the set was made from. A channel owner's export leaves it out unless it is the team's trend brief, so a
+      // pasted text or private document never reaches them; everyone else's folder keeps it.
+      const withSource = Boolean(run.kit.themeId || !Array.isArray(channels));
+      const exportId = into ? '' : id('export'); const parent = into || path.join(root, 'exports', exportId);
+      const folderName = title => kit().safeFileName(title === run.kit.sourceTitle ? run.kit.folderName : kit().kitRunFolderName({ title, editionId, createdAt: run.createdAt }));
+      const channelDir = asset => kit().safeFileName(kit().kitFolderFor(asset.deliverableId, editionId).name);
+      const fileName = (asset, title) => kit().safeFileName(kit().kitFileName({ deliverableId: asset.deliverableId, editionId, title, createdAt: run.createdAt, variant: Number.isInteger(asset.variantIndex) ? asset.variantIndex + 1 : 0 }));
+      const sourceName = title => `${kit().safeFileName(`Source — ${title}`)}.md`;
+      // Windows: Explorer, Office and zip tools can't open a path past 260 characters, and the title is in the folder name
+      // and every file name. A long title is cut at a word until the deepest file fits in 240 (a video's .poster.png, after
+      // a " (99)" copy number).
+      const longest = title => { const top = path.join(parent, `${folderName(title)} (99)`); return Math.max(...assets.map(asset => path.join(top, channelDir(asset), fileName(asset, title)).length + '.poster.png'.length), withSource ? path.join(top, sourceName(title)).length : 0); };
+      const title = platform === 'win32' ? kit().fitTitle(run.kit.sourceTitle, candidate => longest(candidate) <= 240) : run.kit.sourceTitle;
+      const name = folderName(title);
+      let top = path.join(parent, name);
       if (into) for (let copyNumber = 2; fs.existsSync(top); copyNumber++) top = path.join(into, `${name} (${copyNumber})`);
       for (const asset of assets) {
-        const dir = path.join(top, kit().safeFileName(kit().kitFolderFor(asset.deliverableId, editionId).name)); fs.mkdirSync(dir, { recursive: true });
-        const base = path.join(dir, kit().safeFileName(kit().kitFileName({ deliverableId: asset.deliverableId, editionId, title: run.kit.sourceTitle, createdAt: run.createdAt, variant: Number.isInteger(asset.variantIndex) ? asset.variantIndex + 1 : 0 })));
+        const dir = path.join(top, channelDir(asset)); fs.mkdirSync(dir, { recursive: true });
+        const base = path.join(dir, fileName(asset, title));
         // Pictures as PNG plus an SVG wrapper for Figma, the landing page as a web page, everything else as Markdown and HTML.
         // A video goes with its on-screen lines (.srt) and first frame (.poster.png) when it has them.
         for (const extension of asset.kind === 'video' ? videoExtensions(asset) : asset.kind === 'image' ? ['png', 'svg'] : asset.deliverableId === 'landingpage' ? ['html', 'md'] : ['md', 'html']) fs.copyFileSync(assetFile(asset, extension), `${base}.${extension}`);
       }
-      // The source the set was made from. A channel owner's export leaves it out unless it is the team's trend brief, so a
-      // pasted text or private document never reaches them; everyone else's folder keeps it.
-      if (run.kit.themeId || !Array.isArray(channels)) fs.writeFileSync(path.join(top, `${kit().safeFileName(`Source — ${run.kit.sourceTitle}`)}.md`), read(file(run.id, 'input.json')).source.text);
-      const result = { ...(exportId ? { id: exportId } : {}), workspaceId: run.workspaceId, runId: run.id, path: top, folderName: run.kit.folderName, assetCount: assets.length, createdAt: stamp() };
+      if (withSource) fs.writeFileSync(path.join(top, sourceName(title)), read(file(run.id, 'input.json')).source.text);
+      const result = { ...(exportId ? { id: exportId } : {}), workspaceId: run.workspaceId, runId: run.id, path: top, folderName: title === run.kit.sourceTitle ? run.kit.folderName : name, assetCount: assets.length, createdAt: stamp() };
       if (!into && !temporary) recordExport(result);
       return result;
     },

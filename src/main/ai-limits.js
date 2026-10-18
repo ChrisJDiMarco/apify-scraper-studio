@@ -9,6 +9,7 @@
 // index.js wraps generateStructuredOutput and the image provider with it. CommonJS, main process only.
 const fs = require('fs');
 const path = require('path');
+const { renameDurable } = require('../shared/durable-write');
 
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 const money = (value) => `$${(Math.round(Number(value) * 100) / 100).toFixed(2)}`;
@@ -37,7 +38,7 @@ function createAiLimits({ env = process.env, file = '', now = () => Date.now(), 
   function today() { const current = day(now()); if (ledger.day !== current) ledger = { day: current, usd: 0, calls: 0 }; return ledger; }
   function saveLedger() {
     if (!dailyBudgetUsd || !file) return;
-    try { fs.mkdirSync(path.dirname(file), { recursive: true }); const temp = `${file}.${process.pid}.tmp`; fs.writeFileSync(temp, JSON.stringify(ledger), { mode: 0o600 }); fs.renameSync(temp, file); }
+    try { fs.mkdirSync(path.dirname(file), { recursive: true }); const temp = `${file}.${process.pid}.tmp`; fs.writeFileSync(temp, JSON.stringify(ledger), { mode: 0o600 }); renameDurable(temp, file); }
     catch (_) { /* The in-memory total still holds the cap until a restart. */ }
   }
   // Called with each call's reported cost (failed calls included); unknown or Codex costs count as nothing.

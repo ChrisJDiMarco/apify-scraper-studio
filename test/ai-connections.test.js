@@ -3,9 +3,10 @@ const { createAiConnections, codexSignIn } = require('../src/main/ai-connections
 
 // The six AI connections (src/main/ai-connections.js) with injected CLI probes, keys and catalogs: nothing is spawned or
 // fetched. Claude Code's state comes from ai-routes detectClaudeCli ('claude auth status --json'); Codex's from
-// 'codex --version' and 'codex login status'.
+// 'codex --version' and 'codex login status'. The Mac copy is checked here on every OS (platform: 'darwin');
+// test/win-copy.test.js checks the Windows copy.
 const READY_CLI = { installed: true, version: '2.1.296 (Claude Code)', loggedIn: true, missingFlags: [], authMethod: 'claude.ai', streaming: true };
-function harness({ cli = READY_CLI, codex = { version: { code: 0, stdout: 'codex-cli 0.156.0\n' }, status: { code: 0, stdout: 'Logged in using ChatGPT\n' } }, keys = {}, problems = {}, web = false, catalog = {}, runners = {}, aiRoutes = {} } = {}) {
+function harness({ cli = READY_CLI, codex = { version: { code: 0, stdout: 'codex-cli 0.156.0\n' }, status: { code: 0, stdout: 'Logged in using ChatGPT\n' } }, keys = {}, problems = {}, web = false, catalog = {}, runners = {}, aiRoutes = {}, platform = 'darwin' } = {}) {
   const probes = [];
   const probeCli = vi.fn(async (command, args) => {
     probes.push([command, ...args].join(' '));
@@ -22,7 +23,7 @@ function harness({ cli = READY_CLI, codex = { version: { code: 0, stdout: 'codex
     ...aiRoutes,
   };
   const onChecked = vi.fn();
-  const connections = createAiConnections({ aiRoutes: routes, probeCli, getKey: (name) => keys[name] || '', keyProblem: (name) => problems[name] || '', web, serverUser: web ? 'node' : '', catalog, runners, onChecked, now: () => Date.parse('2026-10-17T10:00:00Z') });
+  const connections = createAiConnections({ aiRoutes: routes, probeCli, getKey: (name) => keys[name] || '', keyProblem: (name) => problems[name] || '', web, serverUser: web ? 'node' : '', catalog, runners, onChecked, now: () => Date.parse('2026-10-17T10:00:00Z'), platform });
   return { connections, probes, routes, onChecked };
 }
 const row = (status, id) => status.connections.find((entry) => entry.id === id);

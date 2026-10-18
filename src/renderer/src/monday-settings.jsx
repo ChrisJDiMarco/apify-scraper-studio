@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CircleAlert, ExternalLink, LoaderCircle, Plus, RefreshCw } from 'lucide-react';
 import { Badge, Button } from './ui.jsx';
+import { isMac } from './platform.js';
 import { useConfirm } from './confirm-dialog.jsx';
 import { buildTrendBoard } from '../../shared/trend-board.js';
 import catalog from '../../shared/monday.json';
@@ -282,7 +283,7 @@ function RulesStep({ draft, setDraft, web, monday, trends, existing }) {
       {web && <label className="md-check"><input type="radio" name="md-pull" checked={draft.pull.mode === 'instant'} onChange={() => set('pull', { mode: 'instant' })} />Instantly (needs the studio’s public https address)</label>}
       <label className="md-check"><input type="radio" name="md-pull" checked={draft.pull.mode === 'poll'} onChange={() => set('pull', { mode: 'poll' })} />Every<select aria-label="Minutes between checks" value={draft.pull.pollMinutes} disabled={draft.pull.mode !== 'poll'} onChange={(event) => set('pull', { pollMinutes: Number(event.target.value) })}>{catalog.pollMinutes.map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}</select></label>
       <label className="md-check"><input type="radio" name="md-pull" checked={draft.pull.mode === 'manual'} onChange={() => set('pull', { mode: 'manual' })} />Only when someone presses Sync now</label>
-      {!web && <small className="md-muted">The Mac app checks only while it is open.</small>}
+      {!web && <small className="md-muted">The {isMac() ? 'Mac' : 'Windows'} app checks only while it is open.</small>}
       {monday.link?.pull?.instantNote && <small className="md-muted md-block">{monday.link.pull.instantNote}</small>}
     </fieldset>
     <fieldset className="md-fieldset"><legend>If someone deletes an item on Monday</legend>

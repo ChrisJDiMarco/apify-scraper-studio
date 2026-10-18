@@ -63,6 +63,16 @@ describe('research import UI', () => {
     expect(screen.getByRole('textbox', { name: 'Collection name' })).toHaveValue('research');
     expect(screen.getByRole('textbox', { name: 'Or paste your records' })).toHaveValue('{"text":"Evidence"}');
     expect(handlers.onImport).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Read as Windows \(ANSI\) text/)).toBeNull();
+  });
+
+  it('says when a chosen file was read as Windows (ANSI) text, and drops the note once records are pasted instead', async () => {
+    const handlers = importProps({ onPickFile: vi.fn(async () => ({ name: 'excel.csv', format: 'csv', content: 'text\ncafé', encodingNote: 'Read as Windows (ANSI) text' })) });
+    render(<ImportDataView {...handlers} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Choose a file' }));
+    expect(await screen.findByText(/Read as Windows \(ANSI\) text\. If accented letters look wrong, save the file as CSV UTF-8/)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Or paste your records' }), { target: { value: 'text\nPasted' } });
+    expect(screen.queryByText(/Read as Windows \(ANSI\) text/)).toBeNull();
   });
 });
 

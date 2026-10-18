@@ -176,7 +176,8 @@ describe('login shell PATH for CLIs opened from Finder', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-shell-test-')); roots.push(dir);
     const file = path.join(dir, 'shell'); fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 }); return file;
   };
-  it('reads the marked PATH even when rc files print around it, and puts it first', async () => {
+  // The login-shell probe is skipped on Windows (there is no login shell to ask), and the fake shell is a #!/bin/sh script.
+  it.runIf(process.platform !== 'win32')('reads the marked PATH even when rc files print around it, and puts it first', async () => {
     const shell = fakeShell('echo "Welcome back"\nprintf "%s" "__SCRAPER_STUDIO_PATH__/Users/tester/.nvm/versions/node/v22.0.0/bin:/usr/bin__SCRAPER_STUDIO_PATH__"\necho "bye"');
     await expect(loadLoginShellPath({ shell })).resolves.toBe('/Users/tester/.nvm/versions/node/v22.0.0/bin:/usr/bin');
     expect(studioCliEnv().PATH.startsWith('/Users/tester/.nvm/versions/node/v22.0.0/bin:/usr/bin:')).toBe(true);

@@ -103,6 +103,7 @@ describe('review gate and portable exports', () => {
     expect(result.reviewStatus).toBe('approved');
     expect(fs.readFileSync(result.path, 'utf8')).toContain('Content-Security-Policy');
     expect(fs.readFileSync(result.evidencePath, 'utf8')).toContain("'=HYPERLINK");
+    expect(fs.readFileSync(result.evidencePath).subarray(0, 3)).toEqual(Buffer.from([0xef, 0xbb, 0xbf])); // so Excel reads it as UTF-8
     const receipt = readJson(path.join(result.folder, 'receipt.json'));
     expect(receipt.reportSha256).toHaveLength(64); expect(receipt.localReviewOnly).toBe(true);
   });

@@ -31,12 +31,75 @@ function loadLoginShellPath({ shell = process.env.SHELL || '/bin/zsh', timeoutMs
 // commands, so nothing a person could ask it to print may be in here: no STUDIO_* setting (the web secret key and admin
 // password) and no saved-key variable. No route takes its credential from here: the Claude app and Codex use their
 // own sign-in, and the Anthropic API key route calls the API from the studio itself.
+// Windows variable names ignore case (`Path`, `Anthropic_Api_Key`), so names are compared in upper case and the copy
+// keeps a single PATH.
 const CLI_SECRET_ENV = /^(STUDIO_.*|ANTHROPIC_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY|FAL_KEY|APIFY_API_TOKEN|MONDAY_API_TOKEN|GOOGLE_.*TOKEN|GOOGLE_SHEETS_WEBHOOK_URL)$/;
-function studioCliEnv() {
-  const searchPaths = process.platform === 'win32' ? [path.join(os.homedir(), '.local', 'bin'), path.join(process.env.APPDATA || os.homedir(), 'npm')] : [path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.claude', 'local'), '/opt/homebrew/bin', '/usr/local/bin'];
-  const env = { ...process.env, PATH: [loginShellPath, ...searchPaths, process.env.PATH || ''].filter(Boolean).join(path.delimiter) };
-  for (const name of Object.keys(env)) if (CLI_SECRET_ENV.test(name)) delete env[name];
+const envValue = (env, name) => { const key = Object.keys(env || {}).find(entry => entry.toUpperCase() === name); return key === undefined ? undefined : env[key]; };
+function studioCliEnv({ platform = process.platform, env: source = process.env } = {}) {
+  const win = platform === 'win32'; const p = win ? path.win32 : path;
+  const searchPaths = win ? [p.join(os.homedir(), '.local', 'bin'), p.join(envValue(source, 'APPDATA') || os.homedir(), 'npm')] : [p.join(os.homedir(), '.local', 'bin'), p.join(os.homedir(), '.claude', 'local'), '/opt/homebrew/bin', '/usr/local/bin'];
+  const joined = [win ? '' : loginShellPath, ...searchPaths, (win ? envValue(source, 'PATH') : source.PATH) || ''].filter(Boolean).join(p.delimiter);
+  const env = { ...source };
+  if (win) for (const name of Object.keys(env)) if (name.toUpperCase() === 'PATH') delete env[name];
+  env.PATH = joined;
+  for (const name of Object.keys(env)) if (CLI_SECRET_ENV.test(name.toUpperCase())) delete env[name];
   return env;
+}
+// Windows has no shell here, so an AI CLI's name is looked up the way cmd.exe would find it, without running cmd.exe
+// (Node can't start an npm .cmd shim without a shell): each PATH folder in order, a program (.exe, .com) first, else the
+// npm shim, read (never run) for what it starts. Claude Code's shim starts claude.exe. Codex's starts node with
+// codex.js, which only finds its own codex.exe and starts that with two variables, so the exe is started directly with
+// them. Any other script runs on the Node.js beside the shim or on PATH. { command, prefixArgs, env } or null when
+// nothing is found; elsewhere the name is used as it is.
+const SHIM_TARGET = /"%~?dp0%?\\([^"]+)"/g;
+const CODEX_PLATFORM_PACKAGES = [['codex-win32-x64', 'x86_64-pc-windows-msvc'], ['codex-win32-arm64', 'aarch64-pc-windows-msvc']];
+function resolveCli(name, { env = process.env, platform = process.platform, fsImpl = fs } = {}) {
+  if (platform !== 'win32') return { command: name, prefixArgs: [], env: {} };
+  const p = path.win32;
+  const isFile = (target) => { try { return fsImpl.statSync(target).isFile(); } catch (_) { return false; } };
+  // Drive and network folders only: a relative one would be checked here but resolved against the spawn's working folder.
+  const folders = String(envValue(env, 'PATH') || '').split(';').map(entry => entry.trim().replace(/^"(.*)"$/, '$1').trim()).filter(entry => /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(entry));
+  const program = command => ({ command, prefixArgs: [], env: {} });
+  for (const folder of folders) {
+    const direct = ['.exe', '.com'].map(extension => p.join(folder, `${name}${extension}`)).find(isFile);
+    if (direct) return program(direct);
+    const shim = p.join(folder, `${name}.cmd`);
+    if (!isFile(shim)) continue;
+    let text; try { text = String(fsImpl.readFileSync(shim, 'utf8')); } catch (_) { continue; }
+    const found = [...text.matchAll(SHIM_TARGET)].pop();
+    if (!found) continue;
+    const target = p.resolve(folder, found[1]);
+    if (/\.exe$/i.test(target)) { if (isFile(target)) return program(target); continue; }
+    if (/\\@openai\\codex\\bin\\codex\.js$/i.test(target)) {
+      // The platform package sits inside Codex's own node_modules (a global install) or beside it (hoisted).
+      const pkg = p.dirname(p.dirname(target));
+      const exe = [
+        ...CODEX_PLATFORM_PACKAGES.map(([dir, triple]) => p.join(pkg, 'node_modules', '@openai', dir, 'vendor', triple, 'bin', 'codex.exe')),
+        ...CODEX_PLATFORM_PACKAGES.map(([dir, triple]) => p.join(pkg, '..', dir, 'vendor', triple, 'bin', 'codex.exe')),
+        p.join(pkg, 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe'),
+      ].find(isFile);
+      if (exe) return { command: exe, prefixArgs: [], env: { CODEX_MANAGED_BY_NPM: '1', CODEX_MANAGED_PACKAGE_ROOT: pkg } };
+    }
+    if (!/\.[cm]?js$/i.test(target) || !isFile(target)) continue;
+    // Never process.execPath: the packaged app can't run as Node (its runAsNode fuse is off).
+    const node = [p.join(folder, 'node.exe'), ...folders.map(entry => p.join(entry, 'node.exe')), p.join(envValue(env, 'PROGRAMFILES') || 'C:\\Program Files', 'nodejs', 'node.exe')].find(isFile);
+    if (node) return { command: node, prefixArgs: [target], env: {} };
+  }
+  return null;
+}
+// Stops a CLI and everything it started. On Windows a process's children outlive it, so taskkill /T ends the whole tree
+// (it must run while the CLI is still alive to find its children); if taskkill can't run or fails, the CLI itself is
+// still ended.
+function killProcessTree(child, { platform = process.platform, spawnImpl = spawn, systemRoot = process.env.SystemRoot } = {}) {
+  if (!child || child.exitCode != null || child.signalCode != null) return;
+  const end = (signal) => { try { child.kill(signal); } catch (_) { /* already gone */ } };
+  if (platform !== 'win32') { end('SIGTERM'); return; }
+  if (!Number.isInteger(child.pid)) { end(); return; }
+  try {
+    const taskkill = spawnImpl(path.win32.join(systemRoot || 'C:\\Windows', 'System32', 'taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+    taskkill.on?.('error', () => end());
+    taskkill.on?.('close', (code) => { if (code !== 0) end(); });
+  } catch (_) { end(); }
 }
 function createStudioHost({ root, getApifyToken = () => process.env.APIFY_API_TOKEN, model = () => process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL, Client = ApifyClient, runnerOptions = {} } = {}) {
   const datasetsDir = path.join(root, 'datasets'); const collectionsDir = path.join(root, 'collections');
@@ -47,10 +110,15 @@ function createStudioHost({ root, getApifyToken = () => process.env.APIFY_API_TO
   const indexFile = path.join(root, 'dataset-index.json'); let metadata; let metadataStamp;
   const indexStamp = () => { if (!fs.existsSync(indexFile)) return ''; const info = fs.statSync(indexFile); return `${info.ino}:${info.mtimeMs}:${info.size}`; };
   function readJson(target) { return JSON.parse(fs.readFileSync(target, 'utf8')); }
+  // On Windows the rename is retried while a scanner holds the file (src/shared/durable-write.js). Cleanup that fails
+  // (EBUSY again) never hides the error that stopped the save.
   function atomicJson(target, value) {
     const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`; let fd;
-    try { fd = fs.openSync(temporary, 'wx', 0o600); fs.writeFileSync(fd, JSON.stringify(value)); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined; fs.renameSync(temporary, target); }
-    finally { if (fd !== undefined) fs.closeSync(fd); if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+    try { fd = fs.openSync(temporary, 'wx', 0o600); fs.writeFileSync(fd, JSON.stringify(value)); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined; require('../shared/durable-write').renameDurable(temporary, target); }
+    finally {
+      try { if (fd !== undefined) fs.closeSync(fd); } catch (_) { /* already closed */ }
+      try { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); } catch (_) { /* a leftover temp file is harmless; the save's own error is the one to report */ }
+    }
   }
   function loadMetadata() {
     const currentStamp = indexStamp(); if (metadata && metadataStamp === currentStamp) return metadata;
@@ -81,9 +149,11 @@ function createStudioHost({ root, getApifyToken = () => process.env.APIFY_API_TO
       try { fs.writeFileSync(target, JSON.stringify({ pid: process.pid, nonce }), { flag: 'wx', mode: 0o600 }); return () => { try { if (readJson(target).nonce === nonce) fs.unlinkSync(target); } catch (error) { if (error.code !== 'ENOENT') throw error; } }; }
       catch (error) {
         if (error.code !== 'EEXIST') throw error;
-        const lock = readJson(target); let alive = true;
+        const lock = readJson(target);
         if (!Number.isInteger(lock.pid) || lock.pid < 1) throw new Error('Collection lock is invalid. Check this saved run before retrying.');
-        try { process.kill(lock.pid, 0); } catch (probe) { if (probe.code === 'ESRCH') alive = false; }
+        // Our own PID is live only in a lock written since this process started (another host in this process). An older
+        // one was left by an earlier process the system gave the same PID: Windows after a restart, a container's PID 1.
+        const alive = lock.pid === process.pid ? fs.statSync(target).mtimeMs >= Date.now() - process.uptime() * 1000 : require('./studio-owner-lock').lockOwnerAlive(lock) !== false;
         if (alive) throw new Error('This collection is already active on this host. Wait for it or cancel it before retrying.');
         fs.unlinkSync(target);
       }
@@ -205,7 +275,7 @@ function createStudioHost({ root, getApifyToken = () => process.env.APIFY_API_TO
       });
     });
   }
-  async function cancelProvider(runId) { for (const child of children.get(runId) || []) child.kill(); const entry = aborts.get(runId); const list = entry instanceof Map ? [...entry.values()] : entry ? [entry] : []; await Promise.all(list.map(abort => abort().catch(() => {}))); }
+  async function cancelProvider(runId) { for (const child of children.get(runId) || []) killProcessTree(child); const entry = aborts.get(runId); const list = entry instanceof Map ? [...entry.values()] : entry ? [entry] : []; await Promise.all(list.map(abort => abort().catch(() => {}))); }
   return { collect, getDatasets, readDataset, runAI, cancelProvider };
 }
-module.exports = { createStudioHost, studioCliEnv, loadLoginShellPath };
+module.exports = { createStudioHost, studioCliEnv, loadLoginShellPath, resolveCli, killProcessTree };

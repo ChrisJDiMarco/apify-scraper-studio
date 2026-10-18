@@ -62,7 +62,9 @@ function validateKeyValue(keyName, value) {
 }
 
 function validateId(value, label = 'ID') {
-  return stringValue(value, label, { required: true, max: 180, pattern: /^[a-z0-9._~@-]+$/i });
+  const id = stringValue(value, label, { required: true, max: 180, pattern: /^[a-z0-9._~@-]+$/i });
+  if (/^\.+$/.test(id)) throw new Error(`${label} is invalid.`); // '.' and '..' name folders, not records
+  return id;
 }
 
 function parseSpreadsheetId(value) {

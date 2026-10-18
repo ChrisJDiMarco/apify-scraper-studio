@@ -27,7 +27,7 @@ function routes({ spawn = cli(), key = '', provider = 'auto', runner, clock } = 
   const settings = { aiProvider: provider };
   const fakeRunner = runner || { checkModels: vi.fn(async ({ models }) => ({ ok: true, models: models.map((id) => ({ id, available: true })) })), run: vi.fn() };
   const createRunner = vi.fn(() => fakeRunner);
-  const api = createAiRoutes({ spawn, getKey: (name) => (name === 'ANTHROPIC_API_KEY' ? key : ''), getSettings: () => settings, dataDir: () => dir, createRunner, now: clock || Date.now });
+  const api = createAiRoutes({ spawn, getKey: (name) => (name === 'ANTHROPIC_API_KEY' ? key : ''), getSettings: () => settings, dataDir: () => dir, createRunner, now: clock || Date.now, platform: 'darwin' }); // the Mac wording, on every OS
   return { api, spawn, settings, createRunner, runner: fakeRunner };
 }
 

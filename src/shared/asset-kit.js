@@ -49,9 +49,23 @@ function kitFileName({ deliverableId, editionId = 'general', title, createdAt, v
   const label = kitFileLabel(deliverableId, editionId);
   return variant ? `${label} — ${title} — Variation ${variant} (${day(createdAt)})` : `${label} — ${title} (${day(createdAt)})`;
 }
-// Drive keeps "Search Engine Land / MarTech"; a disk folder or file name cannot hold a slash or colon.
+// Drive keeps "Search Engine Land / MarTech"; a disk folder or file name cannot hold a slash or colon. Cut to length
+// before trimming, so a long name never ends in a space or dot (Windows Explorer can't open those).
 function safeFileName(value) {
-  return String(value || '').replace(/\s*[\\/:*?"<>|\u0000-\u001f]+\s*/g, ' - ').replace(/\s+/g, ' ').replace(/^[\s.-]+|[\s.-]+$/g, '').slice(0, 180) || 'Untitled';
+  return String(value || '').replace(/\s*[\\/:*?"<>|\u0000-\u001f]+\s*/g, ' - ').replace(/\s+/g, ' ').slice(0, 180).replace(/^[\s.-]+|[\s.-]+$/g, '') || 'Untitled';
+}
+// The longest form of a title that fits(title) accepts: whole when it fits, else cut at a word and ended with "…", else
+// the first word cut short, else ''. Asset kit exports use it on Windows, where paths past 260 characters break Explorer.
+function fitTitle(title, fits) {
+  const whole = String(title || '');
+  if (fits(whole)) return whole;
+  const words = whole.replace(/\s+/g, ' ').trim().split(' ');
+  for (let count = words.length - 1; count > 0; count--) {
+    const cut = words.slice(0, count).join(' ').replace(/[\s.,;:!?—–-]+$/, '');
+    if (cut && fits(`${cut}…`)) return `${cut}…`;
+  }
+  for (let length = words[0].length - 1; length > 0; length--) if (fits(`${words[0].slice(0, length)}…`)) return `${words[0].slice(0, length)}…`;
+  return '';
 }
 // Research reports carry "TREND:" and "— Comprehensive Trends Report" around the trend's name.
 function cleanTitle(value) {
@@ -244,4 +258,4 @@ function captionsSrt(lines = [], seconds = 8) {
   return list.map((line, index) => `${index + 1}\n${time(index * span)} --> ${time((index + 1) * span - 0.05)}\n${line}\n`).join('\n');
 }
 
-module.exports = { VIDEO_BRIEF_SCHEMA, VIDEO_BRIEF_OUTPUT_TOKENS, videoBriefRequest, validateVideoBrief, kitVideoDeliverable, captionsSrt, pictureUsd, KIT_FOLDERS, SEMRUSH_FILE_LABELS, KIT_IMAGE_USD, KIT_REFERENCE_USD, IMAGE_BRIEF_SCHEMA, BRIEF_EFFORT, kitFolders, kitDeliverableIds, kitFolderFor, kitFileLabel, kitRunFolderName, kitFileName, safeFileName, cleanTitle, titleFromText, kitAi, modelLabel, kitCallEstimate, kitBriefEstimate, estimateKit, kitCapUsd, imageBriefRequest, validateImageBrief, kitImageDeliverable };
+module.exports = { VIDEO_BRIEF_SCHEMA, VIDEO_BRIEF_OUTPUT_TOKENS, videoBriefRequest, validateVideoBrief, kitVideoDeliverable, captionsSrt, pictureUsd, KIT_FOLDERS, SEMRUSH_FILE_LABELS, KIT_IMAGE_USD, KIT_REFERENCE_USD, IMAGE_BRIEF_SCHEMA, BRIEF_EFFORT, kitFolders, kitDeliverableIds, kitFolderFor, kitFileLabel, kitRunFolderName, kitFileName, safeFileName, fitTitle, cleanTitle, titleFromText, kitAi, modelLabel, kitCallEstimate, kitBriefEstimate, estimateKit, kitCapUsd, imageBriefRequest, validateImageBrief, kitImageDeliverable };

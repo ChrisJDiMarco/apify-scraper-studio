@@ -8,7 +8,7 @@
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -154,7 +154,7 @@ export function compareGoldens({ only = '' } = {}) {
   for (const { id, file, text } of renderGoldens({ only })) {
     if (!fs.existsSync(file)) { differences.push({ id, message: 'no golden file yet' }); continue; }
     const saved = fs.readFileSync(file, 'utf8');
-    if (saved === text) continue;
+    if (saved.replace(/\r\n/g, '\n') === text) continue; // a checkout made with core.autocrlf still matches
     const a = saved.split('\n'); const b = text.split('\n'); let line = 0;
     while (line < Math.max(a.length, b.length) && a[line] === b[line]) line++;
     differences.push({ id, message: `line ${line + 1} differs`, saved: (a[line] ?? '(end of file)').slice(0, 240), rendered: (b[line] ?? '(end of file)').slice(0, 240) });
@@ -178,4 +178,10 @@ function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) process.exitCode = main(process.argv.slice(2));
+// Run as a script, not imported by a test. Both sides are real paths, so a symlinked checkout, a junction or a subst drive
+// still counts (Node runs the real file), and path.relative ignores drive-letter case on Windows.
+function invokedDirectly() {
+  if (!process.argv[1]) return false;
+  try { return path.relative(fs.realpathSync(fileURLToPath(import.meta.url)), fs.realpathSync(path.resolve(process.argv[1]))) === ''; } catch (_) { return false; }
+}
+if (invokedDirectly()) process.exitCode = main(process.argv.slice(2));

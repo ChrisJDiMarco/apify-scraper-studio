@@ -9,6 +9,7 @@ const trendHistory = () => require('../shared/trend-history');
 const TREND_TRACKER_ID = 'trend-tracker'; // trend-history.js TREND_TRACKER_ID
 const { readWorkbookFile } = require('./workbook-import');
 const { buildXlsx, exactNumber } = require('../shared/xlsx-writer');
+const { renameDurable } = require('../shared/durable-write');
 
 const MAX_EDITS_BYTES = 8 * 1024 * 1024;
 const MAX_EDIT_CHARS = 50000;
@@ -47,7 +48,7 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
 
   function writeJson(target, value) {
     const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
-    fs.writeFileSync(temp, JSON.stringify(value), { mode: 0o600 }); fs.renameSync(temp, target);
+    fs.writeFileSync(temp, JSON.stringify(value), { mode: 0o600 }); renameDurable(temp, target); // retried on Windows while a scanner holds the file
   }
   function readJson(target, fallback) { try { return JSON.parse(fs.readFileSync(target, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return fallback; throw new Error('Saved workbook data could not be read. Restore the workbooks folder from a backup.'); } }
   const readIndex = () => { const index = readJson(indexFile, null); return index?.version === 1 && Array.isArray(index.workbooks) ? index : { version: 1, workbooks: [] }; };

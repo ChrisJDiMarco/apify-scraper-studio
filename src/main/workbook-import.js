@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { SaxesParser } = require('saxes');
 const unzipper = require('unzipper');
+const { decodeText } = require('../shared/text-decode');
 
 // Reads spreadsheet files into plain sheets of text cells. Formulas are never evaluated: the value the
 // spreadsheet last showed (its cached result) is what comes in, so an import matches what people reviewed.
@@ -223,8 +224,9 @@ function sniffDelimiter(text, extension) {
   const counts = [',', ';', '\t'].map(delimiter => [delimiter, firstLine.split(delimiter).length]);
   return counts.sort((a, b) => b[1] - a[1])[0][1] > 1 ? counts[0][0] : ',';
 }
+// UTF-8, UTF-16 (Excel's "Unicode Text") or, failing those, Windows (ANSI) text as Excel for Windows saves a CSV.
 function readDelimited(buffer, fileName) {
-  let text; try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer); } catch (_) { fail('file', 'Save this file as UTF-8 CSV and try again.'); }
+  let { text, note } = decodeText(buffer);
   if (text.includes('\u0000')) fail('file', 'This looks like a binary file. Choose a .xlsx, .csv or .tsv file.');
   text = text.replace(/^﻿/, '');
   const extension = path.extname(fileName).toLowerCase();
@@ -232,7 +234,7 @@ function readDelimited(buffer, fileName) {
   if (raw.some(row => row.length > MAX_COLUMNS)) fail('file', `This file has more than ${MAX_COLUMNS} columns. Remove unused columns before importing.`);
   const rows = tidyRows(raw.map(row => row.map(cellText)));
   if (!rows.length) fail('file', 'This file has no readable cells.');
-  return { name: workbookName(fileName), sheets: [{ name: workbookName(fileName).slice(0, 120), hidden: false, rows }], warnings: [] };
+  return { name: workbookName(fileName), sheets: [{ name: workbookName(fileName).slice(0, 120), hidden: false, rows }], warnings: note ? [`${note}. If accented letters look wrong, save the file as “CSV UTF-8” and import it again.`] : [] };
 }
 function workbookName(fileName) {
   const base = path.basename(String(fileName || ''), path.extname(String(fileName || ''))).trim();

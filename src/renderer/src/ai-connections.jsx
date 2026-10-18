@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { CircleAlert, ClipboardCopy, KeyRound, LoaderCircle, RefreshCw, ShieldCheck, Terminal } from 'lucide-react';
 import PROVIDERS from '../../shared/ai-providers.json';
 import { Badge, Button } from './ui.jsx';
+import { isMac } from './platform.js';
 import './ai-settings.css';
 
 // Settings → AI connections: how the studio reaches each AI vendor. Claude Code and Codex use the sign-in of the machine
@@ -80,7 +81,7 @@ export function AiConnections({ state = {}, meta = {}, api, busy, onSaveKey, onC
   const rows = ORDER.map((id) => status?.connections?.find((row) => row.id === id) || { id, label: META[id].label, status: status ? 'no-key' : 'checking', detail: '', commands: [], usedBy: [] });
   const ready = rows.filter((row) => row.status === 'ready').length;
   return <section className="settings-block ai-connections" id="ai-connections" aria-labelledby="ai-connections-title" data-spot="settings.ai-connections">
-    <div className="panel-head"><div><h3 id="ai-connections-title">AI connections</h3><p>How the studio reaches each AI vendor. {web ? 'Keys are stored on the studio server and never sent to browsers.' : 'Keys are stored in this Mac’s keychain.'} Model routing decides which connection each job uses.</p></div>
+    <div className="panel-head"><div><h3 id="ai-connections-title">AI connections</h3><p>How the studio reaches each AI vendor. {web ? 'Keys are stored on the studio server and never sent to browsers.' : isMac() ? 'Keys are stored in this Mac’s keychain.' : 'Keys are stored on this PC, encrypted with your Windows sign-in.'} Model routing decides which connection each job uses.</p></div>
       <div className="button-row"><Badge tone={ready ? 'ready' : 'warning'}>{status ? `${ready} of ${rows.length} ready` : 'Checking…'}</Badge><Button type="button" className="ghost" disabled={loading} onClick={() => load(true)}>{loading ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}Check again</Button></div>
     </div>
     {problem && <p className="error-line" role="alert">{problem}</p>}

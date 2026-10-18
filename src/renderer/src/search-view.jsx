@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, Database, FileText, Globe2, LoaderCircle, MessageCircle, RefreshCw, Search, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import SOURCE_CATALOG from '../../shared/source-catalog-data.json';
+import { place } from './platform.js';
 import './search-view.css';
 
 const DRAFT_KEY = 'apify-studio.search-draft.v2';
@@ -290,7 +291,7 @@ export function SearchView({ state = {}, busy = false, onSearch, onPreviewSearch
         </section>
       </fieldset>
       {error && <div className="search-error" role="alert">{error}</div>}
-      <footer className="search-form-footer"><div className="search-draft-status"><span>{working ? 'Collecting from your selected sources…' : savedLocally ? 'Draft saved on this Mac' : 'Draft kept for this visit'}</span><button type="button" className="search-text-button" disabled={disabled} onClick={resetDraft}>Reset draft</button></div><div className="search-footer-actions">{tab > 0 && <button type="button" className="ghost" disabled={disabled} onClick={() => changeTab(tab - 1)}><ArrowLeft size={14} aria-hidden="true" />Back</button>}{tab < 2 ? <button type="button" disabled={disabled} onClick={next}>{tab === 0 ? 'Choose targets & filters' : 'Review search'}<ArrowRight size={15} aria-hidden="true" /></button> : <button type="submit" disabled={disabled || !hasToken || !sourceCount}>{working ? <><LoaderCircle size={16} className="spin" aria-hidden="true" />Collecting posts…</> : <><Search size={16} aria-hidden="true" />Search selected sources</>}</button>}</div></footer>
+      <footer className="search-form-footer"><div className="search-draft-status"><span>{working ? 'Collecting from your selected sources…' : savedLocally ? `Draft saved on ${place()}` : 'Draft kept for this visit'}</span><button type="button" className="search-text-button" disabled={disabled} onClick={resetDraft}>Reset draft</button></div><div className="search-footer-actions">{tab > 0 && <button type="button" className="ghost" disabled={disabled} onClick={() => changeTab(tab - 1)}><ArrowLeft size={14} aria-hidden="true" />Back</button>}{tab < 2 ? <button type="button" disabled={disabled} onClick={next}>{tab === 0 ? 'Choose targets & filters' : 'Review search'}<ArrowRight size={15} aria-hidden="true" /></button> : <button type="submit" disabled={disabled || !hasToken || !sourceCount}>{working ? <><LoaderCircle size={16} className="spin" aria-hidden="true" />Collecting posts…</> : <><Search size={16} aria-hidden="true" />Search selected sources</>}</button>}</div></footer>
       {tab === 2 && <div className="search-paid-note"><ShieldCheck size={13} aria-hidden="true" />Starts {sourceCount} paid Apify {sourceCount === 1 ? 'run' : 'runs'} with the limits above.</div>}
     </form>
     <section className="search-results" aria-labelledby="search-results-title"><div className="search-results-heading"><div><h3 id="search-results-title">{result ? 'Your search results' : 'Recent search collections'}</h3><p>{working ? 'Results will appear here when the source runs finish.' : 'Review the evidence, ask a question, or turn a collection into a report.'}</p></div>{shownDatasets.length > 0 && <span>{shownDatasets.length} collections</span>}</div>

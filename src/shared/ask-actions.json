@@ -87,7 +87,7 @@
     },
     "save-folder": {
       "label": "Save “<folder>”", "target": "folder", "params": {}, "methods": ["saveAssetKitFolder"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
-      "prompt": "target = an asset folder title. Saves its latest run as a folder (Mac: into Downloads; browser: a .zip)."
+      "prompt": "target = an asset folder title. Saves its latest run as a folder (desktop app: into Downloads; browser: a .zip)."
     },
     "stop-run": {
       "label": "Stop “<run>”", "target": "run.live", "params": {}, "methods": ["cancelStudioRun"], "spends": false, "destructive": true, "confirm": "dialog", "form": "never", "layouts": ["simple", "classic"],
@@ -115,7 +115,7 @@
     },
     "export-run": {
       "label": "Export the files for “<report>”", "target": "report", "params": {}, "methods": ["exportStudioRun"], "spends": false, "destructive": false, "confirm": "none", "form": "never", "layouts": ["simple", "classic"],
-      "prompt": "target = a report title. Exports that report's files with a manifest (Mac: the studio's exports folder; browser: a download)."
+      "prompt": "target = a report title. Exports that report's files with a manifest (desktop app: the studio's exports folder; browser: a download)."
     },
     "publish-docs": {
       "label": "Send “<report>” to Google Docs", "target": "report", "params": {}, "methods": ["publishStudioRun"], "needs": "googleDrive", "spends": false, "destructive": false, "confirm": "dialog", "form": "never", "layouts": ["simple", "classic"],

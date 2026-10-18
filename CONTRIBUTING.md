@@ -7,7 +7,7 @@ intact. Orientation first: [HANDOFF.md](HANDOFF.md) and [ARCHITECTURE.md](ARCHIT
 
 ```bash
 nvm use && npm ci
-npm run dev                                   # the Mac app with hot reload
+npm run dev                                   # the desktop app with hot reload
 npm test                                      # all Vitest suites (offline, free)
 npx vitest run test/<file>                    # one suite
 npm run lint                                  # ESLint; 0 errors required
@@ -18,6 +18,12 @@ npm run check                                 # lint + test + build:web, what CI
 package.json makes this a one-workspace build (`studioWorkspace`), so the first `npm run dev` hides every workspace but
 Main in your data folder (nothing is deleted). Use `STUDIO_WORKSPACE_MODE=multi npm run dev` to keep several; see
 [RUNBOOK.md](RUNBOOK.md#one-workspace-builds-semrush-package).
+
+On Windows the commands are the same in PowerShell (install Node 24 first: nvm-windows ignores `.nvmrc`, so run
+`nvm install 24` and `nvm use 24`, or use `fnm use`). Environment variables are set before the command, for example
+`$env:STUDIO_WORKSPACE_MODE='multi'; npm run dev`. The variable stays set for the rest of that PowerShell window;
+`Remove-Item Env:STUDIO_WORKSPACE_MODE` clears it. In `cmd.exe` it is `set "STUDIO_WORKSPACE_MODE=multi" && npm run dev`
+(the quotes keep a trailing space out of the value).
 
 ## Conventions
 
@@ -39,8 +45,15 @@ Main in your data folder (nothing is deleted). Use `STUDIO_WORKSPACE_MODE=multi 
 - **Money.** Nothing paid runs without a click and a confirmation that shows the estimate (not just the cap). Use the
   shared confirmations in `studio-actions.js` and `cost-lines.js`, and the Codex note (`CODEX_UNCAPPED`).
 - **AI.** New AI work goes through `generateStructuredOutput` with a strict schema (every property required,
-  `additionalProperties: false`, no `anyOf`) and must work on the Claude CLI, the API key and Codex, on the Mac and the
-  web.
+  `additionalProperties: false`, no `anyOf`) and must work on the Claude CLI, the API key and Codex, on the Mac,
+  Windows and the web.
+- **Windows.** The suites that load `src/main/index.js` in a `vm` give it a fake `process.platform`, so a Windows branch
+  in the main process reads that file's own `process.platform` and passes it down (or takes a `platform` option), never
+  a module-level check elsewhere. Start AI tools through `spawnCliProcess` in `index.js` (it resolves npm's `.cmd`
+  shims to the real program; never `shell: true`). In tests, skip only the POSIX file-mode check on Windows
+  (`if (process.platform !== 'win32')`), and gate symlink tests with `it.runIf(canSymlink)` from
+  `test/helpers/can-symlink.js`. Build paths with `path.join` and `fileURLToPath`, never `URL.pathname` or a hard-coded
+  `/tmp`.
 - **Never commit** `.env*` (except `.env.example`), setup files, `.claude/launch.json`, receipts or screenshots with
   local paths or keys.
 

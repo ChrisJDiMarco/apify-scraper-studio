@@ -18,6 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { writeFileDurable } = require('../shared/durable-write');
 const roles = require('./roles');
 
 const TEAM_VERSION = 2;
@@ -129,19 +130,10 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     for (const member of result.members) { if (!Array.isArray(member.grants)) member.grants = []; if (!Array.isArray(member.denies)) member.denies = []; }
     return result;
   }
-  // Same pattern as content-workspace's writeBytes: a pid-named temp file, fsync, rename, then fsync the folder.
+  // A private temp file, fsync, rename (retried on Windows while a scanner holds the file), then fsync the folder.
   function writeFile(text) {
     fs.mkdirSync(root, { recursive: true });
-    const temp = `${target}.${process.pid}.tmp`;
-    try {
-      const fd = fs.openSync(temp, 'w', 0o600);
-      try { fs.writeFileSync(fd, text); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-      fs.renameSync(temp, target);
-    } catch (error) { try { fs.unlinkSync(temp); } catch (_) { /* Nothing was left behind. */ } throw error; }
-    let directory;
-    try { directory = fs.openSync(path.dirname(target), 'r'); fs.fsyncSync(directory); }
-    catch (error) { if (!['EINVAL', 'ENOTSUP', 'EPERM', 'EACCES', 'EISDIR'].includes(error.code)) throw error; }
-    finally { if (directory != null) fs.closeSync(directory); }
+    writeFileDurable(target, text);
   }
   // Write-through: a change that can't reach the disk is undone in memory too.
   function change(mutate) {

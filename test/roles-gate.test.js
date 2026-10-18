@@ -54,7 +54,7 @@ describe('the gate on the browser studio', () => {
     cli = fakeCli();
     vm.runInNewContext(fs.readFileSync(mainPath, 'utf8'), {
       require: (name) => (name === 'child_process' ? { spawn: cli.spawn } : mainRequire(name)),
-      process: { pid: process.pid, platform: process.platform, env: { STUDIO_RUNTIME: 'web', STUDIO_PASSWORD: 'roles-gate-admin-password' }, argv: [] },
+      process: { pid: process.pid, platform: 'darwin', env: { STUDIO_RUNTIME: 'web', STUDIO_PASSWORD: 'roles-gate-admin-password' }, argv: [] },
       __dirname: path.dirname(mainPath), Buffer, URL, AbortController, setTimeout, clearTimeout, setInterval, clearInterval, setImmediate,
       fetch: () => { throw new Error('Network access is forbidden in this test.'); },
     }, { filename: mainPath });

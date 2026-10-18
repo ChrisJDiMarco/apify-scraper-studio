@@ -4,6 +4,7 @@ import { SheetGrid } from './sheet-grid.jsx';
 import { MOMENTUM_COPY, MomentumBadge, dayLabel } from './trend-pulse.jsx';
 import { cellAddress, columnKeys, columnLetter, defaultColumnWidth, distinctValues, formatStat, inferColumnType, isChipColumn, matchesFilter, parseTSV, prettyCell, selectionBounds, selectionStats, sortRowIndexes, toCSV, toHTMLTable, toTSV } from '../../shared/sheet-model.js';
 import { number } from './ui.jsx';
+import { isMac, keyLabel } from './platform.js';
 import { adminNames, useCan, useViewer, writeProps } from './viewer.js';
 import './sheets.css';
 
@@ -523,8 +524,8 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
         <span className={`sheets-save ${saveState}`} role="status" title={research ? 'Edits stay in this workbook. They don’t change the research run.' : tracker ? 'Edits stay in the Trend tracker and survive each rebuild. They don’t change your research runs.' : 'Edits are saved with this workbook.'}>
           {saveState === 'saving' || saveState === 'pending' ? <><LoaderCircle className="spin" size={13} aria-hidden="true" />Saving…</> : saveState === 'error' ? 'Not saved' : editCount ? <><Check size={13} aria-hidden="true" />{number(editCount)} {editCount === 1 ? 'edit' : 'edits'} saved</> : null}
         </span>
-        <button type="button" className="ghost icon-button" aria-label="Undo" title="Undo (⌘Z)" disabled={!history.undo.length} onClick={() => step('undo')}><Undo2 size={16} /></button>
-        <button type="button" className="ghost icon-button" aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!history.redo.length} onClick={() => step('redo')}><Redo2 size={16} /></button>
+        <button type="button" className="ghost icon-button" aria-label="Undo" title={`Undo (${keyLabel('⌘Z')})`} disabled={!history.undo.length} onClick={() => step('undo')}><Undo2 size={16} /></button>
+        <button type="button" className="ghost icon-button" aria-label="Redo" title={isMac() ? 'Redo (⇧⌘Z)' : 'Redo (Ctrl+Y)'} disabled={!history.redo.length} onClick={() => step('redo')}><Redo2 size={16} /></button>
         <button type="button" className="ghost" aria-haspopup="menu" disabled={Boolean(pending)} onClick={(event) => setMenu({ kind: 'import', anchor: event.currentTarget.getBoundingClientRect() })}>{['import', 'google'].includes(pending) ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Upload size={15} aria-hidden="true" />}Import</button>
         <button type="button" aria-haspopup="menu" disabled={!sheet} onClick={(event) => setMenu({ kind: 'export', anchor: event.currentTarget.getBoundingClientRect() })}>{['xlsx', 'google-export'].includes(pending) ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}Export</button>
       </div>
@@ -549,7 +550,7 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
           onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); stepFind(event.shiftKey ? -1 : 1); } if (event.key === 'Escape') { event.preventDefault(); closeFind(); } }} />
         {find.query && <span className="sheets-find-count" aria-live="polite">{matches.length ? `${Math.min(find.index, matches.length - 1) + 1} of ${matches.length >= 5000 ? '5,000+' : number(matches.length)}` : 'No matches'}</span>}
         {find.query && <><button type="button" className="ghost icon-button" aria-label="Previous match" disabled={!matches.length} onClick={() => stepFind(-1)}><ChevronLeft size={14} /></button><button type="button" className="ghost icon-button" aria-label="Next match" disabled={!matches.length} onClick={() => stepFind(1)}><ChevronRight size={14} /></button><button type="button" className="ghost icon-button" aria-label="Close find" onClick={closeFind}><X size={14} /></button></>}
-        {!find.query && <kbd>⌘F</kbd>}
+        {!find.query && <kbd>{keyLabel('⌘F')}</kbd>}
       </div>
       {activeFilters.map(([key, filter]) => { const column = allColumns.find((entry) => entry.key === key); return <span key={key} className="sheets-chip"><Filter size={12} aria-hidden="true" />{column?.label || key}{filter.values ? `: ${filter.values.length === 1 ? (filter.values[0] || '(Blanks)') : `${filter.values.length} values`}` : ''}{filter.contains ? ` contains “${filter.contains}”` : ''}<button type="button" aria-label={`Remove ${column?.label || key} filter`} onClick={() => setFilter(key, null)}><X size={12} /></button></span>; })}
       {(activeFilters.length > 1 || (activeFilters.length > 0 && Boolean(sort))) && <button type="button" className="ghost sheets-tool" onClick={() => patchView({ filters: {}, sort: null })}><FilterX size={15} aria-hidden="true" />Clear all</button>}
@@ -646,13 +647,13 @@ export function SheetsView({ api, state, initialWorkbookId, workbookRequestKey, 
     </Popover>}
     {menu?.kind === 'tabs' && workbook && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="All tabs" width={260}>{workbook.sheets.map((entry) => <button key={entry.id} type="button" role="menuitemcheckbox" aria-checked={entry.id === sheet?.id} className="sheet-menu-item" onClick={() => chooseSheet(entry.id)}><span className="sheet-menu-gap" /><span>{entry.name}</span><small>{entry.rows.length ? number(entry.rows.length) : '—'}</small></button>)}</Popover>}
     {menu?.kind === 'context' && columns[menu.column] && <Popover anchor={menu.anchor} onClose={() => setMenu(null)} label="Cell options" width={260}>
-      <MenuItem icon={ClipboardCopy} hint="⌘C" onClick={() => { const data = copyRange(bounds, selection); navigator.clipboard?.writeText(data.text).catch(() => {}); setMenu(null); }}>Copy</MenuItem>
-      <MenuItem icon={Trash2} hint="⌫" onClick={() => { clearCells(bounds); setMenu(null); }}>Clear cells</MenuItem>
+      <MenuItem icon={ClipboardCopy} hint={keyLabel('⌘C')} onClick={() => { const data = copyRange(bounds, selection); navigator.clipboard?.writeText(data.text).catch(() => {}); setMenu(null); }}>Copy</MenuItem>
+      <MenuItem icon={Trash2} hint={keyLabel('⌫')} onClick={() => { clearCells(bounds); setMenu(null); }}>Clear cells</MenuItem>
       <div className="sheet-menu-rule" />
       <MenuItem icon={Filter} onClick={() => { const value = String(getCell(menu.row, menu.column) ?? ''); setFilter(columns[menu.column].key, { values: [value] }); setMenu(null); }}>Show only “{String(getCell(menu.row, menu.column) || '(Blanks)').slice(0, 28)}”</MenuItem>
       <MenuItem icon={ArrowDownAZ} onClick={() => setSort(columns[menu.column].index, 'asc')}>Sort A → Z by this column</MenuItem>
       <MenuItem icon={ArrowUpAZ} onClick={() => setSort(columns[menu.column].index, 'desc')}>Sort Z → A by this column</MenuItem>
-      {/^https?:\/\/\S+$/i.test(String(getCell(menu.row, menu.column) || '').trim()) && <><div className="sheet-menu-rule" /><MenuItem icon={ArrowUpRight} hint="⌘-click" onClick={() => { api.openSourceUrl(String(getCell(menu.row, menu.column)).trim()); setMenu(null); }}>Open link</MenuItem></>}
+      {/^https?:\/\/\S+$/i.test(String(getCell(menu.row, menu.column) || '').trim()) && <><div className="sheet-menu-rule" /><MenuItem icon={ArrowUpRight} hint={keyLabel('⌘-click')} onClick={() => { api.openSourceUrl(String(getCell(menu.row, menu.column)).trim()); setMenu(null); }}>Open link</MenuItem></>}
     </Popover>}
   </section>;
 }

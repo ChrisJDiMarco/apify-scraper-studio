@@ -1,5 +1,6 @@
 // Settings → Connection diagnostics. The third argument is either the AI connections status (getAiConnections: one row
-// per connection) or, from older screens, a Codex CLI check result.
+// per connection) or, from older screens, a Codex CLI check result. Settings passes meta.mac (false on Windows, where
+// saved keys are encrypted with the Windows sign-in rather than kept in a keychain).
 const AI_TONE = { ready: 'ready', 'sign-in': 'warning', update: 'warning', 'key-unreadable': 'warning', 'not-installed': 'neutral', 'no-key': 'neutral' };
 export function readinessItems(state = {}, meta = {}, ai = null) {
   const connections = Array.isArray(ai?.connections) ? ai.connections : null;
@@ -16,7 +17,7 @@ export function readinessItems(state = {}, meta = {}, ai = null) {
       id: 'apify',
       label: 'Apify token',
       tone: state.keys?.APIFY_API_TOKEN ? 'ready' : 'warning',
-      detail: state.keys?.APIFY_API_TOKEN ? 'Saved in keychain' : 'Paste APIFY_API_TOKEN to run Actors.',
+      detail: state.keys?.APIFY_API_TOKEN ? (meta?.mac === false ? 'Saved (encrypted with your Windows sign-in)' : 'Saved in keychain') : 'Paste APIFY_API_TOKEN to run Actors.',
     },
     ...aiRows,
     {

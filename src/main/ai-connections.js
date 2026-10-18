@@ -23,24 +23,31 @@ function codexSignIn({ code, stdout = '', stderr = '', timedOut = false } = {}) 
 }
 const versionOf = (text) => String(text || '').trim().split(/\r?\n/)[0].replace(/^codex-cli\s+/i, '').replace(/\s*\(Claude Code\)\s*$/i, '').slice(0, 60);
 
-function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => '', web = false, serverUser = '', catalog = null, runners = {}, getRouting = () => null, onChecked = () => {}, now = Date.now } = {}) {
+// `platform` is index.js's process.platform (tests pass their own): the Windows app says "this PC", Command Prompt and
+// the Windows sign-in (Electron's safeStorage uses DPAPI there) where the Mac app says "this Mac", Terminal and the keychain.
+function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => '', web = false, serverUser = '', catalog = null, runners = {}, getRouting = () => null, onChecked = () => {}, now = Date.now, platform = process.platform } = {}) {
   let cached = null; // { at, value }
   let inflight = null;
-  const where = web ? 'on the studio server' : 'on this Mac';
+  const pc = !web && platform === 'win32';
+  const where = web ? 'on the studio server' : pc ? 'on this PC' : 'on this Mac';
+  // Not PowerShell: it runs npm's codex.ps1 / claude.ps1 shim first, which a stock PC's execution policy refuses.
+  const shellName = pc ? 'Command Prompt' : 'Terminal';
   const keyState = (route) => {
     const name = CONNECTIONS[route].keyName; const problem = keyProblem(name);
     if (problem) return { status: 'key-unreadable', keySaved: true, keyProblem: problem };
     return getKey(name) ? { status: 'ready', keySaved: true } : { status: 'no-key', keySaved: false };
   };
   const vendorKey = { 'claude-api': 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter', fal: 'fal.ai' };
-  const storage = (route) => web ? `Stored encrypted on the studio server and sent only to ${vendorKey[route]}.` : `Stored encrypted in this Mac’s keychain and sent only to ${vendorKey[route]}.`;
+  const storage = (route) => web ? `Stored encrypted on the studio server and sent only to ${vendorKey[route]}.`
+    : pc ? `Stored encrypted with your Windows sign-in on this PC and sent only to ${vendorKey[route]}.`
+    : `Stored encrypted in this Mac’s keychain and sent only to ${vendorKey[route]}.`;
 
   async function claudeStatus() {
     const cli = await aiRoutes.detectClaudeCli();
     const base = { id: 'claude', version: cli.installed ? versionOf(cli.version) : '', commands: [] };
     if (!cli.installed) return { ...base, status: 'not-installed', detail: `Claude Code isn’t installed ${where}. Install it, then sign in.`, commands: [{ label: 'Then sign in', command: 'claude auth login' }] };
-    if (cli.missingFlags?.length) return { ...base, status: 'update', detail: 'This version can’t run studio requests. In Terminal run: claude update', commands: [{ label: 'Update', command: 'claude update' }] };
-    if (!cli.loggedIn) return { ...base, status: 'sign-in', detail: 'Not signed in. In Terminal run: claude auth login', commands: [{ label: 'Sign in', command: 'claude auth login' }] };
+    if (cli.missingFlags?.length) return { ...base, status: 'update', detail: `This version can’t run studio requests. In ${shellName} run: claude update`, commands: [{ label: 'Update', command: 'claude update' }] };
+    if (!cli.loggedIn) return { ...base, status: 'sign-in', detail: `Not signed in. In ${shellName} run: claude auth login`, commands: [{ label: 'Sign in', command: 'claude auth login' }] };
     return { ...base, status: 'ready', signedInWith: cli.authMethod === 'claude.ai' || !cli.authMethod ? 'claude-plan' : 'api-key', detail: `Signed in · Claude Code ${versionOf(cli.version)}`, streaming: Boolean(cli.streaming) };
   }
   async function codexStatusNow() {
@@ -49,8 +56,8 @@ function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => ''
     const login = await probeCli('codex', ['login', 'status']);
     const signedInWith = codexSignIn(login);
     const label = versionOf(version.stdout || version.stderr);
-    if (!signedInWith) return { id: 'codex', status: 'sign-in', version: label, detail: 'Not signed in. In Terminal run: codex login', commands: [{ label: 'Sign in', command: 'codex login' }] };
-    if (signedInWith === 'unknown') return { id: 'codex', status: 'ready', version: label, signedInWith: '', detail: `${label ? `Codex ${label} · ` : ''}the sign-in couldn’t be confirmed. If Codex jobs fail, run in Terminal: codex login`, commands: [{ label: 'Check the sign-in', command: 'codex login status' }] };
+    if (!signedInWith) return { id: 'codex', status: 'sign-in', version: label, detail: `Not signed in. In ${shellName} run: codex login`, commands: [{ label: 'Sign in', command: 'codex login' }] };
+    if (signedInWith === 'unknown') return { id: 'codex', status: 'ready', version: label, signedInWith: '', detail: `${label ? `Codex ${label} · ` : ''}the sign-in couldn’t be confirmed. If Codex jobs fail, run in ${shellName}: codex login`, commands: [{ label: 'Check the sign-in', command: 'codex login status' }] };
     return { id: 'codex', status: 'ready', version: label, signedInWith, detail: `${signedInWith === 'chatgpt' ? 'Signed in with ChatGPT' : 'Signed in with an API key'}${label ? ` · Codex ${label}` : ''}`, commands: [] };
   }
   // Codex's own status is cached apart from the rest, so a Codex job checks only Codex (two quick CLI calls a minute).
@@ -65,7 +72,7 @@ function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => ''
     const state = keyState(route); const name = vendorKey[route];
     const detail = state.status === 'key-unreadable'
       ? (state.keyProblem === 'mismatch' ? 'This key was saved with a different STUDIO_SECRET_KEY. Start the studio with the original key, or clear it and save it again.' : 'This key can’t be read here. Clear it and save it again.')
-      : state.status === 'ready' ? `Key saved. ${storage(route)}` : `Add a ${name} key to use it. ${storage(route)}`;
+      : state.status === 'ready' ? `Key saved. ${storage(route)}` : `Add ${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} key to use it. ${storage(route)}`;
     return { id: route, ...state, detail, commands: [] };
   }
   const usedBy = (route) => {
@@ -117,7 +124,7 @@ function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => ''
       let row = await codexStatus();
       if (row?.status !== 'ready') row = await codexStatus({ fresh: true });
       if (row?.status === 'not-installed') throw Object.assign(new Error(`Codex isn’t installed ${where}. ${NOTHING}`), { code: 'AI_NOT_CONNECTED' });
-      if (row?.status !== 'ready') throw Object.assign(new Error(`Codex isn’t signed in ${where}. In Terminal run: codex login. ${NOTHING}`), { code: 'AI_NOT_CONNECTED' });
+      if (row?.status !== 'ready') throw Object.assign(new Error(`Codex isn’t signed in ${where}. In ${shellName} run: codex login. ${NOTHING}`), { code: 'AI_NOT_CONNECTED' });
       return route;
     }
     if (KEY_ROUTES.includes(route)) { const state = keyState(route); if (state.status !== 'ready') throw notReady(route, state); return route; }

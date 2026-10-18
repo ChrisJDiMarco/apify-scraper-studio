@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,11 +33,11 @@ describe('studio backups', () => {
     const { data, out } = seed();
     const made = backup({ dataDir: data, outDir: out, log: quiet });
     expect(made.path).toMatch(/scraper-studio-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.tar\.gz$/);
-    expect(fs.statSync(made.path).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(fs.statSync(made.path).mode & 0o777).toBe(0o600);
     expect(made.manifest).toMatchObject({ format: 'scraper-studio-backup', formatVersion: 1, server: 'stopped', settled: true, versions: { team: 2, contentState: 1 } });
     expect(made.manifest.files.map((file) => file.path)).toEqual(['config.json', 'content-studio/runs/run-1/report.md', 'content-studio/state.json', 'content-studio/team.json', 'data.json']);
     expect(made.manifest.files[0]).toEqual({ path: 'config.json', size: 11, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
-    const listing = execFileSync('tar', ['-tzf', made.path], { encoding: 'utf8' });
+    const listing = execFileSync('tar', ['-tzf', path.basename(made.path)], { cwd: path.dirname(made.path), encoding: 'utf8' }); // no drive letter in -f
     expect(listing).not.toMatch(/web-transfers|studio-owner|\.tmp/);
     expect(fs.readdirSync(out)).toEqual([path.basename(made.path)]); // no work folder left behind
   });
@@ -65,7 +65,7 @@ describe('studio restores', () => {
     expect(fs.readFileSync(path.join(target, 'data.json'), 'utf8')).toBe('{"datasets":[]}');
     expect(fs.readFileSync(path.join(target, 'content-studio', 'runs', 'run-1', 'report.md'), 'utf8')).toBe('# Trends');
     expect(fs.readFileSync(path.join(done.aside, 'data.json'), 'utf8')).toBe('{"current":true}');
-    expect(fs.statSync(target).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') expect(fs.statSync(target).mode & 0o777).toBe(0o700);
   });
 
   it('refuses while a server holds the data folder', () => {
@@ -84,6 +84,24 @@ describe('studio restores', () => {
     fs.writeFileSync(path.join(newer, 'manifest.json'), JSON.stringify(manifest));
     expect(() => restore({ from: newer, dataDir: path.join(root, 'b'), log: quiet })).toThrow(/team file is version 99, newer than this studio reads/);
     expect(fs.existsSync(path.join(root, 'b', 'data.json'))).toBe(false);
+  });
+
+  // On Windows a bare "tar" is looked up in the working folder before PATH, so a tar.exe sitting beside a downloaded
+  // backup would run. tar never starts from the backup's folder, and Windows' own tar is named by its full path.
+  it('never starts tar from the backup’s folder, and names Windows’ own tar on Windows', () => {
+    const { root, data, out } = seed(); const made = backup({ dataDir: data, outDir: out, log: quiet });
+    const childProcess = require('child_process'); const spy = vi.spyOn(childProcess, 'execFileSync');
+    const script = require.resolve('../scripts/studio-restore.cjs'); delete require.cache[script];
+    try {
+      expect(require('../scripts/studio-restore.cjs').restore({ from: made.path, dataDir: path.join(root, 'd'), log: quiet }).restored).toBe(false);
+      const tarCalls = spy.mock.calls.filter(([command]) => /(^|[\\/])tar(\.exe)?$/i.test(command));
+      expect(tarCalls).toHaveLength(3); // two listings, one unpack
+      for (const [, , options] of tarCalls) expect(options?.cwd).not.toBe(path.dirname(made.path));
+    } finally { spy.mockRestore(); delete require.cache[script]; }
+    const { tarCommand } = require('../scripts/studio-backup.cjs');
+    expect(tarCommand('win32', { SystemRoot: 'D:\\Windows' })).toBe('D:\\Windows\\System32\\tar.exe');
+    expect(tarCommand('win32', {})).toBe('C:\\Windows\\System32\\tar.exe');
+    expect(tarCommand('darwin', { SystemRoot: 'C:\\Windows' })).toBe('tar');
   });
 
   it.runIf(process.platform !== 'win32')('won’t unpack an archive that holds links', () => {

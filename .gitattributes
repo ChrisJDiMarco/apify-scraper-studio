@@ -1,0 +1,13 @@
+# LF everywhere, on every OS: prompt goldens, the app guide's size guard and the shell scripts compare bytes, and a
+# Windows checkout with core.autocrlf would otherwise turn them into CRLF.
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.icns binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+# Archived evidence stays byte-exact (two evidence.csv files there were committed with CRLF).
+docs/archive/** -text

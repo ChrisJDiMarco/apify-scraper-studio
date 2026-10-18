@@ -144,7 +144,17 @@ describe('the app guide (Ask AI reads it on every question)', () => {
   const guide = read('docs/app-guide.md');
 
   it('stays small enough to send with every question', () => {
-    expect(Buffer.byteLength(guide, 'utf8')).toBeLessThan(150000);
+    expect(Buffer.byteLength(guide, 'utf8')).toBeLessThan(160000);
+  });
+
+  it('covers the Windows app in one short section', () => {
+    expect(guide).toMatch(/^## On Windows$/m);
+    const section = guide.split(/^## On Windows$/m)[1].split(/^## /m)[0];
+    expect(Buffer.byteLength(section, 'utf8')).toBeLessThan(2200);
+    // The two things that differ most from the Mac: closing the window quits, and keys use the Windows sign-in.
+    expect(section).toMatch(/Closing the window quits the app\*\* and stops schedules/);
+    expect(section).toMatch(/Windows sign-in \(Windows data protection, DPAPI\)/);
+    expect(guide).not.toMatch(/Scraper Studio is a Mac app/);
   });
 
   it('describes the studio as it is, not a tester build', () => {

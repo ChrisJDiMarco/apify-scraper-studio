@@ -1,7 +1,9 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import v5 from '../src/shared/v5-core.js';
 import validation from '../src/shared/validation.js';
@@ -10,7 +12,7 @@ import validation from '../src/shared/validation.js';
 // the dataset profile and evidence index.
 const { appendEvent, buildDatasetProfileV2, buildEvidenceIndex, createEvent, projectEvents, searchEvidence } = v5;
 const { validateRecipeVersionPayload } = validation;
-const projectRoot = path.resolve(new URL('..', import.meta.url).pathname);
+const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const requireFromTest = createRequire(import.meta.url);
 
 const fixedNow = () => '2026-06-29T12:00:00.000Z';
@@ -31,12 +33,14 @@ describe('V5 event log and recipe versions', () => {
   });
 
   it('appends events as jsonl without corrupting previous records, and reads a missing file as empty', () => {
-    const dir = fs.mkdtempSync(path.join('/tmp', 'apify-v5-events-'));
-    const filePath = path.join(dir, 'events.jsonl');
-    expect(v5.readEvents(filePath)).toEqual([]);
-    appendEvent(filePath, createEvent('recipe-version-saved', { recipeId: 'a', version: { version: 1 } }, { now: fixedNow }));
-    appendEvent(filePath, createEvent('recipe-version-saved', { recipeId: 'b', version: { version: 1 } }, { now: fixedNow }));
-    expect(v5.readEvents(filePath).map((row) => row.payload.recipeId)).toEqual(['a', 'b']);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apify-v5-events-'));
+    try {
+      const filePath = path.join(dir, 'events.jsonl');
+      expect(v5.readEvents(filePath)).toEqual([]);
+      appendEvent(filePath, createEvent('recipe-version-saved', { recipeId: 'a', version: { version: 1 } }, { now: fixedNow }));
+      appendEvent(filePath, createEvent('recipe-version-saved', { recipeId: 'b', version: { version: 1 } }, { now: fixedNow }));
+      expect(v5.readEvents(filePath).map((row) => row.payload.recipeId)).toEqual(['a', 'b']);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
   it('validates a saved recipe version before it touches the log', () => {

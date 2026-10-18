@@ -15,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { renameDurable } = require('../shared/durable-write');
 
 const LIMITS = Object.freeze({ body: 4000, quote: 1000, anchor: 4096, mentions: 20, notesPerReport: 500, repliesPerNote: 200, inboxPerPerson: 200, inboxDays: 60, excerpt: 140 });
 const ID = /^[a-zA-Z0-9_-]{1,180}$/;
@@ -33,26 +34,42 @@ function defaultWriteJson(file, value) {
   const temp = `${file}.${process.pid}.tmp`;
   const fd = fs.openSync(temp, 'w', 0o600);
   try { fs.writeFileSync(fd, JSON.stringify(value)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-  fs.renameSync(temp, file);
+  renameDurable(temp, file); // retried on Windows while a scanner holds the file
 }
 
 function createReportNotes({ file, writeJson = defaultWriteJson, clock = () => new Date(), log = (message) => console.warn(message) } = {}) {
   if (!file) throw new Error('Report notes need their file.');
   const stamp = () => new Date(clock()).toISOString();
   let data = { v: 1, notes: {}, inbox: {} };
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!parsed || typeof parsed !== 'object' || typeof parsed.notes !== 'object') throw new Error('not a notes file');
-    if (Number(parsed.v) > 1) throw Object.assign(new Error('This report-notes.json was written by a newer version of the studio. Update the studio, or restore content-studio/report-notes.json from a backup.'), { newer: true });
-    data = { v: 1, notes: parsed.notes || {}, inbox: parsed.inbox && typeof parsed.inbox === 'object' ? parsed.inbox : {} };
-  } catch (error) {
-    if (error.newer) throw error;
-    if (error.code !== 'ENOENT') {
-      // A damaged file is put aside (never overwritten) and the studio starts with no notes.
+  // A file that can't be opened (on Windows a backup agent or scanner can hold it: EBUSY, EPERM) isn't damage: it stays
+  // where it is, every call refuses with 503 and reads it again, and nothing is written over it meanwhile.
+  let unreadable = null;
+  function load() {
+    let text;
+    try { text = fs.readFileSync(file, 'utf8'); }
+    catch (error) { unreadable = error.code === 'ENOENT' ? null : error; return; }
+    unreadable = null;
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== 'object' || typeof parsed.notes !== 'object') throw new Error('not a notes file');
+    } catch (error) {
+      // A damaged file is put aside (never overwritten) and the studio starts with no notes; one that can't be moved
+      // stops the studio instead, since the next note would replace it.
       const aside = `${file}.bad-${Date.now()}`;
-      try { fs.renameSync(file, aside); } catch (_) { /* nothing to keep */ }
+      try { fs.renameSync(file, aside); }
+      catch (moveError) { throw new Error(`Report notes are damaged and could not be put aside (${moveError.code || moveError.message}); nothing was changed. Close any program using content-studio/report-notes.json and open the studio again.`); }
       log(`Report notes could not be read and were put aside (${path.basename(aside)}): ${error.message}`);
+      return;
     }
+    if (Number(parsed.v) > 1) throw new Error('This report-notes.json was written by a newer version of the studio. Update the studio, or restore content-studio/report-notes.json from a backup.');
+    data = { v: 1, notes: parsed.notes || {}, inbox: parsed.inbox && typeof parsed.inbox === 'object' ? parsed.inbox : {} };
+  }
+  load();
+  if (unreadable) log(`Report notes can't be read right now (${unreadable.code || unreadable.message}); they are read again on the next use.`);
+  function ready() {
+    if (unreadable) load();
+    if (unreadable) throw fail(`Report notes could not be read right now (${unreadable.code || 'unreadable'}); nothing was changed. Try again.`, 503, 'notesUnreadable');
   }
   // Every change is made on a copy and written before it replaces what's in memory, so a failed write changes nothing.
   function change(mutate) {
@@ -208,7 +225,8 @@ function createReportNotes({ file, writeJson = defaultWriteJson, clock = () => n
     return true;
   }
 
-  return { list: list_, save, resolve, remove, counts, inboxFor, markRead };
+  const guarded = (method) => (...args) => { ready(); return method(...args); };
+  return { list: guarded(list_), save: guarded(save), resolve: guarded(resolve), remove: guarded(remove), counts: guarded(counts), inboxFor: guarded(inboxFor), markRead: guarded(markRead) };
 }
 
 module.exports = { createReportNotes, LIMITS };

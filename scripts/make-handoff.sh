@@ -10,8 +10,8 @@
 # committed files can get in here, and out/, dist/, coverage/, node_modules/, .claude/ and .env files are excluded on
 # top. The finished zip is then checked: it fails on secret file names (.env other than .env.example, private keys,
 # data backups and nested archives, whose insides the text scan can't read) and on key-shaped strings, and warns about
-# absolute home-folder paths outside test/. It prints the size and SHA-256
-# and writes <output.zip>.sha256 next to it.
+# absolute home-folder paths (macOS, Linux and Windows) outside test/. It prints the size and SHA-256
+# and writes <output.zip>.sha256 next to it. On Windows, run it from Git Bash (Git for Windows ships unzip and cygpath).
 set -euo pipefail
 
 usage() { echo "Usage: scripts/make-handoff.sh [--ref <rev>] [--allow-dirty] <output.zip>" >&2; exit 2; }
@@ -27,6 +27,8 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$out" ] || usage
 case "$out" in *.zip) ;; *) echo "The output path must end in .zip: $out" >&2; exit 2 ;; esac
+# Git Bash on Windows: C:\x\out.zip or C:/x/out.zip becomes /c/x/out.zip, so the absolute-path check below sees it.
+if command -v cygpath >/dev/null 2>&1; then out=$(cygpath -u "$out"); fi
 case "$out" in /*) ;; *) out="$PWD/$out" ;; esac  # relative to where the script was run, before the cd below
 command -v git >/dev/null || { echo "git is required." >&2; exit 1; }
 command -v unzip >/dev/null || { echo "unzip is required to check the archive." >&2; exit 1; }
@@ -97,7 +99,8 @@ secrets=$(grep -rIlE \
   "$work" || true)
 if [ -n "$secrets" ]; then echo "Key-shaped strings found in:" >&2; echo "$secrets" | sed "s#^$work/##" >&2; fail=1; fi
 
-homes=$(grep -rIlE '/(Users|home)/[a-z][a-z0-9._-]+/' "$work" | sed "s#^$work/##" | grep -vE "^${prefix}test/" || true)
+homes=$(grep -rIlE -e '/(Users|home)/[a-z][a-z0-9._-]+/' -e '[A-Za-z]:[\\/](Users|Documents and Settings)[\\/][A-Za-z0-9._ -]+[\\/]' "$work" \
+  | sed "s#^$work/##" | grep -vE "^${prefix}test/" || true)
 if [ -n "$homes" ]; then echo "Warning: absolute home-folder paths (review before sending):" >&2; echo "$homes" | sed 's/^/  /' >&2; fi
 
 if [ "$fail" = 1 ]; then rm -f "$out"; echo "Nothing was written: fix the files above, commit, and run this again." >&2; exit 1; fi

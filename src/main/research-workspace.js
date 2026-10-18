@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const { validateBrandContext } = require('../shared/brand-context');
 const { validateId } = require('../shared/validation');
 const { isPathInside } = require('../shared/workspace');
+const { decodeText } = require('../shared/text-decode');
 const Papa = require('papaparse');
 const { prepareImport, compareSnapshots } = require('../shared/research-data');
 const { assessDatasetCoverage, buildEvidenceRegister, validateResearchReview, renderReviewExport, reviewContentFingerprint } = require('../shared/report-review');
@@ -43,7 +44,10 @@ function createResearchWorkspace({ loadData, saveData, emitState, dataPath, read
     if (!stat.isFile() || stat.size > 5 * 1024 * 1024) throw new Error('Choose a CSV, JSON or JSONL file up to 5 MB.');
     const format = path.extname(file).slice(1).toLowerCase();
     if (!['csv', 'json', 'jsonl', 'ndjson'].includes(format)) throw new Error('Choose CSV, JSON or JSONL data.');
-    return { name: path.basename(file), format: format === 'ndjson' ? 'jsonl' : format, content: fs.readFileSync(file, 'utf8') };
+    // Excel for Windows saves "CSV (Comma delimited)" as Windows (ANSI) text, which read as UTF-8 would turn every accent
+    // and curly quote into �. encodingNote says when that fallback was used.
+    const { text, note } = decodeText(fs.readFileSync(file));
+    return { name: path.basename(file), format: format === 'ndjson' ? 'jsonl' : format, content: text, ...(note ? { encodingNote: note } : {}) };
   }
   function previewImportDataset(payload = {}) {
     const result = prepareImport({ ...payload, preview: true });
@@ -167,7 +171,8 @@ function createResearchWorkspace({ loadData, saveData, emitState, dataPath, read
     const reportPath = path.join(folder, `research-brief.${payload.format === 'html' ? 'html' : 'md'}`);
     fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(reportPath, content);
     const evidencePath = path.join(folder, 'evidence.csv');
-    fs.writeFileSync(evidencePath, Papa.unparse(context.evidence.map(item => ({ itemId: item.itemId || item.id, url: item.url, author: item.author, publishedAt: item.publishedAt, collectedAt: item.collectedAt, includedInAnalysis: item.includedInAnalysis, excerpt: item.excerpt })), { columns: ['itemId', 'url', 'author', 'publishedAt', 'collectedAt', 'includedInAnalysis', 'excerpt'], escapeFormulae: true }));
+    // The byte-order mark tells Excel the CSV is UTF-8 (without it, Excel on Windows shows accents and emoji as mojibake).
+    fs.writeFileSync(evidencePath, '\uFEFF' + Papa.unparse(context.evidence.map(item => ({ itemId: item.itemId || item.id, url: item.url, author: item.author, publishedAt: item.publishedAt, collectedAt: item.collectedAt, includedInAnalysis: item.includedInAnalysis, excerpt: item.excerpt })), { columns: ['itemId', 'url', 'author', 'publishedAt', 'collectedAt', 'includedInAnalysis', 'excerpt'], escapeFormulae: true }));
     const receipt = { dataset: { id: context.dataset.id, name: context.dataset.name, platform: context.dataset.platform, sourceType: context.dataset.sourceType || '', createdAt: context.dataset.createdAt, brandContext: context.dataset.brandContext || null, marketingBrief: context.dataset.marketingBrief || null, importMetadata: context.dataset.importMetadata || null, comparisonSummary: context.dataset.comparisonSummary || null }, collectionReceipt: context.collectionReceipt ? { apifyRunId: context.collectionReceipt.apifyRunId, status: context.collectionReceipt.status, runLimits: context.collectionReceipt.runLimits, usageTotalUsdAtCompletion: context.collectionReceipt.usageTotalUsdAtCompletion, costBasis: 'Apify run-reported usage; not an invoice reconciliation' } : null, id: exportId, analysisId: context.analysis.id, createdAt: timestamp(), reviewStatus: context.review.status, reviewer: context.review.reviewer || '', reviewVersion: context.review.version || 0, contentFingerprint: context.fingerprint, reportSha256: crypto.createHash('sha256').update(content).digest('hex'), aiReceipt: context.analysis.aiReceipt || null, coverage: context.coverage, localReviewOnly: true };
     writeJson(path.join(folder, 'receipt.json'), receipt);
     writeJson(path.join(folder, 'review.json'), context.review);

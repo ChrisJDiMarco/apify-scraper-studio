@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const template = require('../shared/prompt-template');
+const { writeFileDurable } = require('../shared/durable-write');
 
 const FORMAT = 1;
 const MAX_VERSIONS = 200;
@@ -34,27 +35,23 @@ function createPromptStore({ root, registry = template.REGISTRY, now = () => new
   const fileOf = (workspaceId, promptId) => { entryOf(promptId); return path.join(folder(workspaceId), `${promptId}.json`); };
   const fresh = (workspaceId, editionId, promptId) => ({ format: FORMAT, promptId, workspaceId, editionId, version: 0, locked: false, lock: null, blocks: {}, defaultHashes: {}, updatedAt: '', updatedBy: null, history: [], tests: [] });
 
-  // Same pattern as ask-store's writeFile.
+  // Same pattern as ask-store's writeFile (src/shared/durable-write.js).
   function writeFile(target, value) {
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-    const temp = `${target}.${process.pid}.tmp`;
-    try {
-      const fd = fs.openSync(temp, 'w', 0o600);
-      try { fs.writeFileSync(fd, JSON.stringify(value, null, 1)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-      fs.renameSync(temp, target);
-    } catch (error) { try { fs.unlinkSync(temp); } catch (_) { /* Nothing was left behind. */ } throw error; }
-    let directory;
-    try { directory = fs.openSync(path.dirname(target), 'r'); fs.fsyncSync(directory); }
-    catch (error) { if (!['EINVAL', 'ENOTSUP', 'EPERM', 'EACCES', 'EISDIR'].includes(error.code)) throw error; }
-    finally { if (directory != null) fs.closeSync(directory); }
+    writeFileDurable(target, JSON.stringify(value, null, 1));
   }
   // A damaged file is moved aside (kept for recovery by hand) and the prompt falls back to its defaults, which always pass
-  // the studio's checks; `damaged` lets the Prompts page say so. A file from a newer build stops instead.
+  // the studio's checks; `damaged` lets the Prompts page say so. A file from a newer build stops instead. A file that
+  // can't be read right now (on Windows, a scanner or backup agent holding it) is not damaged: nothing is moved or reset.
   function load(workspaceId, editionId, promptId) {
-    const target = fileOf(workspaceId, promptId); let parsed;
-    try { parsed = JSON.parse(fs.readFileSync(target, 'utf8')); }
+    const target = fileOf(workspaceId, promptId); let text; let parsed;
+    try { text = fs.readFileSync(target, 'utf8'); }
     catch (error) {
       if (error.code === 'ENOENT') return { doc: fresh(workspaceId, editionId, promptId), found: false };
+      throw fail('This prompt’s saved versions could not be read right now; nothing was changed. Try again.', 503, { code: 'promptsUnreadable' });
+    }
+    try { parsed = JSON.parse(text); }
+    catch (_) {
       try { fs.renameSync(target, `${target}.unreadable-${Date.now()}`); } catch (_) { /* Left in place; the next save replaces it. */ }
       return { doc: fresh(workspaceId, editionId, promptId), found: false, damaged: true };
     }

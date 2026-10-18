@@ -1,5 +1,5 @@
 /* Semrush is a complete workspace edition, including the navigation shell. */
-.app-shell[data-edition="semrush"] { --app-bg: #f3f6f6; --surface-soft: #dceeeb; --bg: #f3f6f6; --border: #dce2dc; --text: #181e15; --primary: #181e15; --ink: #181e15; --muted: #62685e; --faint: #747873; --line: #e5eae6; --line-strong: #d4dcd5; --accent: #c190ff; --accent-ink: #181e15; --teal: #181e15; --ring: 0 0 0 3px #c190ff40; font-family: Lazzer, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Arial, sans-serif; }
+.app-shell[data-edition="semrush"] { --app-bg: #f3f6f6; --surface-soft: #dceeeb; --bg: #f3f6f6; --border: #dce2dc; --text: #181e15; --primary: #181e15; --ink: #181e15; --muted: #62685e; --faint: #747873; --line: #e5eae6; --line-strong: #d4dcd5; --accent: #c190ff; --accent-ink: #181e15; --teal: #181e15; --ring: 0 0 0 3px #c190ff40; font-family: Lazzer, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Inter, Arial, sans-serif; }
 .app-shell[data-edition="semrush"] .local-dot { background: #181e15; }
 .app-shell[data-edition="semrush"] .topbar { min-height: 60px; flex-basis: 60px; padding: 0 30px; border-bottom: 1px solid #e1e6e2; background: #ffffff; }
 .app-shell[data-edition="semrush"] .breadcrumb { color: #62685e; }

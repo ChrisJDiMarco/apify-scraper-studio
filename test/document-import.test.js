@@ -32,7 +32,7 @@ describe('portable document text import', () => {
     await expect(extractDocumentText({ buffer: Buffer.from('a\0b'), fileName: 'x.txt' })).rejects.toThrow('binary');
     await expect(extractDocumentText({ buffer: Buffer.from('text'), fileName: 'x.pdf' })).rejects.toThrow('conversion');
     await expect(extractDocumentText({ buffer: Buffer.from('   '), fileName: 'x.txt' })).rejects.toThrow('no readable');
-    await expect(extractDocumentText({ buffer: Buffer.from([0xff, 0xff]), fileName: 'x.txt' })).rejects.toThrow('UTF-8');
+    // Text that isn't UTF-8 is read as Windows (ANSI) text with a warning (test/text-decode.test.js), not refused.
   });
   it('rejects oversized text explicitly without truncation', async () => {
     await expect(extractDocumentText({ buffer: Buffer.from('a'.repeat(250001)), fileName: 'x.txt' })).rejects.toThrow('no text was silently shortened');

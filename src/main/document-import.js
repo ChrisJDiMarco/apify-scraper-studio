@@ -3,6 +3,7 @@ const path = require('node:path');
 const { SaxesParser } = require('saxes');
 const unzipper = require('unzipper');
 const { MAX_SOURCE_CHARS } = require('../shared/content-studio');
+const { decodeText } = require('../shared/text-decode');
 const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
 const MAX_XML_BYTES = 4 * 1024 * 1024;
 const MAX_GOOGLE_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -84,9 +85,10 @@ async function extractDocumentText({ buffer, fileName } = {}) {
   const name = path.basename(String(fileName || '')); const extension = path.extname(name).toLowerCase();
   const title = path.basename(name, extension) || 'Imported document';
   if (['.txt', '.md', '.markdown'].includes(extension)) {
-    let decoded; try { decoded = new TextDecoder('utf-8', { fatal: true }).decode(buffer); } catch (_) { fail('file', 'Save this text document as UTF-8 and try again.'); }
+    // UTF-8, UTF-16 (Notepad's "Unicode") or, failing those, Windows (ANSI) text, with a warning that says so.
+    const { text: decoded, note } = decodeText(buffer);
     if (decoded.includes('\u0000')) fail('file', 'This appears to be a binary file. Choose a UTF-8 text, Markdown, or DOCX document.');
-    const text = finishText(decoded); return { title, text, kind: 'upload', fileName: name, format: extension === '.txt' ? 'text' : 'markdown', characters: text.length, warnings: [] };
+    const text = finishText(decoded); return { title, text, kind: 'upload', fileName: name, format: extension === '.txt' ? 'text' : 'markdown', characters: text.length, warnings: note ? [`${note}. If accented letters look wrong, save the document as UTF-8 and import it again.`] : [] };
   }
   if (extension !== '.docx') fail('file', 'Choose a TXT, Markdown, or DOCX file. PDF and legacy DOC require conversion first.');
   let directory; try { directory = await unzipper.Open.buffer(buffer); } catch (_) { fail('file', 'This DOCX is not a readable Word document. Export a fresh DOCX copy.'); }

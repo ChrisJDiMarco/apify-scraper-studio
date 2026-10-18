@@ -9,6 +9,9 @@ export default defineConfig({
     // package.json makes the Semrush package a one-workspace build; suites that load the real main process keep today's
     // two workspaces (tests of single mode pass a workspacePolicy or set the variable themselves).
     env: { STUDIO_WORKSPACE_MODE: 'multi' },
+    // Shortcut labels and "this Mac" copy follow navigator.platform, which differs by OS (jsdom reports ''). Pinned to
+    // the Mac so the suites that check ⌘ and Meta pass on a Windows runner too.
+    setupFiles: ['test/setup-platform.js'],
     // Suites that render the whole app or drive the real main process take a few seconds each; on a busy CI runner the
     // 5 s default timed out at random. 20 s keeps a hung test visible without flaking on load.
     testTimeout: 20000,

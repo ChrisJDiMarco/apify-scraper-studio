@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Y = require('yjs');
+const { renameDurable } = require('../shared/durable-write');
 
 const LIMITS = Object.freeze({
   updateBytes: 2 * 1024 * 1024, // one change
@@ -71,7 +72,7 @@ function defaultWriteJson(file, value) {
   const temp = `${file}.${process.pid}.tmp`;
   const fd = fs.openSync(temp, 'w', 0o600);
   try { fs.writeFileSync(fd, JSON.stringify(value)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-  fs.renameSync(temp, file);
+  renameDurable(temp, file); // retried on Windows while a scanner holds the file
 }
 
 // workspace: content-workspace (findAsset, readStudioAsset, writeReportMarkdown, clearReportEdits). push(identityId,

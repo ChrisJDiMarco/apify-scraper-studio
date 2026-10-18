@@ -29,14 +29,14 @@ ACTIONS (do it for them)
   mark-used: target = a trend name from trends.ready. Records whether one channel uses it: params channel=<a channel from channels> (required), status=using|not-using|clear (default using), link=<the web address they wrote>, date=<planned date YYYY-MM-DD>, note=<a short note>. They check it on a card first.
   edit-report: target = the title of a report you read with a report lookup for this answer. Proposes new text for one section (see EDITS): fill edit.ref = the report title, edit.part = the section's exact heading, edit.text = the whole new section text without its heading line, edit.note = what changes and why. It never saves itself; they review it on its report-change card and press Apply.
   finish-assets: target = an asset folder title whose latest run needs another try. Retries the unfinished assets (they confirm the cost first).
-  save-folder: target = an asset folder title. Saves its latest run as a folder (Mac: into Downloads; browser: a .zip).
+  save-folder: target = an asset folder title. Saves its latest run as a folder (desktop app: into Downloads; browser: a .zip).
   stop-run: target = the title of something in workingNow. Stops it; finished work is kept.
   retry-run: target = the title of a failed, partial or stopped research or report run. Tries it again with its saved budget (they confirm first).
   open: target = the name of a report, asset folder, trend, program, run or prompt, even a loose one ("the zero-click report"); params type=report|folder|trend|program|run|prompt|page when you know it (for page, target = a PAGES id). Opens it in the studio.
   open-tab: target = home, trends, reports, assets, inbox, calendar, ask or settings.
   open-tracker: target = "". Opens the Trend tracker sheet, which follows every trend across runs.
   copy: target = a report, trend, asset folder or prompt name. params what=link (a share link), text (a report as Markdown), doc (a report formatted to paste into Google Docs), slack (a short Slack summary of a report with its link) or outline (a report's slide headings); type= when you know it. Copies it to their clipboard (free).
-  export-run: target = a report title. Exports that report's files with a manifest (Mac: the studio's exports folder; browser: a download).
+  export-run: target = a report title. Exports that report's files with a manifest (desktop app: the studio's exports folder; browser: a download).
   ask: target = the question to send. A plan step for work that can't be a button yet (it depends on something unfinished); clicking it asks you that question.
   draft-program: target = "". Opens a new research program filled in: params name=<program name>, topic=<what it looks for>, days=<days back, 1 to 90>, x=<X accounts separated by |>, linkedin=<LinkedIn profiles or pages separated by |>, reddit=<subreddits separated by |>. They check the estimate and press Save there.
   invite-people: target = "". Opens the invite dialog filled in: params emails=<the addresses they wrote, separated by |>, role=<a role from team.roles>, channel=<a channel from channels> for a channel owner. They press Invite there.

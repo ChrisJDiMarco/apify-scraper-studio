@@ -29,6 +29,10 @@ const MAX_PASSES = 5;
 const SKIP_NAMES = new Set(['.studio-owner.json', '.studio-owner-recovery']);
 const SKIP_PATTERN = /(?:\.tmp|\.beat)$|^\.studio-ready-|^\.studio-healthz/;
 const SKIP_TOP = /^(?:web-transfers|\.pre-restore-.*|\.restore-.*)$/;
+// On Windows, Windows' own tar (bsdtar, in System32 since Windows 10 1803) by its full path: a bare "tar" is looked up in
+// the working folder before PATH, and Git Bash puts GNU tar first on PATH, which reads C:\… in -f as a remote host.
+const tarCommand = (platform = process.platform, env = process.env) => (platform === 'win32' ? path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar');
+const TAR = tarCommand();
 
 function parseArgs(argv) {
   const args = {};
@@ -119,7 +123,8 @@ function backup({ dataDir = defaultDataDir(), outDir = process.env.STUDIO_BACKUP
     let result;
     if (archive) {
       const file = path.join(outDir, `${name}.tar.gz`); const temp = path.join(work, `${name}.tar.gz`);
-      execFileSync('tar', ['-czf', temp, '-C', work, name], { stdio: ['ignore', 'ignore', 'pipe'] });
+      // Run from the work folder (made by this script) with relative names.
+      execFileSync(TAR, ['-czf', path.basename(temp), name], { cwd: work, stdio: ['ignore', 'ignore', 'pipe'] });
       fs.chmodSync(temp, 0o600); fs.renameSync(temp, file); result = file;
     } else {
       result = path.join(outDir, name); fs.renameSync(top, result);
@@ -152,4 +157,4 @@ function main() {
   catch (error) { console.error(`Backup failed: ${error.message}`); process.exit(1); }
 }
 if (require.main === module) main();
-module.exports = { backup, prune, listFiles, parseArgs, serverState, sha256, defaultDataDir, stamp, FORMAT, FORMAT_VERSION, PREFIX };
+module.exports = { backup, prune, listFiles, parseArgs, serverState, sha256, defaultDataDir, stamp, tarCommand, TAR, FORMAT, FORMAT_VERSION, PREFIX };

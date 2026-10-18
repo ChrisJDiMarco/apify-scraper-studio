@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const catalog = require('../shared/monday.json');
+const { writeFileDurable } = require('../shared/durable-write');
 
 const VERSION = 1;
 const LOG_ROWS = catalog.limits.logRows;
@@ -44,18 +45,10 @@ function createMondayStore({ root, now = () => Date.now(), onDamaged = (message)
       return fresh();
     }
   }
+  // A private temp file, fsync, rename (retried on Windows while a scanner holds the file), then fsync the folder.
   function writeFile(file, text) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const temp = `${file}.${process.pid}.tmp`;
-    try {
-      const fd = fs.openSync(temp, 'w', 0o600);
-      try { fs.writeFileSync(fd, text); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-      fs.renameSync(temp, file);
-    } catch (error) { try { fs.unlinkSync(temp); } catch (_) { /* nothing left behind */ } throw error; }
-    let folder;
-    try { folder = fs.openSync(path.dirname(file), 'r'); fs.fsyncSync(folder); }
-    catch (error) { if (!['EINVAL', 'ENOTSUP', 'EPERM', 'EACCES', 'EISDIR'].includes(error.code)) throw error; }
-    finally { if (folder != null) fs.closeSync(folder); }
+    writeFileDurable(file, text);
   }
   // Write-through: a change that can't reach the disk is undone in memory too.
   function change(mutate) {

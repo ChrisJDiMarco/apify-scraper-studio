@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Command, Search } from 'lucide-react';
 import { groupPaletteItems, rankPaletteItems } from './palette-content.js';
 import { Empty } from './ui.jsx';
+import { keyLabel } from './platform.js';
 
 // The ⌘K palette in both layouts (App.jsx mounts it once; the channel owner's shell has none). Items are { id, label, icon?, group?, hint?, shortcut?, keywords?, action, args }: typed words
 // match the label and the keywords, results show under their group's heading (best match first), and `fallback`
 // adds one last item for whatever was typed (App's "Ask AI: <text>"). `limit` caps each group: `idle` before typing,
-// `search` after (0 keeps every match). A page's `shortcut` (⌘3) shows beside it, so the palette teaches the keys.
+// `search` after (0 keeps every match). A page's `shortcut` (⌘3, Ctrl+3 on Windows) shows beside it, so the palette teaches the keys.
 export function CommandPalette({ open, items = [], onClose, onRun, placeholder = 'Search reports, trends and pages…', fallback, limit = { idle: 0, search: 0 } }) {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -89,7 +90,7 @@ export function CommandPalette({ open, items = [], onClose, onRun, placeholder =
       <button type="button" data-palette-command="" className={[index === highlightedIndex ? 'active' : '', item.action === 'ask' ? 'palette-ask' : ''].filter(Boolean).join(' ')} key={item.id} onFocus={() => setActiveIndex(index)} onMouseMove={() => index !== selectedIndex && setActiveIndex(index)} onClick={() => runItem(item)}>
         <Icon size={16} aria-hidden="true" />
         {item.hint ? <span className="palette-text"><span>{item.label}</span><small>{item.hint}</small></span> : <span>{item.label}</span>}
-        {item.shortcut && <kbd className="palette-shortcut" aria-hidden="true">{item.shortcut}</kbd>}
+        {item.shortcut && <kbd className="palette-shortcut" aria-hidden="true">{keyLabel(item.shortcut)}</kbd>}
         <kbd aria-hidden="true">↵</kbd>
       </button>
     );

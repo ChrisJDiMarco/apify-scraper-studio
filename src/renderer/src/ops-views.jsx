@@ -5,6 +5,7 @@ import { groupThreads } from '../../shared/dashboard.js';
 import { authorName } from '../../shared/dataset-insights.js';
 import { Button, number, short } from './ui.jsx';
 import { platformName } from './dataset-hub.jsx';
+import { revealLabel } from './platform.js';
 import './workspace-pages.css';
 
 const PAGE = 30;
@@ -25,7 +26,7 @@ function ConversationSummaries({ analysis, output, busy, canSummarize, onSummari
   const count = (key) => summaries.reduce((total, thread) => total + (thread[key]?.length || 0), 0);
   return <section className="ws-card">
     <div className="ws-card-head"><div><h3>What these conversations say</h3><p className="ws-hint">{number(summaries.length)} threads · {number(count('notableArguments'))} arguments · {number(count('objections'))} objections · {number(count('leads'))} leads</p></div>
-      <div className="ws-head-actions">{analysis.outputPath && <Button className="ghost" disabled={busy} onClick={() => onOpenAnalysisOutput(analysis.id)}><ExternalLink size={13} aria-hidden="true" />Open</Button>}{analysis.outputPath && <Button className="ghost" disabled={busy} onClick={() => onRevealAnalysisOutput(analysis.id)}><FolderOpen size={13} aria-hidden="true" />Show in Finder</Button>}<Button className="ghost" disabled={busy || !canSummarize} onClick={onSummarize}>Refresh</Button></div></div>
+      <div className="ws-head-actions">{analysis.outputPath && <Button className="ghost" disabled={busy} onClick={() => onOpenAnalysisOutput(analysis.id)}><ExternalLink size={13} aria-hidden="true" />Open</Button>}{analysis.outputPath && <Button className="ghost" disabled={busy} onClick={() => onRevealAnalysisOutput(analysis.id)}><FolderOpen size={13} aria-hidden="true" />{revealLabel()}</Button>}<Button className="ghost" disabled={busy || !canSummarize} onClick={onSummarize}>Refresh</Button></div></div>
     <div className="ws-summary-grid">{summaries.slice(0, 6).map((thread) => <article key={thread.threadId} className="ws-summary"><strong>{thread.title}</strong><p>{short(thread.summary, 240)}</p><BulletGroup title="Arguments" items={thread.notableArguments} /><BulletGroup title="Objections" items={thread.objections} /><BulletGroup title="Leads" items={thread.leads} /><BulletGroup title="Risks" items={thread.risks} /></article>)}</div>
   </section>;
 }

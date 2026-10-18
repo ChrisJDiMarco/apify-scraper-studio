@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, AtSign, Briefcase, Check, ChevronDown, Code2, Copy, Database, Globe, Info, Loader2, MessageCircle, Pencil, Play, Plus, Search, Settings2, Trash2 } from 'lucide-react';
 import { RECIPE_TEMPLATES } from '../../shared/recipe-templates.js';
 import { Badge, Button, number } from './ui.jsx';
+import { place } from './platform.js';
 
 // “3 hours ago” reads faster than a timestamp on a card you scan.
 function timeAgo(value) {
@@ -191,7 +192,7 @@ function RecipeForm({ recipe, initialTemplateId, latestVersion = 0, onSave, onCa
           {attempted && stepError && <p id={`${formId}-error`} className="scraper-field-error" role="alert">{stepError}</p>}
           {saveError && <p className="scraper-field-error" role="alert">{saveError}</p>}
         </div>
-        <div className="scraper-form-footer"><Button type="button" className="ghost" disabled={working} onClick={() => step ? changeStep(step - 1) : onCancel()}>{step ? <ArrowLeft size={16} /> : null}{step ? 'Back' : 'Cancel'}</Button><span>{step === 2 ? 'Run it when you’re ready.' : 'Your configuration stays on this Mac.'}</span><Button className="scraper-primary" type="submit" disabled={working}>{saving ? <Loader2 size={16} className="scraper-spin" /> : null}{saving ? 'Saving…' : step === 2 ? 'Save scraper' : 'Continue'}{step < 2 && <ArrowRight size={16} />}</Button></div>
+        <div className="scraper-form-footer"><Button type="button" className="ghost" disabled={working} onClick={() => step ? changeStep(step - 1) : onCancel()}>{step ? <ArrowLeft size={16} /> : null}{step ? 'Back' : 'Cancel'}</Button><span>{step === 2 ? 'Run it when you’re ready.' : `Your configuration stays on ${place()}.`}</span><Button className="scraper-primary" type="submit" disabled={working}>{saving ? <Loader2 size={16} className="scraper-spin" /> : null}{saving ? 'Saving…' : step === 2 ? 'Save scraper' : 'Continue'}{step < 2 && <ArrowRight size={16} />}</Button></div>
       </form>
     </div>
   );

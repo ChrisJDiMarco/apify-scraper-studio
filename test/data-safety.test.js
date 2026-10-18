@@ -32,7 +32,7 @@ function desktop(root, { env = {}, ApifyClient, spawn, fsModule } = {}) {
       if (name === 'fs' && fsModule) return fsModule;
       return mainRequire(name);
     },
-    process: { pid: process.pid, platform: process.platform, env: { STUDIO_DISABLE_LOCAL_ENV: '1', ...env }, argv: [] },
+    process: { pid: process.pid, platform: 'darwin', env: { STUDIO_DISABLE_LOCAL_ENV: '1', ...env }, argv: [] },
     __dirname: path.dirname(mainPath), Buffer, URL, AbortController, setTimeout, clearTimeout, setImmediate,
   }, { filename: mainPath });
   return { call: (channel, payload) => handlers.get(channel)(null, payload), close: () => { app.emit('before-quit'); app.emit('quit'); } };
@@ -124,7 +124,8 @@ describe('data.json and config.json', () => {
     } finally { app.close(); }
   });
 
-  it.skipIf(process.getuid?.() === 0)('never write over a file that can’t be read', () => {
+  // chmod 0o000 doesn't stop the owner reading on Windows, or root anywhere; the next test covers those with a fake read.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('never write over a file that can’t be read', () => {
     const root = temp('safety-unreadable-');
     const original = JSON.stringify({ recipes: [{ id: 'recipe-kept', name: 'Kept', platform: 'x', actorId: 'a/b' }] });
     fs.writeFileSync(path.join(root, 'data.json'), original); fs.chmodSync(path.join(root, 'data.json'), 0o000);
@@ -134,6 +135,23 @@ describe('data.json and config.json', () => {
       expect(() => app.call('save-recipe', { name: 'New', platform: 'x', actorId: 'a/c' })).toThrow(/could not be read/);
     } finally { app.close(); fs.chmodSync(path.join(root, 'data.json'), 0o644); }
     expect(fs.readFileSync(path.join(root, 'data.json'), 'utf8')).toBe(original);
+    expect(fs.readdirSync(root).filter((name) => name.startsWith('data.json.'))).toEqual([]);
+  });
+
+  it('never write over a file that can’t be read, on every OS (a read refused with EACCES)', () => {
+    const root = temp('safety-refused-'); const file = path.join(root, 'data.json');
+    const original = JSON.stringify({ recipes: [{ id: 'recipe-kept', name: 'Kept', platform: 'x', actorId: 'a/b' }] });
+    fs.writeFileSync(file, original);
+    const fsModule = { ...fs, readFileSync: (target, ...rest) => {
+      if (String(target) === file) throw Object.assign(new Error(`EACCES: permission denied, open '${file}'`), { code: 'EACCES' });
+      return fs.readFileSync(target, ...rest);
+    } };
+    const app = desktop(root, { fsModule });
+    try {
+      expect(() => app.call('state')).toThrow(/Studio data could not be read \(data\.json: EACCES\)\. Nothing was changed\./);
+      expect(() => app.call('save-recipe', { name: 'New', platform: 'x', actorId: 'a/c' })).toThrow(/could not be read/);
+    } finally { app.close(); }
+    expect(fs.readFileSync(file, 'utf8')).toBe(original);
     expect(fs.readdirSync(root).filter((name) => name.startsWith('data.json.'))).toEqual([]);
   });
 });
@@ -270,7 +288,7 @@ describe('the browser studio', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {}); vi.spyOn(console, 'log').mockImplementation(() => {}); vi.spyOn(console, 'warn').mockImplementation(() => {});
     vm.runInNewContext(source, {
       require: (name) => (name === 'child_process' ? { spawn: () => { throw new Error('No CLIs in this test.'); } } : mainRequire(name)),
-      process: { pid: process.pid, platform: process.platform, env: { STUDIO_RUNTIME: 'web', STUDIO_PASSWORD: 'data-safety-admin-password' }, argv: [] },
+      process: { pid: process.pid, platform: 'darwin', env: { STUDIO_RUNTIME: 'web', STUDIO_PASSWORD: 'data-safety-admin-password' }, argv: [] },
       __dirname: path.dirname(mainPath), Buffer, URL, AbortController, setTimeout, clearTimeout, setInterval, clearInterval, setImmediate, console,
       fetch: () => { throw new Error('Network access is forbidden in this test.'); },
     }, { filename: mainPath });

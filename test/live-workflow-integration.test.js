@@ -5,10 +5,11 @@ import vm from 'node:vm';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import rolesStudio from './helpers/roles-studio.js';
 
-const projectRoot = path.resolve(new URL('..', import.meta.url).pathname);
+const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const mainPath = path.join(projectRoot, 'src/main/index.js');
 const mainRequire = createRequire(mainPath);
 const { requiredClaudeFlags } = createRequire(import.meta.url)('../src/shared/claude-runner.js');
@@ -376,7 +377,7 @@ describe('Ask AI', () => {
     expect(exported).toMatchObject({ fileName: 'team setup.json', includesApifyToken: true });
     expect(exported.summary.workspace.name).toBeTruthy();
     expect(Array.isArray(exported.summary.programs)).toBe(true);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     const preview = await app.invoke('setup:open');
     expect(preview).toMatchObject({ fileName: 'team setup.json', apifyTokenIncluded: true, apifyTokenSaved: true });
     expect(JSON.stringify(preview)).not.toContain('fixture-apify-secret'); // the key stays in the main process

@@ -9,6 +9,7 @@ import { LOCAL_ADMIN_FALLBACK, PREVIEW_TITLE, initials, roleLabel } from './view
 import { Dialog, DialogClose, MoreMenu, focusables, trapTab, useNarrow } from './role-screens.jsx';
 import { MAX_FOCUS_CHANNELS, ariaKeys, isChannelViewer, isRealAdmin, itemName, viewAsChoice } from './nav-model.js';
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts.jsx';
+import { isMac, keyLabel, place } from './platform.js';
 import { WorkingPopover } from './working-popover.jsx';
 import { dragHasStudioRef } from './ask-slash.js';
 import './studio-sidebar.css';
@@ -88,7 +89,7 @@ function MenuItem({ row, Icon, radio, onChoose }) {
   return <button type="button" role={radio ? 'menuitemradio' : 'menuitem'} aria-checked={radio ? Boolean(row.checked) : undefined} aria-label={row.hint ? row.label : undefined} aria-describedby={row.hint ? hintId : undefined} aria-keyshortcuts={row.kbd ? ariaKeys(row.kbd) : undefined} className={`sb-menu-item${row.danger ? ' is-danger' : ''}${row.indent ? ' is-indent' : ''}`} disabled={row.disabled} title={row.title || undefined} onClick={onChoose}>
     {radio ? <span className="sb-menu-check" aria-hidden="true">{row.checked && <Check size={15} />}</span> : Icon ? <Icon size={16} aria-hidden="true" /> : null}
     <span className="sb-menu-copy"><span>{row.label}</span>{row.hint && <small id={hintId}>{row.hint}</small>}</span>
-    {row.kbd && <kbd className="sb-kbd" aria-hidden="true">{row.kbd}</kbd>}
+    {row.kbd && <kbd className="sb-kbd" aria-hidden="true">{keyLabel(row.kbd)}</kbd>}
   </button>;
 }
 
@@ -136,8 +137,9 @@ function useIndicator(navRef, key) {
 function NavItem({ row, current, rail, onNavigate }) {
   const Icon = iconOf(row.icon);
   const name = itemName(row);
+  const shortcut = keyLabel(row.shortcut); // nav-model keeps ⌘1; Windows shows Ctrl+1
   return <button type="button" className="sb-item" data-spot={row.spot} aria-current={current ? 'page' : undefined} aria-label={name !== row.label ? name : undefined}
-    aria-keyshortcuts={row.shortcut ? ariaKeys(row.shortcut) : undefined} title={!rail && row.shortcut ? `${row.label} (${row.shortcut})` : undefined} data-tip={rail ? [name, row.shortcut].filter(Boolean).join(' · ') : undefined} onClick={() => onNavigate?.(row)}>
+    aria-keyshortcuts={row.shortcut ? ariaKeys(row.shortcut) : undefined} title={!rail && shortcut ? `${row.label} (${shortcut})` : undefined} data-tip={rail ? [name, shortcut].filter(Boolean).join(' · ') : undefined} onClick={() => onNavigate?.(row)}>
     <Icon size={18} strokeWidth={1.75} aria-hidden="true" /><span className="sb-text">{row.label}</span>
     {row.badge > 0 ? <span className="sb-badge" aria-hidden="true">{row.badge > 99 ? '99+' : row.badge}</span> : row.warn ? <span className="sb-warn" aria-hidden="true" /> : row.live ? <span className="sb-live" aria-hidden="true" /> : null}
   </button>;
@@ -311,7 +313,10 @@ export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: 
   const semrush = edition !== 'general';
   const name = viewer.name || viewer.email || 'You';
   const label = viewer.roleLabel || roleLabel(viewer.role);
-  const accountLine = preview ? `Viewing as ${label}` : [label, meta?.version ? `Version ${meta.version}` : web ? 'Shared studio' : 'On this Mac'].filter(Boolean).join(' · ');
+  const accountLine = preview ? `Viewing as ${label}` : [label, meta?.version ? `Version ${meta.version}` : web ? 'Shared studio' : `On ${place()}`].filter(Boolean).join(' · ');
+  // Key caps, tooltips and aria-keyshortcuts in Mac form (⌘K, Meta+K) on the Mac, and Ctrl+K, Control+K elsewhere.
+  const mac = isMac();
+  const keys = (shortcut) => keyLabel(shortcut, mac);
 
   // New: the main rows, then (after a separator) the admin rows. Find new trends with several programs lists them.
   const createRow = (row) => (row.id === 'research' && row.choices?.length
@@ -349,19 +354,19 @@ export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: 
         {semrush ? <img src={semrushWordmark} alt="Semrush" className="sb-wordmark" />
           : <span className="sb-brand"><span className="sb-mark" aria-hidden="true"><Layers size={19} strokeWidth={1.8} /></span><strong className="sb-brand-text">scraper<span>studio</span></strong></span>}
         {drawer ? <button type="button" className="studio-icon-button sb-drawer-close" aria-label="Close menu" onClick={close}><X size={18} aria-hidden="true" /></button>
-          : onToggleRail && !narrow && <button type="button" className="sb-collapse" data-spot="nav.collapse" aria-label={railed ? 'Expand sidebar' : 'Collapse sidebar'} aria-keyshortcuts="Meta+\" title={railed ? undefined : 'Collapse sidebar (⌘\\)'} data-tip={railed ? 'Expand sidebar · ⌘\\' : undefined} onClick={onToggleRail}>{railed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>}
+          : onToggleRail && !narrow && <button type="button" className="sb-collapse" data-spot="nav.collapse" aria-label={railed ? 'Expand sidebar' : 'Collapse sidebar'} aria-keyshortcuts={ariaKeys('⌘\\', mac)} title={railed ? undefined : `Collapse sidebar (${keys('⌘\\')})`} data-tip={railed ? `Expand sidebar · ${keys('⌘\\')}` : undefined} onClick={onToggleRail}>{railed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>}
       </header>
       <WorkspaceSwitcher viewer={viewer} edition={edition} workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} mode={mode} web={web} busy={busy} rail={railed} single={singleWorkspace} onSelectWorkspace={onSelectWorkspace} onNewWorkspace={onNewWorkspace} onDone={close} />
       {(create.length > 0 || search || ask) && <div className="sb-actions">
         {create.length > 0 && <MenuButton label="New" rows={newRows} placement={railed ? 'right' : 'bottom'} openKey={newMenuKey} menuClass="sb-new-menu"
-          buttonClass="sb-create" buttonProps={{ 'data-spot': 'nav.new', 'aria-keyshortcuts': 'Alt+Meta+N', title: railed ? undefined : 'New (⌥⌘N)', 'data-tip': railed ? 'New · ⌥⌘N' : undefined }}
-          buttonContent={<><Plus size={17} strokeWidth={2.2} aria-hidden="true" /><span className="sb-text">New</span><kbd className="sb-kbd" aria-hidden="true">⌥⌘N</kbd></>} />}
-        {search && <button type="button" className="sb-search" data-spot={search.spot} aria-label="Search reports, trends and pages" aria-keyshortcuts="Meta+K" title={railed ? undefined : 'Search reports, trends and pages (⌘K)'} data-tip={railed ? 'Search · ⌘K' : undefined} onClick={() => { close(); onSearch(); }}>
-          <Search size={16} aria-hidden="true" /><span className="sb-text">{search.label}</span><kbd className="sb-kbd" aria-hidden="true">⌘K</kbd>
+          buttonClass="sb-create" buttonProps={{ 'data-spot': 'nav.new', 'aria-keyshortcuts': ariaKeys('⌥⌘N', mac), title: railed ? undefined : `New (${keys('⌥⌘N')})`, 'data-tip': railed ? `New · ${keys('⌥⌘N')}` : undefined }}
+          buttonContent={<><Plus size={17} strokeWidth={2.2} aria-hidden="true" /><span className="sb-text">New</span><kbd className="sb-kbd" aria-hidden="true">{keys('⌥⌘N')}</kbd></>} />}
+        {search && <button type="button" className="sb-search" data-spot={search.spot} aria-label="Search reports, trends and pages" aria-keyshortcuts={ariaKeys('⌘K', mac)} title={railed ? undefined : `Search reports, trends and pages (${keys('⌘K')})`} data-tip={railed ? `Search · ${keys('⌘K')}` : undefined} onClick={() => { close(); onSearch(); }}>
+          <Search size={16} aria-hidden="true" /><span className="sb-text">{search.label}</span><kbd className="sb-kbd" aria-hidden="true">{keys('⌘K')}</kbd>
         </button>}
-        {ask && onAsk && <button type="button" className="sb-ask" data-spot={ask.spot} aria-keyshortcuts="Meta+J" title={railed ? undefined : `${ask.label} (⌘J)`} data-tip={railed ? 'Ask AI · ⌘J' : undefined}
+        {ask && onAsk && <button type="button" className="sb-ask" data-spot={ask.spot} aria-keyshortcuts={ariaKeys('⌘J', mac)} title={railed ? undefined : `${ask.label} (${keys('⌘J')})`} data-tip={railed ? `Ask AI · ${keys('⌘J')}` : undefined}
           {...(ask.mode === 'page' ? { 'aria-current': askCurrent ? 'page' : undefined } : { 'aria-expanded': askExpanded, 'aria-controls': 'help-drawer' })} {...askItem.dragProps} onClick={() => { close(); askItem.clear(); onAsk(); }}>
-          <Sparkles size={17} strokeWidth={1.9} aria-hidden="true" /><span className="sb-text">{ask.label}</span>{askItem.dot && !askCurrent && !askExpanded && <span className="sb-ask-dot" role="img" aria-label="A new answer is ready" />}<kbd className="sb-kbd" aria-hidden="true">⌘J</kbd>
+          <Sparkles size={17} strokeWidth={1.9} aria-hidden="true" /><span className="sb-text">{ask.label}</span>{askItem.dot && !askCurrent && !askExpanded && <span className="sb-ask-dot" role="img" aria-label="A new answer is ready" />}<kbd className="sb-kbd" aria-hidden="true">{keys('⌘J')}</kbd>
         </button>}
       </div>}
       <NavGroups groups={groups} activeId={activeId} rail={railed} onNavigate={go} onToggleDataTools={onToggleDataTools} />

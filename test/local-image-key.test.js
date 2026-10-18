@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { canSymlink } from './helpers/can-symlink.js';
 const { readLocalImageKey } = createRequire(import.meta.url)('../src/main/local-image-key');
 function withRoot(fn) { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-key-fixture-')); try { return fn(root); } finally { fs.rmSync(root, { recursive: true, force: true }); } }
 describe('explicit image credential file boundary', () => {
@@ -13,7 +14,7 @@ describe('explicit image credential file boundary', () => {
     expect(process.env).toEqual(before);
     expect(readLocalImageKey({ appPath: root })).toBe('');
   }));
-  it('does not follow symlinked credential files', () => withRoot(root => {
+  it.runIf(canSymlink)('does not follow symlinked credential files', () => withRoot(root => {
     fs.writeFileSync(path.join(root, 'elsewhere'), 'OPENAI_API_KEY=fixture-private-value');
     fs.symlinkSync(path.join(root, 'elsewhere'), path.join(root, '.env.local'));
     expect(() => readLocalImageKey({ appPath: root, enabled: true })).toThrow('could not be read');
@@ -38,7 +39,7 @@ describe('explicit image credential file boundary', () => {
     fs.writeFileSync(path.join(root, '.env.local'), 'OPENAI_API_KEY=fixture-fallback');
     expect(() => readLocalImageKey({ credentialFile, appPath: root, enabled: true })).toThrow('could not be read');
   }));
-  it('does not follow an explicitly configured symlink', () => withRoot(root => {
+  it.runIf(canSymlink)('does not follow an explicitly configured symlink', () => withRoot(root => {
     const target = path.join(root, 'real.env'); const linked = path.join(root, 'linked.env');
     fs.writeFileSync(target, 'OPENAI_API_KEY=fixture-private-value'); fs.symlinkSync(target, linked);
     expect(() => readLocalImageKey({ credentialFile: linked })).toThrow('could not be read');

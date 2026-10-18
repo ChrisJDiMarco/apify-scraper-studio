@@ -9,6 +9,7 @@ import { InviteDialog } from './invite-dialog.jsx';
 import { RolesMatrix } from './roles-matrix.jsx';
 import { AccessLog } from './access-log.jsx';
 import { firstName, writeProps } from './viewer.js';
+import { place } from './platform.js';
 import './people-view.css';
 
 export { linkMessage, linkStatus } from './person-sheet.jsx';
@@ -27,10 +28,11 @@ function readTab() { try { const value = window.localStorage.getItem(TAB_KEY); r
 function saveTab(value) { try { window.localStorage.setItem(TAB_KEY, value); } catch { /* a blocked store just forgets the tab */ } }
 
 function MacPeople({ channels, onPreview }) {
+  const here = place();
   return <>
     <section className="people-mac-note" aria-labelledby="people-mac-title">
       <span className="people-mac-icon" aria-hidden="true"><Monitor size={22} /></span>
-      <div><h2 id="people-mac-title">Only you use the studio on this Mac</h2><p>People sign in to the browser version of the studio. On this Mac you’re the only user and always an admin. To check what someone else sees, use View as in the sidebar.</p></div>
+      <div><h2 id="people-mac-title">Only you use the studio on {here}</h2><p>People sign in to the browser version of the studio. On {here} you’re the only user and always an admin. To check what someone else sees, use View as in the sidebar.</p></div>
     </section>
     <section className="people-section" aria-labelledby="people-preview-title">
       <div className="people-section-head"><h2 id="people-preview-title" className="studio-section-title">Preview a role</h2>{onPreview && <button type="button" className="studio-quiet small" onClick={() => onPreview({ role: 'editor' })}><Eye size={15} aria-hidden="true" />Preview as an editor</button>}</div>
@@ -165,7 +167,7 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
   function rolesSaved(access) { if (access) setTeam((current) => (current ? { ...current, access } : current)); reload(); }
 
   const heading = <div className="studio-page-head">
-    <div><h1>People & access</h1><p>Who can use the studio and what they can do. {web ? (signIn.sso ? 'People sign in with their company account.' : links ? 'Each person signs in with their own link.' : '') : 'On this Mac, roles and the access log change what View as shows.'}</p></div>
+    <div><h1>People & access</h1><p>Who can use the studio and what they can do. {web ? (signIn.sso ? 'People sign in with their company account.' : links ? 'Each person signs in with their own link.' : '') : `On ${place()}, roles and the access log change what View as shows.`}</p></div>
     {team && <div className="studio-head-actions">
       {canPreviewAny && <button type="button" className="studio-quiet" onClick={() => setPreviewing(true)}><Eye size={16} aria-hidden="true" />Preview as…</button>}
       {canInvite && !firstRun && <button type="button" className="studio-primary" {...writeProps(viewer, busy)} onClick={() => setInvite({ preset: {} })}><UserPlus size={16} aria-hidden="true" />Invite people</button>}

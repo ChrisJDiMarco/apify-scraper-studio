@@ -15,15 +15,17 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { parseArgs, sha256, defaultDataDir, stamp, serverState, FORMAT, FORMAT_VERSION } = require('./studio-backup.cjs');
+const { parseArgs, sha256, defaultDataDir, stamp, serverState, TAR, FORMAT, FORMAT_VERSION } = require('./studio-backup.cjs');
 
 const SUPPORTED_TEAM_VERSION = (() => { try { return require('../src/main/team-store').TEAM_VERSION; } catch (_) { return null; } })();
 const STAGING = /^\.(?:pre-restore|restore)-/;
 
 // An archive may hold only plain files and folders with relative names, checked before anything is unpacked (a link
 // inside it could otherwise point the unpacking outside the data folder).
+// tar (TAR: Windows' own by its full path there) gets the archive's absolute path and never starts in the archive's
+// folder, where on Windows a tar.exe left beside a downloaded backup would be found first.
 function checkArchive(file) {
-  const run = (flags) => execFileSync('tar', [flags, file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 }).split('\n').filter(Boolean);
+  const run = (flags) => execFileSync(TAR, [flags, file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 }).split(/\r?\n/).filter(Boolean);
   const kinds = run('-tvzf').map((line) => line[0]);
   if (kinds.some((kind) => kind !== '-' && kind !== 'd')) throw new Error('The backup archive holds links or special files, so it wasn’t unpacked. Use an archive made by scripts/studio-backup.cjs.');
   const names = run('-tzf');
@@ -88,7 +90,7 @@ function restore({ from, dataDir = defaultDataDir(), yes = false, force = false,
   try {
     // Unpacked inside the data folder, so the final moves are renames on one filesystem.
     if (fs.statSync(source).isDirectory()) fs.cpSync(source, staging, { recursive: true, verbatimSymlinks: true });
-    else { checkArchive(source); execFileSync('tar', ['-xzf', source, '-C', staging], { stdio: ['ignore', 'ignore', 'pipe'] }); }
+    else { checkArchive(source); execFileSync(TAR, ['-xzf', source, '-C', staging], { stdio: ['ignore', 'ignore', 'pipe'] }); }
     const root = backupRoot(staging); const manifest = verify(root);
     log(`Checked ${manifest.files.length} files from a backup made ${manifest.createdAt}${manifest.appVersion ? ` by studio ${manifest.appVersion}` : ''}${['running', 'recent'].includes(manifest.server) ? ' while the server was running' : ''}.`);
     if (manifest.settled === false) log('Note: files were still changing while that backup was made, so some may be from slightly different moments.');

@@ -13,6 +13,7 @@ import { revealSection, useSectionSpy } from './section-spy.js';
 import { SettingsNav } from './settings-nav.jsx';
 import { MondaySettings } from './monday-settings.jsx';
 import { DriveSettings } from './drive-settings.jsx';
+import { isMac, place } from './platform.js';
 import './settings-view.css';
 
 // The Mac app's "Studio web address": the browser studio's address, so Copy link in reports, the Library and channel
@@ -28,7 +29,7 @@ function WebAddressSection({ settings = {}, busy, onSaveSettings }) {
     setProblem(''); onSaveSettings({ studioWebAddress: value.trim() ? clean : '' });
   }
   return <section className="settings-block settings-links" aria-labelledby="settings-links-title" data-spot="settings.web-address">
-    <div className="panel-head"><div><h3 id="settings-links-title">Studio web address</h3><p>Copy link in reports, the Library and channel briefs builds links on the browser studio’s address, so teammates open them there. Leave it blank and Copy link stays hidden on this Mac.</p></div><Badge tone={saved ? 'ready' : 'neutral'}>{saved ? 'Links on' : 'Optional'}</Badge></div>
+    <div className="panel-head"><div><h3 id="settings-links-title">Studio web address</h3><p>Copy link in reports, the Library and channel briefs builds links on the browser studio’s address, so teammates open them there. Leave it blank and Copy link stays hidden on {place()}.</p></div><Badge tone={saved ? 'ready' : 'neutral'}>{saved ? 'Links on' : 'Optional'}</Badge></div>
     <label htmlFor="settings-web-address">Browser studio address</label>
     <div className="inline"><input id="settings-web-address" type="url" inputMode="url" autoComplete="url" spellCheck="false" placeholder="https://studio.example.com" value={value} aria-invalid={problem ? 'true' : undefined} aria-describedby={problem ? 'settings-web-address-error' : undefined} onChange={(event) => { setValue(event.target.value); setProblem(''); }} /><Button type="button" disabled={busy || (!value.trim() && !saved) || (Boolean(clean) && clean === saved)} onClick={save}>Save</Button>{saved && <Button type="button" className="ghost" disabled={busy} onClick={() => { setValue(''); onSaveSettings({ studioWebAddress: '' }); }}>Clear</Button>}</div>
     {problem ? <p id="settings-web-address-error" className="error-line" role="alert">{problem}</p> : <small>{clean && clean !== saved ? `Links will start with ${clean}/#/…` : saved ? `Links start with ${saved}/#/…` : 'Ask whoever runs the browser studio for its address.'}</small>}
@@ -174,7 +175,7 @@ function DiagnosticsSection({ state, meta, busy, web, setupApi }) {
     </div>}
     <div className="settings-diagnostics-check"><Button type="button" className="ghost" disabled={busy || checking} onClick={checkConnections}>{checking ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <ShieldCheck size={15} aria-hidden="true" />}{checking ? 'Checking…' : 'Check connections'}</Button><small>Reads every AI connection’s version, sign-in and saved key again. Free: nothing is sent to a model.</small></div>
     <div className="readiness-grid">
-      {readinessItems(state, meta, aiStatus || { connections: [] }).map((original) => original.id === 'apify' ? { ...original, detail: state.keys?.APIFY_API_TOKEN ? (web ? 'Saved on the studio server' : original.detail) : 'Not connected yet. Add the token under Source collection, at the top of this page.' }
+      {readinessItems(state, { ...meta, mac: isMac() }, aiStatus || { connections: [] }).map((original) => original.id === 'apify' ? { ...original, detail: state.keys?.APIFY_API_TOKEN ? (web ? 'Saved on the studio server' : original.detail) : 'Not connected yet. Add the token under Source collection, at the top of this page.' }
         : web && original.id === 'workspace' ? { ...original, label: 'Studio server', tone: 'ready', detail: 'Workspace data is saved on the studio server.' }
         : original).concat(aiStatus ? [] : [{ id: 'ai', label: 'AI connections', tone: 'neutral', detail: 'Not checked yet. Choose Check connections.' }]).map((item) => (
         <article className="readiness-card" key={item.id}>

@@ -10,7 +10,7 @@
 .simple-shell[data-edition="general"]:not(.studio-frame *) { --s-accent: #c9ff35; --s-accent-strong: #b5ea1f; --s-soft: #f2fbdc; }
 .simple-shell {
   display: flex; flex-direction: column; height: 100%; color: var(--s-ink); background: var(--s-bg);
-  font-family: Lazzer, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Arial, sans-serif;
+  font-family: Lazzer, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Inter, Arial, sans-serif;
 }
 .simple-shell button { font-family: inherit; }
 .simple-shell button:hover { transform: none; box-shadow: none; }

@@ -13,18 +13,27 @@ const { buildCodexCommand } = require('../shared/codex-runner');
 const CODEX_COST_BASIS = 'Codex reports no cost; it uses your ChatGPT plan or the key Codex signed in with';
 
 // A quick, free CLI call for status checks (version, sign-in): resolves { code, stdout, stderr }, or { missing: true } when
-// the command isn't installed. Never throws.
-function createCliProbe({ spawn, env = () => ({ ...process.env }), timeoutMs = 10000 }) {
+// the command isn't installed. Never throws. kill(child) stops one that ran past its time (index.js stops the whole tree).
+function createCliProbe({ spawn, env = () => ({ ...process.env }), timeoutMs = 10000, kill = (child) => child.kill('SIGTERM') }) {
   return (command, args, options = {}) => new Promise((resolve) => {
     let child; let stdout = ''; let stderr = ''; let settled = false;
     const done = (result) => { if (settled) return; settled = true; clearTimeout(timer); resolve(result); };
     try { child = spawn(command, args, { env: env(), cwd: options.cwd }); } catch (error) { resolve({ missing: error?.code === 'ENOENT', code: null, stdout: '', stderr: String(error?.message || error) }); return; }
-    const timer = setTimeout(() => { try { child.kill('SIGTERM'); } catch (_) { /* gone */ } done({ code: null, stdout, stderr, timedOut: true }); }, options.timeoutMs || timeoutMs);
+    const timer = setTimeout(() => { try { kill(child); } catch (_) { /* gone */ } done({ code: null, stdout, stderr, timedOut: true }); }, options.timeoutMs || timeoutMs);
     child.stdout?.on('data', (chunk) => { stdout += chunk.toString(); });
     child.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
     child.on('error', (error) => done({ missing: error?.code === 'ENOENT', code: null, stdout, stderr: stderr || String(error?.message || error) }));
     child.on('close', (code) => done({ code, stdout, stderr }));
   });
+}
+
+// Removes a CLI's temporary folder without ever failing the call it served. On Windows a folder a process (or a virus
+// scan) still holds can't be removed yet, so it is retried in the background. Synchronous whenever removal works.
+function removeQuietly(dir, { fsImpl = fs } = {}) {
+  try { fsImpl.rmSync(dir, { recursive: true, force: true }); } catch (error) {
+    const warn = () => console.warn(`A temporary folder was left behind (${error.code || error.message}): ${dir}`);
+    try { fsImpl.promises.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(warn); } catch (_) { warn(); }
+  }
 }
 
 // Splits streamed stdout into lines and hands each event line's answer text to onDelta.
@@ -61,8 +70,8 @@ function createClaudeCliRunner({ spawnCli, writeJson, cliInfo = async () => ({})
 // in an empty private folder outside the data folder, gets the prompt on stdin (no prompt file is written anywhere), has
 // its tools off and a read-only sandbox (codex-runner.js), and its answer is copied to outputPath here.
 // support() → codexExecSupport flags; ignoreUserConfig() → skip the CLI's own config; wrapper(text) → the Codex framing;
-// efforts(model) → the reasoning levels Codex lists for a model (null when unknown).
-function createCodexRunner({ spawnCli, writeJson, support = async () => ({}), ignoreUserConfig = () => false, wrapper = (text) => text, efforts = () => null, tmpdir = os.tmpdir }) {
+// efforts(model) → the reasoning levels Codex lists for a model (null when unknown); remove(dir) clears the private folder.
+function createCodexRunner({ spawnCli, writeJson, support = async () => ({}), ignoreUserConfig = () => false, wrapper = (text) => text, efforts = () => null, tmpdir = os.tmpdir, remove = removeQuietly }) {
   async function run({ schema, prompt, cachePrefix = '', model = '', effort = '', timeoutMs, outputPath, jobId }) {
     const text = cachePrefix ? cachePrefix + prompt : prompt;
     const levels = efforts(model);
@@ -78,7 +87,7 @@ function createCodexRunner({ spawnCli, writeJson, support = async () => ({}), ig
       let output = null; try { output = raw ? JSON.parse(raw) : null; } catch (_) { output = null; }
       if (outputPath) { if (output !== null) writeJson(outputPath, output); else if (raw) fs.writeFileSync(outputPath, raw); } // kept for the receipt
       return { ...result, output, receipt: { provider: 'codex', requestedModel: model || 'Codex default', actualModel: '', costUsd: null, ...(chosen ? { effort: chosen } : {}), ...(effortNote ? { effortNote } : {}), ...(codexUsage(result.stdout) ? { usage: codexUsage(result.stdout) } : {}), costBasis: CODEX_COST_BASIS } };
-    } finally { fs.rmSync(isolated, { recursive: true, force: true }); }
+    } finally { try { remove(isolated); } catch (_) { /* cleanup never replaces the answer or its error */ } }
   }
   return { run };
 }
@@ -94,4 +103,4 @@ function codexUsage(stdout) {
   return usage && (usage.input_tokens || usage.output_tokens) ? usage : null;
 }
 
-module.exports = { createCliProbe, createClaudeCliRunner, createCodexRunner, codexUsage, lineReader, CODEX_COST_BASIS };
+module.exports = { createCliProbe, createClaudeCliRunner, createCodexRunner, codexUsage, lineReader, removeQuietly, CODEX_COST_BASIS };

@@ -47,6 +47,7 @@ import { UnsavedContext, createUnsavedGuard } from './asset-editor.jsx';
 import { requestNoteFocus } from './report-editor/events.js';
 import { LOCAL_ADMIN_FALLBACK, PREVIEW_TITLE, ViewerContext, adminNames, can as canCall, canRun as canRunCall, roleLabel } from './viewer.js';
 import { Button, StatusBanner, number, withViewTransition } from './ui.jsx';
+import { isMac } from './platform.js';
 import './studio-frame.css';
 
 // What disconnecting each credential stops, so the confirmation says what is at stake.
@@ -200,6 +201,7 @@ function StudioApp({ api }) {
   // The browser studio runs on a server: "open" and "reveal" become downloads there.
   const web = meta?.runtime === 'web';
   const fileNotice = (desktopText) => (web ? 'Download started.' : desktopText);
+  const revealed = isMac() ? 'revealed in Finder' : 'shown in File Explorer';
   const [state, setState] = useState(EMPTY_STATE);
   // Who is looking, as the server projected it. Old mocks and the Mac before its first push act as the local admin.
   const viewer = state.viewer || LOCAL_ADMIN_FALLBACK;
@@ -354,7 +356,10 @@ function StudioApp({ api }) {
 
   // One keyboard handler for every layout (keysRef is filled in below, once the nav model is known): ⌘1–9 open pages in
   // nav order, ⌘K search, ⌘J Ask AI (Simple's page, Advanced's drawer), ⌘, Settings, ⌘\ the rail, ⌥⌘N the New menu,
-  // and Esc closes the palette. Keys are matched by code too, since ⌥ changes event.key on the Mac (⌥N is a dead key).
+  // and Esc closes the palette. ⌥⌘N is also matched by code, since ⌥ changes event.key on the Mac (⌥N is a dead key).
+  // Windows reports AltGr as Ctrl+Alt, so Ctrl+Alt+N matches event.key, not the code, and AltGr is let through: on some
+  // layouts AltGr+N types a character (ń on Polish, } on Czech). The AltGr check skips ⌘, since Firefox on the Mac reports
+  // ⌥ as AltGraph.
   const keysRef = useRef({});
   useEffect(() => {
     function onKeyDown(event) {
@@ -363,7 +368,11 @@ function StudioApp({ api }) {
       if (!(event.metaKey || event.ctrlKey) || event.isComposing || !keys.mode) return;
       const code = event.code || '';
       if (event.altKey) {
-        if ((code === 'KeyN' || String(event.key).toLowerCase() === 'n') && !event.shiftKey && keys.canCreate) { event.preventDefault(); setPaletteOpen(false); keys.openNew(); }
+        if (!event.metaKey && event.getModifierState?.('AltGraph')) return;
+        // The code still counts with ⌘, or when the key isn't a Latin character: a Russian, Greek or Hebrew layout has no
+        // AltGr level, so its Ctrl+Alt+N reports the layout's own letter (т, ν, מ).
+        const isN = String(event.key).toLowerCase() === 'n' || (code === 'KeyN' && (event.metaKey || /[^\u0000-\u024F]/.test(String(event.key))));
+        if (isN && !event.shiftKey && keys.canCreate) { event.preventDefault(); setPaletteOpen(false); keys.openNew(); }
         return;
       }
       if (event.shiftKey) return;
@@ -1163,7 +1172,7 @@ function StudioApp({ api }) {
 
   const content = useMemo(() => {
     const common = { state, busy };
-    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} runRequest={runRequest} createRequest={createRequest} onViewChange={(view) => { if (view !== studioView && !guard.confirmLeave()) return; withViewTransition(() => setStudioView(view)); }} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onProgramRequestHandled={(key) => setProgramRequest((current) => (current?.key === key ? null : current))} onAsk={askAllowed ? (text, context, extra) => openAskAiRef.current(text, { context, attachments: extra?.attachments }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} onMakeAssets={(request) => openKitDialogRef.current(request)} onContextChange={setClassicContext} briefingActions={briefingActionsRef.current} web={web} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice('Asset revealed in Finder.'))} />} />;
+    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} runRequest={runRequest} createRequest={createRequest} onViewChange={(view) => { if (view !== studioView && !guard.confirmLeave()) return; withViewTransition(() => setStudioView(view)); }} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onProgramRequestHandled={(key) => setProgramRequest((current) => (current?.key === key ? null : current))} onAsk={askAllowed ? (text, context, extra) => openAskAiRef.current(text, { context, attachments: extra?.attachments }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} onMakeAssets={(request) => openKitDialogRef.current(request)} onContextChange={setClassicContext} briefingActions={briefingActionsRef.current} web={web} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={() => <BrandContextView {...common} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice(`Asset ${revealed}.`))} />} />;
     if (active === 'sheets') return <SheetsView api={api} state={state} initialWorkbookId={sheetRequest.id} workbookRequestKey={sheetRequest.key} onNavigate={(target, args = {}) => (target === 'research-programs' ? (args?.runId ? openTargetRef.current({ kind: 'run', id: String(args.runId), page: 'research' }) : navigateStudio('research')) : target === 'trend-board' ? navigateStudio('board') : navigate(target))} />;
     if (active === 'templates') return <TemplateLibraryView {...common} onChooseTemplate={choosePlaybook} onNavigate={navigate} />;
     if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), '', true)} onNavigate={navigate} />;
@@ -1205,7 +1214,7 @@ function StudioApp({ api }) {
           onExportDataset={(datasetId, format) => runAction(() => api.exportDataset({ datasetId, format }), (result) => `Exported ${result.itemCount} rows to ${result.format.toUpperCase()}.`)}
           onExportDatasetToSheets={(datasetId) => runBackground(`sheets-export:${datasetId}`, 'Sending rows to Google Sheets', () => api.exportDatasetToSheets({ datasetId }), (result) => `Wrote ${number(result.rowCount || 0)} rows to ${result.tabName || 'Sheets'}.`)}
         />)}
-        renderConversations={() => <ThreadsView {...common} payload={datasetPayload} selectedDataset={selectedDataset} onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)} onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), fileNotice('Analysis output opened.'))} onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), fileNotice('Analysis output revealed in Finder.'))} onAnalyze={(datasetId, kind) => runBackground(`analyze:${datasetId}:${kind}`, 'Conversation summary', () => api.analyzeDataset({ datasetId, kind }), 'Conversation summary complete.')} />} />;
+        renderConversations={() => <ThreadsView {...common} payload={datasetPayload} selectedDataset={selectedDataset} onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)} onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), fileNotice('Analysis output opened.'))} onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), fileNotice(`Analysis output ${revealed}.`))} onAnalyze={(datasetId, kind) => runBackground(`analyze:${datasetId}:${kind}`, 'Conversation summary', () => api.analyzeDataset({ datasetId, kind }), 'Conversation summary complete.')} />} />;
     }
     if (active === 'reports') {
       return (
@@ -1222,7 +1231,7 @@ function StudioApp({ api }) {
           onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)}
           onAnalyze={(datasetId, kind, options = {}) => runBackground(`analyze:${datasetId}:${kind}`, 'Dataset report', () => api.analyzeDataset({ datasetId, kind, ...options }), 'Dataset report ready.')}
           onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), fileNotice('Analysis output opened.'))}
-          onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), fileNotice('Analysis output revealed in Finder.'))}
+          onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), fileNotice(`Analysis output ${revealed}.`))}
         />
       );
     }
@@ -1385,7 +1394,7 @@ function StudioApp({ api }) {
   // One frame for every layout and role: the sidebar is never remounted, only the main column changes, so focus stays
   // on the control just pressed (the layout switch, View as) while the page beside it changes.
   return <ViewerContext.Provider value={viewer}><UnsavedContext.Provider value={guard}>
-    <div ref={frameRef} className={`app-shell studio-frame${web ? '' : ' is-desktop'}`} data-edition={semrushShell ? 'semrush' : 'general'} data-mode={mode} data-rail={rail ? '' : undefined}>
+    <div ref={frameRef} className={`app-shell studio-frame${web ? '' : ' is-desktop'}`} data-platform={isMac() ? 'mac' : 'other'} data-edition={semrushShell ? 'semrush' : 'general'} data-mode={mode} data-rail={rail ? '' : undefined}>
       <StudioSidebar edition={semrushShell ? 'semrush' : 'general'} meta={meta} web={web} viewer={viewer} nav={nav} activeId={activeNavId} mode={mode} busy={busy} workspaces={contentWorkspaces} activeWorkspaceId={contentWorkspace?.id || ''}
         rail={rail} onToggleRail={toggleRail} drawerOpen={drawerOpen} onCloseDrawer={() => setDrawerOpen(false)}
         onNavigate={openNavItem} onCreate={createFromNav} onSearch={() => setPaletteOpen(true)} onAsk={toggleAsk} askCurrent={mode === 'simple' && simpleTab === 'ask'} askExpanded={mode === 'classic' && helpOpen} onToggleDataTools={toggleDataTools}

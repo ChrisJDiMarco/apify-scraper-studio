@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CircleAlert, Download, FileCheck2, KeyRound, LoaderCircle, Upload } from 'lucide-react';
 import { Button, number } from './ui.jsx';
+import { isMac, place as thisComputer } from './platform.js';
 import './setup-share.css';
 
 // Share a configured workspace: the owner exports one file; a teammate previews and imports it in one step.
@@ -29,7 +30,8 @@ function SetupContents({ summary }) {
 }
 
 export function SetupShare({ api, mode = 'full', web = false, onImported, onOpenPrograms }) {
-  const place = web ? 'in this studio' : 'on this Mac';
+  const mac = isMac();
+  const place = web ? 'in this studio' : `on ${thisComputer(mac)}`;
   const [includeToken, setIncludeToken] = useState(false);
   const [preview, setPreview] = useState(null);
   const [saveToken, setSaveToken] = useState(false);
@@ -70,7 +72,7 @@ export function SetupShare({ api, mode = 'full', web = false, onImported, onOpen
       <SetupContents summary={preview.summary} />
       {preview.summary?.changes?.length > 0 && <ul className="setup-share-changes">{preview.summary.changes.map((line) => <li key={line}>{line}</li>)}</ul>}
       {preview.warnings?.length > 0 && <ul className="setup-share-warnings">{preview.warnings.map((line) => <li key={line}><CircleAlert size={13} aria-hidden="true" />{line}</li>)}</ul>}
-      {preview.apifyTokenIncluded && <label className="setup-share-check"><input type="checkbox" checked={saveToken} disabled={Boolean(busy)} onChange={(event) => setSaveToken(event.target.checked)} /><span><KeyRound size={13} aria-hidden="true" /> Save the Apify token from this file{preview.apifyTokenSaved ? ` (replaces the one saved ${place})` : ''}<small>{web ? 'Stored encrypted on the studio server' : "Stored encrypted in this Mac's keychain"}, like a token you paste in Settings.</small></span></label>}
+      {preview.apifyTokenIncluded && <label className="setup-share-check"><input type="checkbox" checked={saveToken} disabled={Boolean(busy)} onChange={(event) => setSaveToken(event.target.checked)} /><span><KeyRound size={13} aria-hidden="true" /> Save the Apify token from this file{preview.apifyTokenSaved ? ` (replaces the one saved ${place})` : ''}<small>{web ? 'Stored encrypted on the studio server' : mac ? "Stored encrypted in this Mac's keychain" : 'Stored on this PC, encrypted with your Windows sign-in'}, like a token you paste in Settings.</small></span></label>}
       <div className="setup-share-buttons"><Button type="button" disabled={Boolean(busy)} onClick={applySetup}>{spinner('apply', FileCheck2)}Import this setup</Button><Button type="button" className="ghost" disabled={Boolean(busy)} onClick={() => setPreview(null)}>Cancel</Button></div>
     </div>}
 

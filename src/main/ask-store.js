@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { writeFileDurable } = require('../shared/durable-write');
 
 const ASK_VERSION = 1;
 const MAX_CONVERSATIONS = 200; // per person; past this the oldest unpinned conversations are deleted
@@ -194,27 +195,25 @@ function createAskStore({ root, now = () => new Date() } = {}) {
   const files = (identityId) => { const dir = personDir(identityId); return { dir, index: path.join(dir, 'index.json'), memory: path.join(dir, 'memory.json'), conversations: path.join(dir, 'c') }; };
   const conversationFile = (identityId, id) => path.join(files(identityId).conversations, `${id}.json`);
 
-  // Same pattern as team-store's writeFile: a pid-named temp file, fsync, rename, then fsync the folder.
+  // Same pattern as team-store's writeFile: a private temp file, fsync, rename (retried on Windows while a scanner holds
+  // the file), then fsync the folder (src/shared/durable-write.js).
   function writeFile(target, value) {
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-    const temp = `${target}.${process.pid}.tmp`;
-    try {
-      const fd = fs.openSync(temp, 'w', 0o600);
-      try { fs.writeFileSync(fd, JSON.stringify(value, null, 1)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-      fs.renameSync(temp, target);
-    } catch (error) { try { fs.unlinkSync(temp); } catch (_) { /* Nothing was left behind. */ } throw error; }
-    let directory;
-    try { directory = fs.openSync(path.dirname(target), 'r'); fs.fsyncSync(directory); }
-    catch (error) { if (!['EINVAL', 'ENOTSUP', 'EPERM', 'EACCES', 'EISDIR'].includes(error.code)) throw error; }
-    finally { if (directory != null) fs.closeSync(directory); }
+    writeFileDurable(target, JSON.stringify(value, null, 1));
   }
   // A damaged file is moved aside (never deleted, so it can be recovered by hand) and Ask AI starts that part afresh
-  // rather than refusing every question. A file from a newer build stops instead, so nothing newer is overwritten.
+  // rather than refusing every question. A file from a newer build stops instead, so nothing newer is overwritten. A file
+  // that can't be read right now (on Windows, a scanner or backup agent holding it) is not damaged: the call stops and
+  // nothing is moved, so the next write can't replace someone's history with an empty one.
   function readFile(target, fresh) {
-    let parsed;
-    try { parsed = JSON.parse(fs.readFileSync(target, 'utf8')); }
+    let text; let parsed;
+    try { text = fs.readFileSync(target, 'utf8'); }
     catch (error) {
       if (error.code === 'ENOENT') return { value: fresh(), found: false };
+      throw Object.assign(fail('Ask AI’s saved conversations and memory could not be read right now; nothing was changed. Try again.', 503), { code: 'askUnreadable' });
+    }
+    try { parsed = JSON.parse(text); }
+    catch (_) {
       try { fs.renameSync(target, `${target}.unreadable-${clock()}`); } catch (_) { /* Left in place; the next write replaces it. */ }
       return { value: fresh(), found: false, damaged: true };
     }

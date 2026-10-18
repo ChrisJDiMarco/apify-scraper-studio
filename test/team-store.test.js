@@ -32,7 +32,7 @@ describe('team file', () => {
     expect(TEAM_VERSION).toBe(2);
     expect(saved.members[0].id).toMatch(/^member-[0-9a-f-]{36}$/);
     expect(fs.readdirSync(h.root).filter((name) => name.endsWith('.tmp'))).toEqual([]);
-    expect(fs.statSync(path.join(h.root, 'team.json')).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(fs.statSync(path.join(h.root, 'team.json')).mode & 0o777).toBe(0o600);
     expect(h.open().listMembers()).toEqual(h.store.listMembers()); // load once, then everything is in memory
   });
 

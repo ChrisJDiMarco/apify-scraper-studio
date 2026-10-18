@@ -34,7 +34,7 @@ describe('the report editor and notes on the browser studio', () => {
     runtime.onPersonal('person', (target, event) => heard.push({ to: target.identityId, event }));
     vm.runInNewContext(fs.readFileSync(mainPath, 'utf8'), {
       require: (name) => (name === 'child_process' ? { spawn: () => { throw new Error('No processes in this test.'); } } : mainRequire(name)),
-      process: { pid: process.pid, platform: process.platform, env: { STUDIO_RUNTIME: 'web', STUDIO_PASSWORD: 'report-editor-gate-password' }, argv: [] },
+      process: { pid: process.pid, platform: 'darwin', env: { STUDIO_RUNTIME: 'web', STUDIO_PASSWORD: 'report-editor-gate-password' }, argv: [] },
       __dirname: path.dirname(mainPath), Buffer, URL, AbortController, setTimeout, clearTimeout, setInterval, clearInterval, setImmediate,
       fetch: () => { throw new Error('Network access is forbidden in this test.'); },
     }, { filename: mainPath });

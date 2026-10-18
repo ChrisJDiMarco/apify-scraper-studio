@@ -77,32 +77,39 @@ prompts and formats) and `general`. The browser studio has one active workspace 
 | --- | --- |
 | Version | `0.3.0` (`package.json`). No git tags yet. |
 | Branch | `redesign/ai-library-access`, 4 commits ahead of `main` at `62cb9da` plus the uncommitted final build-out. Merge to `main` and tag before handing out builds. |
-| Last full test run | `npm test` passed with 111 files and 1,537 tests at `3d11204` (2026-10-17, from that commit's message). The suite now has 123 test files. |
+| Last full test run | `npx vitest run` passed with 199 files and 2,357 tests on 2026-10-18 (macOS), on the uncommitted Windows work on top of `a944e67`. |
 | Final build-out (2026-10-17) | Five workstreams (web server, data safety, Ask AI reach, UX flows, cleanup and CI) plus these docs. Each ran the Vitest suites for what it touched, and they passed; the full suite was not run afterwards (the machine was shared). **Run `npm run check` first.** |
-| Prompt goldens | `node scripts/prompt-goldens.mjs --check`: 99 cases, 0 differences. |
-| Lint | `npm run lint`: 0 errors, about 98 warnings (mostly `react-hooks/exhaustive-deps`). |
+| Prompt goldens | `node scripts/prompt-goldens.mjs --check`: 111 cases, 0 differences. |
+| Lint | `npm run lint`: 0 errors, 79 warnings (mostly `react-hooks/exhaustive-deps`). |
 | Production audit | `npm audit --omit=dev`: 0 vulnerabilities (10 dev-only advisories remain; see follow-ups). |
-| Builds | `npm run build:web` compiles. The existing `dist/Scraper Studio-0.3.0-universal.dmg` (built 2026-10-17 11:44) predates the Ask AI schema fix `62cb9da` and the final build-out; rebuild before sharing. The Docker image has not been built since the Dockerfile changed (its launcher was tested in a `node:24-bookworm` container). |
-| Never verified live | Ask AI after the schema flattening (`62cb9da`) on any route; quick scans; prompt test runs; the Claude CLI and Codex routes end to end; X `since_time:` hour windows; a deployed Sheets bridge or Drive delivery; the deploy kit's oauth2-proxy options; Windows; notarization; Electron fuses on a built app; the new UI in a real browser (jsdom tests only). |
+| Builds | `npm run build` and `npm run build:web` compile. An unsigned Windows x64 zip of the app, `dist/Scraper-Studio-0.3.0-Windows-x64.zip`, was built on this Mac on 2026-10-18 (`npx electron-builder --win zip --x64 --publish never`). The existing `dist/Scraper Studio-0.3.0-universal.dmg` (built 2026-10-17 11:44) predates the Ask AI schema fix `62cb9da` and the final build-out; rebuild before sharing. The Docker image has not been built since the Dockerfile changed (its launcher was tested in a `node:24-bookworm` container). |
+| Windows | The Windows 10/11 x64 build is implemented (`npm run dist:win`, see [Windows desktop](#windows-desktop)), and its unit tests run on macOS with the platform faked. An unsigned x64 zip of the app was built on this Mac on 2026-10-18 (`Scraper Studio.exe` is PE32+ x86-64, the fuses read as configured, the app icon replaces Electron's), but it has not been run on Windows. No installer has been built yet: the NSIS step needs Rosetta on Apple silicon (`makensis` fails with error -86 without it), or the `windows-installer` CI job on windows-latest. It is unsigned until Semrush supplies signing. |
+| Never verified live | Ask AI after the schema flattening (`62cb9da`) on any route; quick scans; prompt test runs; the Claude CLI and Codex routes end to end; X `since_time:` hour windows; a deployed Sheets bridge or Drive delivery; the deploy kit's oauth2-proxy options; the Windows app on a real Windows PC; notarization; Electron fuses on a built app; the new UI in a real browser (jsdom tests only). |
 | Not switched on | Dark mode tokens exist but nothing enables them. Auto-update code exists but has no feed and nothing calls it. |
 
 ## Quickstart for a new developer
 
-Prerequisites: macOS or Linux, Node 24 (`.nvmrc`; `package.json` `engines` allows `>=22.13.0`), git. For live AI you
-need either the Claude app (Claude Code, signed in) or an Anthropic API key; for collection, an Apify token.
+Prerequisites: macOS, Windows 10/11 or Linux, Node 24 (`.nvmrc`; `package.json` `engines` allows `>=22.13.0`), git. For
+live AI you need either the Claude app (Claude Code, signed in) or an Anthropic API key; for collection, an Apify token.
 
 ```bash
 git clone <internal repo URL> scraper-studio && cd scraper-studio
 nvm use                 # Node 24
-npm ci                  # also downloads Electron
+npm ci
 npm test                # Vitest; offline, never spends money
-npm run dev             # the Mac app with hot reload (electron-vite)
+npm run dev             # the desktop app with hot reload (electron-vite); downloads Electron the first time (predev)
 ```
 
-`npm run dev` uses the same data folder as an installed Mac app (`~/Library/Application Support/apify-scraper-studio`
-on macOS, from the package name), so quit the installed app first, and never while it is running work: the
-data-folder lock refuses a second process.
+`npm run dev` uses the same data folder as an installed desktop app (`~/Library/Application Support/apify-scraper-studio`
+on macOS, `%APPDATA%\apify-scraper-studio` on Windows, from the package name), so quit the installed app first, and
+never while it is running work: the data-folder lock refuses a second process.
 `npm run start:semrush` builds and opens the app straight into the Semrush workspace.
+
+**On Windows** use PowerShell and Git for Windows. nvm-windows ignores `.nvmrc`, so name the version: `nvm install 24`
+then `nvm use 24` (or `fnm use`, which reads `.nvmrc`, or `volta install node@24`). Then `npm ci`, `npm test` and
+`npm run dev` as above. Environment variables use PowerShell syntax, for example
+`$env:STUDIO_WORKSPACE_MODE='multi'; npm run dev`. The repository's `.gitattributes` keeps every text file LF, so no
+`core.autocrlf` change is needed. Run `scripts/make-handoff.sh` from Git Bash.
 
 The browser studio locally (use a throwaway data folder):
 
@@ -157,7 +164,7 @@ tree, build outputs).
 | `src/preload/index.js` | The Mac bridge (`window.apifyStudio`), written by hand. |
 | `src/web/` | The browser entry: `main.jsx`, `web-api.js` (derived from the channel map). |
 | `scripts/` | Launcher (`studio-web.cjs`), backup and restore, build helpers (`copy-main-modules.mjs`, `build-mac-icon.mjs`), prompt goldens, smoke tests (some paid; see [Testing and CI](#testing-and-ci)), the Sheets bridge (`google-sheets-webhook.gs`), `make-handoff.sh`. |
-| `test/` | Vitest suites (123 files), fixtures (`test/fixtures/prompts/` holds the 99 prompt goldens), helpers. |
+| `test/` | Vitest suites (199 files), fixtures (`test/fixtures/prompts/` holds the 111 prompt goldens), helpers. |
 | `deploy/` | Docker Compose (Caddy + oauth2-proxy + studio) and systemd kits. |
 | `docs/` | The app guide (Ask AI's runtime knowledge), web deploy guide, roles and access, design records, archive. See [docs/README.md](docs/README.md). |
 | `resources/` | App icon and macOS entitlements. |
@@ -396,12 +403,14 @@ existing data and how to undo it.
 | `APIFY_STUDIO_AUTO_UPDATE_URL` | Generic update feed URL. Auto-update is inert (nothing calls it); only release diagnostics read it. |
 | `CLAUDE_MODEL` | Model for scripts that create a studio host directly; the app uses Settings. |
 | `STUDIO_VERIFICATION_DIR` | Where `scripts/service-smoke.cjs` writes receipts (default: a fresh temp folder). |
-| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Notarization; runs only when all three are set. |
-| `CSC_NAME` | Signing identity for electron-builder. |
+| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Notarization; runs only when all three are set, and only for a macOS build. |
+| `CSC_NAME` | Signing identity for electron-builder (Mac). Windows signing is read by electron-builder from `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`, or from Azure Trusted Signing options; never leave a Mac `CSC_LINK` set for a Windows build ([RUNBOOK.md](RUNBOOK.md#release-the-windows-app)). |
 
 **Set by tooling** (don't set by hand): `STUDIO_RUNTIME` (`web`, set by the launcher; switches the main process to the
 browser studio), `ELECTRON_RENDERER_URL` (electron-vite dev), and `SHELL`, `PATH`, `HOME`, `USER`, `LOGNAME`, `APPDATA`
-(read from the OS to find the `claude` and `codex` tools and to reset the user after `STUDIO_RUN_AS`).
+(read from the OS to find the `claude` and `codex` tools and to reset the user after `STUDIO_RUN_AS`). On Windows also
+`USERPROFILE` (the home folder, through `os.homedir()`), `SystemRoot` (where `taskkill.exe` is, to stop an AI tool and
+its children) and `ProgramFiles` (the fallback `node.exe` for an npm-installed tool), all read from the OS.
 
 **Settings stored in data** (`data.json` `settings`, validated in `src/shared/validation.js`): Model routing
 (`aiRouting`, written only by `saveAiRouting`), the text route and model it mirrors for older readers (`aiProvider`,
@@ -414,8 +423,9 @@ presets: `src/shared/quick-scan.json`.
 
 ## Data model and storage
 
-Everything lives in one data folder: `~/Library/Application Support/apify-scraper-studio` on the Mac (the name is
-`INTERNAL_APP_NAME`; keep it) and `STUDIO_DATA_DIR` on the server.
+Everything lives in one data folder: `~/Library/Application Support/apify-scraper-studio` on the Mac and
+`%APPDATA%\apify-scraper-studio` (Roaming) on Windows (the name is `INTERNAL_APP_NAME`; keep it), and `STUDIO_DATA_DIR`
+on the server.
 
 ```
 <data>/
@@ -540,7 +550,8 @@ proxy, on its own subdomain. One replica only.
   reports can take minutes; Cloudflare cuts at 100 s), keep-alive below `STUDIO_KEEPALIVE_SECONDS`.
 - **Two breaking changes in the final build-out**: company sign-in now needs `STUDIO_TRUSTED_PROXY_CIDRS` or
   `STUDIO_PROXY_SECRET`, and the launcher refuses to run as root without `STUDIO_RUN_AS`.
-- Full guide: [docs/web-deploy.md](docs/web-deploy.md). Desktop release: [RUNBOOK.md](RUNBOOK.md#release-the-mac-app).
+- Full guide: [docs/web-deploy.md](docs/web-deploy.md). Desktop release: [RUNBOOK.md](RUNBOOK.md#release-the-mac-app)
+  and [the Windows app](RUNBOOK.md#release-the-windows-app).
 
 ## Operations
 
@@ -570,12 +581,21 @@ proxy, on its own subdomain. One replica only.
 
 - **CI** (`.github/workflows/ci.yml`, never yet run on GitHub): on push and pull request, Ubuntu runs `npm ci`, lint,
   `npm test`, `build:web`, prompt goldens and `npm audit --omit=dev --audit-level=high`; macOS runs `npm ci` and
-  `npm test`. Dependabot (`.github/dependabot.yml`) updates npm and Actions weekly.
+  `npm test`. Two Windows jobs on windows-latest: `windows-test` installs the real npm packages of Codex and Claude
+  Code and checks that the studio finds and starts them without a shell, then runs lint, `npm test`, prompt goldens
+  and both builds (not the desktop smoke test, which is out of date; see Known issues); `windows-installer` (not on pull requests) runs `npm run dist:win`, uploads
+  the unsigned installer, installs it silently, launches it once and uploads a screenshot. Expect the first run to
+  surface problems in every job. Dependabot (`.github/dependabot.yml`) updates npm and Actions weekly.
 - **Guards worth knowing**: `test/roles.test.js` (every method in exactly one capability; method counts),
   `test/web-parity.test.js` (preload and web API expose the same methods), `test/build-modules.test.js` (every module
   main loads is copied into the build), `test/help-assistant-prompts.test.js` (Ask AI schema stays small),
   `test/no-native-dialogs.test.js`, `test/docs-consistency.test.js` (this file's config table, scripts and links;
-  the app guide's size and wording).
+  the app guide's size and wording), `test/windows-packaging.test.js` (the `dist:win` flags, the installer name, the
+  notarize hook skipping Windows, `resources/installer.nsh`, `.gitattributes`).
+- **Windows in the suite**: the suites that load `src/main/index.js` in a `vm` pass a fake `process.platform`, so every
+  Windows branch reads the main process's own `process.platform` (or takes a `platform` option) and is tested on macOS.
+  Tests that need POSIX file modes skip that one check on Windows, and symlink tests run only where
+  `test/helpers/can-symlink.js` can make a link (Windows needs Developer Mode for that).
 - **The report editor in jsdom**: suites that mount it import `test/helpers/prosemirror-dom.js` (Range rects and
   `elementFromPoint`, which ProseMirror measures with) and type through the editor's commands (`textbox.editor`), since
   jsdom has no real text input. `test/report-editor.test.jsx`, `report-editor-markdown.test.js` (round trip of every
@@ -737,23 +757,58 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
 - Fuses (`build.electronFuses`) haven't been read back from a built app. Turning off `NODE_OPTIONS` also disables
   `NODE_EXTRA_CA_CERTS`: test the DMG behind Semrush's TLS inspection. `enableCookieEncryption` is one-way.
 - Notarization runs twice when the Apple variables are set (electron-builder 26 itself, plus the `afterSign` hook
-  `scripts/notarize-if-configured.cjs`); delete the hook and its `afterSign` line.
+  `scripts/notarize-if-configured.cjs`); delete the hook and its `afterSign` line. The hook already skips Windows builds.
+- `npm run release:diagnostics` (`scripts/release-diagnostics.mjs`) fails on every OS with "buildReleaseDiagnostics is
+  not a function": `src/shared/v5-core.js` no longer exports it. It was left in place for now. Restore the function, or
+  delete the script, its npm script and its mentions in README.md, RUNBOOK.md and docs/macos-app.md together. To check
+  a build meanwhile, read its fuses with `npx @electron/fuses read --app <app>`.
 - Auto-update is dead code (`configureAutoUpdates` in `index.js`; nothing calls `checkForUpdates`, the mac target is
   DMG only, and the embedded `app-update.yml` points at a personal GitHub). Remove it, or make it real (DMG + zip
   targets, `build.publish` to an internal host, a check after start, install only when nothing runs).
 - `index.js` loads `ELECTRON_RENDERER_URL` even in packaged builds; gate it on `!app.isPackaged`. Consider dropping
   `disable-library-validation` from the entitlements.
-- CI has never run on GitHub; the suite has only run on macOS. Actions are pinned to major tags, not SHAs. Docker
-  base-image updates aren't in Dependabot.
-- Windows (`npm run dist:win`) is untested.
+- CI has never run on GitHub, its Windows jobs included; the suite has only run on macOS. Actions are pinned to major
+  tags, not SHAs. Docker base-image updates aren't in Dependabot.
+- Windows (`npm run dist:win`): implemented, and its unit tests run on macOS; no installer built or installed on a real
+  PC yet, and unsigned. See [Windows desktop](#windows-desktop).
 - `scripts/content-studio-live.cjs` and `scripts/image-provider-live.cjs` still write receipts into
   `docs/verification/`, and `scripts/service-smoke.cjs --review` navigates by pre-redesign page names ("Chat with
-  findings", "AI reports", "Search platforms" buttons), so it likely fails on the current UI.
+  findings", "AI reports", "Search platforms" buttons), so it likely fails on the current UI. `npm run test:desktop`
+  (`scripts/desktop-smoke.cjs`) has the same problem: it waits for `nav[aria-label=Primary]`, which the redesigned
+  sidebar (`aria-label="Main"`) doesn't have, and times out on the Mac (checked Oct 18). It's left out of CI until it
+  follows the redesign; RUNBOOK's release check and docs/macos-app.md still name it.
 - `.dockerignore` doesn't exclude `docs/archive/` (about 38 MB of old screenshots sent as build context; the final
   image copies only `docs/app-guide.md`).
 - Unused files: icon sources in `resources/` (`icon-source.png`, `icon-source-ai.png`,
   `scraper-studio-icon-orange-concept.png`). The September screenshots now sit in `docs/archive/assets/`; they could
   leave the tree entirely (git history keeps them).
+
+### Windows desktop
+
+- **State.** The Windows 10/11 x64 build is implemented: `npm run dist:win` builds an NSIS installer,
+  `dist/Scraper-Studio-<version>-Windows-x64.exe` (per-user by default; the person can choose the folder). The unit
+  tests for every Windows branch run on macOS with the platform injected. No installer has been built or installed on
+  a real PC yet.
+- **Building it.** electron-builder's bundled `makensis` is an Intel binary, so on Apple silicon the build needs
+  Rosetta (`softwareupdate --install-rosetta --agree-to-license`, a one-time admin step), or the `windows-installer` CI
+  job on windows-latest. Commands and checks: [RUNBOOK.md](RUNBOOK.md#release-the-windows-app).
+- **Unsigned** until Semrush supplies signing: SmartScreen shows "Windows protected your PC" and "Unknown publisher"
+  (More info → Run anyway), and WDAC, AppLocker or Smart App Control on managed PCs may block it outright. The routes
+  are in [Decisions](#decisions-semrush-must-make-before-go-live).
+- **What CI can't check** (one tester on real Windows 10/11, about 30 minutes): Settings → AI connections with Claude
+  Code (native and npm installs) and Codex signed in shows no console windows and Check passes; one Ask AI answer, then
+  Cancel during a Codex call leaves no `codex.exe` in Task Manager; closing the window during a run asks first and
+  **Keep working** keeps the window; after restarting Windows with the app open, it opens again without an "already
+  open" error; a CSV export opens in Excel with accents intact, and re-exporting while it is open works; AltGr on a
+  Polish (Programmers) keyboard; snapping to half the screen at 150% scaling; the SmartScreen path.
+- **Updates** are manual, as on the Mac: quit the app, run the new installer. The installer waits until the app is
+  closed (`resources/installer.nsh`) instead of ending it mid-run. Uninstalling keeps the data folder.
+- **Closing the window quits the app** on Windows, so research schedules and workflows run only while it is open.
+- **Saved keys** are encrypted with DPAPI for the Windows user: any program running as that user can decrypt them
+  ([SECURITY.md](SECURITY.md#secrets-at-rest-and-in-memory)).
+- **Mac-only tools**: `npm run dist:mac`, `npm run icons:mac` and `scripts/installed-app-continuity.cjs`. Not built:
+  Windows on Arm, a tray icon, and native Windows hosting of the browser studio (use Docker Desktop:
+  [docs/web-deploy.md](docs/web-deploy.md#hosting-on-windows)).
 
 ### Security gaps to close before wider use
 
@@ -777,7 +832,8 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
 | **Spend caps** | Per-run budgets, Ask AI $0.75/call; studio-wide limits off. | Set `STUDIO_DAILY_AI_BUDGET_USD` and `STUDIO_AI_CONCURRENCY`, Apify account limits, and who may start research. Decide whether the Apify token may travel in setup files. |
 | **Data retention** | Collected posts (third-party authors and text), Ask AI conversations and memory, activity and access logs are kept until deleted or trimmed by the limits above. | Write a retention policy; decide whether admins may read others' Ask AI conversations (today: no). |
 | **Google account** | The Sheets bridge runs as whoever deployed it. | Use a dedicated Google account; schedule the bridge-auth follow-up. |
-| **Open product questions** | From the design review. | Should quick scans count toward momentum fully? Should the trend linker feed back into paid runs? Is the shared admin-password identity (`owner`) acceptable? Is Windows in scope? |
+| **Windows release** | An unsigned x64 build exists ([Windows desktop](#windows-desktop)). `package.json` `author` is the original developer, there is no `build.copyright` (electron-builder then writes "Copyright © <year> <author>" into the installer and the exe), and `build.appId` is the personal reverse-domain id; all three were left as they are. | Before the first tester install: the publisher name for `author` and `build.copyright` (it should match the signing certificate's subject); the final `appId` (the installer's GUID and the taskbar identity derive from it, so changing it later means a second install and split taskbar icons); the signing route: Azure Trusted Signing (preferred; runs on windows-latest), the Adobe/Semrush signing service, or a `.pfx` in `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`; the data folder (Roaming `%APPDATA%` today, or `%LOCALAPPDATA%`: ask IT about roaming profiles and folder redirection, and decide before testers have data); endpoint policy (per-user installs under `%LOCALAPPDATA%\Programs`, WDAC or AppLocker, Controlled Folder Access); how testers install Codex and Claude Code; which GitHub repository runs CI and holds the signing secrets. |
+| **Open product questions** | From the design review. | Should quick scans count toward momentum fully? Should the trend linker feed back into paid runs? Is the shared admin-password identity (`owner`) acceptable? Is Windows in scope for go-live (the build exists; see the row above)? |
 
 ## Glossary: UI term and code identifier
 

@@ -6,7 +6,7 @@ Labels in **bold** are the exact words you see in the app. This guide says how t
 
 ## What Scraper Studio is for
 
-Scraper Studio is a Mac app for social listening research and content. It collects public posts from X (Twitter), LinkedIn and Reddit through Apify, uses Claude to find the trends in those posts, writes an evidence-backed trends report and an editorial toolkit for each trend you approve, and turns them into channel content.
+Scraper Studio is a desktop app (Mac or Windows) for social listening research and content. It collects public posts from X (Twitter), LinkedIn and Reddit through Apify, uses Claude to find the trends in those posts, writes an evidence-backed trends report and an editorial toolkit for each trend you approve, and turns them into channel content.
 
 The research pipeline reproduces the team's earlier n8n "Golden Thread" workflow (same sources, batch sizes, scoring and sheet layout), so a few labels mention n8n.
 
@@ -61,7 +61,7 @@ Numbers on pages count only work waiting on you: **Trends** (and the **Trend boa
 
 **The rail.** The collapse button or ⌘\ shrinks the sidebar to a narrow column of icons; hover or focus an icon to see its name, and press again to expand it. Counts become dots. Your choice is saved for you. Until you choose, windows between 861 and 1100 pixels wide get the rail. On a narrow window or a phone the sidebar opens from the **Menu** button at the top left instead.
 
-**Keyboard shortcuts** (the account menu's **Keyboard shortcuts** lists the ones you have; outside the Mac, use Ctrl for ⌘ and Alt for ⌥):
+**Keyboard shortcuts** (the account menu's **Keyboard shortcuts** lists the ones you have; on Windows the app shows Ctrl for ⌘ and Alt for ⌥):
 
 | Keys | What it does |
 | --- | --- |
@@ -300,7 +300,19 @@ Scraper Studio also runs as a website: the same pages and features as the Mac ap
 - **Files:** where the Mac app shows a file dialog, the browser opens its own file picker and uploads the file. Exports, **Open file**, and **Show in Finder** download the file instead; an export folder downloads as one .zip. **Open data folder** and **Open workspace** aren't available, because folders stay on the server.
 - **Runs keep going** when a browser tab closes; they run on the server. Reopen the site to follow them. The Mac app's quit warning doesn't apply.
 - **Share links** use the site's address, so **Copy link** always works here (see [Share links](#share-links)).
-- **Not in the browser studio:** the Mac installer, "Open Anyway" and Claude Code on your own computer.
+- **Not in the browser studio:** the Mac and Windows installers, "Open Anyway" and Claude Code on your own computer.
+
+## On Windows
+
+The desktop app also runs on Windows 10 and 11 (64-bit); LIVE CONTEXT's edition then says "Windows app". Elsewhere in this guide, "the Mac" and "the Mac app" mean the desktop app, and what they say applies on Windows too, except:
+
+- **Installing:** run the installer (`Scraper-Studio-<version>-Windows-x64.exe`) and choose a folder. While the build isn't code-signed, SmartScreen says "Windows protected your PC": click **More info**, then **Run anyway**. A managed work PC may block it; ask IT to allow it.
+- **Updating:** no automatic updates. Close the app's window to quit it (not during a run), then run the new installer; if the app is still open, the installer asks you to close it and click **Retry**. Your data stays.
+- **Closing the window quits the app** and stops schedules (it asks first if work is still running). Keep it open, or minimized, while a schedule should run, and keep the PC awake.
+- **Keys and tokens** are encrypted with your Windows sign-in (Windows data protection, DPAPI), not a keychain. Only your Windows account on that PC can read them, so a copied data folder can't.
+- **Your data:** `%APPDATA%\apify-scraper-studio`. **Show in File Explorer**, **Open data folder** and **Save folder** (into Downloads) open File Explorer, where the Mac says Finder.
+- **Shortcuts:** Ctrl where this guide says ⌘, Alt for ⌥ and Shift for ⇧: Ctrl+K search, Ctrl+J Ask AI, Ctrl+Alt+N New, Ctrl+1 to Ctrl+9 pages, Ctrl+Alt+M a note. In Sheets, Ctrl+Y also redoes. The app's labels already show them this way. Press Alt to show the menu bar.
+- **Claude Code and Codex:** sign in from Command Prompt (`claude auth login`, `codex login`) where the Mac uses Terminal, then click **Check connections** in Settings. In PowerShell, type `codex.cmd login` (and `claude.cmd` for an npm-installed Claude Code): PowerShell otherwise runs the `.ps1` version, which Windows blocks by default ("running scripts is disabled on this system").
 
 ## Roles and access
 
@@ -346,7 +358,7 @@ On the Mac, People & access has no invitations or sign-in links (people sign in 
 
 ## First-time setup checklist
 
-Use this list for a new Mac install.
+Use this list for a new Mac install (on Windows, step 1 is in [On Windows](#on-windows)).
 
 1. **Install and open.** Open the DMG and drag **Scraper Studio** into Applications. A build that isn't notarized by Apple is stopped once at first launch: open the app, click **Done** when macOS says it can't verify it, then open System Settings → Privacy & Security, scroll to Security and click **Open Anyway** next to the Scraper Studio message, and confirm with your password. Alternatively, run `xattr -dr com.apple.quarantine "/Applications/Scraper Studio.app"` once in Terminal before opening it.
 2. **Connect Claude.** Open **Settings → Writing & research**. Under **How to reach Claude**, keep **Automatic (recommended)**. Then do one of these:
@@ -471,7 +483,7 @@ At **Awaiting review**, use the **Trend board** (or Simple's Trends) or the run 
 
 The schedule box shows **Run on demand**, **Schedule is on** or **Schedule is paused**, the summary (for example "Every Monday at 09:00 · America/New_York") and **Next run**. **Pause schedule** and **Resume schedule** toggle it; pausing doesn't cancel a running run.
 
-- The app must be open and the Mac awake. Closing the window keeps the app running; quitting stops schedules.
+- The app must be open and the computer awake. On the Mac, closing the window keeps the app running; quitting stops schedules. On Windows, closing the window quits the app and stops schedules, so minimize it instead.
 - After sleep, only the latest missed time runs.
 - A time is skipped while the program's previous run is active or awaiting review ("The previous run is still active." / "The previous run is waiting for theme review.").
 - A failed, partial or cancelled scheduled run pauses the schedule with "Schedule paused: <reason>". Fix it, then **Resume schedule**.
@@ -722,7 +734,7 @@ Sections, top to bottom (Monday.com comes after Google Sheets):
 - **Google Sheets** (the Sheets bridge): **Apps Script webhook URL**, the working spreadsheet and tabs, **Folders for one-off Docs and exports** (Send to Google Docs, Sheets exports), plus **Save sheet settings**, **Test bridge**, **Archive + clear**, **Pull working sheet** and **Replay**.
 - **Studio web address** (Mac only): the browser studio's address, so **Copy link** works on the Mac and links open in the browser studio. Leave it blank and Copy link stays hidden on the Mac.
 - **Share your setup**:
-  - **Export this workspace**: tick **Include the shared Apify token** if you want it, then **Export setup…**. This saves one JSON file ("<workspace> setup <date>.json", in Documents by default) with the active workspace's brand knowledge, approved products, Enterprise product list, taxonomy, reference documents and all its research programs. It leaves out runs, collected posts, themes and trend history, reports, Sheets edits, other settings and every other key.
+  - **Export this workspace**: tick **Include the shared Apify token** if you want it, then **Export setup…**. This saves one JSON file ("<workspace> setup <date>.json", in Downloads by default) with the active workspace's brand knowledge, approved products, Enterprise product list, taxonomy, reference documents and all its research programs. It leaves out runs, collected posts, themes and trend history, reports, Sheets edits, other settings and every other key.
   - **Import a setup file**: **Import setup…** previews the file: workspace, programs ("updates the existing program" when you already have it), what changes, and warnings. Then **Import this setup** or **Cancel**.
   - Importing replaces the brand knowledge, products, taxonomy and reference documents of the first workspace with the same edition, adds or updates the file's programs, keeps your other programs and run history, and switches to that workspace. Imported schedules arrive paused. **Save the Apify token from this file** stores the token if the file has one.
   - A file holding the token is like a password: anyone with it can spend on that Apify account. Share it only internally. A file holds up to 50 programs and 20 reference documents.
@@ -913,19 +925,19 @@ It named tools that aren't listed under the chosen toolkit in your registry. Rev
 Yes, once an admin connects the Sheets bridge (Settings → Google Sheets; LIVE CONTEXT says whether it is connected): use **Export → Create Google Sheet…**. Without the bridge, use **Export → Download workbook (.xlsx)** and import it into Google Sheets (File → Import). For reports, use **Export pack** or **Export run**, or **Copy text** in Reports or the Library.
 
 **The app asked me before quitting.**
-If a research run, content run, chat answer, scraper run or other AI work is running, quitting shows "Something is still running" with **Keep working** and **Quit anyway**. Quitting anyway stops the work and loses AI work in progress. Apify jobs already started finish on Apify's servers within their caps. Later, **Retry unfinished outputs** keeps every finished step. Closing the window instead keeps the app and schedules running.
+If a research run, content run, chat answer, scraper run or other AI work is running, quitting shows "Something is still running" with **Keep working** and **Quit anyway**. Quitting anyway stops the work and loses AI work in progress. Apify jobs already started finish on Apify's servers within their caps. Later, **Retry unfinished outputs** keeps every finished step. On the Mac, closing the window instead keeps the app and schedules running; on Windows, closing the window quits and asks the same question.
 
 **My scheduled run didn't happen.**
-See [Schedules](#schedules): the app must be running and the Mac awake, runs are skipped while the previous run is active or awaiting review, and a failed scheduled run pauses the schedule. Imported schedules arrive paused: click **Resume schedule**.
+See [Schedules](#schedules): the app must be running (on Windows, with its window open) and the computer awake, runs are skipped while the previous run is active or awaiting review, and a failed scheduled run pauses the schedule. Imported schedules arrive paused: click **Resume schedule**.
 
 **Import setup failed.**
-"This is not a Scraper Studio setup file." means the wrong file. "…from a newer Scraper Studio. Update the app…" needs the newer app. "Program "…" already belongs to "…"" means that program lives in another workspace on your Mac. "This preview has expired." means open the file again. Nothing is imported unless the whole file passes.
+"This is not a Scraper Studio setup file." means the wrong file. "…from a newer Scraper Studio. Update the app…" needs the newer app. "Program "…" already belongs to "…"" means that program lives in another workspace in this studio. "This preview has expired." means open the file again. Nothing is imported unless the whole file passes.
 
 **The app won't open a second copy.**
-Only one copy runs at a time; opening it again brings the existing window forward. "Workspace already in use" means another copy or server is using the data folder. Quit it first.
+Only one copy runs at a time; opening it again brings the existing window forward. "Scraper Studio is already open" means another copy, or a server, is using the data folder, or the app did not close cleanly. Quit the other copy first; if none is running, delete the lock file the message names and open the app again. "Scraper Studio could not open its data" means the data folder itself could not be used (its permissions, or a full disk); the message says which.
 
 **Where does my data live?**
-On the Mac, in `~/Library/Application Support/apify-scraper-studio` (**Settings → Local files & workspace details → Open data folder**). In the browser studio, on the studio server, in the folder its operator chose (`STUDIO_DATA_DIR`); **Open data folder** isn't available there, and keys are encrypted with the server's own secret key instead of the keychain. `content-studio` holds workspaces, programs and runs (one folder per run with its evidence, batches and reports), `content-studio/ask` holds each person's Ask AI conversations and memory, `content-studio/prompts` holds each workspace's prompt versions, and `content-studio/exports` holds exports. `workbooks` holds Sheets imports and edits, and `data.json` holds settings and Data tools data. On the Mac, keys are encrypted with the macOS keychain. Don't edit these files by hand.
+On the Mac, in `~/Library/Application Support/apify-scraper-studio`; on Windows, in `%APPDATA%\apify-scraper-studio` (**Settings → Local files & workspace details → Open data folder**). In the browser studio, on the studio server, in the folder its operator chose (`STUDIO_DATA_DIR`); **Open data folder** isn't available there, and keys are encrypted with the server's own secret key instead of the keychain. `content-studio` holds workspaces, programs and runs (one folder per run with its evidence, batches and reports), `content-studio/ask` holds each person's Ask AI conversations and memory, `content-studio/prompts` holds each workspace's prompt versions, and `content-studio/exports` holds exports. `workbooks` holds Sheets imports and edits, and `data.json` holds settings and Data tools data. On the Mac, keys are encrypted with the macOS keychain; on Windows, with your Windows sign-in (DPAPI). Don't edit these files by hand.
 
 **How do I report a problem?**
 Ask AI first. Then send the team: what you did and expected; a screenshot of the page and any message; a screenshot of **Settings → Connection diagnostics** (expanded); the program name and run start time (the run ID, starting `research-`, is under **Activity** → select the run → **Technical details**); and the app version (bottom of the sidebar) and macOS version. Never send API keys, or a setup file that contains the Apify token.
@@ -967,7 +979,7 @@ Ask AI first. Then send the team: what you did and expected; a screenshot of the
 - **On the Mac, everything is local to that Mac.** Runs, collected posts, trends and their history, Sheets edits, the Library and Ask AI conversations stay on the Mac that made them, and velocity and momentum count only its runs. Share setups with **Share your setup**, and results by exporting. The browser studio is one shared studio for everyone who signs in (see [The browser studio](#the-browser-studio)).
 - **Google delivery needs a connection.** New reports go to Drive once an admin sets up Settings → Google Drive. Create Google Sheet, Pull from a Google Sheets link, Publish to Google Drive and Save to Google Drive need the Sheets bridge (Settings → Google Sheets). Docs shared by link import without Google; private docs need a pasted token that expires.
 - **A Mac build that isn't notarized** makes macOS ask you to confirm it once (System Settings → Privacy & Security → **Open Anyway**) the first time you open it. There are no automatic updates: quit the app (not during a run), open the new DMG and replace the app; your data stays.
-- **Schedules run only while the app is open** and the Mac is awake (in the browser studio, while the server runs).
+- **Schedules run only while the app is open** and the computer is awake (on Windows, closing the window quits; in the browser studio, while the server runs).
 - **Ask AI acts only through buttons you click**, and paid work always asks first. It can't change settings, keys, connections, people or roles, delete anything for good or send messages; a drafted program or invite opens for you to save, and a prompt or report change saves only when you press **Apply**. It reads collected posts only through its post search (the top 12 matches), and its Show me tours cover the places listed under Ask AI; other Advanced pages get Open buttons.
 - **Prompts change only their editable parts.** The structure, the data sections and the answer format stay fixed, and the studio's checks on every answer apply whatever a prompt says. Prompt changes aren't part of setup files yet.
 - **Quick scans** stop after finding trends: they never go through review, tagging or reports, and one runs at a time per workspace.

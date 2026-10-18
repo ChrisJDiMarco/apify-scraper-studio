@@ -4,6 +4,7 @@
 // fsync, rename) before change() returns. A file from a newer studio refuses to start, like team.json.
 const fs = require('fs');
 const { LIMITS } = require('../shared/workflow-core');
+const { renameDurable } = require('../shared/durable-write');
 
 const STORE_VERSION = 1;
 const fresh = () => ({ version: STORE_VERSION, workflows: [], runs: [], playbooks: [] });
@@ -14,7 +15,7 @@ function defaultWriteJson(file, value) {
   const temp = `${file}.${process.pid}.tmp`;
   fs.mkdirSync(require('path').dirname(file), { recursive: true });
   fs.writeFileSync(temp, JSON.stringify(value, null, 2), { mode: 0o600 });
-  fs.renameSync(temp, file);
+  renameDurable(temp, file); // retried on Windows while a scanner holds the file
 }
 
 function createWorkflowStore({ file, writeJson = defaultWriteJson } = {}) {

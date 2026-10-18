@@ -8,8 +8,9 @@ the "what do I do" companion. Background: [HANDOFF.md](HANDOFF.md).
 
 | Environment | Needs |
 | --- | --- |
-| Development | macOS or Linux, Node 24 (`nvm use` reads `.nvmrc`), git. `npm ci` downloads Electron. |
+| Development | macOS, Windows 10/11 or Linux, Node 24 (`nvm use` reads `.nvmrc`; on Windows see [HANDOFF.md](HANDOFF.md#quickstart-for-a-new-developer)), git. `npm run dev` downloads Electron the first time (`predev`). |
 | Mac release | macOS with Xcode command-line tools, a Developer ID Application certificate, Apple notarization credentials. |
+| Windows release | A Mac with Rosetta (Apple silicon) or an Intel Mac, or the `windows-installer` CI job on windows-latest. Signing (when Semrush supplies it) runs on windows-latest. |
 | Browser studio | Linux with Docker (or Node 24 and systemd), a persistent volume, a TLS reverse proxy, an SSO proxy (recommended), outbound HTTPS to the providers below. |
 
 Outbound hosts the server calls: `api.anthropic.com`, `api.apify.com` (and Apify dataset storage), `api.openai.com`,
@@ -30,7 +31,8 @@ Never run `npm audit fix` or `npm install` with `--omit=dev` in a development ch
 dependencies (Vite, Vitest, Electron) from `node_modules`.
 
 `package.json` makes this a one-workspace build (`studioWorkspace`, below), and `npm run dev` uses your real data
-folder. To keep a second workspace while developing, start with `STUDIO_WORKSPACE_MODE=multi npm run dev`.
+folder. To keep a second workspace while developing, start with `STUDIO_WORKSPACE_MODE=multi npm run dev` (PowerShell:
+`$env:STUDIO_WORKSPACE_MODE='multi'; npm run dev`).
 
 ## Release the Mac app
 
@@ -42,8 +44,9 @@ folder. To keep a second workspace while developing, start with `STUDIO_WORKSPAC
    `dist/Scraper Studio-<version>-universal.dmg`. Without the Apple variables the build is signed but not notarized.
    Today notarization runs twice when they're set (electron-builder plus `scripts/notarize-if-configured.cjs`); remove
    the `afterSign` hook first (see [HANDOFF.md](HANDOFF.md#cleanup-dependencies-and-release)).
-4. Check: `npm run release:diagnostics`; `npx @electron/fuses read --app "dist/mac-universal/Scraper Studio.app"`;
-   `xcrun stapler validate` and `spctl -a -vv` on the app when notarized; `npm run test:desktop -- --with-data`.
+4. Check: `npx @electron/fuses read --app "dist/mac-universal/Scraper Studio.app"`; `xcrun stapler validate` and
+   `spctl -a -vv` on the app when notarized; `npm run test:desktop -- --with-data`. (`npm run release:diagnostics`
+   fails today; see [HANDOFF.md](HANDOFF.md#cleanup-dependencies-and-release).)
 5. Install over the previous version on a clean Mac account and confirm saved keys still decrypt and the data folder
    (`~/Library/Application Support/apify-scraper-studio`) is unchanged. `scripts/installed-app-continuity.cjs` probes a
    running installed app (read the header comment first).
@@ -69,6 +72,70 @@ and `STUDIO_WORKSPACE_NAME` override it. In single mode:
 - Setup files of the other edition are refused, and New workspace is refused by the server (409 `singleWorkspace`).
 - **Undo**: start once with `STUDIO_WORKSPACE_MODE=multi` (or remove the field). Archived workspaces come back, Main gets
   its old name back, and their schedules start again at their next time, never all at once.
+
+## Release the Windows app
+
+The Windows 10/11 x64 installer is unsigned until Semrush supplies signing (see
+[HANDOFF.md → Windows desktop](HANDOFF.md#windows-desktop)). Build it on a Mac or on CI:
+
+- **On a Mac.** electron-builder's bundled `makensis` is an Intel binary, so Apple silicon needs Rosetta once (a system
+  change; it asks for an admin password). Wine is not needed for an unsigned build.
+
+  ```bash
+  softwareupdate --install-rosetta --agree-to-license
+  arch -x86_64 /usr/bin/true && echo "Rosetta OK"
+  ```
+
+  Build from a clean checkout of the release commit. The subshell drops the Apple and Mac signing variables, so
+  neither notarization nor a Mac `.p12` touches the Windows build:
+
+  ```bash
+  (unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID CSC_LINK CSC_KEY_PASSWORD CSC_NAME WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; npm run dist:win 2>&1 | tee dist-win.log)
+  ```
+
+  The first build downloads Electron for Windows into `~/Library/Caches/electron`, so it needs a network connection.
+
+  Without Rosetta, a zip of the app (no installer) still builds, and it runs from the unzipped folder:
+  `(unset …the same variables…; npm run build && npx electron-builder --win zip --x64 --publish never)` writes
+  `dist/Scraper-Studio-<version>-Windows-x64.zip` and `dist/win-unpacked/`. `npm run dist:win` stops at the installer
+  step with `Cannot spawn …/makensis: Error: spawn Unknown system error -86` (Intel binary, no Rosetta).
+- **On CI.** The `windows-installer` job (`.github/workflows/ci.yml`, every push) builds the same installer, installs it
+  silently, launches it once and uploads it as the `scraper-studio-windows-x64` artifact:
+  `gh run download <run-id> -n scraper-studio-windows-x64`.
+
+Check the output:
+
+```bash
+ls -la dist/*-Windows-x64.exe dist/*-Windows-x64.exe.blockmap dist/latest.yml
+file "dist/win-unpacked/Scraper Studio.exe"      # expect PE32+ executable (GUI) x86-64; Aarch64 means the wrong arch
+npx --no-install electron-fuses read --app "dist/win-unpacked/Scraper Studio.exe"
+npx --no-install asar list "dist/win-unpacked/resources/app.asar" | grep -E "out/main/(index|studio-host|cli-runners)\.js|out/shared/(durable-write|text-decode)\.js"
+grep -i "default Electron icon" dist-win.log     # expect no match (the icon comes from resources/icon.icns)
+```
+
+The installer is `dist/Scraper-Studio-<version>-Windows-x64.exe` (with its `.blockmap` and `dist/latest.yml`); the
+unpacked app is `dist/win-unpacked/Scraper Studio.exe`. Record the commit SHA and `shasum -a 256` of the installer.
+
+**Install and update.** Run the installer; SmartScreen warns about an unsigned one ("Windows protected your PC": More
+info → Run anyway). It installs per user by default, and the person can choose the folder. A silent install for IT or
+testing: `Scraper-Studio-<version>-Windows-x64.exe /S /D=C:\path\to\folder` (`/D=` must be last and unquoted). There
+are no automatic updates: close the app's window (closing it quits the app on Windows, and it asks first if a run is
+going), then run the new installer. If the app is still open, the installer waits and asks the person to close it
+instead of ending it. The data folder,
+`%APPDATA%\apify-scraper-studio`, is kept across updates and uninstalls.
+
+**Signing** (once Semrush picks a route; the decision is in [HANDOFF.md](HANDOFF.md#decisions-semrush-must-make-before-go-live)):
+
+- Azure Trusted Signing (preferred) runs on windows-latest, because electron-builder installs the `TrustedSigning`
+  PowerShell module. With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` set as GitHub secrets, the job
+  runs `npx electron-builder --win --x64 --publish never -c.forceCodeSigning=true` plus
+  `-c.win.azureSignOptions.publisherName="<certificate subject CN>"`,
+  `-c.win.azureSignOptions.endpoint="https://<region>.codesigning.azure.net"`,
+  `-c.win.azureSignOptions.codeSigningAccountName="<account>"` and
+  `-c.win.azureSignOptions.certificateProfileName="<profile>"`. `package.json` stays unsigned by default.
+- A `.pfx` file: set `WIN_CSC_LINK` (a path, an https URL or base64) and `WIN_CSC_KEY_PASSWORD`, and add
+  `-c.win.signtoolOptions.signingHashAlgorithms=sha256`. **Never rely on `CSC_LINK` for Windows**: without the `WIN_`
+  variables electron-builder falls back to it and would sign the installer with the Mac Developer ID.
 
 ## Build and deploy the browser studio
 
@@ -162,7 +229,8 @@ npm run restore -- --from /var/backups/scraper-studio/scraper-studio-backup-<tim
 - **After a restore**: start with the same `STUDIO_SECRET_KEY`; in People & access, people added since the backup are
   missing, people removed since are back, and links made since don't work. Runs that were in progress show as stopped.
 - **The Mac app**: the same scripts take `--data "$HOME/Library/Application Support/apify-scraper-studio"`; quit the
-  app before a restore.
+  app before a restore. **The Windows app**: `--data "$env:APPDATA\apify-scraper-studio"` in PowerShell (Windows 10
+  and 11 include `tar`).
 - Practise a restore into a spare folder every quarter.
 
 ## Upgrades and migrations
@@ -191,7 +259,9 @@ npm run restore -- --from /var/backups/scraper-studio/scraper-studio-backup-<tim
 `content-studio/.studio-owner.json` keeps a second process off the folder. A lock left by a killed process is taken
 over automatically when it names this process's own PID (a container's main process always gets the same PID), a PID
 that no longer exists, or a boot that has ended; a lock from another host is taken over once its heartbeat is more
-than two minutes old, or after watching it for 40 s without a beat.
+than two minutes old, or after watching it for 40 s without a beat. The installed desktop app also takes over a lock
+that an earlier installed copy left on the same computer (after a crash, a restart or a Windows update), since only one
+copy can run at a time; locks from `npm run dev`, a server or version 0.3.0 keep the checks above.
 
 If startup still says "This studio data folder is already open in another server" and you are **sure** no other
 studio process uses the folder (check `docker ps`, other hosts mounting the volume, a Mac app pointed at it):
@@ -200,7 +270,9 @@ studio process uses the folder (check `docker ps`, other hosts mounting the volu
 2. Delete `content-studio/.studio-owner.json`, and `content-studio/.studio-owner-recovery` if present.
 3. Start again. Stale Apify collection locks (`content-studio/collections/*.lock`) are cleared when ownership is taken.
 
-On the Mac, "Workspace already in use" means another copy of the app (or a server) has the folder: quit it.
+On the desktop app (Mac or Windows), **Scraper Studio is already open** means another copy of the app (or a server)
+has the folder: quit it. If no copy is running (it didn't close cleanly), delete the lock file the message names and
+open the app again.
 
 ## Rotate keys and secrets
 
@@ -278,6 +350,9 @@ it. The other two still write receipts into `docs/verification/`: don't commit t
 scripts/make-handoff.sh ~/Desktop/scraper-studio-<version>-source.zip           # from HEAD
 scripts/make-handoff.sh --ref v<version> ~/Desktop/scraper-studio-<version>-source.zip
 ```
+
+On Windows, run it from Git Bash (Git for Windows ships `unzip`); a Windows path such as `C:\Users\<you>\Desktop\x.zip`
+works as the output.
 
 The script archives a committed git revision with `git archive` (never the working folder, so uncommitted files,
 `.env.local`, `.claude/`, `node_modules/`, `dist/`, `out/` and `coverage/` can't get in), refuses to run with

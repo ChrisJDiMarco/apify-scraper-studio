@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Boxes, Check, FileText, Layers3, Plus, Table2, Trash2, Upload } from 'lucide-react';
 import { Button, Badge, formatDate, number } from './ui.jsx';
+import { place } from './platform.js';
 
 // The research knowledge the n8n Golden Thread workflow read on every run: the Taxonomy Lookup
 // tab (priority scoring), the Product & Solution Registry (toolkit angles) and the ICP,
@@ -90,7 +91,7 @@ function ReferenceDocsCard({ workspace, api, action, disabled }) {
 export function ResearchKnowledge({ workspace, api = {}, action, disabled }) {
   if (!workspace?.id) return null;
   return <div className="cs-research-knowledge" id="research-knowledge">
-    <div className="cs-field-heading"><h4>Research knowledge</h4><p>Used by research runs for theme scoring and the editorial toolkit. Stored on this Mac with the workspace.</p></div>
+    <div className="cs-field-heading"><h4>Research knowledge</h4><p>Used by research runs for theme scoring and the editorial toolkit. Stored on {place()} with the workspace.</p></div>
     <TaxonomyCard workspace={workspace} api={api} action={action} disabled={disabled} />
     <RegistryCard workspace={workspace} api={api} action={action} disabled={disabled} />
     <ReferenceDocsCard workspace={workspace} api={api} action={action} disabled={disabled} />

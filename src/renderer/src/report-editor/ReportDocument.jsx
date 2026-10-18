@@ -11,6 +11,7 @@ import { Bold, Check, CircleAlert, ClipboardCopy, CloudCheck, Code, Heading1, He
 import { useConfirm } from '../confirm-dialog.jsx';
 import { copyText } from '../role-screens.jsx';
 import { can, canRun, formatDay, initials, useViewer } from '../viewer.js';
+import { ariaKey } from '../platform.js';
 import { contentExtensions, jsonToMarkdown, safeHref } from './markdown.js';
 import { FIELD, anchorFromSelection, applyRemoteUpdate, createReportYDoc, findQuote, fromBase64, newClientId, resolveAnchor } from './ydoc.js';
 import { createDocSync } from './sync.js';
@@ -537,13 +538,13 @@ export const ReportDocument = forwardRef(function ReportDocument({ api = {}, ass
               {marks.link && <button type="button" className="rd-bubble-btn" aria-label="Remove link" onClick={() => { editor.chain().focus().extendMarkRange('link').unsetLink().run(); setLinkOpen(false); }}><Unlink size={15} aria-hidden="true" /></button>}
             </form> : <>
               {canEdit && <>
-                <button type="button" className="rd-bubble-btn" aria-label="Bold" aria-pressed={Boolean(marks.bold)} aria-keyshortcuts="Meta+B" onClick={() => editor.chain().focus().toggleBold().run()}><Bold size={15} aria-hidden="true" /></button>
-                <button type="button" className="rd-bubble-btn" aria-label="Italic" aria-pressed={Boolean(marks.italic)} aria-keyshortcuts="Meta+I" onClick={() => editor.chain().focus().toggleItalic().run()}><Italic size={15} aria-hidden="true" /></button>
+                <button type="button" className="rd-bubble-btn" aria-label="Bold" aria-pressed={Boolean(marks.bold)} aria-keyshortcuts={`${ariaKey()}+B`} onClick={() => editor.chain().focus().toggleBold().run()}><Bold size={15} aria-hidden="true" /></button>
+                <button type="button" className="rd-bubble-btn" aria-label="Italic" aria-pressed={Boolean(marks.italic)} aria-keyshortcuts={`${ariaKey()}+I`} onClick={() => editor.chain().focus().toggleItalic().run()}><Italic size={15} aria-hidden="true" /></button>
                 <button type="button" className="rd-bubble-btn" aria-label="Link" aria-pressed={Boolean(marks.link)} onClick={() => { setLinkValue(editor.getAttributes('link').href || ''); setLinkOpen(true); }}><LinkIcon size={15} aria-hidden="true" /></button>
                 <button type="button" className="rd-bubble-btn" aria-label="Heading" aria-pressed={Boolean(marks.heading)} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={15} aria-hidden="true" /></button>
               </>}
               {canEdit && canNote && <span className="rd-bubble-rule" aria-hidden="true" />}
-              {canNote && <button type="button" className="rd-bubble-btn wide" aria-keyshortcuts="Meta+Alt+M" onClick={startNote}><MessageSquarePlus size={15} aria-hidden="true" /><span>Add note</span></button>}
+              {canNote && <button type="button" className="rd-bubble-btn wide" aria-keyshortcuts={`${ariaKey()}+Alt+M`} onClick={startNote}><MessageSquarePlus size={15} aria-hidden="true" /><span>Add note</span></button>}
             </>}
           </div>
         </BubbleMenu>}

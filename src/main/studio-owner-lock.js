@@ -30,10 +30,12 @@ function probe(pid) { try { process.kill(pid, 0); return true; } catch (error) {
 // Whether a lock record (owner or collection) may still belong to a live process: true, false, or null when this host
 // can't tell (another machine or container whose heartbeat is recent; watch it for a beat to decide). Exported for the
 // backup and restore scripts.
-function lockOwnerAlive(record, { now = Date.now(), hostname = os.hostname(), boot = bootId(), pid = process.pid, isHeld = heldNonce } = {}) {
+// A record's platform tells WSL from the Windows it runs on: they share the computer name but not PIDs.
+function lockOwnerAlive(record, { now = Date.now(), hostname = os.hostname(), boot = bootId(), pid = process.pid, platform = process.platform, isHeld = heldNonce } = {}) {
   if (!record || !Number.isInteger(record.pid) || record.pid < 1) return false;
   if (typeof record.nonce === 'string' && isHeld(record.nonce)) return true; // ours, still held
-  const sameHost = !record.hostname || record.hostname === hostname; // older records carry no hostname: same host, as before
+  // Older records carry no hostname or platform: same host, as before.
+  const sameHost = (!record.hostname || record.hostname === hostname) && (!record.platform || record.platform === platform);
   if (!sameHost) return Number.isFinite(record.heartbeatAt) && now - record.heartbeatAt < STALE_MS ? null : false; // its PID means nothing here
   if (record.pid === pid) return false; // our own PID, but not a lock we took: an earlier process (container PID 1 after a crash)
   if (record.boot && boot && record.boot !== boot) return false; // the machine rebooted since; that process is gone
@@ -65,36 +67,46 @@ const ownerLockHeld = (root) => inspectOwnerLock(root).state === 'held';
 
 // A collection lock (collections/<runId>.lock) belongs to the folder's owner. When this process takes ownership, one
 // left by an earlier process can't be live: it carries a dead PID, or our own PID from before this process started.
-function clearStaleCollectionLocks(root) {
+// The packaged desktop app (desktop) removes every one from before it started, readable or not: no other process can
+// own its folder, and on Windows a PID left by a crash or a restart can name a live, unrelated process.
+function clearStaleCollectionLocks(root, { desktop = false } = {}) {
   const dir = path.join(root, 'collections'); let names;
   try { names = fs.readdirSync(dir); } catch (_) { return; }
   const startedAt = Date.now() - process.uptime() * 1000;
   for (const name of names.filter((entry) => entry.endsWith('.lock'))) {
     const file = path.join(dir, name);
     try {
-      const lock = JSON.parse(fs.readFileSync(file, 'utf8'));
       const earlier = fs.statSync(file).mtimeMs < startedAt;
+      if (desktop && earlier) { fs.unlinkSync(file); continue; }
+      const lock = JSON.parse(fs.readFileSync(file, 'utf8'));
       if ((lock.pid === process.pid && earlier) || (lock.pid !== process.pid && lockOwnerAlive(lock) === false)) fs.unlinkSync(file);
     } catch (_) { /* unreadable or already gone: the collection reports it on retry */ }
   }
 }
+// The packaged desktop app runs once per person and machine (Electron's single-instance lock, which it holds before it
+// asks for this one), so a lock another desktop process left on this machine is stale whatever its PID now names:
+// Windows reuses PIDs after a restart, has no boot id, and ends a session without running the app's cleanup. Dev runs
+// and the web server share the folder but write no flag, so their locks are never taken this way; neither are locks
+// from 0.3.0 and earlier, which keep the PID check.
+const desktopLeftover = (record, desktop) => desktop && record?.desktop === true && !heldNonce(record.nonce) && (!record.hostname || record.hostname === os.hostname()) && (!record.platform || record.platform === process.platform);
 
 // The web server releases the lock only when the process exits, after aborted work has written its last state.
 function releaseOnlyAtExit(on = true) { releaseAtExitOnly = Boolean(on); }
 
 // observeMs: how long to watch another host's recent heartbeat before calling its owner dead (tests shorten it).
-function acquireStudioOwnerLock(root, { observeMs = HEARTBEAT_MS + 10000 } = {}) {
+// desktop: only the packaged desktop app, after it has won Electron's single-instance lock (see desktopLeftover).
+function acquireStudioOwnerLock(root, { observeMs = HEARTBEAT_MS + 10000, desktop = false } = {}) {
   if (typeof root !== 'string' || !root) throw new Error('Studio storage is required.');
   fs.mkdirSync(root, { recursive: true });
   const target = path.join(root, LOCK_FILE); const key = keyFor(root);
-  const record = { pid: process.pid, nonce: randomUUID(), hostname: os.hostname(), boot: bootId(), startedAt: Date.now(), heartbeatAt: Date.now() };
+  const record = { pid: process.pid, nonce: randomUUID(), hostname: os.hostname(), platform: process.platform, boot: bootId(), startedAt: Date.now(), heartbeatAt: Date.now(), ...(desktop ? { desktop: true } : {}) };
   for (let attempt = 0; attempt < 3; attempt++) {
     let fd;
     try {
       fd = fs.openSync(target, 'wx', 0o600);
       fs.writeFileSync(fd, JSON.stringify(record)); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
       held.set(key, record.nonce);
-      clearStaleCollectionLocks(root);
+      clearStaleCollectionLocks(root, { desktop });
       // The heartbeat lets a server on another host or container tell a live owner from one that was killed.
       const beat = setInterval(() => {
         try {
@@ -121,7 +133,7 @@ function acquireStudioOwnerLock(root, { observeMs = HEARTBEAT_MS + 10000 } = {})
       try { owner = JSON.parse(fs.readFileSync(target, 'utf8')); }
       catch (readError) { if (readError.code === 'ENOENT') continue; throw new Error('Studio ownership is being established or its lock is unreadable. Close the other server before trying again.'); }
       if (!Number.isInteger(owner.pid) || owner.pid < 1 || typeof owner.nonce !== 'string') throw new Error('Studio ownership lock is invalid. Check that no server is running before repairing it.');
-      let alive = lockOwnerAlive(owner);
+      let alive = desktopLeftover(owner, desktop) ? false : lockOwnerAlive(owner);
       if (alive === null) { const seen = watchHeartbeat(target, owner, observeMs); if (seen === 'gone') continue; alive = seen === 'alive'; }
       if (!alive) {
         // Serialize stale-lock removal. Without this guard two starters could
@@ -136,7 +148,7 @@ function acquireStudioOwnerLock(root, { observeMs = HEARTBEAT_MS + 10000 } = {})
         }
         try {
           const current = JSON.parse(fs.readFileSync(target, 'utf8'));
-          if (current.pid === owner.pid && current.nonce === owner.nonce && current.heartbeatAt === owner.heartbeatAt && lockOwnerAlive(current) !== true) fs.unlinkSync(target);
+          if (current.pid === owner.pid && current.nonce === owner.nonce && current.heartbeatAt === owner.heartbeatAt && (desktopLeftover(current, desktop) || lockOwnerAlive(current) !== true)) fs.unlinkSync(target);
         } catch (cleanup) { if (cleanup.code !== 'ENOENT') throw cleanup; }
         finally { fs.rmdirSync(recovery); }
         continue;

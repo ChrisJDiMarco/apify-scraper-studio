@@ -10,6 +10,7 @@
 // encrypted key in config.json (index.js); this file never sees it at rest. Nothing here spends AI money.
 const fs = require('fs');
 const path = require('path');
+const { renameDurable } = require('../shared/durable-write');
 const crypto = require('crypto');
 const drive = require('./drive-client');
 const { safeGoogleDocHtml } = require('./google-delivery');
@@ -71,7 +72,7 @@ function createDriveSync({ root, workspace, credentials, saveServiceAccount, cle
     try {
       const fd = fs.openSync(temp, 'w', 0o600);
       try { fs.writeFileSync(fd, JSON.stringify(data, null, 2)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-      fs.renameSync(temp, target);
+      renameDurable(temp, target); // retried on Windows while a scanner holds the file
     } catch (error) { try { fs.unlinkSync(temp); } catch (_) { /* nothing left behind */ } throw error; }
   }
   // Write-through: a change that can't reach the disk is undone in memory too.

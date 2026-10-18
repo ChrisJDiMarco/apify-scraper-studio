@@ -38,6 +38,38 @@ Settings. The server prints one line saying how people sign in, for example
 On your own computer the secrets file is readable by your user, which is fine for a trial; a shared server should
 follow [Secrets](#secrets). Press Ctrl-C to stop; press it again to stop without waiting for running work.
 
+## Hosting on Windows
+
+On a Windows server, run the studio only through Docker with **Linux containers** (Docker Desktop, or Docker on
+Windows Server with Linux containers): the image, the deploy kit and every recipe on this page then work unchanged.
+Running the server directly on Windows (`npm run start:web` in PowerShell) is for development and trials only. The
+protections that keep the secrets away from the AI on the Codex route need Linux: starting as root and switching to
+`STUDIO_RUN_AS`, a secrets file the server's own user can't open again, and a process whose memory that user can't
+read. The deploy kit's systemd units are Linux-only too.
+
+For a trial on your own Windows PC (this path hasn't been run on Windows yet): PowerShell has no `<` redirect, so use
+`STUDIO_SECRETS_FILE` instead of `STUDIO_SECRETS_FD`, and limit the file to your own account with `icacls`:
+
+```powershell
+npm ci
+npm run build:web
+$secrets = Join-Path $env:USERPROFILE '.scraper-studio-secrets'
+$bytes = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+$key = -join ($bytes | ForEach-Object { $_.ToString('x2') })
+$password = 'a-long-admin-password'
+Set-Content -Path $secrets -Encoding ascii -Value "STUDIO_SECRET_KEY=$key", "STUDIO_PASSWORD=$password"
+icacls $secrets /inheritance:r /grant:r "${env:USERDOMAIN}\${env:USERNAME}:(R,W)"
+$env:STUDIO_DATA_DIR = Join-Path $env:USERPROFILE '.scraper-studio-web'
+$env:STUDIO_SECRETS_FILE = $secrets
+npm run start:web
+```
+
+The server warns at start that the secrets file is readable by its own user, which is expected here: on the Codex
+route the AI could read it, so use an Anthropic API key or the Claude app for trials. The `0700`/`0600` modes the
+studio sets on its data folder do nothing on Windows; the folder is protected by your user profile's permissions.
+Backups work the same way (`node scripts/studio-backup.cjs --data $env:STUDIO_DATA_DIR --out <folder>`; Windows 10
+and 11 include `tar`).
+
 ## Configuration
 
 Every variable the browser studio reads. `scripts/studio-web.cjs` lists them too.
@@ -218,7 +250,8 @@ With company sign-in, sign-in links are off and the studio shows no Sign out but
 
 ## Production setup
 
-1. **Server.** Any Linux host or container platform with a persistent volume. One instance only: the studio locks
+1. **Server.** Any Linux host or container platform with a persistent volume (on Windows, Docker with Linux
+   containers; see [Hosting on Windows](#hosting-on-windows)). One instance only: the studio locks
    its data folder, and research runs and schedules run inside the process. Two CPUs and 4 GB of memory are plenty
    for a team pilot; set a memory limit (Compose `mem_limit`).
 2. **Container.** `docker build -t scraper-studio .`, then run it with a volume on `/data`, the variables above and
@@ -415,7 +448,10 @@ node scripts/studio-restore.cjs --from …tar.gz --data /var/lib/scraper-studio 
 Copy the Mac data folder (`~/Library/Application Support/apify-scraper-studio`) into `STUDIO_DATA_DIR` while
 both the Mac app and the server are stopped. Older records that stored full Mac file paths are re-anchored on
 the new folder automatically. Keys saved on the Mac are locked to its keychain, so save them again in
-Settings (or set them as environment variables). A team setup file (Settings → Share your setup) is the lighter
+Settings (or set them as environment variables). The Windows app's folder (`%APPDATA%\apify-scraper-studio`) can be
+copied the same way, with two differences: records that stored a full Windows file path (`C:\…`) are not re-anchored
+on a Linux server, so those older exports and pictures keep pointing at the Windows folder, and its keys are locked to
+that Windows user (DPAPI), so save them again too. A team setup file (Settings → Share your setup) is the lighter
 alternative when you only need the knowledge, products, taxonomy and programs.
 
 ## People and access

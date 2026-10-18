@@ -7,6 +7,7 @@ import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import serverModule from '../src/main/studio-server.js';
 import roles from '../src/shared/roles.json';
+import { canSymlink } from './helpers/can-symlink.js';
 const { createStudioServer } = serverModule;
 const PASSWORD = 'fixture-only-password-12345';
 const resources = [];
@@ -151,7 +152,7 @@ describe('browser studio server', () => {
     expect((await h.request('/', { method: 'DELETE' })).status).toBe(405);
   });
 
-  it('does not follow a symlink outside the public renderer directory', async () => {
+  it.runIf(canSymlink)('does not follow a symlink outside the public renderer directory', async () => {
     const h = await fixture(); fs.symlinkSync(path.join(h.root, 'private.txt'), path.join(h.webRoot, 'linked.txt'));
     const response = await h.request('/linked.txt'); expect(response.status).toBe(404); expect(await response.text()).not.toContain('PRIVATE FIXTURE');
   });

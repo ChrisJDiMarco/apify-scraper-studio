@@ -17,6 +17,8 @@ function fixture() {
   fs.mkdirSync(path.join(root, 'content-studio')); fs.writeFileSync(path.join(root, 'content-studio', 'state.json'), JSON.stringify({ contentRuns: [], researchRuns: [] }));
   return { root, config, snapshot: () => probe.profileSnapshot(root, config.imageCredentialFile) };
 }
+// The probe checks a Mac app in /Applications/*.app (its asar path inside Contents/, and O_NOFOLLOW reads), so the two
+// tests that depend on those are skipped on Windows; the rest of the probe's logic runs everywhere.
 describe('installed app read-only continuity probe', () => {
   it('requires explicit local app, pointer and clean launch attestation', () => {
     const args = ['--app', '/Applications/Scraper Studio.app', '--port', '9338', '--image-credential-file', '/private/approved.env'];
@@ -25,7 +27,7 @@ describe('installed app read-only continuity probe', () => {
     expect(() => probe.optionsFromArgs([...args, '--clean-launch-confirmed', '--profile', 'relative'])).toThrow('ABSOLUTE_PATHS_REQUIRED');
     expect(() => probe.optionsFromArgs([...args, '--clean-launch-confirmed', '--run-provider', 'yes'])).toThrow('INVALID_ARGUMENTS');
   });
-  it('selects only the exact installed renderer and localhost debugging socket', () => {
+  it.skipIf(process.platform === 'win32')('selects only the exact installed renderer and localhost debugging socket', () => {
     const app = '/Applications/Scraper Studio.app';
     const target = { type: 'page', url: pathToFileURL(path.join(app, 'Contents/Resources/app.asar/out/renderer/index.html')).href, webSocketDebuggerUrl: 'ws://127.0.0.1:9338/devtools/page/fixture' };
     expect(probe.selectTarget([target], app, 9338)).toBe(target.webSocketDebuggerUrl);
@@ -40,7 +42,7 @@ describe('installed app read-only continuity probe', () => {
     expect(fs.readFileSync(path.join(h.root, 'config.json'))).toEqual(before);
     expect(JSON.stringify(result)).not.toContain('fixture-ciphertext');
   });
-  it('rejects symlinked profile files', () => {
+  it.skipIf(process.platform === 'win32')('rejects symlinked profile files', () => {
     const h = fixture(); fs.renameSync(path.join(h.root, 'config.json'), path.join(h.root, 'other.json'));
     fs.symlinkSync(path.join(h.root, 'other.json'), path.join(h.root, 'config.json'));
     expect(() => h.snapshot()).toThrow('PROFILE_FILE_UNAVAILABLE');

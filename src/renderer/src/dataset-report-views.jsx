@@ -7,6 +7,7 @@ import { Badge, Button, Empty, datasetLabel, datasetTitle, formatDate, JsonBlock
 import './data-workspace.css';
 import { MarkdownContent } from './markdown-content.jsx';
 import { CoverageReviewPanel } from './report-review-view.jsx';
+import { revealLabel } from './platform.js';
 
 function selectRowFromKeyboard(event, select) {
   if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -283,7 +284,7 @@ export function ReportsView({ state, selectedDatasetId, initialReportPresetId, i
         {selectedAnalysis ? <>
           <div className="panel-head">
             <div><span className="data-eyebrow">REPORT VIEWER</span><h3>{selectedAnalysis.reportPresetName || label(selectedAnalysis.kind)}</h3><p>{formatDate(selectedAnalysis.startedAt) || 'Not started'} · {label(selectedAnalysis.status)}</p></div>
-            <div className="button-row"><Button className="ghost" disabled={!selectedHasFile || busy} onClick={() => onOpenAnalysisOutput(selectedAnalysis.id)}>Open file</Button><Button className="ghost" disabled={!selectedHasFile || busy} onClick={() => onRevealAnalysisOutput(selectedAnalysis.id)}>Show in Finder</Button>{selectedAnalysis.status === 'failed' && <Button disabled={busy || !selectedAnalysis.datasetId} onClick={() => onAnalyze(selectedAnalysis.datasetId, selectedAnalysis.kind, { reportPresetId: selectedAnalysis.reportPresetId })}>Retry</Button>}</div>
+            <div className="button-row"><Button className="ghost" disabled={!selectedHasFile || busy} onClick={() => onOpenAnalysisOutput(selectedAnalysis.id)}>Open file</Button><Button className="ghost" disabled={!selectedHasFile || busy} onClick={() => onRevealAnalysisOutput(selectedAnalysis.id)}>{revealLabel()}</Button>{selectedAnalysis.status === 'failed' && <Button disabled={busy || !selectedAnalysis.datasetId} onClick={() => onAnalyze(selectedAnalysis.datasetId, selectedAnalysis.kind, { reportPresetId: selectedAnalysis.reportPresetId })}>Retry</Button>}</div>
           </div>
           {selectedAnalysis.aiReceipt && <div className="report-helper">AI: {modelLabel(selectedAnalysis.aiReceipt.actualModel) || selectedAnalysis.aiReceipt.provider} · {selectedAnalysis.coverage?.includedItems ?? '—'} source records included{selectedAnalysis.coverage?.omittedItems ? ` · ${selectedAnalysis.coverage.omittedItems} outside this sample` : ''}</div>}
           <AnalysisOutput output={analysisOutput} />
