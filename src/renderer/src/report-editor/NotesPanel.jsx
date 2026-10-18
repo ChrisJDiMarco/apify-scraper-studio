@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, CircleAlert, Ellipsis, LoaderCircle, MessageSquareText, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { initials } from '../viewer.js';
 
@@ -174,7 +175,9 @@ export function NotesPanel({ notes = [], changedIds = new Set(), draft = null, a
     (panel.current?.querySelector('textarea') || panel.current?.querySelector('button'))?.focus({ preventScroll: true });
     return () => { if (previous?.isConnected) previous.focus?.({ preventScroll: true }); };
   }, [overlay]);
-  return <aside ref={panel} className={`rd-notes${overlay ? ' is-overlay' : ''}`} aria-labelledby={titleId} onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); onClose(); } }}>
+  // As an overlay the panel is drawn at the app frame's top level: inside the reader, the sticky toolbar's backdrop blur
+  // made its own stacking layer and painted over the panel's corner.
+  const node = <aside ref={panel} className={`rd-notes${overlay ? ' is-overlay' : ''}`} aria-labelledby={titleId} onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); onClose(); } }}>
     <header className="rd-notes-head">
       <h2 id={titleId}><MessageSquareText size={16} aria-hidden="true" />Notes</h2>
       <div className="rd-segment" role="group" aria-label="Show notes">
@@ -194,4 +197,6 @@ export function NotesPanel({ notes = [], changedIds = new Set(), draft = null, a
         : shown.map((note) => <Thread key={note.id} note={note} active={note.id === activeId} changed={changedIds.has(note.id)} members={members} me={me} isAdmin={isAdmin} canNote={canNote} mentionsOn={mentionsOn} colorOf={colorOf} onActivate={onActivate} onReply={onReply} onEdit={onEdit} onDelete={onDelete} onResolve={(value) => onResolve({ noteId: note.id, resolved: value })} />)}
     </div>
   </aside>;
+  const host = overlay && typeof document !== 'undefined' ? (document.querySelector('.app-shell') || document.body) : null;
+  return host ? createPortal(<div className="rd-portal">{node}</div>, host) : node;
 }

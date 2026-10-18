@@ -1,7 +1,7 @@
 /* The report editor (report-editor/ReportDocument.jsx): one calm page for reading and editing, a floating menu on a
    selection, a "/" menu, presence, History and the notes panel. Colours come from the frame's --s-* tokens (light and
    dark); the fallbacks are the light values, for a page drawn outside the frame. */
-.rd-root {
+.rd-root, .rd-portal {
   --rd-ink: var(--s-ink, #181e15); --rd-muted: var(--s-muted, #62685e); --rd-faint: var(--s-faint, #6a7068);
   --rd-line: var(--s-line, #e3e8e4); --rd-line-strong: var(--s-line-strong, #cfd6d0); --rd-card: var(--s-card, #ffffff); --rd-bg: var(--s-bg, #f4f6f5);
   --rd-soft: var(--s-soft, #f1eaff); --rd-soft-ink: var(--s-soft-ink, #5a2fa0); --rd-accent: var(--s-accent, #c190ff); --rd-accent-strong: var(--s-accent-strong, #a873f2);
@@ -10,7 +10,7 @@
   --rd-measure: 72ch;
   position: relative; min-width: 0; color: var(--rd-ink);
 }
-.rd-root *, .rd-root *::before, .rd-root *::after, .rd-preview-backdrop * { box-sizing: border-box; }
+.rd-root *, .rd-root *::before, .rd-root *::after, .rd-portal *, .rd-portal *::before, .rd-portal *::after, .rd-preview-backdrop * { box-sizing: border-box; }
 
 /* ── The bar: presence, save state, Notes, History ─────────────────────── */
 .rd-bar { display: flex; align-items: center; gap: 6px; min-height: 34px; margin: 0 0 14px; font-size: 13px; color: var(--rd-muted); }
