@@ -17,6 +17,7 @@ import { defaultProgram, lastProgramId, readChoice, rememberProgram, saveChoice 
 import { canWriteReports, useStudioActions } from './studio-actions.js';
 import { adminNames, useCan, useViewer, writeProps } from './viewer.js';
 import { number, withViewTransition } from './ui.jsx';
+import { requestNoteFocus } from './report-editor/events.js';
 import { PASSED_STAGE, TREND_STAGES } from '../../shared/trend-board.js';
 import { buildLibraryTree } from '../../shared/library-tree.js';
 import './simple-mode.css';
@@ -153,6 +154,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   // The briefing's links ({ kind, id, page }): reports and Assets folders open here; everything else (a trend's card,
   // a run, a prompt, a page) goes through App's router, which the Inbox and share links use too.
   function openTarget(target = {}) {
+    if (target.noteId) requestNoteFocus(target.id, target.noteId); // a note's Inbox row opens the report at that note
     if (target.kind === 'report' && target.id && reports.some((row) => row.id === target.id)) openReport(target.id);
     else if (target.kind === 'folder' && target.id) openFolderKey(target.id, target.runId || '');
     else if (onOpenTarget) onOpenTarget(target);

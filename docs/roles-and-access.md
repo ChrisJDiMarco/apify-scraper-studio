@@ -37,7 +37,7 @@ the No access screen.
    (`spends`) on an editor base, because paid work shows its estimate first. A channel base never needs costs.
 
 The methods are the union of the capabilities' methods (a channel base: intersected with `channelSafeMethods`). With
-no policy edits this is exactly the old fixed matrix: admin 172 methods, editor 108, channel owner 13
+no policy edits this is exactly the old fixed matrix: admin 180 methods, editor 116, channel owner 19
 (`test/roles.test.js` and `test/docs-consistency.test.js` check these numbers).
 
 Channels are the ten asset-kit folders in `src/shared/kit-folders.json` `folders` (main reads them through
@@ -179,9 +179,10 @@ of role may ever hold it. “Spends” marks paid work (it needs See costs on an
 | | `startResearch` Start research (spends) | A E | editor | readResearch | `startResearchRun, continueResearchRun, estimateResearchProgram` |
 | | `quickScans` Run quick scans (spends) | A E | editor | readResearch | `estimateQuickScan, startQuickScan` |
 | | `approveTrends` Approve trends | A E | editor | readResearch | `approveResearchThemes, decideResearchTheme, setThemeStatus` |
-| Reports and channel assets | `readAssets` Read reports and assets | A E C | editor, channel | | `readStudioAsset, openStudioAsset` |
+| Reports and channel assets | `readAssets` Read reports and assets (and their notes) | A E C | editor, channel | | `readStudioAsset, openStudioAsset, openReportDoc, closeReportDoc, listReportNotes` |
 | | `writeReports` Write reports (spends) | A E | editor | readResearch, readAssets | `createContentRun, importStudioSource` |
-| | `editReports` Edit reports | A E | editor | readAssets | `editStudioAsset, restoreStudioAsset, saveResearchReview, setAssetStatus` |
+| | `editReports` Edit reports | A E | editor | readAssets | `editStudioAsset, restoreStudioAsset, saveResearchReview, setAssetStatus, pushReportDocUpdate, restoreReportVersion` |
+| | `commentReports` Leave notes on reports (since policy 3) | A E C | editor, channel | readAssets | `saveReportNote, resolveReportNote, deleteReportNote` |
 | | `makeAssets` Make channel assets (spends) | A E C | editor, channel | readAssets | `planAssetKit, createAssetKit, saveAssetKitFolder` |
 | | `manageRuns` Stop and retry work (spends) | A E C | editor, channel | | `cancelStudioRun, retryStudioRun, cancelJob` |
 | | `markTrendsUsed` Mark trends used | A C | editor, channel | readAssets | `setTrendAdoption` |
@@ -208,6 +209,24 @@ and every workflow method away from channel owners, who never see workflows or t
 capability of everything it runs (or is locked admin). Role `null` may call `appMeta` and `state` only.
 
 While previewing, only identity methods and `readMethods` run. Channel owners get the Simple layout only.
+
+**The report editor and notes** (`report-docs.js`, `report-notes.js`). Opening a report, closing it and reading its
+notes need Read reports and assets (`readMethods`, so they work in a preview); editing and restoring versions need Edit
+reports; adding, replying to, resolving and deleting notes need Leave notes on reports. A channel owner's
+`openReportDoc`, `closeReportDoc`, `listReportNotes`, `saveReportNote`, `resolveReportNote` and `deleteReportNote` are
+scoped like `readStudioAsset` (their own channel's kit files and the trend briefs; anything else is `outOfScope`), and
+they never edit: `pushReportDocUpdate` and `restoreReportVersion` aren't channel-safe. People change or delete only their
+own notes (403 `notYourNote`); admins may delete anyone's. Mentions are kept only for members who can read the report
+(on the Mac, none). The state carries `contentStudio.noteCounts` and each person's own `noteMentions` (their Inbox rows), a channel owner's
+cut to the same files; a role without Read reports and assets gets neither.
+
+**What the page shows each role** (`report-editor/ReportDocument.jsx`; the server decides, the page only hides). The
+text is editable when the role holds `pushReportDocUpdate` and `openReportDoc` says `canEdit` (never in a preview, a
+detached report or a channel owner's brief); otherwise it is the same page read-only. The Notes button and highlights
+need `listReportNotes`; **Add note**, Reply, Resolve and the note menus need `saveReportNote` and `canNote`; a note's
+Edit is offered only on your own, Delete on your own or, for admins, anyone's. History's restore needs
+`restoreReportVersion`. @mentions are on the web only and list `listReportNotes`' `mentionable`. The channel owner reads
+the brief in this page (read-only, with notes); their asset files keep the plain reader.
 
 **Workflows act as their owner.** A workflow's runs call the studio's pipelines directly (the engine, not the gate), so
 before every step `access.canIdentityCall(ownerId, method)` checks the owner may still call each of that step's methods
@@ -346,7 +365,15 @@ report's text or page goes through `assetFile` / `assetResult`, so kits, Create 
 the edit. A save carries the version it was loaded from (`baseEditedAt`); if someone saved since, it's refused with
 409 `copy.editConflict` and the text stays on screen. Drive never replaces a file it already has: an edited report or
 draft is delivered as a new Doc ending in "(edited)" under the id `<asset id>-edited-<edit time>`, and a toolkit keeps
-linking the first trends doc Drive got for its report.
+linking the first trends doc Drive got for its report. The report editor (`pushReportDocUpdate`) writes the same two
+files through `writeReportMarkdown`, without the `baseEditedAt` check (its shared document already merged everyone's
+changes), and credits `asset.edited.by` to whoever saved last; `editStudioAsset` and `restoreStudioAsset` tell the
+editor (`hooks.onAssetEdited`), whose document then starts over from the new text.
+
+**Notes** live in `content-studio/report-notes.json` (`{ v: 1, notes: { [assetId]: [note] }, inbox: { [identityId]:
+[item] } }`; one atomic file, a damaged one is put aside as `.bad-<time>`, a newer version refuses to start). Each
+person keeps up to 200 Inbox items for 60 days; the state shows the last 30 days, 60 at most. Removing a member keeps
+their notes (they are the team's), with the name they had.
 
 ## API
 
@@ -370,6 +397,14 @@ linking the first trends doc Drive got for its report.
 | `getTrendAnalytics` | `team:analytics` | `{ days?: 7\|30\|90\|365, includeAll? }` | see Analytics | admin only |
 | `editStudioAsset` | `studio:editStudioAsset` | `{ assetId, markdown, baseEditedAt }` | `{ asset }` | 409 `editConflict`; pictures and landing pages; 250,000 characters |
 | `restoreStudioAsset` | `studio:restoreStudioAsset` | `{ assetId }` | `{ asset }` | text assets only |
+| `openReportDoc` | `studio:openReportDoc` | `{ assetId, clientId? }` | `{ assetId, title, markdown, yState, version, epoch, savedAt, versions: [{ id, at, by, label }], canEdit, canNote, editors: [{ id, name, color }], awareness: [base64] }` | text assets only; `outOfScope` |
+| `pushReportDocUpdate` | `studio:pushReportDocUpdate` | `{ assetId, update?, markdown?, clientId, final?, epoch?, stateVector?, awareness? }` (base64) | `{ version, savedAt, epoch, markdownSaved }` | 400 `docUpdateInvalid`, 413 `docTooLarge`, 409 `docReset`; landing pages; 250,000 characters |
+| `restoreReportVersion` | `studio:restoreReportVersion` | `{ assetId, versionId }` (`original` or a kept version) | as `openReportDoc` | 404 for a version no longer kept |
+| `closeReportDoc` | `studio:closeReportDoc` | `{ assetId, clientId? }` | `{ ok: true }` | — |
+| `listReportNotes` | `studio:listReportNotes` | `{ assetId }` | `{ notes, mentionable: [{ id, name }] }`; marks your Inbox items for it read | text assets only; `outOfScope` |
+| `saveReportNote` | `studio:saveReportNote` | new `{ assetId, anchor: { yStart, yEnd, quote }, body, mentions? }`; reply `{ assetId, replyTo, body, mentions? }`; edit `{ assetId, noteId, replyId?, body, mentions? }` | `{ note }` | 403 `notYourNote`; body ≤ 4,000; 500 notes per report, 200 replies per note |
+| `resolveReportNote` | `studio:resolveReportNote` | `{ assetId, noteId, resolved }` | `{ note }` | 404 |
+| `deleteReportNote` | `studio:deleteReportNote` | `{ assetId, noteId, replyId? }` | `{ ok: true }` | 403 `notYourNote` (admins may delete any), 404 |
 | `createAssetKit` (channel owner) | `studio:createAssetKit` | scoped, `onlyIfIdle` | `publicKitRun` | 409 `alreadyMaking`, `outOfScope` |
 | `startResearchRun` | `studio:startResearchRun` | `{ programId, datasetIds, again? }` | the run | 409 `researchRunning` unless `again: true` |
 
@@ -457,6 +492,8 @@ A channel owner's kit run message comes from a fixed set: "Starting…", "Writin
 | Channel view and `readyTrends` parity with the trend board | `test/channel-view.test.js` |
 | Analytics definitions | `test/team-analytics.test.js` |
 | Workflow owners' access and the workflows' share of the state | `test/access-workflow.test.js` |
+| The report editor and notes: merges, Markdown write-through, versions, presence, notes, Inbox, who may do what, events | `test/report-docs.test.js`, `test/report-notes.test.js`, `test/report-editor-gate.test.js`, `test/ask-transport.test.js` |
+| The editor page per role: read-only without edit, notes-only for channel owners, off in a preview | `test/report-editor.test.jsx`, `test/simple-reports-live.test.jsx`, `test/asset-editor.test.jsx` |
 | Attribution, edits, Drive after an edit, kit exports, retries | `test/content-workspace-roles.test.js` |
 | Edited-report HTML | `test/markdown-html.test.js` |
 | Server: sign-in, links, limits, streams, projection | `test/studio-server.test.js`, `test/web-host.test.js`, `test/web-runtime.test.js` |

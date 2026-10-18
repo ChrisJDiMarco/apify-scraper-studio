@@ -406,7 +406,7 @@ describe('roles and access (team.json v2)', () => {
   it('makes, renames and deletes custom roles, moving their people in the same write', () => {
     const { h, store, riley, sam } = team();
     const made = store.saveRole({ label: 'Viewer', base: 'editor', template: 'viewer', rev: 0 }, ADMIN);
-    expect(made.role).toMatchObject({ label: 'Viewer', base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'], template: 'viewer', policyVersion: 2 });
+    expect(made.role).toMatchObject({ label: 'Viewer', base: 'editor', capabilities: ['core', 'readAssets', 'readResearch'], template: 'viewer', policyVersion: 3 });
     expect(made.role.id).toMatch(/^role-viewer-[0-9a-f]{4}$/);
     expect(made.audit[0]).toMatchObject({ kind: 'role-created', target: { type: 'role', id: made.role.id, name: 'Viewer' } });
     expect(refusal(() => store.saveRole({ label: 'viewer', base: 'editor', rev: 1 }, ADMIN))).toMatchObject({ code: 'roleName' });

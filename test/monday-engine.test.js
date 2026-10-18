@@ -172,6 +172,25 @@ describe('pushing to Monday', () => {
   });
 });
 
+describe('a link on a hidden workspace', () => {
+  it('never syncs while single-workspace mode hides its workspace, and syncs again once it is back', async () => {
+    const h = harness({ link: { push: { mode: 'live', from: 'all', includeSkipped: true, postUpdates: true }, pull: { mode: 'poll', pollMinutes: 5, decisions: 'anyone', comments: true, owner: true, dates: true } } });
+    let hidden = true;
+    h.workspace.isWorkspaceHidden = (ws) => hidden && ws === 'general';
+    h.tick(2 * 60 * 60000);
+    h.engine.tick();
+    h.engine.noteChange();
+    expect(h.timers).toHaveLength(0); // no live push scheduled
+    expect(await h.engine.push('general', { force: true })).toEqual({ skipped: 'hidden' });
+    expect(await h.engine.pull('general')).toEqual({ skipped: 'hidden' });
+    expect(await h.engine.full('general')).toEqual({ skipped: 'hidden' });
+    await h.engine.idle();
+    expect(h.fake.calls).toHaveLength(0);
+    hidden = false;
+    expect((await h.engine.push('general')).created).toBe(3);
+  });
+});
+
 describe('reading changes from Monday', () => {
   async function linked(options) { const h = harness(options); await h.engine.push('general'); h.tick(60000); return h; }
 

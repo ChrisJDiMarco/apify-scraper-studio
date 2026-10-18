@@ -75,7 +75,9 @@ describe('owner locks left by a killed server', () => {
 
   it('refuses a data folder whose owner in another container is still beating', async () => {
     const root = temp(); write(root, { pid: 1, nonce: 'alive', hostname: 'other-container', heartbeatAt: Date.now() });
-    const script = `const fs=require('fs');const f=process.argv[1];setInterval(()=>{const r=JSON.parse(fs.readFileSync(f,'utf8'));r.heartbeatAt=Date.now();fs.writeFileSync(f,JSON.stringify(r));},100);setTimeout(()=>process.exit(0),4000);`;
+    // It beats the way a real owner does (studio-owner-lock.js): a temp file renamed over the lock, so a reader never
+    // catches it half written (a plain writeFileSync truncates first, which reads as an unreadable lock under load).
+    const script = `const fs=require('fs');const f=process.argv[1];setInterval(()=>{const r=JSON.parse(fs.readFileSync(f,'utf8'));r.heartbeatAt=Date.now();fs.writeFileSync(f+'.beat',JSON.stringify(r));fs.renameSync(f+'.beat',f);},100);setTimeout(()=>process.exit(0),4000);`;
     const beating = spawn(process.execPath, ['-e', script, lockFile(root)], { stdio: 'ignore' });
     try {
       await new Promise((resolve) => setTimeout(resolve, 300));

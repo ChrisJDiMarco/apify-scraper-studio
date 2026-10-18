@@ -59,7 +59,7 @@ describe('method policy', () => {
     expect(new Set(listed)).toEqual(new Set([...Object.keys(methods), ...NEW_METHODS]));
     for (const method of Object.keys(methods)) expect(listed.filter((entry) => entry === method)).toHaveLength(1);
     const ids = policy.capabilities.map((cap) => cap.id);
-    expect(ids).toHaveLength(27);
+    expect(ids).toHaveLength(28);
     expect(new Set(ids).size).toBe(ids.length);
     const groups = policy.capabilityGroups.map((group) => group.id);
     for (const cap of policy.capabilities) {
@@ -82,10 +82,10 @@ describe('method policy', () => {
 
   it('reproduces the old fixed matrix exactly with no policy edits', () => {
     const counts = Object.fromEntries(roles.ROLE_IDS.map((role) => [role, roles.METHOD_NAMES.filter((method) => roles.canCall(role, method)).length]));
-    expect(counts).toEqual({ admin: 172, editor: 108, channel: 13 }); // + readTrendPosts (readResearch); + AI connections and routing (settings, managePrograms); + cancelAsk and readAskProgress (askAi); Monday.com: +8 admin (10 new, saveMondayBoard and clearMondayBoard gone), +2 editor (readMondaySyncLog, readMondayItem); Workflows: +13 new (9 editor), 16 legacy mission, intent and card methods gone (15 editor)
-    expect(roles.capabilitiesFor({ roleId: 'channel' })).toEqual(['core', 'makeAssets', 'manageRuns', 'markTrendsUsed', 'readAssets']);
-    expect(roles.capabilitiesFor({ roleId: 'editor' })).toEqual(['approveTrends', 'askAi', 'core', 'dataTools', 'editPrompts', 'editReports', 'exportPublish', 'makeAssets', 'manageRuns', 'manageWorkflows', 'quickScans', 'readAssets', 'readResearch', 'readWorkflows', 'seeCosts', 'sheets', 'startResearch', 'viewPrompts', 'writeReports']);
-    expect(roles.capabilitiesFor({ roleId: 'admin' })).toHaveLength(27);
+    expect(counts).toEqual({ admin: 180, editor: 116, channel: 19 }); // + the report editor and notes (8 new; channel: open, close, list and the three note methods); + readTrendPosts (readResearch); + AI connections and routing (settings, managePrograms); + cancelAsk and readAskProgress (askAi); Monday.com: +8 admin (10 new, saveMondayBoard and clearMondayBoard gone), +2 editor (readMondaySyncLog, readMondayItem); Workflows: +13 new (9 editor), 16 legacy mission, intent and card methods gone (15 editor)
+    expect(roles.capabilitiesFor({ roleId: 'channel' })).toEqual(['commentReports', 'core', 'makeAssets', 'manageRuns', 'markTrendsUsed', 'readAssets']);
+    expect(roles.capabilitiesFor({ roleId: 'editor' })).toEqual(['approveTrends', 'askAi', 'commentReports', 'core', 'dataTools', 'editPrompts', 'editReports', 'exportPublish', 'makeAssets', 'manageRuns', 'manageWorkflows', 'quickScans', 'readAssets', 'readResearch', 'readWorkflows', 'seeCosts', 'sheets', 'startResearch', 'viewPrompts', 'writeReports']);
+    expect(roles.capabilitiesFor({ roleId: 'admin' })).toHaveLength(28);
     // Editors see and edit prompts by default; locking a prompt stays an admin's.
     for (const method of ['listPrompts', 'readPrompt', 'previewPrompt', 'savePromptVersion', 'revertPrompt', 'testPrompt', 'setAssetStatus']) expect(roles.canCall('editor', method)).toBe(true);
     for (const method of ['setPromptLock', 'saveRolePolicy', 'saveRole', 'deleteRole', 'saveMemberAccess', 'inviteMembers', 'readAccessLog', 'previewAccess']) expect(roles.canCall('editor', method)).toBe(false);
@@ -146,7 +146,7 @@ describe('method policy', () => {
 
   it('ships the allowed methods per role, and only reads while previewing', () => {
     expect(roles.allowedMethods(null)).toEqual(['appMeta', 'state']);
-    expect(roles.allowedMethods('channel').sort()).toEqual(['appMeta', 'cancelStudioRun', 'contentCatalog', 'createAssetKit', 'openSourceUrl', 'openStudioAsset', 'planAssetKit', 'readStudioAsset', 'retryStudioRun', 'saveAssetKitFolder', 'setTrendAdoption', 'setViewPrefs', 'state']);
+    expect(roles.allowedMethods('channel').sort()).toEqual(['appMeta', 'cancelStudioRun', 'closeReportDoc', 'contentCatalog', 'createAssetKit', 'deleteReportNote', 'listReportNotes', 'openReportDoc', 'openSourceUrl', 'openStudioAsset', 'planAssetKit', 'readStudioAsset', 'resolveReportNote', 'retryStudioRun', 'saveAssetKitFolder', 'saveReportNote', 'setTrendAdoption', 'setViewPrefs', 'state']);
     expect(roles.allowedMethods('admin')).toHaveLength(roles.METHOD_NAMES.length);
     const preview = roles.allowedMethods('channel', { preview: true });
     expect(preview).toContain('setViewAs'); // a previewing admin can always switch back
@@ -215,13 +215,13 @@ describe('effective role and navigation', () => {
   it('builds the viewer for each role without undefined values', () => {
     const admin = viewerFor('admin');
     expect(admin).toMatchObject({ id: 'member-chris', role: 'admin', roleId: 'admin', base: 'admin', realRole: 'admin', realBase: 'admin', roleLabel: 'Admin', channelId: null, channelName: null, via: 'proxy', web: true, preview: false, viewAs: null, prefs: { uiMode: 'classic', welcomedAt: '', inboxSeenAt: '', focusChannels: [], navRail: null }, modes: ['simple', 'classic'], askAdmin: 'Chris' });
-    expect(admin.capabilities).toHaveLength(27);
+    expect(admin.capabilities).toHaveLength(28);
     expect(admin.roles).toEqual([{ id: 'admin', label: 'Admin', base: 'admin' }, { id: 'editor', label: 'Editor', base: 'editor' }, { id: 'channel', label: 'Channel owner', base: 'channel' }]);
     expect(admin.channels).toHaveLength(10);
     expect(admin.channels[9]).toEqual({ id: 'searchengineland', name: 'Search Engine Land / MarTech', short: 'SEL' });
     const channel = viewerFor('channel');
     expect(channel).toMatchObject({ role: 'channel', base: 'channel', realRole: 'channel', roleLabel: 'Channel owner', channelId: 'blog', channelName: 'Semrush Blog', prefs: { uiMode: 'simple', focusChannels: [] }, memberSince: fixture.at('10-01'), nav: { main: ['trends', 'assets', 'plan', 'inbox'] } });
-    expect(channel.capabilities).toEqual(['core', 'makeAssets', 'manageRuns', 'markTrendsUsed', 'readAssets']);
+    expect(channel.capabilities).toEqual(['commentReports', 'core', 'makeAssets', 'manageRuns', 'markTrendsUsed', 'readAssets']);
     expect(channel).not.toHaveProperty('channels');
     expect(channel).not.toHaveProperty('roles');
     expect(viewerFor('editor')).not.toHaveProperty('channels');
@@ -345,7 +345,7 @@ describe('state projection', () => {
     expect(state.settings).toEqual({ uiMode: 'simple' });
     expect(state.keys).toEqual({});
     expect(state.team).toEqual({ admins: [{ name: 'Chris' }] });
-    expect(Object.keys(state.contentStudio).sort()).toEqual(['activeWorkspaceId', 'capabilities', 'channelView', 'workspaces']);
+    expect(Object.keys(state.contentStudio).sort()).toEqual(['activeWorkspaceId', 'capabilities', 'channelView', 'noteCounts', 'noteMentions', 'workspaces']);
     expect(state.contentStudio).toMatchObject({ activeWorkspaceId: 'semrush', workspaces: [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush' }], capabilities: { imagesConfigured: true } });
     const view = state.contentStudio.channelView;
     expect(view.channel).toEqual({ id: 'blog', name: 'Semrush Blog', short: 'Blog', deliverables: [{ id: 'blogshort', label: 'Short news update', kind: 'text' }, { id: 'bloglong', label: 'Long-form article', kind: 'text' }] });
@@ -368,6 +368,25 @@ describe('state projection', () => {
     expect(preview.team).toEqual({ admins: [{ name: 'Chris' }] });
     const desktop = roles.projectState(fixture.baseState(), roles.buildViewer({ identity: { ...identities.channel, via: 'desktop', memberSince: '2026-12-01T00:00:00.000Z' }, editionId: 'semrush' }), { editionId: 'semrush' });
     expect(desktop.contentStudio.channelView.trends.some((trend) => trend.earlier)).toBe(false);
+  });
+
+  it('gives note counts and the person’s own mentions, a channel owner only for their channel’s assets and the briefs', () => {
+    const base = fixture.baseState();
+    base.contentStudio.noteCounts = { 'asset-kit-blog-short': { open: 1, total: 2 }, 'asset-kit-shared-social': { open: 1, total: 1 }, 'asset-aio-toolkit-2': { open: 0, total: 1 }, 'asset-campaign-newsletter': { open: 3, total: 3 } };
+    const item = (assetId) => ({ id: `ni-${assetId}`, kind: 'mention', assetId, noteId: 'note-1', assetTitle: 'x', by: { id: 'member-riley', name: 'Riley' }, excerpt: 'Look', at: fixture.at('10-15'), read: false });
+    // The last item is about a report in another (or a hidden) workspace: nobody sees it here.
+    const noteInbox = { items: [item('asset-kit-blog-short'), item('asset-kit-shared-social'), item('asset-aio-toolkit-2'), item('asset-in-another-workspace')], unread: 4 };
+    const options = { adoptions: fixture.adoptions(), admins: [], editionId: 'semrush', noteInbox };
+    const editor = roles.projectState(base, viewerFor('editor'), options).contentStudio;
+    expect(Object.keys(editor.noteCounts)).toHaveLength(4);
+    expect(editor.noteMentions.map((row) => row.assetId)).toEqual(['asset-kit-blog-short', 'asset-kit-shared-social', 'asset-aio-toolkit-2']);
+    expect(roles.projectState(base, viewerFor('admin'), options).contentStudio.noteMentions).toHaveLength(3);
+    const channel = roles.projectState(base, viewerFor('channel'), options).contentStudio;
+    expect(channel.noteCounts).toEqual({ 'asset-kit-blog-short': { open: 1, total: 2 }, 'asset-aio-toolkit-2': { open: 0, total: 1 } });
+    expect(channel.noteMentions).toEqual([item('asset-kit-blog-short'), item('asset-aio-toolkit-2')]);
+    const compiled = roles.compilePolicy({ roles: [{ id: 'role-notes-off-0001', label: 'Research only', base: 'editor', capabilities: ['core', 'readResearch'] }] });
+    const noReads = roles.buildViewer({ identity: { ...identities.editor, roleId: 'role-notes-off-0001' }, prefs: {}, editionId: 'semrush', web: true, policy: compiled });
+    expect(roles.projectState(base, noReads, options).contentStudio).toMatchObject({ noteCounts: {}, noteMentions: [] });
   });
 
   it('copes with a bare base from older hosts and tests', () => {
@@ -430,7 +449,7 @@ describe('capabilities: role policy and per-person access', () => {
     expect(compiled.roles.has('not-a-role')).toBe(false);
     expect(compiled.roles.has('role-admin-like-0001')).toBe(false); // there is no second admin type
     expect(roles.capabilitiesFor({ roleId: 'editor', grants: ['flyToTheMoon'] }, compiled)).toEqual(roles.capabilitiesFor({ roleId: 'editor' }));
-    expect(roles.capabilitiesFor({ roleId: 'admin', denies: ['settings'] }, compiled)).toHaveLength(27);
+    expect(roles.capabilitiesFor({ roleId: 'admin', denies: ['settings'] }, compiled)).toHaveLength(28);
     expect(roles.capabilitiesFor({ roleId: 'role-missing' }, compiled)).toEqual([]);
     expect(roles.canCallAs(roles.subjectFor({ roleId: 'admin' }, compiled), 'someFutureMethod')).toBe(true);
     expect(roles.canCallAs(roles.subjectFor({ roleId: 'role-missing' }, compiled), 'state')).toBe(true); // nobody: the no-role methods

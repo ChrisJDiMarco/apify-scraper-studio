@@ -213,6 +213,25 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   const videoExtensions = asset => ['mp4', ...['srt', 'poster.png'].filter(extension => fs.existsSync(file(asset.runId, `${asset.id}.${extension}`)))];
   function assetFile(asset, extension) { return asset.edited && ['md', 'html'].includes(extension) && fs.existsSync(editedFile(asset, extension)) ? editedFile(asset, extension) : file(asset.runId, `${asset.id}.${extension}`); }
   const editedOf = asset => (asset.edited?.at ? { at: asset.edited.at, byName: asset.edited.by?.name || '' } : null);
+  // Writing an edit: editStudioAsset and the report editor (report-docs.js, writeReportMarkdown) write the same two files.
+  // An edit or restore made outside the editor tells it (hooks.onAssetEdited), so its shared document starts over.
+  function checkEditable(asset, markdown) {
+    if (asset.kind !== 'text' || asset.deliverableId === 'landingpage') throw new Error('Pictures and landing pages can’t be edited here.');
+    if (typeof markdown !== 'string' || !markdown.trim()) throw new Error('Write the report before saving, or restore the original.');
+    if (markdown.length > MAX_EDIT_CHARS) throw new Error('Keep the report under 250,000 characters.');
+  }
+  function writeEdit(asset, markdown) {
+    let editionId = state.workspaces.find(w => w.id === asset.workspaceId)?.editionId || 'general';
+    try { editionId = read(file(asset.runId, 'input.json')).editionId || editionId; } catch (_) { /* The workspace's edition will do. */ }
+    const { title, body } = splitTitle(markdown);
+    writeBytes(editedFile(asset, 'md'), markdown);
+    writeBytes(editedFile(asset, 'html'), content.wrapHtml(title || asset.title, markdownToHtml(body), editionId));
+  }
+  const editorActor = by => (by && typeof by === 'object' && by.id ? { id: String(by.id).slice(0, 320), name: String(by.name || '').slice(0, 120) } : who());
+  function editedOutside(asset, kind, markdown, by) {
+    if (typeof hooks.onAssetEdited !== 'function') return;
+    try { hooks.onAssetEdited({ assetId: asset.id, kind, markdown, by }); } catch (_) { /* the editor catches up the next time the report opens */ }
+  }
   const MAX_VIDEO_RESULT_BYTES = 60 * 1024 * 1024;
   function assetResult(asset) {
     if (asset.kind === 'video') {
@@ -2018,16 +2037,11 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // generated text); if someone saved or restored since, nothing is written and they're told who and when.
     editStudioAsset({ assetId, markdown, baseEditedAt } = {}) {
       const by = who(); const asset = owned(state.assets, assetId);
-      if (asset.kind !== 'text' || asset.deliverableId === 'landingpage') throw new Error('Pictures and landing pages can’t be edited here.');
-      if (typeof markdown !== 'string' || !markdown.trim()) throw new Error('Write the report before saving, or restore the original.');
-      if (markdown.length > MAX_EDIT_CHARS) throw new Error('Keep the report under 250,000 characters.');
+      checkEditable(asset, markdown);
       if ((asset.edited?.at || '') !== (typeof baseEditedAt === 'string' ? baseEditedAt : '')) { const last = asset.edited || asset.restored || {}; throw refusal('editConflict', { name: last.by?.name || 'Someone', time: when(last.at) }, 409); }
-      let editionId = state.workspaces.find(w => w.id === asset.workspaceId)?.editionId || 'general';
-      try { editionId = read(file(asset.runId, 'input.json')).editionId || editionId; } catch (_) { /* The workspace's edition will do. */ }
-      const { title, body } = splitTitle(markdown);
-      writeBytes(editedFile(asset, 'md'), markdown);
-      writeBytes(editedFile(asset, 'html'), content.wrapHtml(title || asset.title, markdownToHtml(body), editionId));
+      writeEdit(asset, markdown);
       asset.edited = { at: stamp(), by }; delete asset.restored; save();
+      editedOutside(asset, 'edited', markdown, by);
       return { asset: copy(asset) };
     },
     // Where a report, draft or picture is in the team's pipeline: Draft → In review → Approved → Scheduled → Published.
@@ -2057,6 +2071,29 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (asset.kind !== 'text') throw new Error('Only written reports and drafts have an original to restore.');
       if (!asset.edited) return { asset: copy(asset) };
       delete asset.edited; asset.restored = { at: stamp(), by }; save();
+      for (const extension of ['md', 'html']) fs.rmSync(editedFile(asset, extension), { force: true });
+      editedOutside(asset, 'restored', null, by);
+      return { asset: copy(asset) };
+    },
+    // Internal (not in studioMethods), for the report editor (report-docs.js). Its shared document has already merged
+    // everyone's changes, so its Markdown is written without editStudioAsset's conflict check. persist: false keeps the
+    // new asset.edited in memory until the next save (the files are written every time), so typing doesn't rewrite and
+    // broadcast state.json every second and a half; the first edit always saves.
+    writeReportMarkdown({ assetId, markdown, by, persist = true } = {}) {
+      const asset = owned(state.assets, assetId);
+      checkEditable(asset, markdown);
+      writeEdit(asset, markdown);
+      const first = !asset.edited;
+      asset.edited = { at: stamp(), by: editorActor(by) }; delete asset.restored;
+      if (persist || first) save();
+      return { asset: copy(asset), savedAt: asset.edited.at };
+    },
+    // Internal: the editor's Restore of the original (restoreStudioAsset without telling the editor about itself).
+    clearReportEdits({ assetId, by } = {}) {
+      const asset = owned(state.assets, assetId);
+      if (asset.kind !== 'text') throw new Error('Only written reports and drafts have an original to restore.');
+      if (!asset.edited) return { asset: copy(asset) };
+      delete asset.edited; asset.restored = { at: stamp(), by: editorActor(by) }; save();
       for (const extension of ['md', 'html']) fs.rmSync(editedFile(asset, extension), { force: true });
       return { asset: copy(asset) };
     },
@@ -2108,6 +2145,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     activeEditionId: () => state.workspaces.find(w => w.id === state.activeWorkspaceId)?.editionId || 'general',
     activeWorkspace() { const w = state.workspaces.find(row => row.id === state.activeWorkspaceId); return w ? { id: w.id, name: w.name, editionId: w.editionId } : null; },
     workspaceById(workspaceId) { const w = state.workspaces.find(row => row.id === workspaceId); return w ? { id: w.id, name: w.name, editionId: w.editionId } : null; },
+    // Internal: a workspace hidden in this build (single-workspace mode archives the others). The Monday.com sync skips
+    // a link saved on one, so a board linked before the switch stops syncing until the workspace comes back.
+    isWorkspaceHidden: workspaceId => isArchived(workspaceId),
     // A trend's brief: the comprehensive report or editorial toolkit of a finished report run made for a trend.
     isTrendReport(asset) {
       const record = asset && state.assets.find(row => row.id === asset.id && row.workspaceId === state.activeWorkspaceId);

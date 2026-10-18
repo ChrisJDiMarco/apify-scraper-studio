@@ -59,7 +59,7 @@ Semrush marketing roles. Every person has one role; the server enforces it on ev
 
 Admins can add up to 12 **custom roles** built on Editor or Channel owner, from the templates Viewer, Analyst and
 Channel reviewer, and adjust any person's access per capability (deny wins). The model is
-27 capabilities over 172 RPC methods; with no policy edits the defaults are admin 172 methods, editor 108, channel owner 13. Details:
+28 capabilities over 180 RPC methods; with no policy edits the defaults are admin 180 methods, editor 116, channel owner 19. Details:
 [docs/roles-and-access.md](docs/roles-and-access.md).
 
 Two layouts, chosen per person: **Simple** (the default; Home, Trends, Reports, Assets, Inbox, Calendar, Ask AI) and
@@ -186,9 +186,29 @@ Ask AI reads at runtime). This is the developer's view, with the code that owns 
   routing to channels, **Show 2 real posts** (the free `readTrendPosts` read), momentum badges, **Write reports** with
   an estimate confirmation, and a "Research stopped" row with Try again.
 - **Reports.** Simple's Reports and the Advanced Library reader: grouped by research run, one row per trend
-  (trends report + toolkit), in-place editor with brand check and conflict protection (`asset-editor.jsx`,
-  `editStudioAsset`), status pipeline (Draft → Published), share links (`deep-links.js`), Share (Google Docs copy,
-  slide outline, Slack summary), How this was made.
+  (trends report + toolkit) with its open-note count, the report editor (below), status pipeline (Draft → Published),
+  share links (`deep-links.js`), Share (Google Docs copy, slide outline, Slack summary), How this was made.
+- **Report editor and notes (renderer).** `src/renderer/src/report-editor/` (Tiptap 3.31.4 + Yjs; styles in
+  `report-editor.css`): `ReportDocument.jsx` is one page for reading and editing, used inline by Simple's reader and the
+  Library preview, read-only with notes in the channel owner's brief (`channel-owner.jsx`), and inside `AssetEditor`
+  (`asset-editor.jsx`: brand check + Done) wherever a file is edited from a folder. Autosave (`sync.js`, ~1.5 s and a
+  final save on close), a selection menu (Bold, Italic, Link, Heading, Add note), a "/" menu, Markdown shortcuts,
+  presence and named carets on the web (y-protocols awareness), History (versions, preview through an optional
+  `readReportVersion`, restore, Original). `markdown.js` converts with `@tiptap/markdown` (the canonical saved form);
+  `ydoc.js` seeds a report with no live state under a client id derived from its Markdown and makes note anchors (Yjs
+  relative positions, falling back to the quote); `NotesPanel.jsx` holds threads, replies, @mentions (web only, from
+  `listReportNotes`' `mentionable`), edit/delete own, resolve/reopen. Without the report-doc methods (an older studio)
+  readers keep the old reader and **Edit** opens the same editor saving through `editStudioAsset` with its conflict
+  check. Inbox rows for mentions and replies: `inbox-model.js` (kind `note`, target `{ kind: 'report', id, noteId }`;
+  `events.js` `requestNoteFocus` opens the note).
+- **Report editor and notes (server).** `report-docs.js`: one Yjs document per report (`content-studio/report-docs/`),
+  merged on the server from every browser's changes, the Markdown written through `writeReportMarkdown` (so kits,
+  exports, Drive, brand check and Ask AI read it), a version per editor at most every 5 minutes and on close (50 kept
+  plus the original), restore for everyone (the document starts over; stale browsers get 409 `docReset`), presence with
+  timeouts, live events through `pushPersonEvent`. `report-notes.js`: notes, replies, mentions, resolve, and each
+  person's Inbox items (`content-studio/report-notes.json`); `noteCounts` and `noteMentions` ride the state. Capability
+  `commentReports` (Leave notes on reports); channel owners note on their own channel's files and the briefs, never
+  edit. See [ARCHITECTURE.md → Report editor and notes](ARCHITECTURE.md#report-editor-and-notes).
 - **Assets and the Library tree.** One folder model for Simple Assets, Simple Reports and the Advanced Library
   (`src/shared/library-tree.js`): research run → trend → report and toolkit, channel assets by team, drafts,
   pictures. **Make channel assets** (`kit-creator.jsx`, `asset-kit.js`, `kit-folders.json`) writes 12 assets and 9
@@ -380,6 +400,8 @@ Everything lives in one data folder: `~/Library/Application Support/apify-scrape
     team.json            people, custom roles, role policy, sign-in links, channel answers, activity, access log (v2)
     monday.json          Monday.com: account, a board link per workspace, the item map, people cache, today's calls
     workflows.json       workflows, their runs (100 kept each, 2,000 in all) and team playbooks (version 1)
+    report-docs/         the report editor: <assetId>.json (Yjs state, versions list) and <assetId>.versions/
+    report-notes.json    notes on reports, replies, mentions and each person's note Inbox items (version 1)
     monday-log.jsonl     the Monday.com sync log (newest 2,000 rows)
     runs/<runId>/        input, evidence, assignments, theme-stats, *.validated.json, report and asset files
     collections/ datasets/ dataset-index.json            collected posts and their index
@@ -399,7 +421,8 @@ Everything lives in one data folder: `~/Library/Application Support/apify-scrape
   `migrateSemrushBrandDefaults` updates the Semrush brand preset in `state.json`. There are no downgrades: back up
   before upgrading.
 - **Retention limits in code:** Ask AI 200 conversations and 300 active memory items per person; team activity
-  5,000 rows and access log 2,000; 200 versions and 50 test records per prompt. Collected posts and run files are kept
+  5,000 rows and access log 2,000; 200 versions and 50 test records per prompt; 50 editor versions per report (plus the
+  original), 500 notes per report, 200 note Inbox items per person for 60 days. Collected posts and run files are kept
   until someone deletes the run.
 - Data layout, backup and restore procedures: [RUNBOOK.md](RUNBOOK.md#backup-and-restore).
 
@@ -521,6 +544,10 @@ proxy, on its own subdomain. One replica only.
   main loads is copied into the build), `test/help-assistant-prompts.test.js` (Ask AI schema stays small),
   `test/no-native-dialogs.test.js`, `test/docs-consistency.test.js` (this file's config table, scripts and links;
   the app guide's size and wording).
+- **The report editor in jsdom**: suites that mount it import `test/helpers/prosemirror-dom.js` (Range rects and
+  `elementFromPoint`, which ProseMirror measures with) and type through the editor's commands (`textbox.editor`), since
+  jsdom has no real text input. `test/report-editor.test.jsx`, `report-editor-markdown.test.js` (round trip of every
+  block), `asset-editor.test.jsx` and `simple-reports-live.test.jsx` cover the renderer.
 - The manual per-role checklist: [docs/verification/roles-acceptance.md](docs/verification/roles-acceptance.md).
 
 ## Known limitations and follow-ups
@@ -588,6 +615,27 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
   index.js; desktop schedules run only while the app is open. Workflows run only in the active workspace.
 - No per-person limit on Ask AI questions in flight.
 - Codex's `web_search` tool stays on (turning it off risks a config error on older CLIs).
+
+### Report editor and notes
+
+- The Markdown written on each save is the saving browser's. It is checked against the server's document only when the
+  browser sends `stateVector` (the studio's own editor always does, with `clientId` and `epoch`); without it, two people
+  saving at once can leave out the other's last change until the next save or close.
+- A browser that changes a report is retired when the document starts over (restore, or an edit outside the editor) and
+  gets 409 `docReset`; one that only opened it, without a `clientId` or `epoch`, isn't, and its later change usually
+  can't attach to the new document (it sits unused in the Yjs state).
+- A version keeps its Yjs state only up to 2 MB; a larger one restores from its Markdown, and notes anchored in it fall
+  back to their quoted text. Documents and notes of a deleted run's reports stay on disk until removed by hand.
+- Presence lives in the server's memory; a restart forgets who had a report open until they save again. An open page
+  checks in every 10 minutes (the server lets a quiet browser go after 30), so readers keep hearing edits and notes.
+- An emptied report isn't saved (the studio never writes an empty report): the editor says so and saves again on the
+  next keystroke.
+- Renderer: the caret travels with each save and on its own at most every 0.8 s, only for people who may edit
+  (readers' carets aren't shared). Remote carets disappear 30 s after their last move (y-protocols' timeout).
+- Renderer: a report's Markdown that the converter doesn't model (images, raw HTML, footnotes, task lists) is read as
+  text and written back that way on the first edit. Underline is off (not Markdown).
+- Renderer: a version preview needs the version's Markdown (`version.markdown` or a `readReportVersion` method, neither
+  in the contract yet); without it History says a preview isn't available and still restores.
 
 ### Ask AI
 

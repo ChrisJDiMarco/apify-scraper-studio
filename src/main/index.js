@@ -388,8 +388,9 @@ function publicState() {
   const data = loadData();
   return withoutServerPaths({
     ...data,
-    // Workflows ride along with the studio: workflows, workflowRuns (latest 10 each), team playbooks, workflowSummary.
-    contentStudio: workflowsInto(contentWorkspace.publicState()),
+    // Workflows ride along with the studio: workflows, workflowRuns (latest 10 each), team playbooks, workflowSummary;
+    // and noteCounts, the notes on each report (each person's own mentions are added per person by access.project).
+    contentStudio: notesInto(workflowsInto(contentWorkspace.publicState())),
     recipes: data.recipes.map(publicRecipe),
     intelligence: studioIntelligence(data),
     keys: Object.fromEntries(KEY_NAMES.map((name) => [name, Boolean(getKey(name))])),
@@ -411,6 +412,13 @@ function workflowsInto(studio) {
   const empty = { workflows: [], workflowRuns: [], playbooks: [], workflowSummary: { active: 0, paused: 0, drafts: 0, waiting: 0, monthSpentUsd: 0, monthCapUsd: 0 } };
   let extra = empty; try { extra = workflowEngine ? workflowEngine.publicState(studio.activeWorkspaceId, { programs: studio.programs }) : empty; } catch (error) { console.warn(`Workflows could not be read: ${error.message}`); }
   return { ...studio, ...extra };
+}
+
+// { [assetId]: { open, total } } for the active workspace's reports and assets with notes (report-notes.js).
+function notesInto(studio) {
+  let counts = {}; try { counts = reportNotes ? reportNotes.counts() : {}; } catch (error) { console.warn(`Report notes could not be counted: ${error.message}`); }
+  const ids = new Set((studio.assets || []).map((asset) => asset.id));
+  return { ...studio, noteCounts: Object.fromEntries(Object.entries(counts).filter(([assetId]) => ids.has(assetId))) };
 }
 
 function studioIntelligence(data = loadData()) {
@@ -1737,6 +1745,9 @@ const studioHost = createStudioHost({ root: dataPath('content-studio'), getApify
 const actingAs = new AsyncLocalStorage();
 const isWorkflowCall = () => String(actingAs.getStore()?.id || '').startsWith('workflow:');
 let workflowEngine = null;
+// The report editor and notes (report-docs.js, report-notes.js), created below once access exists. An edit made outside
+// the editor (editStudioAsset, restoreStudioAsset) reaches the editor through hooks.onAssetEdited.
+let reportDocs = null; let reportNotes = null;
 const contentWorkspace = createContentWorkspace({
   // A first launch opens in the edition this build is packaged for; saved state always wins after that.
   defaultWorkspaceId: packageConfig.studioDefaultWorkspace || 'general',
@@ -1745,7 +1756,7 @@ const contentWorkspace = createContentWorkspace({
   // Who started a run, decided a trend or edited a report: the person making this call (read once at each method's entry).
   actor: () => actingAs.getStore() || access.actorForCall(),
   root: dataPath('content-studio'), emit: () => { emitState(); workflowEngine?.poke(); },
-  isWorkflowCall, hooks: { onResearchRunStarted: (run) => workflowEngine?.onResearchRunStarted(run) },
+  isWorkflowCall, hooks: { onResearchRunStarted: (run) => workflowEngine?.onResearchRunStarted(run), onAssetEdited: (event) => reportDocs?.outsideEdit(event) },
   // Each concurrent call gets its own process key so cancelling a run stops all of them. A prompt test run passes its own
   // jobId (its job in the tray), so Cancel there stops it.
   runAI: args => generateStructuredOutput({ ...args, jobId: args.jobId || `${args.runId}::${path.basename(args.outputPath || 'call')}` }),
@@ -1792,7 +1803,7 @@ const contentWorkspace = createContentWorkspace({
 // ── Access ────────────────────────────────────────────────────────────────────────────────────────
 // Who is calling and what they may do (src/main/access.js, policy in src/shared/roles.json). On the Mac the one person is
 // an admin, and View as lives in this process; on the web each browser request carries its identity and session.
-const access = createAccess({ teamStore, roles, workspace: contentWorkspace, web: WEB_RUNTIME, currentCall: WEB_RUNTIME ? require('./web-runtime').currentCall : () => null });
+const access = createAccess({ teamStore, roles, workspace: contentWorkspace, web: WEB_RUNTIME, currentCall: WEB_RUNTIME ? require('./web-runtime').currentCall : () => null, notes: { inboxFor: (identityId) => (reportNotes ? reportNotes.inboxFor(identityId) : null) } });
 const OWNER_IDENTITY = Object.freeze({ id: 'owner', name: 'Studio admin', email: '', role: 'admin', channelId: null, via: 'password', disabled: false, memberSince: null });
 // The browser studio's sign-in, for studio-server.js: the admin password, a trusted SSO email or a personal sign-in link
 // becomes an identity, and each live-update stream is written as that person's projection of the state.
@@ -1925,6 +1936,85 @@ for (const [method, fn] of Object.entries(WORKFLOW_METHODS)) handle(`studio:${me
 // Starting work joins a run already started for the same request (a retried click never starts two).
 handle('studio:runWorkflow', (_, payload) => onceForRequest('runWorkflow', payload, () => workflowEngine.run(payload || {}, workflowCaller())));
 handle('studio:retryWorkflowRun', (_, payload) => onceForRequest('retryWorkflowRun', payload, () => workflowEngine.retryRun(payload || {}, workflowCaller())));
+
+// ── Report editor and notes (wave 3C; src/main/report-docs.js, src/main/report-notes.js) ─────────────────────────
+// One editor for every report: the browser studio merges several people's changes (Yjs) and shows who has the report
+// open; the Mac app has one person. Every save writes the report's Markdown through the studio's edit path, so kits,
+// exports, Google Docs, brand check and Ask AI read the edit. Notes hang on a passage; mentions and replies to your notes
+// reach your Inbox (state.contentStudio.noteMentions). The gate checks the capabilities (readAssets, editReports,
+// commentReports) and a channel owner's scope (access.js); these handlers add who is calling.
+try { reportNotes = require('./report-notes').createReportNotes({ file: dataPath('content-studio', 'report-notes.json'), writeJson }); }
+catch (error) { dialog.showErrorBox('Report notes could not be read', error.message); app.exit(1); throw error; }
+reportDocs = require('./report-docs').createReportDocs({
+  root: dataPath('content-studio'), workspace: contentWorkspace, writeJson,
+  push: (identityId, event) => pushPersonEvent(identityId, event),
+  // On the web a person stays listed on a report while one of their live-update streams is open (studio-server.js).
+  isLive: (identityId) => !WEB_RUNTIME || Boolean(require('./web-runtime').provided('liveStreams')?.has(identityId)),
+  onVersion: ({ assetId, kind, by }) => {
+    const found = ['edit', 'restore'].includes(kind) ? contentWorkspace.findAsset(assetId) : null;
+    if (found) { try { teamStore.log(kind === 'restore' ? 'report-restored' : 'report-edited', found.asset.workspaceId, { assetId, title: found.asset.title || '' }, by); } catch (_) { /* the log never stops a save */ } }
+  },
+});
+reportDocs.start();
+function reportCaller() {
+  const viewer = access.currentViewer(); const allowed = Array.isArray(viewer?.allowed) ? viewer.allowed : [];
+  return { viewer, who: { id: String(viewer?.id || 'local'), name: String(viewer?.name || '') }, may: (method) => allowed.includes(method) };
+}
+function noteAsset(assetId) {
+  const found = typeof assetId === 'string' ? contentWorkspace.findAsset(assetId) : null;
+  if (!found) throw Object.assign(new Error('That report isn’t in this workspace anymore.'), { status: 404 });
+  if (found.asset.kind !== 'text') throw Object.assign(new Error('Notes can be left on written reports and drafts.'), { status: 400 });
+  return found;
+}
+// Who a note on this report may mention: members who can read it (every admin and editor with Read reports and assets;
+// a channel owner for their own channel's assets and for trend briefs). Nobody on the Mac, which has one person.
+function mentionableFor(found) {
+  if (!WEB_RUNTIME) return [];
+  const channel = found.run?.kit ? require('./channel-view').channelOf(found.asset.deliverableId, contentWorkspace.activeEditionId()) : null;
+  const brief = contentWorkspace.isTrendReport(found.asset);
+  const out = [];
+  for (const member of teamStore.listMembers()) {
+    const identity = teamStore.identityFor(member, 'link'); if (!identity?.role) continue;
+    const viewer = access.viewerFor(identity, null);
+    if (!viewer.allowed.includes('listReportNotes') || (viewer.base === 'channel' && !brief && channel !== viewer.channelId)) continue;
+    out.push({ id: identity.id, name: identity.name });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+// A note changed: everyone with the report open and everyone it notified hear about it; counts and Inboxes follow state.
+function noteChanged(assetId, noteId, notified = []) {
+  for (const identityId of new Set([...reportDocs.presentIds(assetId), ...notified])) pushPersonEvent(identityId, { type: 'note-changed', assetId, noteId });
+  emitState();
+}
+handle('studio:openReportDoc', (_, payload) => { const caller = reportCaller(); return reportDocs.open(payload || {}, caller.who, { canEdit: caller.may('pushReportDocUpdate'), canNote: caller.may('saveReportNote') }); });
+handle('studio:pushReportDocUpdate', (_, payload) => reportDocs.push(payload || {}, reportCaller().who));
+handle('studio:restoreReportVersion', (_, payload) => { const caller = reportCaller(); return reportDocs.restore(payload || {}, caller.who, { canEdit: true, canNote: caller.may('saveReportNote') }); });
+handle('studio:closeReportDoc', (_, payload) => reportDocs.close(payload || {}, reportCaller().who));
+handle('studio:listReportNotes', (_, payload) => {
+  const caller = reportCaller(); const found = noteAsset(payload?.assetId);
+  const notes = reportNotes.list(found.asset.id);
+  // Opening a report's notes reads your Inbox items about it (not in an admin's preview, which is someone else's view).
+  if (!caller.viewer?.preview && reportNotes.markRead(caller.who.id, found.asset.id)) emitState();
+  return { notes, mentionable: mentionableFor(found) };
+});
+handle('studio:saveReportNote', (_, payload) => {
+  const caller = reportCaller(); const found = noteAsset(payload?.assetId);
+  const { note, notified } = reportNotes.save(payload || {}, caller.who, { mentionable: WEB_RUNTIME ? new Set(mentionableFor(found).map((entry) => entry.id)) : null, title: found.asset.title || '' });
+  noteChanged(found.asset.id, note.id, notified);
+  return { note };
+});
+handle('studio:resolveReportNote', (_, payload) => {
+  const caller = reportCaller(); const found = noteAsset(payload?.assetId);
+  const { note } = reportNotes.resolve(payload || {}, caller.who);
+  noteChanged(found.asset.id, note.id);
+  return { note };
+});
+handle('studio:deleteReportNote', (_, payload) => {
+  const caller = reportCaller(); const found = noteAsset(payload?.assetId);
+  reportNotes.remove(payload || {}, caller.who, { admin: caller.viewer?.base === 'admin' });
+  noteChanged(found.asset.id, String(payload?.noteId || ''));
+  return { ok: true };
+});
 
 // Browser studio: the folder of the browser request being answered, where a file to download is written (studio-server
 // sweeps it after ten minutes); '' on the Mac, or for work no request is waiting on (a Workflows step).
@@ -2901,6 +2991,18 @@ function pushAskEvent(identityId, event, { session = null } = {}) {
     else emit('help:stream', event);
     return true;
   } catch (_) { return false; } // a window that missed it reads the conversation or the progress back
+}
+// The report editor's live events for one person, on the same per-person path (report-docs.js, the notes handlers):
+// { type: 'doc-update', assetId, update, epoch, clientId, from, awareness?, reset? }, { type: 'doc-presence', assetId,
+// editors, awareness? }, { type: 'note-changed', assetId, noteId }. On the Mac 'person:event' over IPC (preload
+// onPersonEvent); on the web `event: person` on that person's live-update streams (web-api onPersonEvent).
+function pushPersonEvent(identityId, event, { session = null } = {}) {
+  if (!identityId || !event || typeof event !== 'object') return false;
+  try {
+    if (WEB_RUNTIME) require('./web-runtime').sendTo({ identityId: String(identityId), session }, 'person', event);
+    else emit('person:event', event);
+    return true;
+  } catch (_) { return false; } // a browser that missed one reopens the report or reloads its notes on resync
 }
 // Ask AI follow-ups (src/main/ask-followups.js): the message a run started from a conversation posts there by itself,
 // with the buttons the person's role runs now and money only for people who see costs. No call is in progress when a run

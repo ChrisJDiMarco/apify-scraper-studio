@@ -96,6 +96,14 @@
     "removeBrandImage": "studio:removeBrandImage",
     "editStudioAsset": "studio:editStudioAsset",
     "restoreStudioAsset": "studio:restoreStudioAsset",
+    "openReportDoc": "studio:openReportDoc",
+    "pushReportDocUpdate": "studio:pushReportDocUpdate",
+    "restoreReportVersion": "studio:restoreReportVersion",
+    "closeReportDoc": "studio:closeReportDoc",
+    "listReportNotes": "studio:listReportNotes",
+    "saveReportNote": "studio:saveReportNote",
+    "resolveReportNote": "studio:resolveReportNote",
+    "deleteReportNote": "studio:deleteReportNote",
     "getTeam": {
       "channel": "team:list",
       "args": []

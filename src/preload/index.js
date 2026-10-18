@@ -105,6 +105,15 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   // Reports edited in the studio: save an edit (baseEditedAt guards against overwriting someone else's), or restore.
   editStudioAsset: (payload) => invoke('studio:editStudioAsset', payload),
   restoreStudioAsset: (payload) => invoke('studio:restoreStudioAsset', payload),
+  // The report editor and notes (report-docs.js, report-notes.js).
+  openReportDoc: (payload) => invoke('studio:openReportDoc', payload),
+  pushReportDocUpdate: (payload) => invoke('studio:pushReportDocUpdate', payload),
+  restoreReportVersion: (payload) => invoke('studio:restoreReportVersion', payload),
+  closeReportDoc: (payload) => invoke('studio:closeReportDoc', payload),
+  listReportNotes: (payload) => invoke('studio:listReportNotes', payload),
+  saveReportNote: (payload) => invoke('studio:saveReportNote', payload),
+  resolveReportNote: (payload) => invoke('studio:resolveReportNote', payload),
+  deleteReportNote: (payload) => invoke('studio:deleteReportNote', payload),
   // People and roles, View as, per-person layout, channel answers and analytics (docs/roles-and-access.md).
   getTeam: () => invoke('team:list'),
   saveMember: (payload) => invoke('team:save-member', payload),
@@ -198,5 +207,11 @@ contextBridge.exposeInMainWorld('apifyStudio', {
     const listener = (_, payload) => callback(payload);
     ipcRenderer.on('help:stream', listener);
     return () => ipcRenderer.removeListener('help:stream', listener);
+  },
+  // Live events for this person (index.js pushPersonEvent): doc-update, doc-presence, note-changed.
+  onPersonEvent: (callback) => {
+    const listener = (_, payload) => callback(payload);
+    ipcRenderer.on('person:event', listener);
+    return () => ipcRenderer.removeListener('person:event', listener);
   },
 });

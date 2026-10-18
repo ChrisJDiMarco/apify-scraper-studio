@@ -34,12 +34,13 @@ const REPORTED = new Set(['saveMember', 'removeMember', 'createSignInLink', 'set
 const AUDITED = new Set(['saveMember', 'removeMember', 'createSignInLink', 'revokeSignInLink', 'saveRolePolicy', 'saveRole', 'deleteRole', 'saveMemberAccess', 'inviteMembers']);
 // What a channel-based role may send, method by method (the SCOPES below); roles.json channelSafeMethods is these
 // plus the core methods, and test/roles.test.js keeps the two in step.
-const SCOPE_METHODS = Object.freeze({ channel: Object.freeze(['planAssetKit', 'createAssetKit', 'readStudioAsset', 'openStudioAsset', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption', 'setViewPrefs']), editor: Object.freeze(['saveResearchReview']) });
+const SCOPE_METHODS = Object.freeze({ channel: Object.freeze(['planAssetKit', 'createAssetKit', 'readStudioAsset', 'openStudioAsset', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption', 'setViewPrefs', 'openReportDoc', 'closeReportDoc', 'listReportNotes', 'saveReportNote', 'resolveReportNote', 'deleteReportNote']), editor: Object.freeze(['saveResearchReview']) });
 // The methods that read a file the browser uploads first (web-api.js FILE_PICKERS), for studio-server's upload check.
 const UPLOAD_METHODS = Object.freeze(['importStudioSource', 'importWorkbook', 'pickImportFile', 'openSetupFile', 'applySetup', 'addBrandImage']);
 const osName = () => { try { return os.userInfo().username || 'You'; } catch (_) { return 'You'; } };
 
-function createAccess({ teamStore, roles: policy = roles, workspace, web = false, localName = '', currentCall = () => null } = {}) {
+// notes: report-notes.js (optional), for each person's mentions and replies in their projected state.
+function createAccess({ teamStore, roles: policy = roles, workspace, web = false, localName = '', currentCall = () => null, notes = null } = {}) {
   if (!teamStore || !workspace) throw new Error('The access gate needs the team store and the content workspace.');
   const IDENTITY = new Set(policy.IDENTITY_METHODS); const READS = new Set(policy.READ_METHODS);
   // The Mac app has one person, always an admin; View as lives in this process's memory and ends when the app quits.
@@ -143,6 +144,9 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
       return { runId: run.id, maxBudgetUsd: Math.min(1000, Math.max(Number(run.maxBudgetUsd) || 0, Math.ceil((Number(run.reservedUsd) || 0) + unfinished * 2))) };
     };
   }
+  function reportScope(fields) {
+    return (payload, viewer) => ({ ...channelFile(payload, viewer), ...Object.fromEntries(fields.filter((key) => payload[key] !== undefined).map((key) => [key, payload[key]])) });
+  }
   const SCOPES = {
     planAssetKit: { channel: channelKit(false) },
     createAssetKit: { channel: channelKit(true) },
@@ -155,6 +159,17 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     setTrendAdoption: { channel: (payload, viewer) => ({ themeId: text(payload.themeId), channelId: viewer.channelId, status: payload.status, ...(payload.link !== undefined ? { link: payload.link } : {}), ...(payload.note !== undefined ? { note: payload.note } : {}), ...(payload.plannedFor !== undefined ? { plannedFor: payload.plannedFor } : {}) }) },
     // A channel owner's layout is always Simple and their channel is fixed, so My channels doesn't apply to them.
     setViewPrefs: { channel: (payload) => ({ ...(payload.uiMode !== undefined ? { uiMode: 'simple' } : {}), ...Object.fromEntries(['welcomedAt', 'inboxSeenAt', 'navRail'].filter((key) => payload[key] !== undefined).map((key) => [key, payload[key]])) }) },
+    // The report editor and notes: their own channel's assets and the trend briefs (what readStudioAsset allows), and
+    // never an edit (pushReportDocUpdate and restoreReportVersion aren't channel-safe). Whose note may be changed is
+    // checked by report-notes.js.
+    openReportDoc: { channel: reportScope(['clientId']) },
+    // Closing only takes this person's own browser off the report, so it works after the report is gone (deleted, or
+    // a switched workspace) instead of leaving them listed as having it open until the timeout.
+    closeReportDoc: { channel: (payload) => ({ assetId: text(payload.assetId), ...(payload.clientId !== undefined ? { clientId: payload.clientId } : {}) }) },
+    listReportNotes: { channel: reportScope([]) },
+    saveReportNote: { channel: reportScope(['noteId', 'replyTo', 'replyId', 'anchor', 'body', 'mentions']) },
+    resolveReportNote: { channel: reportScope(['noteId', 'resolved']) },
+    deleteReportNote: { channel: reportScope(['noteId', 'replyId']) },
     // On the web a review is signed by the person who saved it.
     saveResearchReview: { editor: (payload, viewer) => (web ? { ...payload, reviewer: viewer.name } : payload) },
   };
@@ -271,7 +286,8 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     let views = projections.get(base); if (!views) { views = new Map(); projections.set(base, views); }
     if (!views.has(key)) {
       const workspaceId = base.contentStudio?.activeWorkspaceId || activeWorkspaceId();
-      views.set(key, policy.projectState(base, viewer, { adoptions: teamStore.adoptionsFor(workspaceId), admins: teamStore.admins(), memberCount: teamStore.listMembers().length, editionId: workspace.workspaceById(workspaceId)?.editionId || edition() }));
+      let noteInbox = null; try { noteInbox = notes && viewer?.id ? notes.inboxFor(viewer.id) : null; } catch (_) { noteInbox = null; }
+      views.set(key, policy.projectState(base, viewer, { adoptions: teamStore.adoptionsFor(workspaceId), admins: teamStore.admins(), memberCount: teamStore.listMembers().length, editionId: workspace.workspaceById(workspaceId)?.editionId || edition(), noteInbox }));
     }
     return views.get(key);
   }

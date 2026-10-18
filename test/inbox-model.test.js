@@ -107,6 +107,30 @@ describe('the inbox', () => {
   });
 });
 
+describe('note rows', () => {
+  const mentions = [
+    { noteId: 'note-1', assetId: 'asset-report', kind: 'mention', by: { id: 'member-sam', name: 'Sam' }, at: at('16', '09:00:00'), excerpt: '@Riley can you check the CTR source?' },
+    { noteId: 'note-2', replyId: 'reply-9', assetId: 'asset-mine', kind: 'reply', by: { id: 'member-alex', name: 'Alex' }, at: at('16', '10:00:00'), excerpt: 'Done, it was from the X data.', read: true },
+    { noteId: 'note-3', assetId: 'asset-report', kind: 'mention', by: { id: 'member-riley', name: 'Riley' }, at: at('16', '10:30:00'), excerpt: 'My own' },
+  ];
+  it('tells a person about mentions and replies to their notes, opening the report at the note', () => {
+    const inbox = buildInbox({ state: state({ noteMentions: mentions }), viewer: riley, seenAt: at('15', '12:00:00'), now: NOW });
+    const rows = inbox.items.filter((item) => item.kind === 'note');
+    expect(rows.map((row) => row.title)).toEqual(['Alex replied to your note on “TREND: AI Overviews”', 'Sam mentioned you in a note on “AI Overviews — Trends report”']);
+    expect(rows[1]).toMatchObject({ detail: '“@Riley can you check the CTR source?”', unread: true, target: { kind: 'report', id: 'asset-report', page: 'reports', noteId: 'note-1' } });
+    expect(rows[0].unread).toBe(false); // the studio says it was read
+    expect(rows[0]).not.toHaveProperty('read');
+    expect(INBOX_KIND_LABEL.note).toBe('Note');
+  });
+
+  it('gives a channel owner their brief’s notes too, named for the trend', () => {
+    const channelState = { contentStudio: { channelView: { channel: { id: 'blog', name: 'Semrush Blog' }, trends: [{ themeId: 't-2', name: 'AI Overviews', primaryReportId: 'asset-report' }], runs: [] }, noteMentions: [mentions[0]] } };
+    const inbox = buildInbox({ state: channelState, viewer: { id: 'member-pat', role: 'channel', allowed: [] }, now: NOW });
+    expect(inbox.items).toEqual([expect.objectContaining({ kind: 'note', title: 'Sam mentioned you in a note on “AI Overviews”', target: expect.objectContaining({ id: 'asset-report', noteId: 'note-1' }) })]);
+    expect(inbox.unread).toBe(1);
+  });
+});
+
 describe('workflow rows', () => {
   const flows = (extra = {}) => ({ team: { admins: [{ name: 'Alex' }] }, contentStudio: {
     activeWorkspaceId: 'semrush',

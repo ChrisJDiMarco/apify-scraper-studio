@@ -31,11 +31,12 @@ function people() {
 async function fixture({ streamTuning } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-transport-')); const webRoot = path.join(root, 'public'); fs.mkdirSync(webRoot);
   fs.writeFileSync(path.join(webRoot, 'index.html'), '<!doctype html><title>Fixture</title>');
-  const sessions = []; const listeners = new Set(); const provider = people();
+  const sessions = []; const listeners = new Set(); const provider = people(); const provisions = new Map();
   const runtime = {
     settings: { transferDir: path.join(root, 'transfers') },
     channels: () => ['state', 'help:progress'],
-    provided: (name) => (name === 'people' ? provider : null),
+    provided: (name) => (name === 'people' ? provider : provisions.get(name) || null),
+    provide: (name, value) => provisions.set(name, value),
     async invoke(channel, payload, context = {}) { sessions.push({ user: context.user?.id, session: context.session }); return { result: { ok: true }, files: [], opens: [] }; },
     onBroadcast: (channel, listener) => { listeners.add(listener); return () => listeners.delete(listener); },
     broadcast: (state) => { for (const listener of listeners) listener(state); },
@@ -47,7 +48,7 @@ async function fixture({ streamTuning } = {}) {
   const post = (route, body, cookie) => fetch(`${base}${route}`, { method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body) });
   const cookieOf = (response) => response.headers.get('set-cookie').split(';')[0];
   return {
-    base, runtime, provider, sessions,
+    base, runtime, provider, sessions, provisions,
     password: async () => cookieOf(await post('/api/login', { password: PASSWORD })),
     link: async (id) => cookieOf(await post('/api/login', { linkToken: provider.members.get(id).link.token })),
     // The live session object a browser's calls carry (what index.js reads with access.sessionForCall()).
@@ -72,6 +73,7 @@ async function openStream(base, cookie) {
       return text;
     },
     asks: () => [...text.matchAll(/event: ask\ndata: (.*)\n\n/g)].map((match) => JSON.parse(match[1])),
+    persons: () => [...text.matchAll(/event: person\ndata: (.*)\n\n/g)].map((match) => JSON.parse(match[1])),
   };
   await stream.collect(50); // the hello
   return stream;
@@ -117,5 +119,28 @@ describe('Ask AI events on the browser studio', () => {
     await one.collect();
     expect(one.asks()).toEqual([]);
     one.abort();
+  });
+});
+
+// The report editor's live events (index.js pushPersonEvent → web-runtime sendTo(…, 'person') → `event: person`).
+describe('report editor events on the browser studio', () => {
+  it('reach only that person’s streams, at once, and say whether the person still has a stream open', async () => {
+    const h = await fixture();
+    const liveStreams = h.provisions.get('liveStreams');
+    expect(liveStreams.has('member-one')).toBe(false);
+    const one = await openStream(h.base, await h.link('member-one'));
+    const two = await openStream(h.base, await h.link('member-two'));
+    expect(liveStreams.has('member-one')).toBe(true);
+    const started = Date.now();
+    webRuntime.sendTo({ identityId: 'member-one', session: null }, 'person', { type: 'doc-update', assetId: 'asset-report', update: 'AAA=', from: { id: 'member-two', name: 'member-two', color: '#4F7FE8' } });
+    webRuntime.sendTo({ identityId: 'member-two', session: null }, 'person', { type: 'note-changed', assetId: 'asset-report', noteId: 'note-1' });
+    await Promise.all([one.collect(), two.collect()]);
+    expect(Date.now() - started).toBeLessThan(2000); // never held for the 5 s state coalescing
+    expect(one.persons()).toEqual([{ type: 'doc-update', assetId: 'asset-report', update: 'AAA=', from: { id: 'member-two', name: 'member-two', color: '#4F7FE8' } }]);
+    expect(two.persons()).toEqual([{ type: 'note-changed', assetId: 'asset-report', noteId: 'note-1' }]);
+    expect(one.asks()).toEqual([]); // Ask AI's listeners never see them
+    one.abort(); two.abort();
+    for (let i = 0; i < 50 && liveStreams.has('member-one'); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(liveStreams.has('member-one')).toBe(false);
   });
 });

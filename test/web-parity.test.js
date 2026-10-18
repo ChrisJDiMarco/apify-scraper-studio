@@ -29,7 +29,7 @@ afterEach(() => { HTMLInputElement.prototype.click = originalClick; vi.restoreAl
 describe('browser studio and Mac app expose the same API', () => {
   it('lists every preload method in the shared channel table', () => {
     const { api } = desktopApi();
-    expect(Object.keys(methods).sort()).toEqual(Object.keys(api).filter((name) => !['onStateChanged', 'onAskStream'].includes(name)).sort());
+    expect(Object.keys(methods).sort()).toEqual(Object.keys(api).filter((name) => !['onStateChanged', 'onAskStream', 'onPersonEvent'].includes(name)).sort());
   });
 
   it('sends each method to the same channel with the same payload as the preload', async () => {

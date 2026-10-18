@@ -110,9 +110,12 @@ const stateListeners = new Set(); let events = null; let parked = false; let ret
 const notify = (next) => { for (const fn of stateListeners) fn(next); };
 // Ask AI's streamed answers and follow-ups ride the same stream as `event: ask` (only this person's). A stream that
 // dropped or stalled can't say what it missed, so its listeners hear { type: 'resync' } and read the answers back.
-const askListeners = new Set();
-const notifyAsk = (event) => { for (const fn of askListeners) { try { fn(event); } catch { /* one listener never stops the rest */ } } };
-const listening = () => stateListeners.size > 0 || askListeners.size > 0;
+// Live events for this person (doc-update, doc-presence, note-changed; index.js pushPersonEvent) ride it as `event:
+// person`, and hear the same { type: 'resync' }.
+const askListeners = new Set(); const personListeners = new Set();
+const notifyPerson = (event) => { for (const fn of personListeners) { try { fn(event); } catch { /* one listener never stops the rest */ } } };
+const notifyAsk = (event) => { for (const fn of askListeners) { try { fn(event); } catch { /* one listener never stops the rest */ } } if (event?.type === 'resync') notifyPerson(event); };
+const listening = () => stateListeners.size > 0 || askListeners.size > 0 || personListeners.size > 0;
 const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
 const refreshState = () => postJson('/api/rpc', { channel: 'state' }).then(({ result }) => { if (result && stateListeners.size) notify(result); }).catch(() => {});
 // catchUp: this stream replaces one that dropped, so its hello also fetches what was missed.
@@ -131,6 +134,7 @@ function openEvents(catchUp = false) {
   source.addEventListener('state-changed', (event) => { let next; try { next = JSON.parse(event.data); } catch { return; } setLive(true); notify(next); });
   source.addEventListener('ask', (event) => { let next; try { next = JSON.parse(event.data); } catch { return; } if (next && typeof next === 'object') notifyAsk(next); });
   source.addEventListener('ask-resync', () => notifyAsk({ type: 'resync' }));
+  source.addEventListener('person', (event) => { let next; try { next = JSON.parse(event.data); } catch { return; } if (next && typeof next === 'object') notifyPerson(next); });
   // The same person opened more tabs than the server streams to, and this is the oldest: stop instead of reconnecting
   // (which would only push out the next one). It opens again the next time this tab reads the state.
   source.addEventListener('replaced', () => { source.close(); if (events === source) events = null; });
@@ -175,6 +179,12 @@ function onAskStream(listener) {
   if (!events && !hidden()) openEvents();
   return () => { askListeners.delete(listener); if (!listening() && events) { events.close(); events = null; } };
 }
+function onPersonEvent(listener) {
+  if (typeof listener !== 'function') return () => {};
+  personListeners.add(listener);
+  if (!events && !hidden()) openEvents();
+  return () => { personListeners.delete(listener); if (!listening() && events) { events.close(); events = null; } };
+}
 
 export function createWebApi() {
   const api = {};
@@ -187,6 +197,7 @@ export function createWebApi() {
   }
   api.onStateChanged = onStateChanged;
   api.onAskStream = onAskStream;
+  api.onPersonEvent = onPersonEvent;
   api.signOut = async () => { await postJson('/api/logout', {}).catch(() => {}); window.location.reload(); };
   return api;
 }

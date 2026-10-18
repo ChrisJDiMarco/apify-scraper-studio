@@ -79,6 +79,9 @@ describe('one-workspace builds', () => {
     // Everything stays on disk: the hidden workspace, its program, and Main's old name.
     const saved = h.readState();
     expect(saved.workspaces.find((row) => row.id === 'general').archived).toMatchObject({ reason: 'single-workspace' });
+    // What the Monday.com sync asks before syncing a link saved on a workspace.
+    expect(api.isWorkspaceHidden('general')).toBe(true);
+    expect(api.isWorkspaceHidden('semrush')).toBe(false);
     expect(saved.workspaces.find((row) => row.id === 'semrush')).toMatchObject({ name: 'Main', previousName: 'Semrush workspace' });
     expect(saved.programs.map((row) => row.id).sort()).toEqual(['program-general', 'program-semrush']);
     expect(saved.workspacePolicy).toMatchObject({ mode: 'single', mainId: 'semrush', name: 'Main' });

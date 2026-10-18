@@ -4,8 +4,9 @@
 // buildInbox({ state, viewer, seenAt, now? }) → { items, unread }
 //   item = { id, kind, title, detail, at, target: { kind, id, page }, unread }
 //   kind: 'needs-ok' | 'adoption' | 'edit' | 'run-finished' | 'run-stopped' | 'prompt-change' | 'routed' |
-//     'workflow-review' | 'workflow-budget' | 'workflow-draft' | 'workflow-finished' | 'workflow-stopped'
-//   target.kind: 'trend' | 'report' | 'run' | 'folder' | 'prompt' | 'workflow' | 'page' (page: a page id such as 'trends')
+//     'workflow-review' | 'workflow-budget' | 'workflow-draft' | 'workflow-finished' | 'workflow-stopped' | 'note'
+//   target.kind: 'trend' | 'report' | 'run' | 'folder' | 'prompt' | 'workflow' | 'page' (page: a page id such as 'trends');
+//     a note's target also names its noteId, so the report opens at that note
 // Unread means newer than prefs.inboxSeenAt (the last 7 days before it was ever set). Rows are newest first, from the
 // last 30 days, at most 60.
 
@@ -155,13 +156,31 @@ export function buildInbox({ state = {}, viewer = {}, seenAt = '', now = Date.no
     push({ id: `prompt:${row.promptId}:${row.version || row.at}`, kind: 'prompt-change', at: row.at, title: `${row.by?.name || row.byName || 'Someone'} changed the ${quote(row.promptName || row.name || row.promptId)} prompt`, detail: [row.version ? `Version ${row.version}` : '', firstLine(row.note, 90)].filter(Boolean).join(' · '), target: { kind: 'prompt', id: row.promptId, page: 'prompts' } });
   }
 
+  // Notes on reports: someone @mentioned this person, or replied to their note (contentStudio.noteMentions, projected per
+  // person by the studio; a channel owner's holds only their channel's briefs and assets). Rows: { noteId, replyId?,
+  // assetId, assetTitle?, kind: 'mention'|'reply', by: { id, name }, at, excerpt, read? }.
+  const assetTitle = (assetId) => list(studio.assets).find((asset) => asset.id === assetId)?.title
+    || list(studio.channelView?.trends).find((trend) => trend.primaryReportId === assetId)?.name || 'a report';
+  for (const row of list(studio.noteMentions || studio.noteInbox)) {
+    if (!row?.assetId) continue;
+    const by = row.by || row.author || {};
+    if (me && by.id === me) continue;
+    const reply = (row.kind || row.type) === 'reply';
+    const where = quote(row.assetTitle || assetTitle(row.assetId));
+    const text = row.excerpt || row.body || '';
+    push({ id: `note:${row.noteId || ''}:${row.replyId || row.id || row.at || row.createdAt}`, kind: 'note', at: row.at || row.createdAt,
+      title: reply ? `${by.name || 'Someone'} replied to your note on ${where}` : `${by.name || 'Someone'} mentioned you in a note on ${where}`,
+      detail: text ? `“${firstLine(text, 140)}”` : '', read: Boolean(row.read),
+      target: { kind: 'report', id: row.assetId, page: 'reports', noteId: row.noteId || '' } });
+  }
+
   // Never opened: the last 7 days count as new, so a first visit isn't a wall of unread rows.
   const seen = Number.isFinite(time(seenAt)) ? time(seenAt) : now - 7 * DAY;
   const unique = new Map(); for (const item of items) if (!unique.has(item.id)) unique.set(item.id, item);
   const sorted = [...unique.values()].sort((a, b) => time(b.at) - time(a.at) || a.id.localeCompare(b.id)).slice(0, INBOX_LIMIT)
-    .map((item) => ({ ...item, unread: time(item.at) > seen }));
+    .map(({ read, ...item }) => ({ ...item, unread: !read && time(item.at) > seen }));
   return { items: sorted, unread: sorted.filter((item) => item.unread).length };
 }
 
 // Words for the kind of row, for screen readers and the filter.
-export const INBOX_KIND_LABEL = Object.freeze({ 'needs-ok': 'Needs your OK', adoption: 'Channel answer', edit: 'Edit', 'run-finished': 'Finished', 'run-stopped': 'Stopped', 'prompt-change': 'Prompt change', routed: 'For your channel', 'workflow-review': 'Needs your OK', 'workflow-budget': 'Needs a budget', 'workflow-draft': 'Needs a budget', 'workflow-finished': 'Workflow finished', 'workflow-stopped': 'Workflow stopped' });
+export const INBOX_KIND_LABEL = Object.freeze({ 'needs-ok': 'Needs your OK', adoption: 'Channel answer', edit: 'Edit', 'run-finished': 'Finished', 'run-stopped': 'Stopped', 'prompt-change': 'Prompt change', routed: 'For your channel', 'workflow-review': 'Needs your OK', 'workflow-budget': 'Needs a budget', 'workflow-draft': 'Needs a budget', 'workflow-finished': 'Workflow finished', 'workflow-stopped': 'Workflow stopped', note: 'Note' });

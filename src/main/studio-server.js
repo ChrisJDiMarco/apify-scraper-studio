@@ -122,6 +122,9 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
   let draining = false; let inFlight = 0;
   const hookWindow = { minute: 0, count: 0 };
   const people = () => (typeof runtime.provided === 'function' && runtime.provided('people')) || null;
+  // Whether a person has a live-update stream open: the report editor keeps them listed as having a report open while
+  // they do (report-docs.js presence), and lets them go two minutes after their last stream closes.
+  if (typeof runtime.provide === 'function') runtime.provide('liveStreams', { has: (identityId) => Boolean(identityId) && [...streams].some((stream) => stream.identityId === identityId) });
   const log = (event) => { const entry = { at: new Date().toISOString(), ...event }; const provider = people(); if (provider?.logEvent) provider.logEvent(entry); else if (logEvent) logEvent(entry); else console.log(JSON.stringify(entry)); };
   // Anyone can send the header, so its refusals are logged at most once a minute per address.
   const refusedPeers = new Map();
@@ -366,11 +369,20 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
       let data; try { data = JSON.stringify(payload); } catch (_) { return; }
       if (typeof data === 'string') write(`event: ask\ndata: ${data}\n\n`);
     }) : () => {};
+    // The report editor's live events for this person (index.js pushPersonEvent: doc-update, doc-presence, note-changed),
+    // written at once as `event: person`; a stalled tab skips them and hears the same ask-resync once it drains.
+    const offPerson = typeof runtime.onPersonal === 'function' ? runtime.onPersonal('person', (target, payload) => {
+      if (closed || !mine(target)) return;
+      if (stalled()) { askGap = true; return; }
+      resync();
+      let data; try { data = JSON.stringify(payload); } catch (_) { return; }
+      if (typeof data === 'string') write(`event: person\ndata: ${data}\n\n`);
+    }) : () => {};
     const heartbeat = setInterval(() => { if (!stalled()) { resync(); write(': keep-alive\n\n'); } }, heartbeatMs);
     const entry = {
       token: who.token, // the cookie session this stream belongs to ('' for SSO)
-      owner,
-      close: () => { if (closed) return; closed = true; stop(); offAsk(); clearInterval(heartbeat); clearTimeout(timer); streams.delete(entry); },
+      owner, identityId: who.identity?.id || '',
+      close: () => { if (closed) return; closed = true; stop(); offAsk(); offPerson(); clearInterval(heartbeat); clearTimeout(timer); streams.delete(entry); },
       // A dead socket never drains, so ending it would only queue more: its buffers are freed at once instead.
       drop: () => { const open = !closed; entry.close(); if (open) slog.log('info', 'stream-dropped', { reason: 'stalled', identity: logIdentity(who) }); if (gzip) gzip.destroy(); res.destroy(); },
       stop: () => { if (backlog() > backlogBytes) return entry.drop(); const open = !closed; entry.close(); if (open) { if (gzip) gzip.end(); else res.end(); } },

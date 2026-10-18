@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import './helpers/prosemirror-dom.js';
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -258,8 +259,13 @@ describe('The layout switch', () => {
 });
 
 describe('Simple reader', () => {
-  it('shows who used a report, edits it in place, and asks before leaving unsaved edits', async () => {
+  // The editor (report-editor/ReportDocument.jsx) saves as people type; typing goes through the editor's commands here.
+  const typeInto = async (pattern, text) => { const box = await screen.findByRole('textbox', { name: pattern }); await waitFor(() => expect(box.editor).toBeTruthy()); act(() => { box.editor.chain().focus('end').insertContent(text).run(); }); return box; };
+  const saveNow = () => fireEvent.keyDown(window, { key: 's', metaKey: true });
+
+  it('shows who used a report, edits it in place, and asks before leaving edits that didn’t save', async () => {
     const { api } = openStudio('admin');
+    api.editStudioAsset.mockRejectedValueOnce(new Error('The studio is offline.'));
     await screen.findByRole('heading', GREETING);
     const main = () => within(screen.getByRole('navigation', { name: 'Main' }));
     fireEvent.click(main().getByRole('button', { name: /Reports/ }));
@@ -271,20 +277,23 @@ describe('Simple reader', () => {
     expect(api.openSourceUrl).toHaveBeenCalledWith('https://www.semrush.com/blog/ai-overviews/');
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    const text = await screen.findByRole('textbox', { name: `Text of ${REPORT}` });
-    fireEvent.change(text, { target: { value: '# Report\n\nSharper text.' } });
-    // Leaving with unsaved edits asks first; saying no keeps the editor and the text.
+    const text = await typeInto(`Text of ${REPORT}`, ' Sharper text.');
+    saveNow();
+    await screen.findByText('Not saved');
+    // Leaving with edits that didn't save asks first; saying no keeps the editor and the text.
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     fireEvent.click(main().getByRole('button', { name: /Home/ }));
     expect(confirm).toHaveBeenCalledWith('Leave without saving your edits?');
-    expect(screen.getByRole('textbox', { name: `Text of ${REPORT}` })).toHaveValue('# Report\n\nSharper text.');
+    expect(text).toHaveTextContent('Sharper text.');
     confirm.mockRestore();
 
-    fireEvent.click(screen.getByRole('button', { name: /^Save/ }));
-    await waitFor(() => expect(api.editStudioAsset).toHaveBeenCalledWith({ assetId: 'asset-aio-report-2', markdown: '# Report\n\nSharper text.', baseEditedAt: '' }));
-    expect(await screen.findByText('Sharper text.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(api.editStudioAsset).toHaveBeenLastCalledWith({ assetId: 'asset-aio-report-2', markdown: '# Report asset-aio-report-2\n\nOriginal text. Sharper text.', baseEditedAt: '' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: `Text of ${REPORT}` })).not.toBeInTheDocument());
+    expect(await screen.findByText('Original text. Sharper text.')).toBeInTheDocument();
     expect(screen.getByText(/Edited by Chris/)).toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: `Text of ${REPORT}` })).not.toBeInTheDocument();
   });
 
   it('never saves over someone else’s edit that arrived while the report was open', async () => {
@@ -303,22 +312,21 @@ describe('Simple reader', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     server.base.contentStudio.assets = server.base.contentStudio.assets.map((asset) => (asset.id === id ? { ...asset, edited: pushed } : asset));
     push();
-    const text = await screen.findByRole('textbox', { name: /^Text of / });
-    fireEvent.change(text, { target: { value: '# Report\n\nOriginal text.\n\nChris adds a line.' } });
-    fireEvent.click(screen.getByRole('button', { name: /^Save/ }));
-    await waitFor(() => expect(editStudioAsset).toHaveBeenCalledWith({ assetId: id, markdown: '# Report\n\nOriginal text.\n\nChris adds a line.', baseEditedAt: '' }));
+    const text = await typeInto(/^Text of /, ' Chris adds a line.');
+    saveNow();
+    await waitFor(() => expect(editStudioAsset).toHaveBeenCalledWith({ assetId: id, markdown: `# Report ${id}\n\nOriginal text. Chris adds a line.`, baseEditedAt: '' }));
     expect(await screen.findByText(/after you opened it/)).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: /^Text of / })).toHaveValue('# Report\n\nOriginal text.\n\nChris adds a line.');
-    // Cancelling reads the saved version, so the next edit starts from Riley's text and her time.
+    expect(text).toHaveTextContent('Chris adds a line.');
+    // Leaving reads the saved version, so the next edit starts from Riley's text and her time.
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(await screen.findByText('Riley’s text.')).toBeInTheDocument();
     expect(screen.getByText(/Edited by Riley/)).toBeInTheDocument();
     editStudioAsset.mockImplementation(async ({ assetId }) => ({ asset: { id: assetId, edited: { at: '2026-10-16T09:00:00.000Z', by: { id: 'local', name: 'Chris' } } } }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    fireEvent.change(await screen.findByRole('textbox', { name: /^Text of / }), { target: { value: 'Both of us.' } });
-    fireEvent.click(screen.getByRole('button', { name: /^Save/ }));
-    await waitFor(() => expect(editStudioAsset).toHaveBeenLastCalledWith({ assetId: id, markdown: 'Both of us.', baseEditedAt: pushed.at }));
+    await typeInto(/^Text of /, ' Both of us.');
+    saveNow();
+    await waitFor(() => expect(editStudioAsset).toHaveBeenLastCalledWith({ assetId: id, markdown: `# Report ${id}\n\nRiley’s text. Both of us.`, baseEditedAt: pushed.at }));
   });
 
   it('reads a report again when someone else saves it while it is open', async () => {
@@ -338,24 +346,27 @@ describe('Simple reader', () => {
   });
 
   it('keeps unsaved edits on screen when an admin switches everyone’s workspace', async () => {
-    const { server, push } = openStudio('editor');
+    const { api, server, push } = openStudio('editor');
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Reports/ }));
     fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') }))[0]);
     await screen.findByText('Original text.');
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    fireEvent.change(await screen.findByRole('textbox', { name: /^Text of / }), { target: { value: 'Half-written edit…' } });
+    await typeInto(/^Text of /, ' Half-written edit…');
     server.base.contentStudio.activeWorkspaceId = 'general';
     push();
-    expect(screen.getByRole('textbox', { name: /^Text of / })).toHaveValue('Half-written edit…');
+    // The text stays (read-only now), with Copy my text, and nothing is sent to a report that isn't here anymore.
+    const page = await screen.findByRole('document', { name: /Comprehensive Trends Report/ });
+    expect(page).toHaveTextContent('Half-written edit…');
     expect(screen.getByRole('alert')).toHaveTextContent(/isn’t in the studio’s workspace anymore/);
     expect(screen.getByRole('button', { name: 'Copy my text' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Save/ })).toBeDisabled();
+    await new Promise((resolve) => setTimeout(resolve, 1700));
+    expect(api.editStudioAsset).not.toHaveBeenCalled();
     // Leaving still asks first; once closed, the reader goes back to the (new) workspace's list.
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(confirm).toHaveBeenCalledWith('Leave without saving your edits?');
-    await waitFor(() => expect(screen.queryByRole('textbox', { name: /^Text of / })).not.toBeInTheDocument()); // the editor's Cancel asks in the in-app dialog
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Leave without saving your edits?')));
+    await waitFor(() => expect(screen.queryByRole('document', { name: /Comprehensive Trends Report/ })).not.toBeInTheDocument());
   });
 
   it('names the channels that used a report for an editor too, who gets no channel list', async () => {

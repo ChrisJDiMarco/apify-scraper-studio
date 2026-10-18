@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
+import './helpers/prosemirror-dom.js';
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/renderer/src/App.jsx';
 import roles from '../src/main/roles.js';
@@ -144,15 +145,21 @@ describe('Opening a run shows that run', () => {
 });
 
 describe('Advanced navigation asks about unsaved edits once', () => {
+  // The editor saves as people type, so edits are unsaved only when saving fails: the studio refuses the save here.
+  const editorText = () => screen.getByRole('textbox', { name: /^Text of / }).textContent;
   async function editReport() {
-    openStudio('admin', { uiMode: 'classic' });
+    openStudio('admin', { uiMode: 'classic', api: { editStudioAsset: vi.fn(async () => { throw new Error('The studio is offline.'); }) } });
     await h1(GREETING.name);
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     const palette = await screen.findByRole('dialog', { name: 'Command palette' });
     fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'Read: AI Overviews eat clicks' } });
     fireEvent.keyDown(within(palette).getByRole('textbox', { name: 'Search commands' }), { key: 'Enter' });
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-    fireEvent.change(await screen.findByRole('textbox', { name: /^Text of / }), { target: { value: 'Half-written edit' } });
+    const text = await screen.findByRole('textbox', { name: /^Text of / });
+    await waitFor(() => expect(text.textContent).toContain('Original text.'));
+    act(() => { text.editor.chain().focus('end').insertContent(' Half-written edit').run(); });
+    fireEvent.keyDown(window, { key: 's', metaKey: true });
+    await screen.findByText('Not saved');
   }
 
   it('the sidebar and the Library’s own Create content ask first, and Stay keeps the editor', async () => {
@@ -162,14 +169,14 @@ describe('Advanced navigation asks about unsaved edits once', () => {
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(confirm).toHaveBeenCalledWith('Leave without saving your edits?');
     expect(screen.getByRole('heading', { level: 1, name: 'Your asset library' })).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: /^Text of / })).toHaveValue('Half-written edit');
+    expect(editorText()).toContain('Half-written edit');
     // The palette's Read of another report replaces the editor, so it asks too.
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     const palette = await screen.findByRole('dialog', { name: 'Command palette' });
     fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'Read: Local packs shrink' } });
     fireEvent.keyDown(within(palette).getByRole('textbox', { name: 'Search commands' }), { key: 'Enter' });
     expect(confirm).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('textbox', { name: /^Text of / })).toHaveValue('Half-written edit');
+    expect(editorText()).toContain('Half-written edit');
   });
 
   it('Settings asks exactly once, and Leave goes', async () => {

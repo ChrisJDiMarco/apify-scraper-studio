@@ -15,9 +15,10 @@ const calls = new AsyncLocalStorage(); // the RPC call a dialog, shell request o
 const handlers = new Map();
 const provisions = new Map(); // what the main process offers the server, e.g. 'people' (sign-in and per-person state)
 const broadcasts = new EventEmitter(); broadcasts.setMaxListeners(0);
-// Events for one person, never broadcast: Ask AI's streamed answers and follow-ups (index.js pushAskEvent). `target` is
-// { identityId, session }; studio-server.js writes each to that person's own live-update streams (and, for people who
-// share the admin password, only to the browser session that asked).
+// Events for one person, never broadcast: Ask AI's streamed answers and follow-ups (channel 'ask', index.js
+// pushAskEvent) and the report editor's live events (channel 'person', pushPersonEvent). `target` is { identityId,
+// session }; studio-server.js writes each to that person's own live-update streams (and, for people who share the admin
+// password, only to the browser session that asked, when one is named).
 const personal = new EventEmitter(); personal.setMaxListeners(0);
 // draining: the server is stopping (SIGTERM): readiness answers 503 and new paid work is refused (studio-server.js).
 const settings = { dataDir: '', secretKey: '', transferDir: '', passwordSignIn: false, draining: false };

@@ -32,7 +32,7 @@ when the build changes. Errors the server didn't expect reach the browser as "So
 
 ## The RPC method registry
 
-`src/shared/studio-api-channels.json` lists every method the UI calls (172) and the main-process channel it maps to
+`src/shared/studio-api-channels.json` lists every method the UI calls (180) and the main-process channel it maps to
 (`studio:*`, `help:*`, `team:*` and older ones such as `save-key`). Three things must agree with it:
 
 1. `src/preload/index.js`: the Mac bridge, written by hand (`invoke('studio:x', payload)`).
@@ -45,7 +45,7 @@ one capability. **Checklist for a new method:** [CONTRIBUTING.md](CONTRIBUTING.m
 
 ## Roles and the gate
 
-- **Policy data**: `src/shared/roles.json`: 25 `capabilities` (each with methods, defaults, bases, `requires`,
+- **Policy data**: `src/shared/roles.json`: 28 `capabilities` (each with methods, defaults, bases, `requires`,
   `spends`, `lock`), `channelSafeMethods`, `identityMethods`, `readMethods`, `pages`, `pageGroups`, `navOrder`,
   `roleTemplates`, copy.
 - **Policy logic**: `src/main/roles.js` (`capabilitiesFor`, `methodsFor`, `projectState`, `stripMoney`, `pagesFor`).
@@ -78,6 +78,8 @@ See [HANDOFF.md → Data model and storage](HANDOFF.md#data-model-and-storage) f
 | `content-studio/prompts/`, `prompt-tests/` | `prompt-store.js`, `prompt-lab.js` | Prompt versions per workspace. |
 | `content-studio/.studio-owner.json` | `studio-owner-lock.js` | One process per folder; heartbeat every 30 s; stale-lock takeover rules in [RUNBOOK.md](RUNBOOK.md#recover-from-a-stuck-data-folder-lock). |
 | `workbooks/` | `workbooks.js`, `workbook-import.js` | Sheets imports and per-cell edits. |
+| `content-studio/report-docs/` | `report-docs.js` | The report editor's shared documents: `<assetId>.json` (Yjs state, epoch, version, version list, who wrote in this epoch) and `<assetId>.versions/<versionId>.json` (Markdown, plus the Yjs state up to 2 MB); 50 versions kept besides the original. The report itself stays the `.edited.md` written through `content-workspace.js` `writeReportMarkdown`. |
+| `content-studio/report-notes.json` | `report-notes.js` | Notes on reports and each person's Inbox items. Synchronous, atomic, versioned (v1); a damaged file is put aside, a newer one refuses to start. |
 | `content-studio/workflows.json` | `workflow-store.js` | Workflows, their runs and team playbooks. Synchronous, atomic, versioned (v1); a newer file refuses to start. Children carry `run.workflow` in `state.json`, written in the save that creates them, so `recover()` rebuilds a missed link. |
 | `v5/` | `index.js` + `src/shared/v5-core.js` | The retired v5 event log; only `recipe-version-saved` (and legacy-import) events are read, for Scrapers' saved versions (`state.v5.recipeVersions`, cached by the file's size and time). |
 | `ai-spend.json` | `ai-limits.js` | Today's recorded AI spend (only with a daily budget). |
@@ -208,6 +210,50 @@ rising ×1.25 and +0.25 points or a three-run streak; fading below ×0.7 or two 
 badges, What changed, Ask AI's digest (`trendMemoryDigest`) and `buildTrendTrackerWorkbook` (the Sheets Trend tracker).
 Per-run stats are cached in `runs/<id>/theme-stats.json`. Free and deterministic.
 
+## Report editor and notes
+
+```
+editor (renderer, Tiptap + Yjs) ──openReportDoc──► report-docs.js open: Markdown, yState ('' until a browser seeds it),
+                                                    versions, editors; registers the browser (presence)
+        ──pushReportDocUpdate { update, markdown, clientId, final?, epoch?, stateVector?, awareness? } (~1.5 s, on close)
+            → strict base64, 2 MB per change, 8 MB per document → Y.applyUpdate on the server's Y.Doc
+            → content-workspace writeReportMarkdown (the .edited.md/.html every kit, export, Drive and Ask AI read;
+              state.json saved on the first edit, every minute and on close) unless stateVector shows the browser
+              hasn't seen everyone's changes yet (markdownSaved: false)
+            → a version per editor at most every 5 minutes, on close, or when a quiet browser times out
+            → pushPersonEvent to everyone else with it open: { type: 'doc-update' } (and doc-presence for carets)
+        ──restoreReportVersion / editStudioAsset / restoreStudioAsset (hooks.onAssetEdited)
+            → keep what's there as a version, write the Markdown, start the document over (epoch + 1, the browsers that
+              wrote before are retired: their pushes get 409 docReset), { type: 'doc-update', reset: true } to all
+notes ──listReportNotes / saveReportNote / resolveReportNote / deleteReportNote──► report-notes.js
+            → Inbox items for mentions and replies → { type: 'note-changed' } to people with the report open and the
+              people notified → emitState: contentStudio.noteCounts (base) + noteMentions (per person, access.project)
+```
+
+**Live events** (`pushPersonEvent` beside `pushAskEvent` in `index.js`): the Mac sends `person:event` over IPC (preload
+`onPersonEvent`); the web uses web-runtime `sendTo(…, 'person')`, which `studio-server.js` writes as `event: person`
+to that person's streams at once (web-api `onPersonEvent`, which also hears `{ type: 'resync' }` after a drop).
+**Presence** is in memory: a browser leaves on `closeReportDoc` (without a clientId, all of that person's), after 2
+minutes without a change once they have no live-update stream (`runtime.provided('liveStreams')`), or after 30 minutes
+without a change. Carets are y-protocols awareness updates the server relays without reading. **Seeding**: two browsers
+opening a report with no Yjs state build identical seeds (a client id derived from the Markdown), so they merge as one.
+**Roles**: Read reports and assets opens and reads notes, Edit reports edits, Leave notes on reports (`commentReports`)
+notes; channel owners are scoped like `readStudioAsset` and never edit ([docs/roles-and-access.md](docs/roles-and-access.md#capabilities)).
+
+**The renderer** (`src/renderer/src/report-editor/`, Tiptap 3 on the Yjs document; the server never sees ProseMirror):
+
+| File | Role |
+| --- | --- |
+| `ReportDocument.jsx` | The page: opens a visit (`openReportDoc` with a new `clientId`, which is also the Y.Doc's client id), builds the editor (StarterKit without undo/underline/trailing node, tables, Collaboration, CollaborationCaret on the web, note highlights), the bar (presence, save state, Notes, History), the selection and "/" menus, the notes panel. A reset event, a 409 `docReset` or an epoch change reopens under a new `clientId` and closes the old one; `markdownSaved: false` and `resync` read the whole state again (`openReportDoc`) and merge it. |
+| `sync.js` | Autosave: Yjs diff since the studio's last state vector, the Markdown, `epoch`, `stateVector`, `awareness`; 1.5 s debounce, 5 s retry, `final` on close; `sendCaret()` for caret-only pushes. `mode: 'plain'` saves through `editStudioAsset` (older studios). |
+| `markdown.js` | `@tiptap/markdown` over the same extensions: `markdownToJSON`, `jsonToMarkdown` (blank lines tidied outside code). `CONVERTER_VERSION` is part of the seed id: bump it when the conversion changes. |
+| `ydoc.js` | Seeding (`seedClientId(markdown)`), base64, anchors (`anchorFromSelection`, `resolveAnchor`: relative positions, then the quote, else "text was changed"). |
+| `events.js` | `subscribePersonEvents` (`api.onPersonEvent`, else `onAskStream`), `requestNoteFocus` / `takeNoteFocus` (App's and Simple's `openTarget` call it for a note's Inbox row). |
+| `NotesPanel.jsx`, `HistoryMenu.jsx`, `NoteCount.jsx` | Threads and the @mention picker; versions, preview, restore; the open-note count on report rows. |
+
+Readers use the page inline when `liveDocsOn(api, viewer)` (the report-doc methods are there); otherwise they keep the
+Markdown reader and **Edit** opens `AssetEditor`, which hosts the same page in plain mode.
+
 ## Library tree
 
 `src/shared/library-tree.js` `buildLibraryTree` (ESM, renderer) files every studio file once: research run → trend
@@ -259,7 +305,7 @@ content (`eslint.config.js`).
   before the same-origin check and sign-in and dispatches to `runtime.provided('mondayHook')`; the engine only queues a
   re-read (3 s debounce). The client retries rate, concurrency, server and network failures only for idempotent
   requests, waits for Monday's complexity reset, and pauses the link on token, permission, daily-limit or missing-board
-  errors.
+  errors. A link saved on a workspace a one-workspace build hides (`isWorkspaceHidden`) is never scheduled or run.
 
 ## Legacy Data tools
 

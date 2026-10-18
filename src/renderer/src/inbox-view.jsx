@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRight, Bell, CheckCheck, CircleAlert, FileText, FolderOpen, Megaphone, PenLine, Radar, ScrollText, Send, TrendingUp, Workflow, Wallet } from 'lucide-react';
+import { ArrowRight, Bell, CheckCheck, CircleAlert, FileText, FolderOpen, Megaphone, MessageSquareText, PenLine, Radar, ScrollText, Send, TrendingUp, Workflow, Wallet } from 'lucide-react';
 import { INBOX_KIND_LABEL, buildInbox } from './inbox-model.js';
 import { formatDay, useViewer, writeProps } from './viewer.js';
 import { readChoice, saveChoice } from './choices.js';
@@ -10,7 +10,7 @@ import './weekly-briefing.css';
 // (inbox-model.js); "Mark all read" saves the time in the person's prefs (setViewPrefs({ inboxSeenAt })), with this
 // browser's copy as a fallback when the studio can't save it.
 const LOCAL_SEEN = 'studio.inbox.seenAt';
-const ICONS = { 'needs-ok': TrendingUp, adoption: Megaphone, edit: PenLine, 'run-finished': Radar, 'run-stopped': CircleAlert, 'prompt-change': ScrollText, routed: Send, 'workflow-review': TrendingUp, 'workflow-budget': Wallet, 'workflow-draft': Wallet, 'workflow-finished': Workflow, 'workflow-stopped': CircleAlert };
+const ICONS = { 'needs-ok': TrendingUp, adoption: Megaphone, edit: PenLine, 'run-finished': Radar, 'run-stopped': CircleAlert, 'prompt-change': ScrollText, routed: Send, 'workflow-review': TrendingUp, 'workflow-budget': Wallet, 'workflow-draft': Wallet, 'workflow-finished': Workflow, 'workflow-stopped': CircleAlert, note: MessageSquareText };
 const TARGET_ICONS = { report: FileText, folder: FolderOpen };
 const readLocal = () => { try { return window.localStorage.getItem(LOCAL_SEEN) || ''; } catch { return ''; } };
 const writeLocal = (value) => { try { window.localStorage.setItem(LOCAL_SEEN, value); } catch { /* a convenience only */ } };
@@ -70,7 +70,7 @@ export function InboxView({ state = {}, viewer: viewerIn, api = {}, onOpenTarget
     {items.length > 0 && <div className="studio-filters" role="group" aria-label="Show">
       {[['all', 'All', items.length], ['unread', 'Unread', unread], ...kinds.map((kind) => [kind, INBOX_KIND_LABEL[kind] || kind, items.filter((item) => item.kind === kind).length])].filter(([value, , count]) => value === 'all' || count).map(([value, label, count]) => <button type="button" key={value} aria-pressed={active === value} onClick={() => setFilter(value)}>{label}<span>{count}</span></button>)}
     </div>}
-    {!items.length ? <div className="studio-empty big ib-empty"><Bell size={28} aria-hidden="true" /><p>Nothing here yet. Trends that need your OK, finished and stopped runs, channel answers and edits to reports show up here as they happen.</p></div>
+    {!items.length ? <div className="studio-empty big ib-empty"><Bell size={28} aria-hidden="true" /><p>Nothing here yet. Trends that need your OK, finished and stopped runs, channel answers, edits to reports and notes that mention you show up here as they happen.</p></div>
       : !shown.length ? <div className="studio-empty"><p>Nothing {active === 'unread' ? 'unread' : 'like that'} right now.</p><button type="button" className="studio-quiet small" onClick={() => setFilter('all')}>Show everything</button></div>
       : <ul className="ib-list" aria-label="Inbox">{shown.map((item) => { const Icon = ICONS[item.kind] || TARGET_ICONS[item.target?.kind] || Bell; return <li key={item.id}>
         <button type="button" className={`ib-row${item.unread ? ' is-unread' : ''} kind-${item.kind}`} onClick={() => onOpenTarget?.(item.target)}>

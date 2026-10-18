@@ -45,6 +45,9 @@ function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken 
   const T = { setTimeout: timers.setTimeout || setTimeout, clearTimeout: timers.clearTimeout || clearTimeout, setInterval: timers.setInterval || setInterval, clearInterval: timers.clearInterval || clearInterval };
   const iso = (ms = now()) => new Date(ms).toISOString();
   const activeWs = () => workspace.activeWorkspaceId();
+  // A link saved on a workspace this build hides (single-workspace mode archives the others) never syncs: nothing is
+  // scheduled, sent, read or re-registered for it until the workspace comes back.
+  const hiddenWs = (ws) => typeof workspace.isWorkspaceHidden === 'function' && Boolean(workspace.isWorkspaceHidden(ws));
   let clientCache = null;
   function client(token = getToken()) {
     if (!token) throw new api.MondayError('auth', { message: 'Connect Monday.com in Settings first.' });
@@ -72,6 +75,7 @@ function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken 
       waiting.delete(signature); waitingJobs.delete(signature);
       current = { kind, ws, done: 0, total: 0, job: opts.job || null, signature };
       try {
+        if (hiddenWs(ws)) return { skipped: 'hidden' };
         if (kind === 'push') return await push(ws, opts);
         if (kind === 'pull') return await pull(ws, opts);
         if (kind === 'hooks') return await checkHooks(ws);
@@ -505,7 +509,7 @@ function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken 
   let ticker = null; let liveTimer = null;
   function tick() {
     for (const [ws, link] of Object.entries(store.links())) {
-      if (!link?.active) continue;
+      if (!link?.active || hiddenWs(ws)) continue;
       if (link.paused?.reason === 'daily' && Date.parse(link.paused.until || '') <= now()) { store.updateLink(ws, { paused: null }); log({ ws, dir: 'setup', kind: 'resumed', text: 'Monday.com’s daily limit reset; syncing again.' }); }
       const fresh = store.link(ws); if (blocked(fresh)) continue;
       const lastPush = Date.parse(fresh.lastPushAt || '') || 0; const lastPull = Date.parse(fresh.lastPullAt || '') || 0;
@@ -524,7 +528,7 @@ function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken 
   // Called from every state broadcast: a live link sends what changed 15 s after the first change.
   function noteChange() {
     if (emitting || liveTimer) return;
-    const live = Object.entries(store.links()).filter(([, link]) => link?.active && link.push?.mode === 'live' && !blocked(link));
+    const live = Object.entries(store.links()).filter(([ws, link]) => link?.active && link.push?.mode === 'live' && !blocked(link) && !hiddenWs(ws));
     if (!live.length) return;
     liveTimer = later(15000, () => { liveTimer = null; for (const [ws] of live) enqueue('push', ws).catch(() => {}); });
   }

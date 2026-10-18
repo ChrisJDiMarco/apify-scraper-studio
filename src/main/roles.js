@@ -10,7 +10,7 @@
 // role can only ever call channelSafeMethods. With no policy edits this reproduces the old fixed matrix exactly.
 const POLICY = require('../shared/roles.json');
 const kit = require('../shared/asset-kit');
-const { buildChannelView } = require('./channel-view');
+const { buildChannelView, channelOf } = require('./channel-view');
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
@@ -389,10 +389,34 @@ function withoutUnheld(state, viewer) {
   return out;
 }
 
+// Notes on reports (report-notes.js): contentStudio.noteCounts { [assetId]: { open, total } } from the base, and
+// contentStudio.noteMentions, this person's own mentions and replies, newest first (access.js passes them per person;
+// inbox-model.js turns them into Inbox rows, unread while not read and newer than inboxSeenAt).
+// A role without Read reports and assets gets neither; a channel owner gets only their own channel's assets and the trend
+// briefs, the files access.js channelFile lets them read.
+const NOTE_REPORTS = new Set(['evidence-report', 'editorial-toolkit']);
+function channelNoteScope(studio, channelId, editionId) {
+  const runs = new Map(list(studio.contentRuns).map((run) => [run?.id, run]));
+  return new Set(list(studio.assets).filter((asset) => {
+    const run = runs.get(asset?.runId);
+    if (run?.kit) return channelOf(asset.deliverableId, editionId) === channelId;
+    return asset?.kind === 'text' && NOTE_REPORTS.has(asset.deliverableId) && Boolean(run && run.status === 'succeeded' && run.themeId);
+  }).map((asset) => asset.id));
+}
+// A person's items come from every workspace, so only those about the active workspace's reports are shown: one about a
+// report in another workspace (or one hidden in single-workspace mode) couldn't be opened, and its excerpt stays there.
+function notesView(studio, noteInbox, viewer, keep = null) {
+  if (!holds(viewer, 'readAssets')) return { noteCounts: {}, noteMentions: [] };
+  const counts = isRecord(studio.noteCounts) ? studio.noteCounts : {};
+  const here = keep || new Set(list(studio.assets).map((asset) => asset?.id));
+  const items = list(noteInbox?.items).filter((item) => isRecord(item) && here.has(item.assetId));
+  return { noteCounts: Object.fromEntries(Object.entries(counts).filter(([id]) => !keep || keep.has(id))), noteMentions: items };
+}
+
 // The state a viewer receives. Always a new object; never writes `key: undefined`. Admin and editor bases get the full
 // base plus where each trend is used, less what a read capability the role lacks covers (withoutUnheld) and without
 // money when the role lacks See costs; a channel base gets only its channel's view; someone without a role gets nothing.
-function projectState(base, viewer, { adoptions = [], admins = [], memberCount = 0, editionId } = {}) {
+function projectState(base, viewer, { adoptions = [], admins = [], memberCount = 0, editionId, noteInbox = null } = {}) {
   const state = base && typeof base === 'object' ? base : {};
   const studio = state.contentStudio && typeof state.contentStudio === 'object' ? state.contentStudio : {};
   const role = BASES.includes(viewer?.base) ? viewer.base : isRole(viewer?.role) ? viewer.role : null;
@@ -404,7 +428,7 @@ function projectState(base, viewer, { adoptions = [], admins = [], memberCount =
     const { promptChanges, ...studioRest } = studio;
     // A person's own jobs (an Ask AI answer carries ownerId) reach only them, and nobody receives whose job it is.
     const ownJobs = Array.isArray(state.jobs) ? { jobs: state.jobs.filter((job) => job && (!job.ownerId || job.ownerId === viewer?.id)).map(({ ownerId: _ownerId, ...job }) => job) } : {};
-    const full = withoutUnheld({ ...state, ...ownJobs, viewer, team, contentStudio: { ...studioRest, ...(promptChanges !== undefined && seesPrompts(viewer) ? { promptChanges } : {}), adoptionsByTheme: adoptionsByTheme(adoptions, studio.activeWorkspaceId, edition) } }, viewer);
+    const full = withoutUnheld({ ...state, ...ownJobs, viewer, team, contentStudio: { ...studioRest, ...(promptChanges !== undefined && seesPrompts(viewer) ? { promptChanges } : {}), adoptionsByTheme: adoptionsByTheme(adoptions, studio.activeWorkspaceId, edition), ...notesView(studio, noteInbox, viewer) } }, viewer);
     if (seesMoney(viewer)) return full;
     const { viewer: _viewer, ...rest } = full;
     return { ...stripMoney(rest), viewer };
@@ -419,6 +443,7 @@ function projectState(base, viewer, { adoptions = [], admins = [], memberCount =
       workspaces: active ? [{ id: active.id, name: active.name || '', editionId: active.editionId || edition }] : [],
       capabilities: { imagesConfigured: Boolean(studio.capabilities?.imagesConfigured) },
       channelView: buildChannelView({ contentStudio: studio, adoptions, channelId: viewer.channelId, editionId: edition, viewerId: viewer.id, memberSince }),
+      ...notesView(studio, noteInbox, viewer, channelNoteScope(studio, viewer.channelId, edition)),
     },
   };
 }

@@ -47,3 +47,22 @@ describe('Ask AI on the browser studio', () => {
     expect(FakeSource.instances[0].readyState).toBe(FakeSource.CLOSED);
   });
 });
+
+describe('the report editor’s live events on the browser studio', () => {
+  it('passes `event: person` to onPersonEvent only, with the same resyncs, and gives the stream back when done', async () => {
+    const api = await load(); const person = []; const asks = [];
+    const off = api.onPersonEvent((event) => person.push(event));
+    const offAsk = api.onAskStream((event) => asks.push(event));
+    expect(FakeSource.instances).toHaveLength(1);
+    const source = FakeSource.instances[0];
+    source.emit('hello', { build: '' });
+    source.emit('person', { type: 'note-changed', assetId: 'asset-report', noteId: 'note-1' });
+    source.emit('ask-resync');
+    expect(person).toEqual([{ type: 'note-changed', assetId: 'asset-report', noteId: 'note-1' }, { type: 'resync' }]);
+    expect(asks).toEqual([{ type: 'resync' }]);
+    offAsk();
+    expect(source.readyState).not.toBe(FakeSource.CLOSED);
+    off();
+    expect(source.readyState).toBe(FakeSource.CLOSED);
+  });
+});

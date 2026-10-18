@@ -44,6 +44,7 @@ import { ChannelAssets, ChannelPlan, ChannelTrends } from './channel-owner.jsx';
 import { AnalyticsView } from './analytics-view.jsx';
 import { PeopleView } from './people-view.jsx';
 import { UnsavedContext, createUnsavedGuard } from './asset-editor.jsx';
+import { requestNoteFocus } from './report-editor/events.js';
 import { LOCAL_ADMIN_FALLBACK, PREVIEW_TITLE, ViewerContext, adminNames, can as canCall, canRun as canRunCall, roleLabel } from './viewer.js';
 import { Button, StatusBanner, number, withViewTransition } from './ui.jsx';
 import './studio-frame.css';
@@ -719,6 +720,8 @@ function StudioApp({ api }) {
     if (!target?.kind) return;
     const { kind, id = '', page = '' } = target;
     if (kind === 'prompt') { openPrompt(id); return; }
+    // A note's Inbox row: the report (or the channel's brief) opens with its notes panel at that note.
+    if (target.noteId && id) requestNoteFocus(id, target.noteId);
     if (mode === 'channel') {
       // A trend, or a report (a share link from Reports or the Slack briefing), opens that trend's brief.
       const trends = list(channelView?.trends);

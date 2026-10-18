@@ -4,8 +4,10 @@ import { MarkdownContent } from './markdown-content.jsx';
 import { VideoPlayer, VideoTile } from './video-preview.jsx';
 import { Dialog, DialogClose, MoreMenu, copyText, useToast } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
-import { PREVIEW_TITLE, can, firstName, formatDay, plural, writeProps } from './viewer.js';
+import { PREVIEW_TITLE, can, firstName, formatDay, plural, useViewer, writeProps } from './viewer.js';
 import { AssetStatusMenu } from './asset-editor.jsx';
+import { ReportDocument } from './report-editor/ReportDocument.jsx';
+import { liveDocsOn } from './report-editor/NoteCount.jsx';
 import { CalendarView } from './calendar-view.jsx';
 import { LINK_COPIED, linkFor } from './deep-links.js';
 import { decidedLine } from './trend-pulse.jsx';
@@ -273,8 +275,12 @@ function briefMarkdown(payload) {
 }
 
 // The brief, read in place: what the trend is and why it matters, who approved it (and their note for the channels),
-// and who last edited it. `linkOrigin` (deep-links.js shareOrigin) adds Copy link.
+// and who last edited it. `linkOrigin` (deep-links.js shareOrigin) adds Copy link. On a studio with the live report
+// editor the brief opens read-only in it, so the channel owner can leave notes on its text (never edit it).
+const webHost = () => typeof navigator === 'undefined' || !/Electron\//.test(navigator.userAgent || '');
 export function ChannelBriefReader({ api, trend, onClose, linkOrigin = '' }) {
+  const viewer = useViewer();
+  const live = liveDocsOn(api, viewer) && Boolean(trend.primaryReportId);
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -298,6 +304,7 @@ export function ChannelBriefReader({ api, trend, onClose, linkOrigin = '' }) {
     <div className="studio-dialog-body studio-reading">
       {error ? <p className="studio-error" role="alert">{error}</p>
         : !payload ? <div className="studio-skeleton" role="status" aria-label="Opening the brief"><span /><span /><span /><span /></div>
+        : markdown && live ? <ReportDocument api={api} asset={{ id: trend.primaryReportId, title: trend.name }} markdown={markdown} web={webHost()} editable={false} variant="brief" label={`The brief for ${trend.name}`} />
         : markdown ? <MarkdownContent onOpenSourceUrl={api.openSourceUrl ? (url) => api.openSourceUrl(url) : undefined}>{markdown}</MarkdownContent>
         : <p className="studio-hint">This brief has no readable text yet.</p>}
     </div>

@@ -59,6 +59,9 @@ const copies = [
   ['src/main/access.js', 'out/main/access.js'],
   ['src/main/access-log.js', 'out/main/access-log.js'], // People & access → Access log sentences
   ['src/main/channel-view.js', 'out/main/channel-view.js'],
+  // The report editor and notes: shared documents (Yjs, from node_modules), versions, presence; notes and Inbox items.
+  ['src/main/report-docs.js', 'out/main/report-docs.js'],
+  ['src/main/report-notes.js', 'out/main/report-notes.js'],
   ['src/main/team-analytics.js', 'out/main/team-analytics.js'],
   ['src/shared/studio-api-channels.json', 'out/shared/studio-api-channels.json'],
   ['src/main/studio-owner-lock.js', 'out/main/studio-owner-lock.js'],

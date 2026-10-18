@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, CloudUpload, Download, ExternalLink, FileText, FolderOpen, Images, Link2, ListOrdered, Megaphone, MessageSquareText, PenLine, Presentation, ScrollText, Search, Share2, Sparkles, X } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import { studioRefDragProps } from './ask-slash.js';
-import { AssetEditor, AssetStatusMenu, canEditAsset, statusLabel, statusOf } from './asset-editor.jsx';
+import { AssetEditor, AssetStatusMenu, canEditAsset, statusLabel, statusOf, useUnsavedGuard } from './asset-editor.jsx';
+import { ReportDocument } from './report-editor/ReportDocument.jsx';
+import { NoteCount, liveDocsOn } from './report-editor/NoteCount.jsx';
 import { linkLabel } from './channel-owner.jsx';
 import { MoreMenu, copyText, useToast } from './role-screens.jsx';
 import { formatDay, useCan, useViewer, writeProps } from './viewer.js';
@@ -143,6 +145,11 @@ export function ReportShareMenu({ api, studio = null, asset, markdown = '', shar
 export function SimpleReports({ api, web, reports, selectedId, onSelect, action, busy, onAsk, onFindTrends, onMakeAssets, usesOf, tree, onOpenAssets, studio = null, linkOrigin, onOpenPrompt }) {
   const can = useCan();
   const viewer = useViewer();
+  // With the live report editor the reader is the editor: the report is edited in place and saved as people type.
+  const live = liveDocsOn(api, viewer);
+  const guard = useUnsavedGuard();
+  const guardKey = useId();
+  useEffect(() => () => guard.set(guardKey, false), []); // eslint-disable-line react-hooks/exhaustive-deps
   // The type and status filters are remembered for this person on this device; a search starts empty each visit.
   const remembered = useMemo(() => readJsonChoice(viewer, 'reports.filters', {}), [viewer?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [statusPick, setStatusState] = useState(() => (typeof remembered.status === 'string' ? remembered.status : 'any'));
@@ -219,7 +226,8 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
   // edit is cancelled), so the text on screen and the version an edit starts from are the saved ones.
   const liveEdit = selected?.edited?.at || '';
   const stale = () => Boolean(selected && !gone && payload && payload.asset?.id === selected.id && (payload.edited?.at || '') !== liveEdit);
-  useEffect(() => { if (!editing && !loading && stale()) setReloadKey((value) => value + 1); }, [liveEdit]);
+  // (The live editor is the saved text itself, so it never reloads under the person typing.)
+  useEffect(() => { if (!live && !editing && !loading && stale()) setReloadKey((value) => value + 1); }, [liveEdit]);
   function stopEditing() { setEditing(false); if (stale()) setReloadKey((value) => value + 1); }
   // Esc returns to the list; the arrow keys page through the rows, unless someone is typing or editing.
   useEffect(() => {
@@ -241,6 +249,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
   // The report goes with the question as an attachment Ask AI reads whole; the text excerpt is the fallback for older servers.
   const ask = (id) => { const entry = MARKETER_ASKS.find(([key]) => key === id) || MARKETER_ASKS[0]; onAsk(entry[3](selected.title), reportAskContext(selected.title, markdown), { attachments: [{ kind: 'report', ref: selected.title }] }); };
   const canEdit = Boolean(selected && api.editStudioAsset && can('editStudioAsset') && canEditAsset(selected));
+  const canEditLive = Boolean(live && selected && canEditAsset(selected) && can('pushReportDocUpdate'));
   function saved(result) {
     setEditing(false);
     // A restore brings back the original text, so read it again; a save already has the text on screen.
@@ -259,7 +268,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
 
   if (!reports.length && !selected) return <div className="simple-page"><div className="simple-empty big"><FileText size={30} aria-hidden="true" /><h2>No reports yet</h2><p>Say yes to a trend on Trends, then press Write reports. Its trends report and editorial toolkit land here.</p><button type="button" className="simple-primary" onClick={onFindTrends}>Go to Trends<ArrowRight size={15} aria-hidden="true" /></button></div></div>;
   if (selected) {
-    const edited = editedOf(selected, payload);
+    const edited = live ? editedOf(selected, null) || editedOf(null, payload) : editedOf(selected, payload);
     // The editor starts from the version whose text it shows (what was loaded), never the live one: if someone saved
     // after this was loaded, the server's conflict check then refuses the save and the text stays on screen.
     const loadedEdit = editedOf(null, payload);
@@ -272,7 +281,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
       {!editing && <div className="simple-reader-bar">
         <button type="button" className="simple-back" title="Back to all reports (Esc)" onClick={() => onSelect('')}><ArrowLeft size={15} aria-hidden="true" />All reports</button>
         <div className="simple-reader-tools">
-          {canEdit && <button type="button" data-spot="report.edit" {...writeProps(viewer, !markdown || loading || Boolean(readError))} onClick={() => setEditing(true)}><PenLine size={15} aria-hidden="true" />Edit</button>}
+          {canEdit && !live && <button type="button" data-spot="report.edit" {...writeProps(viewer, !markdown || loading || Boolean(readError))} onClick={() => setEditing(true)}><PenLine size={15} aria-hidden="true" />Edit</button>}
           <button type="button" data-spot="report.copy" disabled={!markdown} onClick={copy}>{copied ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}{copied ? 'Copied' : 'Copy text'}</button>
           <button type="button" data-spot="report.file" disabled={busy} onClick={() => action(() => api.openStudioAsset({ assetId: selected.id }), web ? 'Download started.' : '')}>{web ? <Download size={15} aria-hidden="true" /> : <FolderOpen size={15} aria-hidden="true" />}{web ? 'Download' : 'Open file'}</button>
           {shareLink && <button type="button" data-spot="report.link" onClick={copyLink}><Link2 size={15} aria-hidden="true" />Copy link</button>}
@@ -295,6 +304,10 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
           <p className="simple-doc-metaline"><span>{[docLabel(selected), when(selected.createdAt)].filter(Boolean).join(' · ')}</span>{!gone && <AssetStatusMenu api={api} asset={selected} onNotice={(text) => showToast(text)} />}{edited && <span><PenLine size={13} aria-hidden="true" />Edited by {edited.byName || 'someone'}{edited.at ? ` · ${formatDay(edited.at)}` : ''}</span>}{uses.length > 0 && <span><Megaphone size={13} aria-hidden="true" />Used by {uses.map((use) => use.name).join(', ')}</span>}</p>
           {loading ? <div className="simple-doc-skeleton" role="status" aria-label="Opening the report"><span /><span /><span /><span /><span /></div>
             : readError ? <p className="simple-error" role="alert">{readError}</p>
+            : live && (markdown || canEditLive) ? <ReportDocument key={selected.id} api={api} asset={selected} markdown={markdown} web={web} editable={canEditLive && !gone} edited={edited} baseEditedAt={loadedEdit?.at || ''} variant="reader"
+              onMarkdown={(text) => setPayload((current) => (current ? { ...current, markdown: text } : current))}
+              onSaved={(result) => { if (result?.restored) setPayload((current) => ({ ...(current || {}), edited: null })); }}
+              onUnsaved={(value) => guard.set(guardKey, value)} />
             : markdown ? <MarkdownContent>{markdown}</MarkdownContent>
             : <p className="simple-error">This report has no readable text. Try Open file.</p>}
           {!loading && !readError && studio && <HowItWasMade asset={selected} studio={studio} api={api} onOpenPrompt={onOpenPrompt} />}
@@ -321,7 +334,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
   const buckets = (entries) => Object.entries(entries.reduce((all, row) => { const label = dateGroup(row.createdAt); (all[label] ||= []).push(row); return all; }, {}));
   const groups = grouped ? [...trendGroups, ...(scans.length ? [{ id: 'scans', title: 'Quick scans', rows: scans }] : []), ...(drafts.length ? [{ id: 'other', title: 'Other reports and drafts', buckets: buckets(drafts) }] : [])] : buckets(drafts).map(([label, entries]) => ({ id: label, title: label, rows: entries }));
   // A row can be dragged into Ask AI to ask about that report (ask-slash.js).
-  const rowButton = (row) => <button type="button" key={row.key} data-spot="reports.row" data-spot-item={row.title} {...studioRefDragProps({ kind: 'report', ref: byId.get(row.reportId)?.title || byId.get(row.toolkitId)?.title || row.title, id: row.reportId || row.toolkitId })} onClick={() => onSelect(openId(row))}><span className="simple-doc-icon"><FileText size={18} aria-hidden="true" /></span><span><strong>{row.title}</strong><small>{rowMeta(row)}</small></span><ArrowRight size={16} aria-hidden="true" /></button>;
+  const rowButton = (row) => <button type="button" key={row.key} data-spot="reports.row" data-spot-item={row.title} {...studioRefDragProps({ kind: 'report', ref: byId.get(row.reportId)?.title || byId.get(row.toolkitId)?.title || row.title, id: row.reportId || row.toolkitId })} onClick={() => onSelect(openId(row))}><span className="simple-doc-icon"><FileText size={18} aria-hidden="true" /></span><span><strong>{row.title}</strong><small>{rowMeta(row)}<NoteCount counts={studio?.noteCounts} ids={[row.reportId, row.toolkitId]} /></small></span><ArrowRight size={16} aria-hidden="true" /></button>;
   return <div className="simple-page">
     <div className="simple-page-head"><div><h1>Reports</h1><p>{plural(reports.length, 'report')}, newest first. {grouped && trendRows.length ? 'A trend’s report and toolkit share one row.' : 'Tap one to read it.'}</p></div>
       <label className="simple-search" data-spot="reports.search"><Search size={16} aria-hidden="true" /><input aria-label="Search reports" placeholder="Search reports" value={query} onChange={(event) => setQuery(event.target.value)} />{query && <button type="button" aria-label="Clear search" onClick={() => setQuery('')}><X size={14} /></button>}</label></div>

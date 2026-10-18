@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import './helpers/prosemirror-dom.js';
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -659,7 +660,7 @@ describe('Advanced studio pages start from what the person clicked', () => {
     expect(screen.queryByRole('button', { name: 'Export run' })).not.toBeInTheDocument();
   });
 
-  it('keeps the file being edited in the Library when a newer file lands, and holds Create from this until Save', async () => {
+  it('keeps the file being edited in the Library when a newer file lands, and holds Create from this while editing', async () => {
     const first = { id: 'a1', workspaceId: 'general', runId: 'c1', kind: 'text', deliverableId: 'social', title: 'First post', createdAt: '2026-10-10T10:00:00Z' };
     const second = { id: 'a2', workspaceId: 'general', runId: 'c1', kind: 'text', deliverableId: 'social', title: 'Second post', createdAt: '2026-10-10T11:00:00Z' };
     const handlers = props({ state: { contentStudio: fresh({ assets: [first] }) } });
@@ -668,13 +669,34 @@ describe('Advanced studio pages start from what the person clicked', () => {
     const view = render(<ContentStudioView {...handlers} initialView="library" onMakeAssets={onMakeAssets} />);
     await screen.findByText('Body of a1.');
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Text of First post' }), { target: { value: 'My rewrite.' } });
+    const box = await screen.findByRole('textbox', { name: 'Text of First post' });
+    await waitFor(() => expect(box.editor).toBeTruthy());
+    act(() => { box.editor.chain().focus('end').insertContent(' My rewrite.').run(); });
     expect(screen.getByRole('button', { name: /Create from this/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Make channel assets' })).toBeDisabled();
     view.rerender(<ContentStudioView {...handlers} state={{ contentStudio: fresh({ assets: [first, second] }) }} initialView="library" onMakeAssets={onMakeAssets} />);
-    expect(screen.getByRole('textbox', { name: 'Text of First post' })).toHaveValue('My rewrite.');
+    expect(screen.getByRole('textbox', { name: 'Text of First post' })).toHaveTextContent('My rewrite.');
     expect(confirmSpy).not.toHaveBeenCalled();
   });
+
+  it('edits a written file in place in the Library on a studio with the live editor, and counts its open notes', async () => {
+    const report = { id: 'a1', workspaceId: 'general', runId: 'c1', kind: 'text', deliverableId: 'evidence-report', title: 'Zero click report' };
+    const handlers = props({ state: { contentStudio: fresh({ assets: [report], noteCounts: { a1: { open: 2, total: 3 } } }) } });
+    Object.assign(handlers.api, {
+      openReportDoc: vi.fn(async () => ({ markdown: '# Saved report\n\nA source-backed draft.', yState: '', versions: [], canEdit: true, canNote: true, editors: [] })),
+      pushReportDocUpdate: vi.fn(async () => ({ version: 2, savedAt: '2026-10-18T10:00:00.000Z' })), closeReportDoc: vi.fn(async () => ({ ok: true })),
+      listReportNotes: vi.fn(async () => ({ notes: [] })), saveReportNote: vi.fn(), editStudioAsset: vi.fn(),
+    });
+    render(<ContentStudioView {...handlers} initialView="library" />);
+    const box = await screen.findByRole('textbox', { name: 'Text of Zero click report' });
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument(); // the preview is the editor
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search content assets' }), { target: { value: 'Zero' } });
+    expect(screen.getByRole('button', { name: /Zero click report/, pressed: true })).toHaveTextContent('2 open notes');
+    await waitFor(() => expect(box.editor).toBeTruthy());
+    act(() => { box.editor.chain().focus('end').insertContent(' Fresh line.').run(); });
+    await waitFor(() => expect(handlers.api.pushReportDocUpdate).toHaveBeenCalledWith(expect.objectContaining({ assetId: 'a1', markdown: '# Saved report\n\nA source-backed draft. Fresh line.' })), { timeout: 4000 });
+    expect(handlers.api.editStudioAsset).not.toHaveBeenCalled();
+  }, 10000);
 
   it('asks before Close or New program throws away changes typed into a research program', async () => {
     render(<ContentStudioView {...props({ state: { contentStudio: fresh({ programs: [program] }) } })} initialView="research" />);
