@@ -1040,19 +1040,40 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       state.themes = state.themes.filter(row => !(row.workspaceId === run.workspaceId && row.id === theme.id)); state.themes.push(entry);
     }
   }
+  // A response the validator still rejects after its repair attempt (or that isn't JSON) is a problem
+  // with this group of posts, not with the run: the group is split in half and each half tagged on its
+  // own, down to single posts, and a post that still can't be tagged is recorded as unclassified.
+  // Cancellation, budget and provider errors still stop the run (finished batches are kept).
+  const unusableOutput = (run, error) => !stopped.has(run.id) && (error?.field !== undefined || error instanceof SyntaxError);
+  async function tagGroup(run, batch, group, validate, settings, edition, label) {
+    const prompt = researchPrompts.taggingPrompt({ batch: group, themes: run.themes, ...edition });
+    try {
+      return await aiValidated(run, group.id, research.ASSIGNMENTS_SCHEMA, prompt, validate(group), { ...settings, estimateUsd: estimateCall(settings, prompt, group.items.length * 110), message: label });
+    } catch (error) {
+      if (!unusableOutput(run, error)) throw error;
+      const note = `${research.PLATFORM_LABELS[batch.platform]} batch ${batch.platformBatchNumber}: a tagging response was rejected (${safeError(error).slice(0, 160)}), so its posts were retagged in smaller groups.`;
+      run.warnings = [...new Set([...(run.warnings || []), note])];
+      if (group.items.length < 2) return { assignments: [], missingIds: group.items.map(item => item.id) };
+      const half = Math.ceil(group.items.length / 2); const parts = [group.items.slice(0, half), group.items.slice(half)];
+      const results = [];
+      for (const [index, items] of parts.entries()) {
+        const part = { ...group, id: `${group.id}-${index + 1}`, items, evidenceIds: items.map(item => item.id) };
+        results.push(await tagGroup(run, batch, part, validate, settings, edition, `${label} (smaller group ${index + 1} of 2)`));
+      }
+      return { assignments: results.flatMap(r => r.assignments), missingIds: results.flatMap(r => r.missingIds) };
+    }
+  }
   async function classifyBatch(run, program, batch, settings, edition) {
     const cache = file(run.id, `${batch.id}.validated.json`);
     if (fs.existsSync(cache)) return read(cache);
     const validate = target => raw => research.validateAssignments(raw, { runId: run.id, batch: target, themes: run.themes, confidenceThreshold: program.confidenceThreshold, autoAcceptThreshold: program.autoAcceptThreshold });
-    const prompt = researchPrompts.taggingPrompt({ batch, themes: run.themes, ...edition });
     const label = `Tagging posts · ${research.PLATFORM_LABELS[batch.platform]} batch ${batch.platformBatchNumber}`;
-    let result = await aiValidated(run, batch.id, research.ASSIGNMENTS_SCHEMA, prompt, validate(batch), { ...settings, estimateUsd: estimateCall(settings, prompt, batch.items.length * 110), message: label });
-    let assignments = result.assignments; let missing = result.missingIds;
+    let result = await tagGroup(run, batch, batch, validate, settings, edition, label);
+    let assignments = result.assignments.map(row => ({ ...row, batchId: batch.id })); let missing = result.missingIds;
     if (missing.length) {
       // One focused retry for posts the model skipped; anything still missing is recorded as unclassified.
       const subset = { ...batch, id: `${batch.id}-missing`, items: batch.items.filter(item => missing.includes(item.id)), evidenceIds: missing };
-      const retryPrompt = researchPrompts.taggingPrompt({ batch: subset, themes: run.themes, ...edition });
-      const retry = await aiValidated(run, subset.id, research.ASSIGNMENTS_SCHEMA, retryPrompt, validate(subset), { ...settings, estimateUsd: estimateCall(settings, retryPrompt, subset.items.length * 110), message: `${label} (retrying ${missing.length} skipped posts)` });
+      const retry = await tagGroup(run, batch, subset, validate, settings, edition, `${label} (retrying ${missing.length} skipped posts)`);
       assignments = [...assignments, ...retry.assignments.map(row => ({ ...row, batchId: batch.id }))]; missing = retry.missingIds;
       if (missing.length) { assignments.push(...research.unclassifiedAssignments({ runId: run.id, batch, itemIds: missing })); run.warnings = [...new Set([...(run.warnings || []), `${missing.length} posts in ${research.PLATFORM_LABELS[batch.platform]} batch ${batch.platformBatchNumber} were not returned by the classifier and are marked unclassified.`])]; }
     }

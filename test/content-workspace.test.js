@@ -100,6 +100,30 @@ describe('persistent content workspace orchestration', () => {
     expect(tagging.at(-1).prompt).toMatch(/POSTS TO ANALYZE \(1\):/);
     expect(JSON.parse(fs.readFileSync(path.join(h.root, 'runs', run.id, 'assignments.json'), 'utf8'))).toHaveLength(45);
   });
+  it('marks a post unclassified when its focused retry is rejected twice, instead of failing the run', async () => {
+    let omitted = false;
+    const h = harness({ count: 45, runAI: async (request, calls, output) => {
+      const result = output(request); if (stageOf(request) !== 'tagging') return result;
+      if (!omitted) { omitted = true; result.assignments.pop(); }
+      else if (/POSTS TO ANALYZE \(1\):/.test(request.prompt)) result.assignments.forEach(row => { row.themeId = 'invented-theme'; });
+      return result;
+    } });
+    const run = await discover(h); const result = await approveAndContinue(h, run);
+    expect(result.status).toBe('succeeded'); expect(result.warnings.join(' ')).toMatch(/marked unclassified/);
+    const assignments = JSON.parse(fs.readFileSync(path.join(h.root, 'runs', run.id, 'assignments.json'), 'utf8'));
+    expect(assignments).toHaveLength(45); expect(assignments.filter(a => a.unclassified)).toHaveLength(1);
+  });
+  it('splits a batch whose responses keep failing validation and tags the halves', async () => {
+    const h = harness({ count: 45, runAI: async (request, calls, output) => {
+      const result = output(request); const size = Number((request.prompt.match(/POSTS TO ANALYZE \((\d+)\):/) || [])[1]);
+      if (stageOf(request) === 'tagging' && size > 12) result.assignments.forEach(row => { row.themeId = 'invented-theme'; });
+      return result;
+    } });
+    const run = await discover(h); const result = await approveAndContinue(h, run);
+    expect(result.status).toBe('succeeded'); expect(result.warnings.join(' ')).toMatch(/smaller groups/);
+    const assignments = JSON.parse(fs.readFileSync(path.join(h.root, 'runs', run.id, 'assignments.json'), 'utf8'));
+    expect(assignments).toHaveLength(45); expect(assignments.filter(a => a.unclassified)).toHaveLength(0);
+  });
   it('retries failed report children while preserving already saved report assets', async () => {
     let failed = false;
     const h = harness({ runAI: async (request, calls, output) => { if (stageOf(request) === 'toolkit' && !failed) { failed = true; throw new Error('Temporary strategy failure'); } return output(request); } });

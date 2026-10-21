@@ -519,6 +519,14 @@ function validateThemeMatches(output, { themes = [], existing = [] } = {}) {
   for (const theme of themes) if (!matches.has(theme.id)) matches.set(theme.id, { themeId: theme.id, matchedExistingId: null, existingName: '', finalName: theme.name, nameSource: 'new', reason: 'Not returned by the matching step; treated as a new topic.' });
   return { matches: [...matches.values()], receipt: { themeCount: themes.length, existingCount: existing.length, matchedCount: [...matches.values()].filter((m) => m.matchedExistingId).length } };
 }
+const ENTITY_KEYS = ['tools', 'people', 'companies']; const MAX_ENTITIES = 30;
+function lenientEntities(v) {
+  const source = isObject(v) ? v : {};
+  return Object.fromEntries(ENTITY_KEYS.map((key) => {
+    const list = Array.isArray(source[key]) ? source[key] : [];
+    return [key, [...new Set(list.filter((x) => typeof x === 'string').map((x) => text(x).slice(0, 200)).filter(Boolean))].slice(0, MAX_ENTITIES)];
+  }));
+}
 function validateAssignments(output, { runId, batch, themes = [], confidenceThreshold = 0.55, autoAcceptThreshold = 0.7 } = {}) {
   object(output, 'classification'); runId = string(runId, 'runId', 160, true);
   number(confidenceThreshold, 'confidenceThreshold', 0.55, 1, 0.55); number(autoAcceptThreshold, 'autoAcceptThreshold', confidenceThreshold, 1, 0.7);
@@ -540,8 +548,10 @@ function validateAssignments(output, { runId, batch, themes = [], confidenceThre
       const confidence = number(assignment.confidence, 'confidence', 0, 1, undefined);
       if (confidence === undefined) fail('confidence', 'Confidence is required.');
       const accepted = !!suggestedThemeId && confidence >= confidenceThreshold;
-      const entities = object(assignment.entities, 'entities');
-      const row = { runId, batchId: batch.id, itemId, themeId: accepted ? suggestedThemeId : null, suggestedThemeId, confidence, status: accepted ? confidence >= autoAcceptThreshold ? 'accepted' : 'needs-review' : 'rejected', reason: string(assignment.reason, 'reason', 3000, true), painPoint: enumValue(assignment.painPoint, PAIN_POINTS, 'painPoint'), urgency: enumValue(assignment.urgency, URGENCY_SIGNALS, 'urgency'), entities: Object.fromEntries(['tools', 'people', 'companies'].map((key) => [key, strings(entities[key], `entities.${key}`, 30, 200)])) };
+      // The post, theme and confidence decide the tag and stay strict. Everything else is enrichment:
+      // an oversized entity list (a "top 50 agencies" listicle), a long reason or an off-list pain
+      // point is trimmed or defaulted, never a reason to drop the post or fail the batch.
+      const row = { runId, batchId: batch.id, itemId, themeId: accepted ? suggestedThemeId : null, suggestedThemeId, confidence, status: accepted ? confidence >= autoAcceptThreshold ? 'accepted' : 'needs-review' : 'rejected', reason: text(assignment.reason).slice(0, 3000), painPoint: PAIN_POINTS.includes(assignment.painPoint) ? assignment.painPoint : 'None', urgency: URGENCY_SIGNALS.includes(assignment.urgency) ? assignment.urgency : 'None', entities: lenientEntities(assignment.entities) };
       seen.add(itemId); return [row];
     } catch (error) { ignored.push(error.message); return []; }
   });

@@ -158,13 +158,21 @@ describe('classification coverage and replacement', () => {
     const partial = validateAssignments({ assignments: [assign(items[0])] }, options);
     expect(partial.missingIds).toEqual([items[1].id]); expect(partial.receipt.complete).toBe(false);
     // A bad row is skipped (its post stays missing for the focused retry); only a response with no usable row fails.
-    for (const extra of [{ itemId: 'other-run-id' }, { themeId: 'fake-theme' }, { confidence: 1.1 }, { confidence: '0.9' }, { painPoint: 'Invented taxonomy' }, { urgency: 'BUY NOW' }]) {
+    for (const extra of [{ itemId: 'other-run-id' }, { themeId: 'fake-theme' }, { confidence: 1.1 }, { confidence: '0.9' }]) {
       expect(() => validateAssignments({ assignments: [assign(items[0], 'theme-a', extra)] }, options)).toThrow(/No usable assignments/);
       const result = validateAssignments({ assignments: [assign(items[0], 'theme-a', extra), assign(items[1])] }, options);
       expect(result.assignments.map((a) => a.itemId)).toEqual([items[1].id]); expect(result.missingIds).toEqual([items[0].id]); expect(result.receipt.ignoredCount).toBe(1);
     }
     const repeated = validateAssignments({ assignments: [assign(items[0]), assign(items[0])] }, options);
     expect(repeated.assignments).toHaveLength(1); expect(repeated.receipt.ignoredReasons).toEqual(['A post was returned more than once.']);
+  });
+  it('trims or defaults enrichment fields instead of dropping the post (a 60-company listicle once failed a whole run)', () => {
+    const items = cohort(1); const batch = buildAssignmentBatches({ runId: 'run-a', items }).batches[0]; const options = { runId: 'run-a', batch, themes: [{ id: 'theme-a' }] };
+    const companies = Array.from({ length: 60 }, (_, i) => `Agency ${i}`);
+    const result = validateAssignments({ assignments: [assign(items[0], 'theme-a', { entities: { tools: 'Semrush', people: [' Ann ', 'Ann', 7], companies }, painPoint: 'Invented taxonomy', urgency: 'BUY NOW', reason: 'x'.repeat(5000) })] }, options);
+    expect(result.receipt).toMatchObject({ complete: true, ignoredCount: 0 });
+    expect(result.assignments[0].entities).toEqual({ tools: [], people: ['Ann'], companies: companies.slice(0, 30) });
+    expect(result.assignments[0]).toMatchObject({ painPoint: 'None', urgency: 'None', themeId: 'theme-a' }); expect(result.assignments[0].reason).toHaveLength(3000);
   });
   it('maps short record ids and Theme IDs from the tagging prompt back to evidence and theme IDs', () => {
     const items = cohort(2); const batch = buildAssignmentBatches({ runId: 'run-a', items }).batches[0];
