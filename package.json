@@ -62,7 +62,7 @@
     "@tiptap/extension-bubble-menu": "3.31.4",
     "@tiptap/extension-collaboration": "3.31.4",
     "@tiptap/extension-collaboration-caret": "3.31.4",
-    "@tiptap/extension-table": "3.31.4",
+    "@tiptap/extension-table": "3.32.0",
     "@tiptap/extensions": "3.31.4",
     "@tiptap/markdown": "3.31.4",
     "@tiptap/pm": "3.31.4",
