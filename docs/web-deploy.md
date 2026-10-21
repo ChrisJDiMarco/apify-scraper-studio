@@ -553,7 +553,10 @@ sign-in. A provider that's set but missing a setting logs `email-not-ready` with
 | `off` (default) | Nothing is sent. | — |
 | `preview` | Each email is written to `<STUDIO_DATA_DIR>/email-preview/` as an `.eml` file (open it in any mail app) instead of being sent. No account needed. | `EMAIL_FROM` optional |
 | `resend` | Sent through [Resend](https://resend.com)'s API. | `EMAIL_FROM` on a domain verified in Resend; `RESEND_API_KEY` in the secrets |
+| `mailgun` | Sent through Mailgun’s HTTPS API, with open/click tracking disabled. | `EMAIL_FROM`, `MAILGUN_DOMAIN`, `MAILGUN_REGION` (`us`, default, or `eu`); `MAILGUN_API_KEY` in the secrets |
 | `smtp` | Sent through any SMTP server: SendGrid, Mailgun, Postmark, Amazon SES, Google Workspace, Microsoft 365. | `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USER`; `SMTP_PASSWORD` in the secrets |
+
+On Sevalla, use an HTTPS provider: SMTP ports 25, 465 and 587 are blocked everywhere, and 2525 is also blocked in Oracle Cloud regions. Mailgun needs a domain sending API key, not its SMTP password.
 
 A service not listed here is settings only: use its SMTP details. Port 587 uses STARTTLS (required); port 465 or
 `SMTP_SECURE=1` uses TLS from the start. The secrets go in the secrets file with the others (see [Secrets](#secrets)):
@@ -561,6 +564,7 @@ A service not listed here is settings only: use its SMTP details. Port 587 uses 
 ```
 RESEND_API_KEY=re_...
 SMTP_PASSWORD=...
+MAILGUN_API_KEY=...
 ```
 
 To try it with no account, set `EMAIL_PROVIDER=preview`, restart, invite yourself at a test address and read the

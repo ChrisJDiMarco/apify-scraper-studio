@@ -5,9 +5,10 @@
 // - preview: each email is written as an .eml file to <data folder>/email-preview instead of being sent, so it can be
 //   read with no email account. The files hold real sign-in links, so the folder is 0700 and only the newest 200 stay.
 // - resend: Resend's HTTP API, with RESEND_API_KEY.
+// - mailgun: Mailgun HTTPS API, with MAILGUN_DOMAIN, MAILGUN_REGION (us/eu) and MAILGUN_API_KEY.
 // - smtp: any SMTP server, with SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER and SMTP_PASSWORD. SendGrid, Mailgun,
 //   Postmark, Amazon SES, Google Workspace and Microsoft 365 all take SMTP, so another service is settings, not code.
-// EMAIL_FROM is the sender ("Golden Thread <studio@example.com>"); EMAIL_REPLY_TO is optional. The two secrets come
+// EMAIL_FROM is the sender ("Golden Thread <studio@example.com>"); EMAIL_REPLY_TO is optional. The email secrets come
 // from the secrets file like STUDIO_PASSWORD (scripts/studio-web.cjs), never from process.env once the server starts.
 // A failure rejects with an Error whose code and message are safe to log: never an address's link, a key or a body.
 // CommonJS, Electron-free.
@@ -15,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const PROVIDERS = Object.freeze(['off', 'preview', 'resend', 'smtp']);
+const PROVIDERS = Object.freeze(['off', 'preview', 'resend', 'smtp', 'mailgun']);
 const RESEND_URL = 'https://api.resend.com/emails';
 const PREVIEW_KEEP = 200;
 const TIMEOUT_MS = 15000;
@@ -44,6 +45,14 @@ function readConfig(env = {}, secrets = {}) {
   if (provider === 'resend') {
     const apiKey = text(secrets.RESEND_API_KEY);
     return apiKey ? { ...base, ready: true, problem: '', resend: { apiKey } } : { ...base, ready: false, problem: 'Set RESEND_API_KEY in the secrets to send with Resend.' };
+  }
+  if (provider === 'mailgun') {
+    const domain = text(env.MAILGUN_DOMAIN).toLowerCase();
+    if (!/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(domain)) return { ...base, ready: false, problem: 'Set MAILGUN_DOMAIN to your verified sending domain.' };
+    const region = text(env.MAILGUN_REGION).toLowerCase() || 'us';
+    if (!['us', 'eu'].includes(region)) return { ...base, ready: false, problem: 'MAILGUN_REGION must be us or eu.' };
+    const apiKey = text(secrets.MAILGUN_API_KEY);
+    return apiKey ? { ...base, ready: true, problem: '', mailgun: { domain, region, apiKey } } : { ...base, ready: false, problem: 'Set MAILGUN_API_KEY in the secrets to send with Mailgun.' };
   }
   if (provider === 'smtp') {
     const host = text(env.SMTP_HOST);
@@ -99,6 +108,28 @@ function createMailer({ env = process.env, secrets = {}, dataDir = '', fetch = g
     if (!response.ok) throw fail('emailRejected', `Resend refused the email (${response.status}${body?.name ? ` ${redact(body.name)}` : ''}${body?.message ? `: ${redact(body.message)}` : ''}).`);
     return { provider: 'resend', id: typeof body?.id === 'string' ? body.id : '' };
   }
+  async function mailgun(message) {
+    if (typeof fetch !== 'function') throw fail('emailNoFetch', 'This server can’t make web requests.');
+    const { domain, region, apiKey } = config.mailgun;
+    const body = new FormData();
+    for (const [name, value] of Object.entries({ from: config.from, to: message.to, subject: message.subject, text: message.text, ...(message.html ? { html: message.html } : {}), ...(config.replyTo ? { 'h:Reply-To': config.replyTo } : {}), 'o:tag': message.kind, 'o:tracking': 'no', 'o:tracking-clicks': 'no', 'o:tracking-opens': 'no' })) body.set(name, value);
+    let response;
+    try {
+      response = await fetch(`https://${region === 'eu' ? 'api.eu.mailgun.net' : 'api.mailgun.net'}/v3/${domain}/messages`, {
+        method: 'POST', redirect: 'error',
+        headers: { Authorization: `Basic ${Buffer.from(`api:${apiKey}`).toString('base64')}` }, body,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      // Never log provider/network messages: they may contain credentials or the email body.
+      throw fail(error?.name === 'TimeoutError' || error?.name === 'AbortError' ? 'emailTimeout' : 'emailNetwork', 'Mailgun could not be reached.');
+    }
+    if (!response.ok) throw fail('emailRejected', `Mailgun refused the email (HTTP ${response.status}).`);
+    let result;
+    try { result = await response.json(); } catch (_) { throw fail('emailRejected', 'Mailgun returned an unreadable response.'); }
+    if (typeof result?.id !== 'string' || !result.id) throw fail('emailRejected', 'Mailgun did not confirm the email was accepted.');
+    return { provider: 'mailgun', id: result.id };
+  }
   async function smtp(message) {
     if (!smtpTransport) {
       const { host, port, secure, user, pass } = config.smtp;
@@ -124,6 +155,7 @@ function createMailer({ env = process.env, secrets = {}, dataDir = '', fetch = g
     const clean = { to, subject, text: message.text, html: typeof message.html === 'string' ? message.html : undefined, kind };
     if (config.provider === 'preview') return preview(clean);
     if (config.provider === 'resend') return resend(clean);
+    if (config.provider === 'mailgun') return mailgun(clean);
     return smtp(clean);
   }
   return { status, send };

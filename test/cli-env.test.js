@@ -17,7 +17,7 @@ const SECRETS = {
   ANTHROPIC_API_KEY: 'sk-ant-fixture', OPENAI_API_KEY: 'sk-fixture', OPENROUTER_API_KEY: 'sk-or-fixture', FAL_KEY: 'fixture-fal-key', APIFY_API_TOKEN: 'apify_api_fixture', MONDAY_API_TOKEN: 'fixture-monday',
   GOOGLE_SHEETS_WEBHOOK_URL: 'https://script.google.com/macros/s/fixture/exec', GOOGLE_DOCS_ACCESS_TOKEN: 'ya29.fixture',
   // Email (src/main/email.js): its secrets and settings.
-  RESEND_API_KEY: 'fixture-resend', SMTP_PASSWORD: 'fixture-smtp', SMTP_USER: 'fixture-user', EMAIL_PROVIDER: 'resend',
+  RESEND_API_KEY: 'fixture-resend', SMTP_PASSWORD: 'fixture-smtp', MAILGUN_API_KEY: 'fixture-mailgun', SMTP_USER: 'fixture-user', EMAIL_PROVIDER: 'resend',
 };
 const saved = {};
 beforeAll(() => { for (const [name, value] of Object.entries(SECRETS)) { saved[name] = process.env[name]; process.env[name] = value; } process.env.FIXTURE_UNRELATED = 'kept'; });

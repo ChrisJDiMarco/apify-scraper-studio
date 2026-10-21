@@ -15,6 +15,13 @@ afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 const saveDir = () => fs.mkdtempSync(path.join(runtime.settings.transferDir, 'call-'));
 
 describe('web runtime stands in for Electron on the server', () => {
+  it('keeps Mailgun credentials in memory and out of the public configuration', () => {
+    const visible = runtime.configure({ dataDir, secretKey: 'fixture-secret-key-for-tests-0123456789', emailSecrets: { MAILGUN_API_KEY: 'fixture-mailgun-key' } });
+    expect(runtime.settings.emailSecrets.MAILGUN_API_KEY).toBe('fixture-mailgun-key');
+    expect(JSON.stringify(visible)).not.toContain('fixture-mailgun-key');
+    expect(visible).not.toHaveProperty('emailSecrets');
+    runtime.configure({ dataDir, secretKey: 'fixture-secret-key-for-tests-0123456789' });
+  });
   it('refuses a missing data folder or a weak secret', () => {
     expect(() => runtime.configure({ secretKey: 'x'.repeat(40) })).toThrow(/STUDIO_DATA_DIR/);
     expect(() => runtime.configure({ dataDir, secretKey: 'too-short' })).toThrow(/STUDIO_SECRET_KEY/);

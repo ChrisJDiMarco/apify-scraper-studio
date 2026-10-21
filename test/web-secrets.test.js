@@ -31,11 +31,13 @@ describe('the browser studio’s secrets', () => {
     expect(() => parseSecrets('just a password')).toThrow(/NAME=value lines/);
   });
 
-  it('reads email’s two secrets the same way', () => {
+  it('reads email’s secrets the same way', () => {
     const resend = `fixture-resend-${'k'}`; const smtp = `fixture-smtp-${'p'}`;
     const read = readSecrets({ env: { STUDIO_SECRETS_FD: '3', SMTP_PASSWORD: 'from-the-environment' }, readFd: () => `STUDIO_SECRET_KEY=${KEY}\nRESEND_API_KEY=${resend}\nSMTP_PASSWORD=${smtp}\n`, closeFd: () => {} });
     expect(read.values).toEqual({ STUDIO_SECRET_KEY: KEY, RESEND_API_KEY: resend, SMTP_PASSWORD: smtp });
     expect(read.fromEnvironment).toEqual(['SMTP_PASSWORD']);
+    expect(readSecrets({ env: { MAILGUN_API_KEY: 'mailgun-env' } }).values.MAILGUN_API_KEY).toBe('mailgun-env');
+    expect(readSecrets({ env: { STUDIO_SECRETS_FD: '3', MAILGUN_API_KEY: 'mailgun-env' }, readFd: () => 'MAILGUN_API_KEY=mailgun-file', closeFd: () => {} }).values.MAILGUN_API_KEY).toBe('mailgun-file');
     expect(read.unknown).toEqual([]);
   });
 
