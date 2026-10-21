@@ -68,7 +68,7 @@
     "@tiptap/pm": "3.31.4",
     "@tiptap/react": "3.31.4",
     "@tiptap/starter-kit": "3.31.4",
-    "@tiptap/y-tiptap": "3.0.9",
+    "@tiptap/y-tiptap": "3.0.10",
     "@vitejs/plugin-react": "^5.2.0",
     "@vitest/coverage-v8": "^4.1.11",
     "electron": "^42.5.0",
