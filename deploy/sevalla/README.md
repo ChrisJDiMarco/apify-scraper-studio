@@ -50,6 +50,19 @@ mode does not verify company email ownership or enforce the SSO-only domain allo
 
 ## Email (off until configured)
 
+Sevalla blocks SMTP ports 25, 465 and 587 everywhere, and 2525 in Oracle Cloud regions (including this app’s Ashburn region). Use an HTTPS provider: Resend or Mailgun.
+
+For the existing Mailgun account, set these encrypted runtime-only variables, then restart the existing build:
+
+- `EMAIL_PROVIDER=mailgun`
+- `EMAIL_FROM=Golden Thread <studio@searchengineland.com>`
+- `MAILGUN_DOMAIN=searchengineland.com`
+- `MAILGUN_REGION=us` (`eu` for a domain in Mailgun’s EU region)
+- `MAILGUN_API_KEY`: a domain sending key, not an SMTP password
+- `STUDIO_PUBLIC_ORIGIN=https://goldenthread.searchengineland.com`
+
+Mailgun uses HTTPS on port 443 with open/click tracking disabled for sign-in links. Keep the existing OnDMARC SPF/DMARC setup and Marketo records when verifying the sending domain. Never publish an extra SPF record. SMTP variables can remain unused when `EMAIL_PROVIDER=mailgun`.
+
 The studio can email invites (each person's own sign-in link) and tell admins when someone signs in for the first
 time. It sends nothing until `EMAIL_PROVIDER` is set; see [docs/web-deploy.md](../../docs/web-deploy.md#email). To
 turn it on, add these as Sevalla environment variables (the key or password as an encrypted runtime-only variable,

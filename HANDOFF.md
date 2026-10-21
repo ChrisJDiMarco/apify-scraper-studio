@@ -357,15 +357,18 @@ commented template with the same variables (except the ones the tooling sets).
 | `STUDIO_PASSWORD` | **Secret.** The admin password (16+ characters), break-glass admin access. Not needed with company sign-in. |
 | `STUDIO_PROXY_SECRET` | **Secret.** What the sign-in proxy sends as `X-Studio-Proxy-Secret`. |
 | `RESEND_API_KEY` | **Secret.** Resend's API key, when `EMAIL_PROVIDER=resend`. |
+| `MAILGUN_API_KEY` | **Secret.** Mailgun domain sending key, when `EMAIL_PROVIDER=mailgun`. |
 | `SMTP_PASSWORD` | **Secret.** The SMTP password, when `EMAIL_PROVIDER=smtp` with `SMTP_USER`. |
 
 **Email** (`src/main/email.js`; off unless `EMAIL_PROVIDER` is set; see [docs/web-deploy.md](docs/web-deploy.md#email))
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `EMAIL_PROVIDER` | `off` | `off`, `preview` (write each email as an `.eml` file in `<STUDIO_DATA_DIR>/email-preview` instead of sending), `resend` or `smtp`. Sends invites and first-sign-in notices to admins. |
+| `EMAIL_PROVIDER` | `off` | `off`, `preview` (write each email as an `.eml` file in `<STUDIO_DATA_DIR>/email-preview` instead of sending), `resend`, `smtp` or `mailgun` (HTTPS). Sends invites and first-sign-in notices to admins. |
 | `EMAIL_FROM` | — (`preview`: `Golden Thread <studio@example.com>`) | The sender, `Name <address>` or an address. Required for `resend` and `smtp`. |
 | `EMAIL_REPLY_TO` | — | Optional reply-to address. |
+| `MAILGUN_DOMAIN` | — | Verified Mailgun sending domain, with `EMAIL_PROVIDER=mailgun`. |
+| `MAILGUN_REGION` | `us` | Mailgun region: `us` or `eu`. |
 | `SMTP_HOST` | — | The SMTP server, with `EMAIL_PROVIDER=smtp`. |
 | `SMTP_PORT` | `587` | The SMTP port. |
 | `SMTP_SECURE` | `1` on port 465, else off | `1`: TLS from the start (port 465). Off: STARTTLS, required. |

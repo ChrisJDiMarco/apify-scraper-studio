@@ -16,8 +16,8 @@
 // as before, with a warning.
 const fs = require('fs');
 
-// RESEND_API_KEY and SMTP_PASSWORD are email's (src/main/email.js), read the same way so the AI can't print them either.
-const SECRET_NAMES = Object.freeze(['STUDIO_SECRET_KEY', 'STUDIO_PASSWORD', 'STUDIO_PROXY_SECRET', 'RESEND_API_KEY', 'SMTP_PASSWORD']);
+// RESEND_API_KEY, SMTP_PASSWORD and MAILGUN_API_KEY are email's (src/main/email.js), read the same way so the AI can't print them either.
+const SECRET_NAMES = Object.freeze(['STUDIO_SECRET_KEY', 'STUDIO_PASSWORD', 'STUDIO_PROXY_SECRET', 'RESEND_API_KEY', 'SMTP_PASSWORD', 'MAILGUN_API_KEY']);
 const MAX_SECRETS_BYTES = 64 * 1024;
 
 // "NAME=value", "export NAME=value", optional single or double quotes; blank lines and # comments are skipped.
@@ -34,7 +34,7 @@ function parseSecrets(text, source = 'STUDIO_SECRETS_FD') {
   return { values, unknown };
 }
 
-// Returns { values: { STUDIO_SECRET_KEY?, STUDIO_PASSWORD?, STUDIO_PROXY_SECRET?, RESEND_API_KEY?, SMTP_PASSWORD? }, fromEnvironment: [names], unknown:
+// Returns { values: { STUDIO_SECRET_KEY?, STUDIO_PASSWORD?, STUDIO_PROXY_SECRET?, RESEND_API_KEY?, SMTP_PASSWORD?, MAILGUN_API_KEY? }, fromEnvironment: [names], unknown:
 // [names], source: 'fd' | 'file' | '' , file }. A value from the descriptor or file wins over the environment.
 // `fromEnvironment` lists the secrets that sat in the environment at start, for the startup warning; studio-web.cjs
 // still removes them from process.env so nothing the server starts inherits them.

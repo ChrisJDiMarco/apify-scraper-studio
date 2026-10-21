@@ -102,6 +102,39 @@ describe('the Resend provider', () => {
   });
 });
 
+describe('the Mailgun HTTPS provider', () => {
+  const env = { EMAIL_PROVIDER: 'mailgun', EMAIL_FROM: 'Golden Thread <studio@searchengineland.com>', MAILGUN_DOMAIN: 'searchengineland.com' };
+  const secrets = { MAILGUN_API_KEY: 'test-mailgun-secret' };
+  it('requires a domain, a valid region and a secret supplied through the secret reader', () => {
+    expect(readConfig({ ...env, MAILGUN_DOMAIN: '../evil' }, secrets).ready).toBe(false);
+    expect(readConfig({ ...env, MAILGUN_REGION: 'other' }, secrets).ready).toBe(false);
+    expect(readConfig({ ...env, MAILGUN_API_KEY: secrets.MAILGUN_API_KEY }).ready).toBe(false);
+    expect(readConfig(env, secrets).ready).toBe(true);
+  });
+  it.each(['us', 'eu'])('sends multipart messages to the fixed %s API with tracking disabled', async (region) => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ id: 'mailgun-123' })));
+    const mailer = createMailer({ env: { ...env, MAILGUN_REGION: region, EMAIL_REPLY_TO: 'john@semrush.com' }, secrets, fetch });
+    expect(await mailer.send(message)).toEqual({ provider: 'mailgun', id: 'mailgun-123' });
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe(`https://${region === 'eu' ? 'api.eu.mailgun.net' : 'api.mailgun.net'}/v3/searchengineland.com/messages`);
+    expect(init).toMatchObject({ method: 'POST', redirect: 'error', headers: { Authorization: `Basic ${Buffer.from('api:test-mailgun-secret').toString('base64')}` } });
+    expect(Object.fromEntries(init.body)).toEqual({ from: env.EMAIL_FROM, to: 'pat@semrush.com', subject: message.subject, text: message.text, html: message.html, 'h:Reply-To': 'john@semrush.com', 'o:tag': 'invite', 'o:tracking': 'no', 'o:tracking-clicks': 'no', 'o:tracking-opens': 'no' });
+  });
+  it('never exposes provider responses, credentials or sign-in links in errors', async () => {
+    const rejected = createMailer({ env, secrets, fetch: async () => new Response(JSON.stringify({ message: `${secrets.MAILGUN_API_KEY} ${message.text}` }), { status: 401 }) });
+    await expect(rejected.send(message)).rejects.toMatchObject({ code: 'emailRejected', message: 'Mailgun refused the email (HTTP 401).' });
+    const offline = createMailer({ env, secrets, fetch: async () => { throw Error(`${secrets.MAILGUN_API_KEY} ${message.text}`); } });
+    await expect(offline.send(message)).rejects.toMatchObject({ code: 'emailNetwork', message: 'Mailgun could not be reached.' });
+    const slow = createMailer({ env, secrets, fetch: async () => { throw Object.assign(Error('timeout'), { name: 'TimeoutError' }); } });
+    await expect(slow.send(message)).rejects.toMatchObject({ code: 'emailTimeout' });
+  });
+  it('rejects malformed success replies rather than reporting a sent email', async () => {
+    for (const body of ['not-json', '{}']) {
+      await expect(createMailer({ env, secrets, fetch: async () => new Response(body) }).send(message)).rejects.toMatchObject({ code: 'emailRejected' });
+    }
+  });
+});
+
 describe('the SMTP provider', () => {
   const env = { EMAIL_PROVIDER: 'smtp', EMAIL_FROM: 'studio@example.com', SMTP_HOST: 'smtp.example.com', SMTP_PORT: '587', SMTP_USER: 'apikey' };
   it('sends through one transport made from the SMTP settings', async () => {

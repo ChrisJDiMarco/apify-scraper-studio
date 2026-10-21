@@ -33,7 +33,7 @@ function loadLoginShellPath({ shell = process.env.SHELL || '/bin/zsh', timeoutMs
 // own sign-in, and the Anthropic API key route calls the API from the studio itself.
 // Windows variable names ignore case (`Path`, `Anthropic_Api_Key`), so names are compared in upper case and the copy
 // keeps a single PATH.
-const CLI_SECRET_ENV = /^(STUDIO_.*|EMAIL_.*|RESEND_.*|SMTP_.*|ANTHROPIC_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY|FAL_KEY|APIFY_API_TOKEN|MONDAY_API_TOKEN|GOOGLE_.*TOKEN|GOOGLE_SHEETS_WEBHOOK_URL)$/;
+const CLI_SECRET_ENV = /^(STUDIO_.*|EMAIL_.*|RESEND_.*|SMTP_.*|MAILGUN_.*|ANTHROPIC_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY|FAL_KEY|APIFY_API_TOKEN|MONDAY_API_TOKEN|GOOGLE_.*TOKEN|GOOGLE_SHEETS_WEBHOOK_URL)$/;
 const envValue = (env, name) => { const key = Object.keys(env || {}).find(entry => entry.toUpperCase() === name); return key === undefined ? undefined : env[key]; };
 function studioCliEnv({ platform = process.platform, env: source = process.env } = {}) {
   const win = platform === 'win32'; const p = win ? path.win32 : path;
