@@ -225,6 +225,13 @@ describe('errors and logs', () => {
     expect(body.error).toBe('Couldn’t open …. See https://example.com/data/help.');
   });
 
+  it.each([String.raw`C:\Users\runner\data\report.md`, 'C:/Users/runner/data/report.md', String.raw`\\server\share\report.md`])('removes Windows server paths on every platform: %s', async (file) => {
+    const h = await fixture({ handlers: { [channel('openAsset')]: () => { throw new Error(`Couldn’t open ${file}. See https://example.com/data/help.`); } } });
+    const cookie = await h.login();
+    const body = await (await h.rpc(cookie, channel('openAsset'), {})).json();
+    expect(body.error).toBe('Couldn’t open …. See https://example.com/data/help.');
+  });
+
   it('logs one line per API request with its id, channel, status, duration and who, never the payload', async () => {
     const h = await fixture(); const cookie = await h.login();
     await h.rpc(cookie, channel('startResearchRun'), { note: 'payload-text-that-must-not-be-logged' });

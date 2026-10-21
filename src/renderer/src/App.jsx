@@ -260,6 +260,8 @@ function StudioApp({ api }) {
   const [creation, setCreation] = useState({ key: null, templateId: '' });
   const contentRef = useRef(null);
   const frameRef = useRef(null);
+  const cardScrollTimer = useRef(null);
+  useEffect(() => () => clearTimeout(cardScrollTimer.current), []);
   const [payloadDatasetId, setPayloadDatasetId] = useState('');
   const [selectedDatasetId, setSelectedDatasetId] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -696,15 +698,16 @@ function StudioApp({ api }) {
   }
   // After a palette jump, bring the named card into view once its page has drawn it.
   function scrollToCard(selector, name) {
+    clearTimeout(cardScrollTimer.current);
     const want = String(name || '').trim().toLowerCase();
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     let tries = 0;
     const look = () => {
       const node = [...document.querySelectorAll(selector)].find((row) => String(row.dataset.spotItem || row.getAttribute('aria-label') || '').trim().toLowerCase() === want);
       if (node) node.scrollIntoView?.({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
-      else if (++tries < 20) setTimeout(look, 100);
+      else if (++tries < 20) cardScrollTimer.current = setTimeout(look, 100);
     };
-    setTimeout(look, 60);
+    cardScrollTimer.current = setTimeout(look, 60);
   }
   // A trend: Simple's Trends, or the Advanced Trend board, scrolled to its card (a card waiting for an OK, or the
   // Being written, Ready, approved and Skipped rows, which carry trends.ready-card).

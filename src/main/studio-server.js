@@ -452,7 +452,14 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
   // Server paths in a message written for people (a handler naming a file) become "…" before it reaches the browser.
   const roots = [...new Set([runtime.settings?.dataDir, transfers, webRoot && path.resolve(webRoot), path.resolve(__dirname, '..', '..'), os.homedir(), os.tmpdir()].filter((root) => typeof root === 'string' && root.length > 1))].sort((a, b) => b.length - a.length);
   // Only whole path tokens (after a space, quote or bracket) are replaced, so links in a message stay intact.
-  const scrub = (message) => String(message).replace(/(^|[\s'"(=[])(\/[^\s'")\]]*?)([.,;:!?]*)(?=$|[\s'")\]])/g, (match, lead, token, end) => (roots.some((root) => token === root || token.startsWith(`${root}/`)) || /^\/(?:Users|home|data|srv|var|tmp|private|opt|app|root|mnt|Volumes|etc)\//.test(token) ? `${lead}…${end}` : match));
+  const scrub = (message) => String(message).replace(/(^|[\s'"(=[])((?:[a-z]:[\\/]|\\\\|\/)[^\s'")\]]*?)([.,;:!?]*)(?=$|[\s'")\]])/gi, (match, lead, token, end) => {
+    const normalized = token.replace(/\\/g, '/');
+    const serverPath = /^[a-z]:\//i.test(normalized) || normalized.startsWith('//') || roots.some((root) => {
+      const normalizedRoot = root.replace(/\\/g, '/');
+      return normalized === normalizedRoot || normalized.startsWith(`${normalizedRoot}/`);
+    }) || /^\/(?:Users|home|data|srv|var|tmp|private|opt|app|root|mnt|Volumes|etc)\//.test(normalized);
+    return serverPath ? `${lead}…${end}` : match;
+  });
   function failed(error, req, res, requestId) {
     if (systemError(error)) {
       slog.log('error', 'request-failed', { id: requestId, route: req.studioRoute || '', channel: req.studioChannel || '', identity: logIdentity(req.studioWho), ...errorFields(error, { stack: true }) });
