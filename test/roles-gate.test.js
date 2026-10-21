@@ -176,7 +176,7 @@ describe('the gate on the browser studio', () => {
     const link = await chris('team:sign-in-link', { id: member.id });
     expect(link).toEqual({ url: expect.stringMatching(/^https:\/\/studio\.example\.com\/#signin=[0-9a-f]{64}$/), expiresAt: expect.any(String) });
     const team = await chris('team:list');
-    expect(team.signIn).toEqual({ web: true, sso: false, links: true, linkDays: 30 });
+    expect(team.signIn).toEqual({ web: true, sso: false, links: true, linkDays: 30, email: false });
     expect(team.members.find((entry) => entry.id === member.id).link).toEqual({ createdAt: expect.any(String), expiresAt: link.expiresAt, lastUsedAt: '' });
     expect(JSON.stringify(team)).not.toMatch(/hash|signin=/);
     expect(team.channels.find((channel) => channel.id === 'pr').owners).toEqual([{ id: member.id, name: 'Dana' }]);
@@ -234,6 +234,7 @@ describe('the gate on the browser studio', () => {
     expect(result.members).toEqual([expect.objectContaining({ name: 'Jordan', email: 'jordan@semrush.com', role: 'channel', base: 'channel', channelId: 'pr' })]);
     expect(result.links).toEqual([{ id: result.members[0].id, url: expect.stringMatching(/^https:\/\/studio\.example\.com\/#signin=[0-9a-f]{64}$/), expiresAt: expect.any(String) }]);
     expect(result.skipped).toEqual([{ email: 'riley@semrush.com', reason: 'Already in the studio' }]);
+    expect(result.emails).toEqual([]); // email is off unless EMAIL_PROVIDER is set
     expect(result).not.toHaveProperty('audit'); expect(result).not.toHaveProperty('activity');
     expect((await chris('team:analytics', {})).recent.map((row) => row.text)).toContain('Chris added Jordan as a channel owner for Semrush PR');
     expect(await chris('team:remove-member', { id: result.members[0].id })).toEqual({ ok: true });
@@ -310,6 +311,6 @@ describe('the gate on the Mac app', () => {
 
   it('tells the Mac app that sign-in links are for the web version', () => {
     expect(() => handlers.get('team:sign-in-link')(null, { id: 'member-x' })).toThrow('Sign-in links are for the web version.');
-    expect(handlers.get('team:list')().signIn).toEqual({ web: false, sso: false, links: false, linkDays: 30 });
+    expect(handlers.get('team:list')().signIn).toEqual({ web: false, sso: false, links: false, linkDays: 30, email: false });
   });
 });

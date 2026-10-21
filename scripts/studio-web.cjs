@@ -54,10 +54,10 @@ if (!fs.existsSync(path.join(webRoot, 'index.html'))) fail('Build the browser ap
 // The secrets are read once, from STUDIO_SECRETS_FD or STUDIO_SECRETS_FILE when set, and kept only in memory.
 let secrets;
 try { secrets = require('../src/main/web-secrets').readSecrets(); } catch (error) { fail(error.message); }
-const { STUDIO_SECRET_KEY: secretKey, STUDIO_PASSWORD: password, STUDIO_PROXY_SECRET: proxySecret } = secrets.values;
+const { STUDIO_SECRET_KEY: secretKey, STUDIO_PASSWORD: password, STUDIO_PROXY_SECRET: proxySecret, RESEND_API_KEY: resendKey, SMTP_PASSWORD: smtpPassword } = secrets.values;
 // None is in process.env from here on, so nothing the server starts inherits them (the AI CLI environment also drops
 // every STUDIO_* variable). That can't remove them from the environment block this process started with, hence the warning.
-for (const name of ['STUDIO_SECRET_KEY', 'STUDIO_PASSWORD', 'STUDIO_PROXY_SECRET', 'STUDIO_SECRETS_FD', 'STUDIO_SECRETS_FILE']) delete process.env[name];
+for (const name of ['STUDIO_SECRET_KEY', 'STUDIO_PASSWORD', 'STUDIO_PROXY_SECRET', 'RESEND_API_KEY', 'SMTP_PASSWORD', 'STUDIO_SECRETS_FD', 'STUDIO_SECRETS_FILE']) delete process.env[name];
 
 // Started as root (the container image): the secrets are read, then the process becomes STUDIO_RUN_AS, which can't open
 // a root-only secrets file again. On Linux the switch also makes this process's memory and starting environment
@@ -81,7 +81,7 @@ if (secrets.fromEnvironment.length && !droppedRoot) {
   warnings.push(`Warning: ${secrets.fromEnvironment.join(' and ')} came from the environment, where anything this server starts can read ${them}, including the AI on the Codex route. Pass ${them} with STUDIO_SECRETS_FD or STUDIO_SECRETS_FILE instead (docs/web-deploy.md).`);
 }
 if (secrets.file) { let readable = false; try { fs.accessSync(secrets.file, fs.constants.R_OK); readable = true; } catch (_) { readable = false; } if (readable) warnings.push(`Warning: STUDIO_SECRETS_FILE (${secrets.file}) is readable by the server’s own user, so the AI on the Codex route could read it. Make it root-only (0400) and start as root with STUDIO_RUN_AS (the container image does), or use STUDIO_SECRETS_FD.`); }
-if (secrets.unknown.length) warnings.push(`Ignored ${secrets.unknown.join(', ')} in the secrets: only STUDIO_SECRET_KEY, STUDIO_PASSWORD and STUDIO_PROXY_SECRET are read there.`);
+if (secrets.unknown.length) warnings.push(`Ignored ${secrets.unknown.join(', ')} in the secrets: only STUDIO_SECRET_KEY, STUDIO_PASSWORD, STUDIO_PROXY_SECRET, RESEND_API_KEY and SMTP_PASSWORD are read there.`);
 
 const drainSeconds = number('STUDIO_DRAIN_SECONDS', 25, 0, 3600);
 const keepAliveSeconds = number('STUDIO_KEEPALIVE_SECONDS', 75, 1, 3600);
@@ -89,7 +89,7 @@ const port = number('PORT', 4174, 0, 65535);
 const bind = process.env.STUDIO_HOST || '127.0.0.1';
 const runtime = require('../src/main/web-runtime');
 let dataDir;
-try { ({ dataDir } = runtime.configure({ dataDir: process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.scraper-studio-web'), secretKey, transferDir: process.env.STUDIO_TRANSFER_DIR, passwordSignIn: Boolean(password) })); }
+try { ({ dataDir } = runtime.configure({ dataDir: process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.scraper-studio-web'), secretKey, transferDir: process.env.STUDIO_TRANSFER_DIR, passwordSignIn: Boolean(password), emailSecrets: { RESEND_API_KEY: resendKey, SMTP_PASSWORD: smtpPassword } })); }
 catch (error) { fail(error.message); }
 // The data-folder lock is released when the process exits, after aborted work has saved its last state, not at 'quit'.
 require('../src/main/studio-owner-lock').releaseOnlyAtExit();

@@ -16,6 +16,8 @@ const SECRETS = {
   STUDIO_SECRET_KEY: 'fixture-studio-secret-key-0123456789abcdef', STUDIO_PASSWORD: 'fixture-admin-password', STUDIO_SESSION_SECRET: 'fixture-session',
   ANTHROPIC_API_KEY: 'sk-ant-fixture', OPENAI_API_KEY: 'sk-fixture', OPENROUTER_API_KEY: 'sk-or-fixture', FAL_KEY: 'fixture-fal-key', APIFY_API_TOKEN: 'apify_api_fixture', MONDAY_API_TOKEN: 'fixture-monday',
   GOOGLE_SHEETS_WEBHOOK_URL: 'https://script.google.com/macros/s/fixture/exec', GOOGLE_DOCS_ACCESS_TOKEN: 'ya29.fixture',
+  // Email (src/main/email.js): its secrets and settings.
+  RESEND_API_KEY: 'fixture-resend', SMTP_PASSWORD: 'fixture-smtp', SMTP_USER: 'fixture-user', EMAIL_PROVIDER: 'resend',
 };
 const saved = {};
 beforeAll(() => { for (const [name, value] of Object.entries(SECRETS)) { saved[name] = process.env[name]; process.env[name] = value; } process.env.FIXTURE_UNRELATED = 'kept'; });

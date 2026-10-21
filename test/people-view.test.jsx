@@ -247,6 +247,29 @@ describe('Invite people', () => {
     await waitFor(() => expect(services.inviteMembers).toHaveBeenCalledWith({ people: [{ email: 'social.lead@semrush.com' }], role: 'channel', channelId: 'social', grants: [], denies: ['makeAssets'] }));
   });
 
+  // With email on (signIn.email), each invite is emailed; a link to copy is offered only where the email didn't go.
+  it('says whose invite was emailed, and offers the link to copy only where the email failed', async () => {
+    const services = api({
+      getTeam: vi.fn(async () => team({ signIn: { web: true, sso: false, links: true, linkDays: 30, email: true } })),
+      inviteMembers: vi.fn(async () => ({
+        members: [{ id: 'm-1', name: 'Pat Lee', email: 'pat@semrush.com' }, { id: 'm-2', name: 'Sam Ray', email: 'sam.ray@semrush.com' }],
+        links: [{ id: 'm-1', url: 'https://studio.semrush.com/#signin=one', expiresAt: later }, { id: 'm-2', url: 'https://studio.semrush.com/#signin=two', expiresAt: later }],
+        emails: [{ id: 'm-1', status: 'sent' }, { id: 'm-2', status: 'failed' }], skipped: [], signIn: { web: true, sso: false, links: true, email: true },
+      })),
+    });
+    render(<PeopleView api={services} web viewer={sam} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Invite people/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Invite people' });
+    expect(dialog).toHaveTextContent('Each person gets an email with their own sign-in link.');
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Work emails' }), { target: { value: 'pat@semrush.com, sam.ray@semrush.com, ' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Invite 2 people' }));
+    const result = await screen.findByRole('dialog', { name: '2 people invited' });
+    expect(within(result).getByRole('list', { name: 'Invites emailed' })).toHaveTextContent('Invite emailed to pat@semrush.com');
+    expect(within(result).queryByRole('button', { name: 'Copy Pat Lee’s link' })).not.toBeInTheDocument();
+    expect(result).toHaveTextContent('Couldn’t email sam.ray@semrush.com. Copy their link and send it yourself.');
+    expect(within(result).getByRole('button', { name: 'Copy Sam Ray’s link' })).toBeInTheDocument();
+  });
+
   it('with company sign-in, says where they sign in instead of giving links', async () => {
     const services = api({ getTeam: vi.fn(async () => team({ signIn: { web: true, sso: true, links: false } })), inviteMembers: vi.fn(async () => ({ members: [{ id: 'm-1', name: 'Pat Lee', email: 'pat@semrush.com' }], links: [], skipped: [], signIn: { sso: true } })) });
     render(<PeopleView api={services} web viewer={sam} />);

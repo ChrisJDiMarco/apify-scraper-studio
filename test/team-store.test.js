@@ -159,6 +159,40 @@ describe('sign-in links', () => {
     for (const bad of ['', 'abc', 'g'.repeat(64), null, 42, crypto.randomBytes(32).toString('hex')]) expect(store.memberByLinkToken(bad)).toBeNull();
   });
 
+  // The first-sign-in email (index.js emailFirstSignIn) hangs on these: true once per member, saved, never again.
+  it('says when a sign-in is someone’s first, once, by link or by company sign-in', () => {
+    const h = harness(); const { store } = h;
+    const ann = store.saveMember({ name: 'Ann', email: 'ann@semrush.com', role: 'editor' }, ADMIN);
+    const { token } = store.issueLink(ann.id, ADMIN);
+    expect(store.memberByLinkToken(token).first).toBe(true);
+    expect(h.file().members[0].firstSignInAt).toBe('2026-10-16T09:00:00.000Z');
+    expect(store.memberByLinkToken(token).first).toBe(false);
+    expect(h.open().memberByLinkToken(token).first).toBe(false); // after a restart too
+    const bea = store.saveMember({ name: 'Bea', email: 'bea@semrush.com', role: 'editor' }, ADMIN);
+    expect(store.noteSignIn(bea.id)).toBe(true);
+    expect(store.noteSignIn(bea.id)).toBe(false);
+    expect(h.open().noteSignIn(bea.id)).toBe(false);
+    // Seen before firstSignInAt existed: not a first time, and it's recorded quietly.
+    const cal = store.saveMember({ name: 'Cal', email: 'cal@semrush.com', role: 'editor' }, ADMIN);
+    store.touch(cal.id);
+    expect(store.noteSignIn(cal.id)).toBe(false);
+    expect(h.file().members.find((member) => member.id === cal.id).firstSignInAt).toEqual(expect.any(String));
+    expect(store.noteSignIn('member-missing')).toBe(false);
+  });
+
+  it('lists the admins to tell, and keeps tokens out of its log lines', () => {
+    const { store } = harness();
+    store.saveMember({ name: 'Ann', email: 'ann@semrush.com', role: 'admin' }, ADMIN);
+    store.saveMember({ name: 'Bea', email: 'bea@semrush.com', role: 'editor' }, ADMIN);
+    const off = store.saveMember({ name: 'Dee', email: 'dee@semrush.com', role: 'admin' }, ADMIN);
+    store.saveMember({ id: off.id, disabled: true }, ADMIN);
+    expect(store.adminContacts()).toEqual([{ id: expect.any(String), name: 'Ann', email: 'ann@semrush.com' }]);
+    const lines = []; vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { lines.push(String(chunk)); return true; });
+    store.logEvent({ event: 'email-failed', error: `Bad https://x.example.com/#signin=${'f'.repeat(64)} and ${'0'.repeat(40)}` });
+    expect(lines.join('')).not.toMatch(/[0-9a-f]{32,}/);
+    expect(lines.join('')).toContain('#signin=[redacted]');
+  });
+
   it('compares every stored hash in constant time', () => {
     const { store } = harness();
     const ids = ['Ann', 'Bea', 'Cal'].map((name) => store.saveMember({ name, email: `${name.toLowerCase()}@semrush.com`, role: 'editor' }, ADMIN).id);

@@ -1837,6 +1837,11 @@ const ADMIN_EMAILS = WEB_RUNTIME ? String(process.env.STUDIO_ADMIN_EMAILS || '')
 let teamStore;
 try { teamStore = createTeamStore({ root: dataPath('content-studio'), adminEmails: ADMIN_EMAILS }); }
 catch (error) { dialog.showErrorBox('Team data could not be read', error.message); app.exit(1); throw error; }
+// Email for invites and first-sign-in notices: off unless the browser studio sets EMAIL_PROVIDER (see emailInvites).
+const { createMailer, redact: redactEmailError } = require('./email');
+const emailTemplates = require('./email-templates');
+const mailer = createMailer({ env: WEB_RUNTIME ? process.env : {}, secrets: WEB_RUNTIME ? require('./web-runtime').settings?.emailSecrets || {} : {}, dataDir: dataRoot(), fetch: typeof fetch === 'function' ? fetch : undefined });
+if (mailer.status().problem) teamStore.logEvent({ event: 'email-not-ready', provider: mailer.status().provider, problem: mailer.status().problem });
 // Ask AI's conversations and long-term memory, one folder per person (src/main/ask-store.js), beside team.json. Never in
 // the broadcast state: the help:* methods read them for the person asking.
 const askStore = require('./ask-store').createAskStore({ root: dataPath('content-studio', 'ask') });
@@ -1917,10 +1922,11 @@ const OWNER_IDENTITY = Object.freeze({ id: 'owner', name: 'Studio admin', email:
 // becomes an identity, and each live-update stream is written as that person's projection of the state.
 if (WEB_RUNTIME) require('./web-runtime').provide('people', {
   ownerIdentity: () => OWNER_IDENTITY,
-  fromProxyEmail: (email) => { const identity = teamStore.fromProxyEmail(email); if (identity?.role) teamStore.touch(identity.id); return identity; },
+  // A member's first sign-in (either way) tells the admins by email, when email is on (emailFirstSignIn below).
+  fromProxyEmail: (email) => { const identity = teamStore.fromProxyEmail(email); if (identity?.role) { if (teamStore.noteSignIn(identity.id)) emailFirstSignIn(identity.id); teamStore.touch(identity.id); } return identity; },
   // A replaced or turned-off link, or a removed member, ends every session that used it.
   fromLinkSession: (entry) => { const member = teamStore.memberById(entry?.memberId); if (!member?.link || member.link.id !== entry.linkId) return null; teamStore.touch(member.id); return teamStore.identityFor(member, 'link'); },
-  linkLogin: (token) => { const found = teamStore.memberByLinkToken(token); return found ? { memberId: found.member.id, linkId: found.linkId } : null; },
+  linkLogin: (token, { origin = '' } = {}) => { const found = teamStore.memberByLinkToken(token); if (found?.first) emailFirstSignIn(found.member.id, origin); return found ? { memberId: found.member.id, linkId: found.linkId } : null; },
   view: (base, identity, session) => JSON.stringify(access.project(base, access.viewerFor(identity, session))),
   // Uploads follow the role policy (a custom role without imports can't pick a file), and each rendering of the state is
   // keyed on the whole viewer, so a preview of one person or a custom role never shares another view's copy.
@@ -3519,7 +3525,55 @@ function linkDays() { const raw = String(process.env.STUDIO_LINK_DAYS ?? '').tri
 function signInSettings() {
   const sso = WEB_RUNTIME && Boolean(String(process.env.STUDIO_TRUSTED_EMAIL_HEADER || '').trim());
   const password = WEB_RUNTIME && (Boolean(process.env.STUDIO_PASSWORD) || require('./web-runtime').settings?.passwordSignIn === true);
-  return { web: WEB_RUNTIME, sso, links: WEB_RUNTIME && !sso && password, linkDays: linkDays() };
+  return { web: WEB_RUNTIME, sso, links: WEB_RUNTIME && !sso && password, linkDays: linkDays(), email: mailer.status().ready };
+}
+// ── Email: invites and first-sign-in notices (src/main/email.js, docs/web-deploy.md#email) ──
+// Off unless the browser studio's EMAIL_PROVIDER is set; the Mac app never sends any. A failed email is logged (never its
+// address or link) and never fails the invite or sign-in it belongs to: People still shows each link to copy.
+const EMAIL_WAIT_MS = 20000; // how long an invite waits for its emails before answering; slower ones still go out
+// Resolves to true when sent, false when not: never rejects.
+function sendEmail(kind, to, message, fields = {}) {
+  return mailer.send({ ...message, to, kind }).then(
+    (sent) => { teamStore.logEvent({ event: 'email-sent', kind, provider: sent.provider, ...fields }); return true; },
+    (error) => { teamStore.logEvent({ event: 'email-failed', kind, provider: mailer.status().provider, code: error?.code || '', error: redactEmailError(error?.message), ...fields }); return false; },
+  );
+}
+// The page's address for an email: the request's (already checked by studio-server), else STUDIO_PUBLIC_ORIGIN.
+function emailOrigin(given = '') {
+  for (const value of [given, WEB_RUNTIME ? require('./web-runtime').currentCall()?.origin : '', process.env.STUDIO_PUBLIC_ORIGIN]) {
+    const origin = String(value || '').trim().replace(/\/+$/, '');
+    if (/^https?:\/\/[^/\s?#]+$/i.test(origin)) return origin;
+  }
+  return '';
+}
+// Each new person's invite, two at a time (Resend's default limit is 2 a second). Answers [{ id, status }] with status
+// 'sent', 'failed' or 'sending' (still going after EMAIL_WAIT_MS); [] when email is off or nobody can sign in yet.
+async function emailInvites(members, links, signIn, inviter) {
+  if (!mailer.status().ready || !members.length || (!signIn.sso && !links.length)) return [];
+  const origin = emailOrigin(); const urls = new Map(links.map((link) => [link.id, link]));
+  const statuses = new Map(members.map((member) => [member.id, 'sending']));
+  const queue = members.filter((member) => member.email && (signIn.sso || urls.has(member.id)));
+  for (const member of members) if (!queue.includes(member)) statuses.set(member.id, 'failed');
+  const worker = async () => {
+    for (let member = queue.shift(); member; member = queue.shift()) {
+      const link = urls.get(member.id);
+      const message = emailTemplates.inviteEmail({ name: member.name, inviter, roleLabel: roleLabelOf(member.role), url: link?.url || '', expiresAt: link?.expiresAt ?? null, origin, sso: signIn.sso });
+      statuses.set(member.id, (await sendEmail('invite', member.email, message, { memberId: member.id })) ? 'sent' : 'failed');
+    }
+  };
+  let timer;
+  await Promise.race([Promise.all([worker(), worker()]), new Promise((resolve) => { timer = setTimeout(resolve, EMAIL_WAIT_MS); })]);
+  clearTimeout(timer);
+  return members.map((member) => ({ id: member.id, status: statuses.get(member.id) }));
+}
+// "<Name> just signed in for the first time", to every other enabled admin with an email. Fire and forget.
+function emailFirstSignIn(memberId, origin = '') {
+  try {
+    if (!mailer.status().ready) return;
+    const member = teamStore.memberById(memberId); if (!member) return;
+    const message = emailTemplates.firstSignInEmail({ name: member.name, email: member.email, roleLabel: roleLabelOf(member.role), at: member.firstSignInAt || new Date().toISOString(), origin: emailOrigin(origin) });
+    for (const admin of teamStore.adminContacts().filter((entry) => entry.id !== member.id)) sendEmail('first-sign-in', admin.email, message, { memberId: member.id, adminId: admin.id });
+  } catch (error) { teamStore.logEvent({ event: 'email-failed', kind: 'first-sign-in', code: error?.code || '', error: redactEmailError(error?.message) }); }
 }
 // A member as People shows them: their role (an id), its label and base, their own access changes and what they can
 // do with them. Never the link's hash.
@@ -3599,15 +3653,20 @@ handle('team:member-access', (_, payload = {}) => {
 });
 // Invite people: up to 50 emails with one role and channel. Where people sign in with personal links (the browser
 // studio with the admin password), each gets one in the same write; with company sign-in they just sign in.
-handle('team:invite', (_, payload = {}) => {
+// With email on, each new person is also emailed their invite (emailInvites); `emails` says how each went, and the links
+// stay in the answer so People can offer them to copy when an email fails.
+handle('team:invite', async (_, payload = {}) => {
   const input = objectPayload(payload); const signIn = signInSettings();
   const makeLinks = input.makeLinks !== false && signIn.links;
   const origin = makeLinks ? linkOrigin() : '';
-  const result = teamStore.inviteMembers({ people: input.people, role: input.role, channelId: input.channelId, grants: input.grants, denies: input.denies, makeLinks, linkDays: linkDays() }, access.identityForCall());
+  const by = access.identityForCall();
+  const result = teamStore.inviteMembers({ people: input.people, role: input.role, channelId: input.channelId, grants: input.grants, denies: input.denies, makeLinks, linkDays: linkDays() }, by);
   if (result.members.length) emitState();
   const names = new Map(result.members.map((member) => [member.id, member.name]));
+  const links = result.links.map((link) => ({ id: link.id, url: `${origin}/#signin=${link.token}`, expiresAt: link.expiresAt ?? null }));
+  const emails = await emailInvites(result.members, links, signIn, by?.id === OWNER_IDENTITY.id ? '' : by?.name || ''); // the admin password is "An admin"
   return {
-    members: result.members.map(memberView), links: result.links.map((link) => ({ id: link.id, url: `${origin}/#signin=${link.token}`, expiresAt: link.expiresAt ?? null })), skipped: result.skipped, signIn,
+    members: result.members.map(memberView), links, emails, skipped: result.skipped, signIn,
     activity: [...result.members.map((member) => ({ kind: 'member-changed', detail: memberActivity(member, 'added') })), ...result.links.map((link) => ({ kind: 'link-issued', detail: { memberId: link.id, name: names.get(link.id) || '' } }))],
     audit: result.audit,
   };

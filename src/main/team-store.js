@@ -589,9 +589,20 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     }
     if (!found || found.disabled) return null;
     if (found.link.expiresAt && !(time(found.link.expiresAt) > clock())) return null;
-    change(() => { const at = stamp(); found.link.lastUsedAt = at; found.lastSeenAt = at; });
+    const first = !found.firstSignInAt && !found.lastSeenAt;
+    change(() => { const at = stamp(); found.link.lastUsedAt = at; found.lastSeenAt = at; if (!found.firstSignInAt) found.firstSignInAt = at; });
     touched.set(found.id, clock());
-    return { member: publicMember(found), linkId: found.link.id };
+    return { member: publicMember(found), linkId: found.link.id, first };
+  }
+  // Company sign-in's counterpart of memberByLinkToken's `first`: true once per member, the first time they sign in
+  // (firstSignInAt is saved at once, so a restart never counts it again). Someone seen before firstSignInAt existed
+  // gets it set quietly. Best effort: a failed write answers false, and the next request tries again.
+  function noteSignIn(id) {
+    const member = record(id);
+    if (!member || member.disabled || member.firstSignInAt) return false;
+    const first = !member.lastSeenAt;
+    try { change(() => { member.firstSignInAt = stamp(); }); } catch (error) { logEvent({ event: 'team-write-failed', what: 'first-sign-in', code: error.code || '' }); return false; }
+    return first;
   }
 
   // ---------- Sign-in helpers ----------
@@ -815,13 +826,15 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
 
   // ---------- Misc ----------
   const admins = () => enabledAdmins().map((member) => ({ id: member.id, name: member.name }));
+  // Everyone enabled whose role is built on Admin and who has an email: who hears about first sign-ins.
+  const adminContacts = () => data.members.filter((member) => !member.disabled && member.email && roleDef(member.role)?.base === 'admin').map((member) => ({ id: member.id, name: member.name || localName(member.email), email: member.email }));
   // One JSON line on stdout. index.js runs in vm sandboxes without `console`, so its logging comes here. Only flat values
   // are written, and never anything keyed or shaped like a token, hash, password or payload.
   function logEvent(event = {}) {
     const line = { at: stamp() };
     for (const [key, value] of Object.entries(event && typeof event === 'object' ? event : {})) {
       if (SECRET_KEY.test(key) || key === 'at') continue;
-      if (typeof value === 'string') { if (!HEX_SECRET.test(value)) line[key] = value.slice(0, 300); }
+      if (typeof value === 'string') { if (!HEX_SECRET.test(value)) line[key] = value.replace(/#signin=[^\s"'<>]*/gi, '#signin=[redacted]').replace(/[0-9a-f]{32,}/gi, '[redacted]').slice(0, 300); }
       else if (value === null || typeof value === 'number' || typeof value === 'boolean') line[key] = value;
     }
     try { process.stdout.write(`${JSON.stringify(line)}\n`); } catch (_) { /* Logging never fails the work it describes. */ }
@@ -835,7 +848,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     setAdoption, adoptionsFor,
     log, activityFor, audit, auditFor,
     prefsFor, setPrefs,
-    admins, logEvent,
+    admins, adminContacts, noteSignIn, logEvent,
   };
 }
 

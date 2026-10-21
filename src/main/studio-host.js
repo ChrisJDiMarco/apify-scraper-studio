@@ -29,11 +29,11 @@ function loadLoginShellPath({ shell = process.env.SHELL || '/bin/zsh', timeoutMs
 }
 // Every AI CLI the studio starts (Claude Code, Codex) gets this environment. On the Codex route the CLI can run shell
 // commands, so nothing a person could ask it to print may be in here: no STUDIO_* setting (the web secret key and admin
-// password) and no saved-key variable. No route takes its credential from here: the Claude app and Codex use their
+// password), no email setting (RESEND_API_KEY, SMTP_PASSWORD) and no saved-key variable. No route takes its credential from here: the Claude app and Codex use their
 // own sign-in, and the Anthropic API key route calls the API from the studio itself.
 // Windows variable names ignore case (`Path`, `Anthropic_Api_Key`), so names are compared in upper case and the copy
 // keeps a single PATH.
-const CLI_SECRET_ENV = /^(STUDIO_.*|ANTHROPIC_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY|FAL_KEY|APIFY_API_TOKEN|MONDAY_API_TOKEN|GOOGLE_.*TOKEN|GOOGLE_SHEETS_WEBHOOK_URL)$/;
+const CLI_SECRET_ENV = /^(STUDIO_.*|EMAIL_.*|RESEND_.*|SMTP_.*|ANTHROPIC_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY|FAL_KEY|APIFY_API_TOKEN|MONDAY_API_TOKEN|GOOGLE_.*TOKEN|GOOGLE_SHEETS_WEBHOOK_URL)$/;
 const envValue = (env, name) => { const key = Object.keys(env || {}).find(entry => entry.toUpperCase() === name); return key === undefined ? undefined : env[key]; };
 function studioCliEnv({ platform = process.platform, env: source = process.env } = {}) {
   const win = platform === 'win32'; const p = win ? path.win32 : path;

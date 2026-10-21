@@ -31,6 +31,14 @@ describe('the browser studio’s secrets', () => {
     expect(() => parseSecrets('just a password')).toThrow(/NAME=value lines/);
   });
 
+  it('reads email’s two secrets the same way', () => {
+    const resend = `fixture-resend-${'k'}`; const smtp = `fixture-smtp-${'p'}`;
+    const read = readSecrets({ env: { STUDIO_SECRETS_FD: '3', SMTP_PASSWORD: 'from-the-environment' }, readFd: () => `STUDIO_SECRET_KEY=${KEY}\nRESEND_API_KEY=${resend}\nSMTP_PASSWORD=${smtp}\n`, closeFd: () => {} });
+    expect(read.values).toEqual({ STUDIO_SECRET_KEY: KEY, RESEND_API_KEY: resend, SMTP_PASSWORD: smtp });
+    expect(read.fromEnvironment).toEqual(['SMTP_PASSWORD']);
+    expect(read.unknown).toEqual([]);
+  });
+
   // Compose secrets, Kubernetes Secret volumes and ECS init containers deliver a file; it survives restarts, unlike a pipe.
   it('reads a mounted secrets file, including the proxy secret, and refuses a descriptor and a file together', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'web-secrets-test-')); const file = path.join(dir, 'studio');

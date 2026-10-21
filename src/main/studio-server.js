@@ -433,9 +433,10 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     // A personal sign-in link: the token came from the page's #signin= fragment, so it never reached a server log. Tokens
     // are 32 random bytes, so guessing one is hopeless and needs no limit; counting link tries against the password
     // limiter would let anyone lock every channel owner and editor out, since behind a proxy they share one address.
+    // The origin check already passed, so the page's address goes along for the first-sign-in email's link.
     if (body.linkToken !== undefined) {
       const provider = people(); const linkToken = String(body.linkToken || '');
-      const found = provider && /^[a-f0-9]{64}$/.test(linkToken) ? provider.linkLogin(linkToken) : null;
+      const found = provider && /^[a-f0-9]{64}$/.test(linkToken) ? provider.linkLogin(linkToken, { origin: new URL(req.headers.origin).origin }) : null;
       if (!found) { log({ event: 'sign-in-failed', kind: 'link' }); return send(res, 401, { error: COPY.linkInvalid, signIn: 'link-invalid' }); }
       return startSession(req, res, { kind: 'link', memberId: found.memberId, linkId: found.linkId }, LINK_SESSION_MS);
     }
