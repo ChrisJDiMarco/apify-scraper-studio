@@ -43,7 +43,7 @@
     "restore": "node scripts/studio-restore.cjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.132.1",
+    "@anthropic-ai/sdk": "^0.135.0",
     "apify-client": "^2.23.4",
     "electron-updater": "^6.8.9",
     "lucide-react": "^1.22.0",
