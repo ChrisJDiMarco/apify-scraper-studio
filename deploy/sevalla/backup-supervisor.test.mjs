@@ -1,11 +1,14 @@
-'use strict';
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const crypto = require('node:crypto');
-const { due, encrypt, decrypt, expired, takeBackup } = require('./backup-supervisor.cjs');
+import { test } from 'vitest';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import supervisor from './backup-supervisor.cjs';
+
+const { due, encrypt, decrypt, expired, takeBackup } = supervisor;
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 test('Pacific schedule follows DST and runs once per local day', () => {
   assert.equal(due(new Date('2026-10-22T08:59:00Z'), '2026-10-21'), false);
@@ -48,7 +51,7 @@ test('upload is downloaded, decrypted and restored; corrupted uploads never prun
     async get(key, file) { const copy = Buffer.from(content); if (corrupt) copy[copy.length - 1] ^= 1; fs.writeFileSync(file, copy); },
     async remove() { removals++; },
   };
-  const options = { storage: store, runtime: path.join(dir, 'runtime'), appRoot: path.resolve(__dirname, '../..') };
+  const options = { storage: store, runtime: path.join(dir, 'runtime'), appRoot: path.resolve(moduleDir, '../..') };
   try {
     const result = await takeBackup(config, 'daily', options);
     assert.equal(result.restored, true); assert.equal(result.files, 1);
