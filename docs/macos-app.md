@@ -1,7 +1,7 @@
-# Scraper Studio for macOS
+# Golden Thread for macOS
 
 The Mac app is the same studio as the browser version, packaged with Electron for one person per Mac (who is always
-the admin). Its display name is **Scraper Studio**; its internal storage identity stays `apify-scraper-studio`
+the admin). Its display name is **Golden Thread**; its internal storage identity stays `apify-scraper-studio`
 (`INTERNAL_APP_NAME` in `src/main/index.js`), so existing profiles and the macOS "Safe Storage" keychain item carry over.
 Keep that name.
 
@@ -14,7 +14,7 @@ npm run dist:mac   # icon, build, then a universal (arm64 + x64) app and DMG
 ```
 
 `npm run dist:mac` always builds universal (package.json passes `--universal`) and writes
-`dist/Scraper Studio-<version>-universal.dmg`. Plain `npm run dist` builds only this Mac's architecture; don't ship
+`dist/Golden Thread-<version>-universal.dmg`. Plain `npm run dist` builds only this Mac's architecture; don't ship
 that. The Windows x64 installer (`npm run dist:win`, unsigned for now) has its own steps:
 [RUNBOOK.md → Release the Windows app](../RUNBOOK.md#release-the-windows-app).
 
@@ -26,7 +26,7 @@ that. The Windows x64 installer (`npm run dist:win`, unsigned for now) has its o
   a real release so Apple is asked once (see [HANDOFF.md](../HANDOFF.md#known-limitations-and-follow-ups)).
 - **Electron fuses** are set in `package.json` `build.electronFuses` (no run-as-node, no `NODE_OPTIONS`, no inspector,
   asar integrity, cookie encryption). Check them on the built app with
-  `npx @electron/fuses read --app "dist/mac-universal/Scraper Studio.app"`. With `NODE_OPTIONS` off,
+  `npx @electron/fuses read --app "dist/mac-universal/Golden Thread.app"`. With `NODE_OPTIONS` off,
   `NODE_EXTRA_CA_CERTS` doesn't work either: test the DMG on a network with TLS inspection before rollout.
 - `npm run release:diagnostics` was meant to print what a release build contains and still needs; it fails today
   (see [HANDOFF.md](../HANDOFF.md#cleanup-dependencies-and-release)).
@@ -36,7 +36,7 @@ Record the commit SHA and `shasum -a 256` of each DMG you hand out.
 
 ## Install and update
 
-Open the DMG and drag **Scraper Studio** into Applications. A build that isn't notarized is stopped once at first
+Open the DMG and drag **Golden Thread** into Applications. A build that isn't notarized is stopped once at first
 launch: System Settings → Privacy & Security → **Open Anyway**. There are no automatic updates (the updater code has no
 feed and nothing calls it): quit the app when nothing is running, open the new DMG and replace the app. Data in
 `~/Library/Application Support/apify-scraper-studio` is kept.
@@ -47,7 +47,7 @@ Ask them to note their keys (or export a setup file) first.
 
 ## Connect and use
 
-Open **Scraper Studio** from Applications. A fresh profile opens in the **Semrush workspace**. Save the Apify token in
+Open **Golden Thread** from Applications. A fresh profile opens in the **Semrush workspace**. Save the Apify token in
 **Settings → Source collection**, connect Claude in **Settings → Writing & research** (the Claude app or an Anthropic
 API key), and add an OpenAI key under **Settings → Image generation** for pictures. Keys are encrypted with the
 keychain (Electron `safeStorage`); the app refuses to save a key when that isn't available. The installed app finds the

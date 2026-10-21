@@ -239,8 +239,8 @@ describe('the conversation bar', () => {
       listAskConversations: vi.fn(async () => ({ conversations: [] })), readAskConversation: vi.fn(), renameAskConversation: vi.fn(), deleteAskConversation: vi.fn(), listAskMemory: vi.fn(async () => ({ items: [] })),
     };
     const { container } = render(<HelpAssistant api={api} open variant="page" onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
-    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Scraper Studio' }), { target: { value: 'What changed?' } });
-    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Question about Scraper Studio' }), { key: 'Enter' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Golden Thread' }), { target: { value: 'What changed?' } });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Question about Golden Thread' }), { key: 'Enter' });
     await screen.findByRole('article', { name: 'Answer' });
     const bar = container.querySelector('.help-page-tools');
     const scroller = container.querySelector('.help-messages');

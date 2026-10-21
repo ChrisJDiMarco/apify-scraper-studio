@@ -1,4 +1,4 @@
-# Scraper Studio security
+# Golden Thread security
 
 The security model, what data goes where, the hardening already in place, and the gaps that remain. Operational
 procedures (rotation, incidents) are in [RUNBOOK.md](RUNBOOK.md); configuration in

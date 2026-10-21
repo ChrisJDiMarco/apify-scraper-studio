@@ -95,7 +95,7 @@ const {
 } = require('../shared/v5-core');
 const { ensureWorkspace, isPathInside, safeFilename } = require('../shared/workspace');
 
-const APP_NAME = 'Scraper Studio';
+const APP_NAME = 'Golden Thread';
 // GOOGLE_DRIVE_SERVICE_ACCOUNT: the Google Drive folder sync's service account key (Settings → Google Drive saves it after
 // signing in with it; save-key refuses it, and it has no environment fallback).
 const KEY_NAMES = ['APIFY_API_TOKEN', 'ANTHROPIC_API_KEY', 'GOOGLE_SHEETS_WEBHOOK_URL', 'GOOGLE_DOCS_ACCESS_TOKEN', 'OPENAI_API_KEY', 'MONDAY_API_TOKEN', 'OPENROUTER_API_KEY', 'FAL_KEY', 'GOOGLE_DRIVE_SERVICE_ACCOUNT'];
@@ -1826,8 +1826,8 @@ let releaseStudioOwner;
 try { releaseStudioOwner = acquireStudioOwnerLock(dataPath('content-studio'), { desktop: !WEB_RUNTIME && app.isPackaged && app.hasSingleInstanceLock?.() === true }); }
 catch (error) {
   if (WEB_RUNTIME) dialog.showErrorBox('Workspace already in use', error.message);
-  else if (error.code) dialog.showErrorBox('Scraper Studio could not open its data', error.message); // the folder itself: permissions, a full disk
-  else dialog.showErrorBox('Scraper Studio is already open', `Scraper Studio is already running, or it did not close cleanly. If it is not running, delete ${path.join(dataPath('content-studio'), require('./studio-owner-lock').LOCK_FILE)} and open it again.`);
+  else if (error.code) dialog.showErrorBox('Golden Thread could not open its data', error.message); // the folder itself: permissions, a full disk
+  else dialog.showErrorBox('Golden Thread is already open', `Golden Thread is already running, or it did not close cleanly. If it is not running, delete ${path.join(dataPath('content-studio'), require('./studio-owner-lock').LOCK_FILE)} and open it again.`);
   app.exit(1);
 }
 app.once('quit', () => releaseStudioOwner?.());
@@ -3702,7 +3702,7 @@ handle('team:analytics', (_, payload = {}) => {
 const MAX_SETUP_FILE_BYTES = 26 * 1024 * 1024;
 const SETUP_PREVIEW_TTL_MS = 30 * 60 * 1000;
 const pendingSetups = new Map(); // preview token → { bundle, fileName, expires }
-const setupFilters = [{ name: 'Scraper Studio setup', extensions: ['json'] }];
+const setupFilters = [{ name: 'Golden Thread setup', extensions: ['json'] }];
 handle('setup:export', async (_, { includeApifyToken = false } = {}) => {
   const { attachSetupSecrets, summarizeSetupBundle } = require('../shared/setup-bundle');
   let bundle = contentWorkspace.exportSetup({ appVersion: app.getVersion() });
@@ -3723,7 +3723,7 @@ handle('setup:open', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { title: 'Import setup', properties: ['openFile'], filters: setupFilters });
   if (canceled || !filePaths?.[0]) return { cancelled: true };
   const filePath = filePaths[0];
-  if (fs.statSync(filePath).size > MAX_SETUP_FILE_BYTES) throw new Error('This file is too large to be a Scraper Studio setup.');
+  if (fs.statSync(filePath).size > MAX_SETUP_FILE_BYTES) throw new Error('This file is too large to be a Golden Thread setup.');
   const text = fs.readFileSync(filePath, 'utf8');
   const { validateSetupBundle } = require('../shared/setup-bundle');
   const bundle = validateSetupBundle(text); // readable errors for the wrong file, a newer format or a bad section

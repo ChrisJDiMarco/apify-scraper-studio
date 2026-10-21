@@ -150,7 +150,7 @@ describe('Ask AI panel: Show me and reading', () => {
     const api = { askHelp: vi.fn(async () => ({ answer: 'Add an OpenAI key.', pages: [], followUps: [], actions: [], show: { autoStart: false, steps }, read: [{ kind: 'report', title: 'AI Overviews report' }] })) };
     const onShow = vi.fn();
     render(<HelpAssistant api={api} open onClose={vi.fn()} page={{ id: 'simple-mode', label: 'Simple mode' }} onOpenPage={vi.fn()} onShow={onShow} variant="page" />);
-    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Scraper Studio' }), { target: { value: 'Where do I turn on pictures?' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Golden Thread' }), { target: { value: 'Where do I turn on pictures?' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send question' }));
     const answer = await screen.findByRole('article', { name: 'Answer' });
     expect(answer).toHaveTextContent('Read “AI Overviews report”');

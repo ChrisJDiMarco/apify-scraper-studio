@@ -1,4 +1,4 @@
-# Scraper Studio
+# Golden Thread
 
 A social-listening research and content studio for a marketing team. It collects public posts from X, LinkedIn and
 Reddit through Apify, uses Claude to find the trends in them, lets the team approve the ones worth covering, writes an
@@ -50,7 +50,7 @@ the environment.
 | `npm run test:desktop` | Desktop smoke test (after `npm run build`) |
 | `npm run dist:mac` | Universal (Apple silicon + Intel) DMG; the release build |
 | `npm run dist` | A DMG for this Mac's architecture only |
-| `npm run dist:win` | Windows x64 installer, unsigned: `dist/Scraper-Studio-<version>-Windows-x64.exe` ([RUNBOOK.md](RUNBOOK.md#release-the-windows-app); on Apple silicon it needs Rosetta) |
+| `npm run dist:win` | Windows x64 installer, unsigned: `dist/Golden-Thread-<version>-Windows-x64.exe` ([RUNBOOK.md](RUNBOOK.md#release-the-windows-app); on Apple silicon it needs Rosetta) |
 | `npm run pack` | An unpacked app in `dist/` |
 | `npm run preview` | Build and open the built app |
 | `npm run icons:mac` | Regenerate the macOS icon |

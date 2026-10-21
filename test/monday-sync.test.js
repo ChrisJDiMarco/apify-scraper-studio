@@ -83,7 +83,7 @@ describe('the Monday.com client', () => {
   });
 
   it('posts updates with the studio’s marker, HTML-escaped', () => {
-    expect(sync.postBody('Reports ready <b>now</b>')).toBe('Scraper Studio · Reports ready &lt;b&gt;now&lt;/b&gt;');
+    expect(sync.postBody('Reports ready <b>now</b>')).toBe('Golden Thread · Reports ready &lt;b&gt;now&lt;/b&gt;');
   });
 
   it('encodes and decodes every column type it writes', () => {

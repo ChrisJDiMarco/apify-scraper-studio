@@ -1053,7 +1053,7 @@ export function HelpAssistant({ api, open, onClose, page, onOpenPage, onOpenSett
   </>;
 
   const railHidden = narrow && !railOpen;
-  return <aside ref={asideRef} id={inline ? 'help-page' : 'help-drawer'} className={`help-drawer${inline ? ' help-page' : ''}${inline && persisted ? ' has-rail' : ''}${open || inline ? ' open' : ''}${dropping ? ' is-dropping' : ''}`} aria-label="Ask AI about Scraper Studio" aria-hidden={!open && !inline} inert={!open && !inline} style={inline ? undefined : { '--help-drawer-w': `${drawerWidth}px` }}
+  return <aside ref={asideRef} id={inline ? 'help-page' : 'help-drawer'} className={`help-drawer${inline ? ' help-page' : ''}${inline && persisted ? ' has-rail' : ''}${open || inline ? ' open' : ''}${dropping ? ' is-dropping' : ''}`} aria-label="Ask AI about Golden Thread" aria-hidden={!open && !inline} inert={!open && !inline} style={inline ? undefined : { '--help-drawer-w': `${drawerWidth}px` }}
     onDragOver={onDragOver} onDragEnter={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
     {!inline && <DrawerResizer width={drawerWidth} onWidth={setDrawerWidth} />}
     {inline ? <>

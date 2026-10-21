@@ -262,7 +262,7 @@ describe('Ask AI page links use Ask AI’s page names', () => {
     const onOpenPage = vi.fn(); const openTarget = vi.fn();
     const api = { askHelp: vi.fn(async () => ({ answer: 'See [Dataset reports](studio:page/reports) and [the report](studio:report/asset-1).', pages: [], followUps: [], actions: [] })) };
     render(<HelpAssistant api={api} open onClose={vi.fn()} page={{ id: 'library', label: 'Library' }} onOpenPage={onOpenPage} nav={{ openTarget }} />);
-    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Scraper Studio' }), { target: { value: 'Where are exports?' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Golden Thread' }), { target: { value: 'Where are exports?' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send question' }));
     const answer = await screen.findByRole('article', { name: 'Answer' });
     fireEvent.click(within(answer).getByRole('button', { name: /^Dataset reports/ }));

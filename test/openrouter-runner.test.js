@@ -26,7 +26,7 @@ describe('OpenRouter runner', () => {
     expect(deltas.join('')).toBe('{"answer":"Rising","tip":null}');
     const [call] = calls; const body = call.json;
     expect(call.url).toBe('https://openrouter.ai/api/v1/chat/completions');
-    expect(call.headers).toMatchObject({ Authorization: `Bearer ${KEY}`, 'X-Title': 'Scraper Studio' });
+    expect(call.headers).toMatchObject({ Authorization: `Bearer ${KEY}`, 'X-Title': 'Golden Thread' });
     expect(body).toMatchObject({ model: 'anthropic/claude-opus-5.5', stream: true, reasoning: { effort: 'high' }, provider: { require_parameters: true, data_collection: 'deny' } });
     expect(body.response_format.json_schema).toMatchObject({ name: 'studio_answer', strict: true, schema: { required: ['answer', 'tip'], properties: { tip: { anyOf: [{ type: 'string' }, { type: 'null' }] } } } });
     expect(body.messages[1].content[0]).toEqual({ type: 'text', text: 'GUIDE TEXT', cache_control: { type: 'ephemeral' } });

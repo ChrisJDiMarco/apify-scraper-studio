@@ -195,7 +195,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw unreadable();
     const version = parsed.version ?? 1;
     if (!Number.isInteger(version) || version < 1) throw unreadable();
-    if (version > TEAM_VERSION) throw new Error('This team file is from a newer Scraper Studio. Update the app or server.');
+    if (version > TEAM_VERSION) throw new Error('This team file is from a newer Golden Thread. Update the app or server.');
     const result = migrate({ ...parsed, version }, { now });
     for (const key of ['members', 'roles', 'adoptions', 'activity', 'audit']) { if (result[key] == null) result[key] = []; else if (!Array.isArray(result[key])) throw unreadable(); }
     if (result.prefs == null) result.prefs = {}; else if (typeof result.prefs !== 'object' || Array.isArray(result.prefs)) throw unreadable();

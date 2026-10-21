@@ -78,7 +78,7 @@ describe('conversations', () => {
     expect(h.store.findByRequest(ALEX, input.user.requestId)?.message.id).toBe(saved.message.id);
     expect(fs.readdirSync(h.folder(ALEX)).some((name) => name.startsWith('index.json.unreadable-'))).toBe(true);
     fs.writeFileSync(path.join(h.folder(ALEX), 'index.json'), JSON.stringify({ version: 99, conversations: [] }));
-    expect(() => h.store.listConversations(ALEX)).toThrow('newer Scraper Studio');
+    expect(() => h.store.listConversations(ALEX)).toThrow('newer Golden Thread');
   });
 
   it('refuses ids that could leave the person’s folder', () => {

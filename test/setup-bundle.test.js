@@ -102,12 +102,12 @@ describe('setup bundle format', () => {
   });
   it('refuses anything but a readable version-1 setup file, with messages that do not quote the file', () => {
     const cases = [
-      [undefined, 'Choose a Scraper Studio setup file.'], ['', 'Choose a Scraper Studio setup file.'],
-      ['{"kind":"scraper-studio-setup","secrets":{"APIFY_API_TOKEN":"' + TOKEN + '"', 'This file is not a readable setup file. Export it again from Scraper Studio.'],
-      ['[]', 'This is not a Scraper Studio setup file.'], [{ kind: 'apify-scraper-studio-state', version: 1 }, 'This is not a Scraper Studio setup file.'],
-      [minimal({ version: '1' }), 'This setup file has no valid format version. Export it again from Scraper Studio.'], [minimal({ version: 0 }), /no valid format version/],
-      [minimal({ version: 2 }), 'This setup file uses format 2 from a newer Scraper Studio. Update the app, then import it again.'],
-      [minimal({ workspace: undefined }), 'This setup file has no workspace section.'], [minimal({ workspace: { editionId: 'enterprise', name: 'X', knowledge: {} } }), 'This setup file is for a workspace edition this app does not have. Update Scraper Studio, then import it again.'],
+      [undefined, 'Choose a Golden Thread setup file.'], ['', 'Choose a Golden Thread setup file.'],
+      ['{"kind":"scraper-studio-setup","secrets":{"APIFY_API_TOKEN":"' + TOKEN + '"', 'This file is not a readable setup file. Export it again from Golden Thread.'],
+      ['[]', 'This is not a Golden Thread setup file.'], [{ kind: 'apify-scraper-studio-state', version: 1 }, 'This is not a Golden Thread setup file.'],
+      [minimal({ version: '1' }), 'This setup file has no valid format version. Export it again from Golden Thread.'], [minimal({ version: 0 }), /no valid format version/],
+      [minimal({ version: 2 }), 'This setup file uses format 2 from a newer Golden Thread. Update the app, then import it again.'],
+      [minimal({ workspace: undefined }), 'This setup file has no workspace section.'], [minimal({ workspace: { editionId: 'enterprise', name: 'X', knowledge: {} } }), 'This setup file is for a workspace edition this app does not have. Update Golden Thread, then import it again.'],
       [minimal({ workspace: { editionId: 'general', name: 'X' } }), 'This setup file has no brand knowledge section.'],
       [minimal({ workspace: { editionId: 'semrush', name: 'X', knowledge: { editionId: 'general' } } }), 'Brand knowledge: This knowledge belongs to a different workspace edition.'],
       [minimal({ workspace: { ...minimal().workspace, products: [{ id: 'one', name: 'One', url: 'http://insecure.example.com' }] } }), /^Product registry: /],
@@ -247,8 +247,8 @@ describe('sharing a workspace setup between installs', () => {
     const tester = harness(); tester.api.saveResearchProgram({ ...manualProgram({ id: 'program-local', name: 'Local program' }), workspaceId: 'general' }); const before = tester.raw(); tester.emit.mockClear();
     const cases = [
       ['{"kind":"scraper-studio-setup","secrets":{"APIFY_API_TOKEN":"' + TOKEN + '"', /not a readable setup file/],
-      [JSON.stringify({ kind: 'apify-scraper-studio-state', version: 1, workspaces: [] }), /not a Scraper Studio setup file/],
-      [JSON.stringify({ ...bundle, version: 2 }), /format 2 from a newer Scraper Studio/],
+      [JSON.stringify({ kind: 'apify-scraper-studio-state', version: 1, workspaces: [] }), /not a Golden Thread setup file/],
+      [JSON.stringify({ ...bundle, version: 2 }), /format 2 from a newer Golden Thread/],
       [JSON.stringify({ ...bundle, padding: 'x'.repeat(SETUP_LIMITS.characters) }), /limited to 25,000,000 characters/],
       [{ ...bundle, workspace: { ...bundle.workspace, referenceDocs: [{ kind: 'icp', title: 'Huge', text: 'x'.repeat(300001) }] } }, /Reference document 1 \(“Huge”\): text must be 300,000 characters or fewer/],
       [{ ...bundle, programs: [{ ...bundle.programs[0], sourceGroups: [{ platform: 'x', targets: ['not a handle!'] }] }] }, /Program 1 \(“Agency pulse”\): Enter a valid subreddit or account handle/],

@@ -49,7 +49,7 @@ function stripNulls(value, schema) {
   return Object.fromEntries(Object.entries(value).filter(([key, entry]) => !(entry === null && !required.has(key))).map(([key, entry]) => [key, stripNulls(entry, schema.properties[key])]));
 }
 
-function createOpenRouterRunner({ getKey, fetchImpl = globalThis.fetch, clock = Date.now, privacy = () => 'no-training', sleep = wait, appTitle = 'Scraper Studio' } = {}) {
+function createOpenRouterRunner({ getKey, fetchImpl = globalThis.fetch, clock = Date.now, privacy = () => 'no-training', sleep = wait, appTitle = 'Golden Thread' } = {}) {
   function key() {
     const value = getKey('OPENROUTER_API_KEY');
     if (typeof value !== 'string' || !value.trim()) throw runnerError('Add an OpenRouter key in Settings, AI connections. Nothing was started.', 'AI_NOT_CONNECTED', { costUsd: 0 });

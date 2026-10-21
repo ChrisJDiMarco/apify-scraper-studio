@@ -128,7 +128,7 @@ function signInLine() {
 }
 server.on('error', (error) => fail(error.code === 'EADDRINUSE' ? `Port ${port} on ${bind} is already in use. Stop the other server or set PORT.` : `The server could not start: ${error.message}`));
 server.listen(port, bind, () => {
-  console.log(`Scraper Studio (web) on http://${bind}:${server.address().port} · data ${dataDir}. Put a TLS reverse proxy in front before sharing it.`);
+  console.log(`Golden Thread (web) on http://${bind}:${server.address().port} · data ${dataDir}. Put a TLS reverse proxy in front before sharing it.`);
   console.log(signInLine());
   for (const line of warnings) console.warn(line);
   log.info('started', { version: runtime.electron.app.getVersion(), port: server.address().port, signIn: process.env.STUDIO_TRUSTED_EMAIL_HEADER ? 'proxy' : 'password', build: studio.build, drainSeconds, droppedRoot });

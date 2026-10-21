@@ -41,16 +41,16 @@ function within(label, field, check) {
 // Hosts pass the file text or a parsed object. Text is measured before parsing, and parser messages
 // are dropped because they quote the file, which may hold a key.
 function readBundle(input) {
-  if (input == null || input === '') fail('bundle', 'Choose a Scraper Studio setup file.');
+  if (input == null || input === '') fail('bundle', 'Choose a Golden Thread setup file.');
   let value = input;
   if (typeof input === 'string') {
     if (input.length > SETUP_LIMITS.characters) fail('bundle', TOO_LARGE);
-    try { value = JSON.parse(input.replace(/^\uFEFF/, '')); } catch (_) { fail('bundle', 'This file is not a readable setup file. Export it again from Scraper Studio.'); }
+    try { value = JSON.parse(input.replace(/^\uFEFF/, '')); } catch (_) { fail('bundle', 'This file is not a readable setup file. Export it again from Golden Thread.'); }
   } else if (isObject(input)) {
     let size = Infinity; try { size = JSON.stringify(input).length; } catch (_) { /* Circular or BigInt values: not a file's contents. */ }
     if (size > SETUP_LIMITS.characters) fail('bundle', Number.isFinite(size) ? TOO_LARGE : 'This setup file could not be read.');
   }
-  return object(value, 'bundle', 'This is not a Scraper Studio setup file.');
+  return object(value, 'bundle', 'This is not a Golden Thread setup file.');
 }
 function referenceDoc(doc, index) {
   return within(named(`Reference document ${index + 1}`, doc?.title), `workspace.referenceDocs.${index}`, () => {
@@ -63,7 +63,7 @@ function referenceDoc(doc, index) {
 function setupWorkspace(input) {
   const source = object(input, 'workspace', 'This setup file has no workspace section.');
   const editionId = text(source.editionId, 'workspace.editionId', 40, true);
-  if (!content.CONTENT_EDITIONS.some(entry => entry.id === editionId)) fail('workspace.editionId', 'This setup file is for a workspace edition this app does not have. Update Scraper Studio, then import it again.');
+  if (!content.CONTENT_EDITIONS.some(entry => entry.id === editionId)) fail('workspace.editionId', 'This setup file is for a workspace edition this app does not have. Update Golden Thread, then import it again.');
   object(source.knowledge, 'workspace.knowledge', 'This setup file has no brand knowledge section.');
   const taxonomy = within('Taxonomy', 'workspace.taxonomy', () => intel.validateTaxonomy(source.taxonomy ?? null));
   return {
@@ -105,9 +105,9 @@ function setupSecrets(input) {
 // Throws a readable Error with a `field` path; secrets are returned for the host to store.
 function validateSetupBundle(input) {
   const bundle = readBundle(input);
-  if (bundle.kind !== SETUP_BUNDLE_KIND) fail('kind', 'This is not a Scraper Studio setup file.');
-  if (!Number.isInteger(bundle.version) || bundle.version < 1) fail('version', 'This setup file has no valid format version. Export it again from Scraper Studio.');
-  if (bundle.version > SETUP_BUNDLE_VERSION) fail('version', `This setup file uses format ${bundle.version} from a newer Scraper Studio. Update the app, then import it again.`);
+  if (bundle.kind !== SETUP_BUNDLE_KIND) fail('kind', 'This is not a Golden Thread setup file.');
+  if (!Number.isInteger(bundle.version) || bundle.version < 1) fail('version', 'This setup file has no valid format version. Export it again from Golden Thread.');
+  if (bundle.version > SETUP_BUNDLE_VERSION) fail('version', `This setup file uses format ${bundle.version} from a newer Golden Thread. Update the app, then import it again.`);
   const exportedAt = text(bundle.exportedAt, 'exportedAt', 40);
   if (exportedAt && !Number.isFinite(Date.parse(exportedAt))) fail('exportedAt', 'exportedAt must be a date and time.');
   const appVersion = text((bundle.app == null ? {} : object(bundle.app, 'app')).version, 'app.version', 40);

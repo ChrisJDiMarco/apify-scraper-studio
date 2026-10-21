@@ -1,10 +1,21 @@
 # Changelog
 
-All notable changes to Scraper Studio, written from the git history. The format follows
+All notable changes to Golden Thread (called Scraper Studio before 2026-10-21), written from the git history. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). There are no git tags yet; each version lists its commits.
 Version numbers come from `package.json`, and 0.3.0 covers two days of work (the roles release on Oct 16 and the
 redesign on Oct 17), so a DMG labelled 0.3.0 may predate the redesign. Bump the version when the final build-out
 below is merged (0.4.0 is suggested) and tag that commit.
+
+## [Unreleased]: Golden Thread rename (2026-10-21)
+
+### Changed
+- **Renamed to Golden Thread**: the app, window titles, browser sign-in page, dialogs, Ask AI prompts, exports, docs and
+  the Windows installer (`Golden-Thread-<version>-Windows-x64.exe`). The bundle ID (`com.chrisdimarco.apifyscraperstudio`),
+  the data folder (`apify-scraper-studio`), the Safe Storage identity and the setup-file kind are unchanged, so an
+  upgrade keeps every saved key and report. Monday.com sync still skips its own older `Scraper Studio · ` updates.
+- **New app icon**: a golden silk-thread G on midnight navy, made with GPT Image 2.5 Flare
+  ([resources/app-icon-prompt.md](resources/app-icon-prompt.md)). `npm run icons:mac` now also writes `resources/icon.png`
+  for the Windows build.
 
 ## [Unreleased]: wave 3 (2026-10-17 to 2026-10-18)
 

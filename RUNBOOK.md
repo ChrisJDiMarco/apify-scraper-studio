@@ -1,6 +1,6 @@
-# Scraper Studio runbook
+# Golden Thread runbook
 
-Procedures for building, releasing, deploying and running Scraper Studio. The browser studio's settings are explained
+Procedures for building, releasing, deploying and running Golden Thread. The browser studio's settings are explained
 in [docs/web-deploy.md](docs/web-deploy.md) (keep that path: the launcher and the Dockerfile print it); this file is
 the "what do I do" companion. Background: [HANDOFF.md](HANDOFF.md).
 
@@ -38,13 +38,13 @@ folder. To keep a second workspace while developing, start with `STUDIO_WORKSPAC
 
 1. Merge to `main`, bump `version` in `package.json`, add a [CHANGELOG.md](CHANGELOG.md) entry, and run
    `npm run check` and `node scripts/prompt-goldens.mjs --check`.
-2. Tag: `git tag -a v<version> -m "Scraper Studio <version>"`.
+2. Tag: `git tag -a v<version> -m "Golden Thread <version>"`.
 3. Build: `CSC_NAME="<Company> (<TEAMID>)" APPLE_ID=… APPLE_APP_SPECIFIC_PASSWORD=… APPLE_TEAM_ID=… npm run dist:mac`.
    This regenerates the icon (`scripts/build-mac-icon.mjs`), builds, and writes
-   `dist/Scraper Studio-<version>-universal.dmg`. Without the Apple variables the build is signed but not notarized.
+   `dist/Golden Thread-<version>-universal.dmg`. Without the Apple variables the build is signed but not notarized.
    Today notarization runs twice when they're set (electron-builder plus `scripts/notarize-if-configured.cjs`); remove
    the `afterSign` hook first (see [HANDOFF.md](HANDOFF.md#cleanup-dependencies-and-release)).
-4. Check: `npx @electron/fuses read --app "dist/mac-universal/Scraper Studio.app"`; `xcrun stapler validate` and
+4. Check: `npx @electron/fuses read --app "dist/mac-universal/Golden Thread.app"`; `xcrun stapler validate` and
    `spctl -a -vv` on the app when notarized; `npm run test:desktop -- --with-data`. (`npm run release:diagnostics`
    fails today; see [HANDOFF.md](HANDOFF.md#cleanup-dependencies-and-release).)
 5. Install over the previous version on a clean Mac account and confirm saved keys still decrypt and the data folder
@@ -107,14 +107,14 @@ Check the output:
 
 ```bash
 ls -la dist/*-Windows-x64.exe dist/*-Windows-x64.exe.blockmap dist/latest.yml
-file "dist/win-unpacked/Scraper Studio.exe"      # expect PE32+ executable (GUI) x86-64; Aarch64 means the wrong arch
-npx --no-install electron-fuses read --app "dist/win-unpacked/Scraper Studio.exe"
+file "dist/win-unpacked/Golden Thread.exe"      # expect PE32+ executable (GUI) x86-64; Aarch64 means the wrong arch
+npx --no-install electron-fuses read --app "dist/win-unpacked/Golden Thread.exe"
 npx --no-install asar list "dist/win-unpacked/resources/app.asar" | grep -E "out/main/(index|studio-host|cli-runners)\.js|out/shared/(durable-write|text-decode)\.js"
 grep -i "default Electron icon" dist-win.log     # expect no match (the icon comes from resources/icon.icns)
 ```
 
 The installer is `dist/Scraper-Studio-<version>-Windows-x64.exe` (with its `.blockmap` and `dist/latest.yml`); the
-unpacked app is `dist/win-unpacked/Scraper Studio.exe`. Record the commit SHA and `shasum -a 256` of the installer.
+unpacked app is `dist/win-unpacked/Golden Thread.exe`. Record the commit SHA and `shasum -a 256` of the installer.
 
 **Install and update.** Run the installer; SmartScreen warns about an unsigned one ("Windows protected your PC": More
 info → Run anyway). It installs per user by default, and the person can choose the folder. A silent install for IT or
@@ -236,7 +236,7 @@ npm run restore -- --from /var/backups/scraper-studio/scraper-studio-backup-<tim
 ## Upgrades and migrations
 
 - Always back up before an upgrade. There are no downgrades: `team.json` is migrated in place (v1 → v2 → v3) and a
-  newer `team.json` makes an older build refuse to start ("This team file is from a newer Scraper Studio"). v3 (Ask AI
+  newer `team.json` makes an older build refuse to start ("This team file is from a newer Golden Thread"). v3 (Ask AI
   for every role) is written at the first change after the upgrade, so a 0.3.0 build can't open that data folder
   afterwards; restore the pre-upgrade backup to go back.
 - **Rollback**: stop, restore the pre-upgrade backup, start the previous image or app version.
@@ -245,7 +245,7 @@ npm run restore -- --from /var/backups/scraper-studio/scraper-studio-backup-<tim
   Inspect the `.bad-*` copy before deleting it.
 - Moving the Mac app's data to the server: [docs/web-deploy.md](docs/web-deploy.md#moving-the-mac-apps-data-to-the-server).
 - Workflows: `content-studio/workflows.json` (v1) is new; a newer file makes an older build refuse to start ("This
-  workflows file is from a newer Scraper Studio"). Old Data tools missions in `v5/events.jsonl` are no longer read or
+  workflows file is from a newer Golden Thread"). Old Data tools missions in `v5/events.jsonl` are no longer read or
   run (the file stays; Scrapers still read their saved versions from it). The role policy moves to version 2: custom
   roles show **See workflows and playbooks** and **Build and run workflows** as New and off; Admin and Editor get them.
 - Monday.com: the board setup in `config.json` (`monday`) moves to `content-studio/monday.json` on first start, with sync
@@ -272,7 +272,7 @@ studio process uses the folder (check `docker ps`, other hosts mounting the volu
 2. Delete `content-studio/.studio-owner.json`, and `content-studio/.studio-owner-recovery` if present.
 3. Start again. Stale Apify collection locks (`content-studio/collections/*.lock`) are cleared when ownership is taken.
 
-On the desktop app (Mac or Windows), **Scraper Studio is already open** means another copy of the app (or a server)
+On the desktop app (Mac or Windows), **Golden Thread is already open** means another copy of the app (or a server)
 has the folder: quit it. If no copy is running (it didn't close cleanly), delete the lock file the message names and
 open the app again.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds a secret-free source zip of Scraper Studio from a committed git revision, for handing the code to another team.
+# Builds a secret-free source zip of Golden Thread from a committed git revision, for handing the code to another team.
 #
 #   scripts/make-handoff.sh [--ref <rev>] [--allow-dirty] <output.zip>
 #     --ref          the commit, tag or branch to archive (default HEAD)
@@ -56,7 +56,7 @@ manifest_args=()
 help_text=$(git archive -h 2>&1 || true)
 case "$help_text" in
   *add-virtual-file*)
-    manifest="Scraper Studio source handoff
+    manifest="Golden Thread source handoff
 version: ${version}
 commit: ${commit}
 ref: ${ref}

@@ -88,7 +88,7 @@
   },
   "build": {
     "appId": "com.chrisdimarco.apifyscraperstudio",
-    "productName": "Scraper Studio",
+    "productName": "Golden Thread",
     "files": [
       "out/**/*",
       "node_modules/**/*",
@@ -133,7 +133,7 @@
           ]
         }
       ],
-      "artifactName": "Scraper-Studio-${version}-Windows-${arch}.${ext}"
+      "artifactName": "Golden-Thread-${version}-Windows-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

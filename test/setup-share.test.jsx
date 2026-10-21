@@ -52,10 +52,10 @@ describe('Share your setup', () => {
     expect(keep).not.toBeChecked();
     fireEvent.click(within(preview).getByRole('button', { name: /Import this setup/ }));
     await waitFor(() => expect(api.applySetup).toHaveBeenCalledWith({ token: 'preview-1', saveApifyToken: false }));
-    const failing = { exportSetup: vi.fn(), applySetup: vi.fn(), openSetupFile: vi.fn(async () => { throw new Error('This file is not a Scraper Studio setup.'); }) };
+    const failing = { exportSetup: vi.fn(), applySetup: vi.fn(), openSetupFile: vi.fn(async () => { throw new Error('This file is not a Golden Thread setup.'); }) };
     cleanup(); render(<SetupShare api={failing} />);
     fireEvent.click(screen.getByRole('button', { name: /Import setup…/ }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('This file is not a Scraper Studio setup.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('This file is not a Golden Thread setup.');
   });
   it('renders nothing without the desktop bridge', () => {
     const { container } = render(<SetupShare api={{}} />);

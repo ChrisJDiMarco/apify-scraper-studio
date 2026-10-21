@@ -33,9 +33,9 @@ function usedLink() { try { return window.localStorage.getItem(LINK_HINT) === 'l
 
 function SignIn({ mode, onSignedIn }) {
   const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  if (mode === 'proxy') return <main className="web-login"><section><h1>Scraper Studio</h1><p>Your company sign-in has expired. Reload the page to sign in again.</p><button type="button" onClick={() => window.location.reload()}>Reload</button></section></main>;
+  if (mode === 'proxy') return <main className="web-login"><section><h1>Golden Thread</h1><p>Your company sign-in has expired. Reload the page to sign in again.</p><button type="button" onClick={() => window.location.reload()}>Reload</button></section></main>;
   return <main className="web-login"><section aria-labelledby="web-login-title">
-    <h1 id="web-login-title">Scraper Studio</h1>
+    <h1 id="web-login-title">Golden Thread</h1>
     <p className="web-login-lead">Open the sign-in link your admin sent you. It signs you in on this browser.</p>
     {usedLink() && <p className="web-login-hint">Signed out? Open your sign-in link again.</p>}
     <form className="web-login-admin" aria-labelledby="web-login-admins" onSubmit={async (event) => {
@@ -80,7 +80,7 @@ function WebNotice() {
 // A link that was replaced, turned off or has expired gets its own screen: the person has no password to type.
 function LinkInvalid({ message, onRetry }) {
   return <main className="web-login"><section aria-labelledby="web-link-title">
-    <h1 id="web-link-title">Scraper Studio</h1>
+    <h1 id="web-link-title">Golden Thread</h1>
     <p role="alert">{message}</p>
     {onRetry && <button type="button" onClick={onRetry}>Try again</button>}
   </section></main>;

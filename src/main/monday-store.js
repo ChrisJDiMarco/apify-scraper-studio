@@ -33,7 +33,7 @@ function createMondayStore({ root, now = () => Date.now(), onDamaged = (message)
     try {
       const parsed = JSON.parse(text);
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new SyntaxError('not an object');
-      if (Number(parsed.version) > VERSION) throw Object.assign(new Error('The Monday.com sync file is from a newer Scraper Studio. Update the app or server.'), { code: 'mondayNewer' });
+      if (Number(parsed.version) > VERSION) throw Object.assign(new Error('The Monday.com sync file is from a newer Golden Thread. Update the app or server.'), { code: 'mondayNewer' });
       return { ...fresh(), ...parsed, links: record(parsed.links), items: record(parsed.items), people: record(parsed.people), usage: { ...fresh().usage, ...record(parsed.usage) } };
     } catch (error) {
       if (error.code === 'mondayNewer') throw error;

@@ -1,4 +1,4 @@
-# Scraper Studio architecture
+# Golden Thread architecture
 
 How a click becomes a gated handler, a paid AI call and a state push, and where to extend it. Function and file names
 are given instead of line numbers, because the big files move. Start with [HANDOFF.md](HANDOFF.md) if you haven't.

@@ -1,7 +1,7 @@
 // Read-only probe of an ALREADY RUNNING installed macOS app. Never launches it.
 // Close development copies first; launch the installed executable with a localhost
 // debugging port and ALL four credential env variables unset. See the companion note.
-// Usage: node scripts/installed-app-continuity.cjs --app '/Applications/Scraper Studio.app'
+// Usage: node scripts/installed-app-continuity.cjs --app '/Applications/Golden Thread.app'
 //   --port 9338 --clean-launch-confirmed --expected-datasets 4
 //   --image-credential-file /absolute/previously-approved/.env.local
 // Only sanitized booleans/counts are written to stdout. No profile files are written.
@@ -99,7 +99,7 @@ function readOnlyExpression({ profile, datasetIds }) {
     const keyNames = ${JSON.stringify(KEY_NAMES)};
     const active = row => ['running','queued','starting','collecting','analyzing','generating'].includes(row.status);
     return {
-      runtimeAppMatches: meta.name === 'Scraper Studio',
+      runtimeAppMatches: meta.name === 'Golden Thread',
       runtimeDataRootMatches: meta.dataRoot === ${JSON.stringify(profile)},
       datasetsMatchProfile: JSON.stringify(ids) === ${JSON.stringify(JSON.stringify(datasetIds))},
       datasetCount: ids.length,

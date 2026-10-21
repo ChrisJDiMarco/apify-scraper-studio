@@ -1,4 +1,4 @@
-# Contributing to Scraper Studio
+# Contributing to Golden Thread
 
 The codebase has a few cross-file contracts that tests enforce. This file lists the change checklists that keep them
 intact. Orientation first: [HANDOFF.md](HANDOFF.md) and [ARCHITECTURE.md](ARCHITECTURE.md).

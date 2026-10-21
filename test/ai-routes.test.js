@@ -48,7 +48,7 @@ describe('Claude routes', () => {
     const missing = routes({ spawn: cli({ installed: false }) }).api;
     await expect(missing.requireRoute()).rejects.toThrow('The Claude app (Claude Code) is not installed. Or add an Anthropic API key in Settings → AI connections.');
     const old = routes({ spawn: cli({ version: '1.0.3 (Claude Code)', helpText: help().replace('--effort', '') }) }).api;
-    await expect(old.requireRoute()).rejects.toThrow('This Claude app (1.0.3 (Claude Code)) is too old for Scraper Studio; it lacks --effort. Run "claude update" in Terminal.');
+    await expect(old.requireRoute()).rejects.toThrow('This Claude app (1.0.3 (Claude Code)) is too old for Golden Thread; it lacks --effort. Run "claude update" in Terminal.');
     const signedOut = routes({ spawn: cli({ loggedIn: false }) }).api;
     await expect(signedOut.requireRoute()).rejects.toThrow('Run "claude auth login" in Terminal.');
   });

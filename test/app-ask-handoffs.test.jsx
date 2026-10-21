@@ -47,7 +47,7 @@ const selectedProgram = () => document.querySelector('.cs-program-choice.selecte
 const pickProgram = (name) => fireEvent.click([...document.querySelectorAll('.cs-program-choice')].find((button) => button.querySelector('strong')?.textContent === name));
 async function askInDrawer() {
   fireEvent.click(document.querySelector('[data-spot="nav.ask"]'));
-  fireEvent.change(await screen.findByRole('textbox', { name: 'Question about Scraper Studio' }), { target: { value: 'Tell me about the older program' } });
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Question about Golden Thread' }), { target: { value: 'Tell me about the older program' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send question' }));
   return screen.findByRole('article', { name: 'Answer' });
 }
@@ -74,7 +74,7 @@ describe('Ask AI opens the research program it is about', () => {
     // An answer whose text doesn't link it: its Open button is the chip, and runs through the shared runner.
     pickProgram('Newer program');
     api.askHelp.mockImplementationOnce(async () => ({ ...reply, answer: 'Here it is.' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Scraper Studio' }), { target: { value: 'Open it' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Golden Thread' }), { target: { value: 'Open it' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send question' }));
     await waitFor(() => expect(screen.getAllByRole('article', { name: 'Answer' })).toHaveLength(2));
     const second = screen.getAllByRole('article', { name: 'Answer' })[1];

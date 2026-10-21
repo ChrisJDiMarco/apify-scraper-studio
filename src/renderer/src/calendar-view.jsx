@@ -53,7 +53,7 @@ export function icsFor(entries, { now = new Date(), name = 'Content calendar' } 
     return ['BEGIN:VEVENT', `UID:${icsText(`${entry.themeId}-${entry.channelId}`)}@scraper-studio`, `DTSTAMP:${stamp(now)}`, `DTSTART;VALUE=DATE:${start}`, `DTEND;VALUE=DATE:${end}`, `SUMMARY:${icsText(`${entry.short || entry.channel}: ${entry.trend}`)}`,
       `DESCRIPTION:${icsText([`${entry.channel} is using “${entry.trend}”.`, entry.note ? `Note: ${entry.note}` : '', entry.link ? `Link: ${entry.link}` : ''].filter(Boolean).join('\n'))}`, ...(entry.link ? [`URL:${icsText(entry.link)}`] : []), 'END:VEVENT'];
   });
-  return `${['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Scraper Studio//Content calendar//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${icsText(name)}`, ...events.flat(), 'END:VCALENDAR'].map(fold).join('\r\n')}\r\n`;
+  return `${['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Golden Thread//Content calendar//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${icsText(name)}`, ...events.flat(), 'END:VCALENDAR'].map(fold).join('\r\n')}\r\n`;
 }
 // One week as a tab-separated table (pastes as a table into Google Sheets and Docs).
 export function weekTable(entries, weekStart) {

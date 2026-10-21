@@ -27,7 +27,7 @@ function createWorkflowStore({ file, writeJson = defaultWriteJson } = {}) {
     data = fresh();
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) data = fresh();
-  if (Number(data.version) > STORE_VERSION) throw new Error('This workflows file is from a newer Scraper Studio. Update the app or server.');
+  if (Number(data.version) > STORE_VERSION) throw new Error('This workflows file is from a newer Golden Thread. Update the app or server.');
   data = { version: STORE_VERSION, workflows: list(data.workflows), runs: list(data.runs), playbooks: list(data.playbooks) };
 
   // Retention: 100 runs kept per workflow and 2,000 in all (newest first by createdAt); runs still going are always kept.

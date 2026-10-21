@@ -1,4 +1,4 @@
-# Scraper Studio (browser) as a systemd service, without Docker. Install:
+# Golden Thread (browser) as a systemd service, without Docker. Install:
 #   sudo useradd --system --home-dir /var/lib/scraper-studio-home --shell /usr/sbin/nologin studio
 #   sudo install -d -m 700 -o root -g root /etc/scraper-studio
 #   sudo install -m 600 -o root -g root secrets.env /etc/scraper-studio/secrets     # STUDIO_SECRET_KEY=…
@@ -6,7 +6,7 @@
 #   the app in /opt/scraper-studio (git checkout; npm ci --omit=dev --ignore-scripts; npm run build:web)
 #   sudo cp scraper-studio.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now scraper-studio
 [Unit]
-Description=Scraper Studio (browser)
+Description=Golden Thread (browser)
 After=network-online.target
 Wants=network-online.target
 

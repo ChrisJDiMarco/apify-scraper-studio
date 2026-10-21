@@ -25,7 +25,7 @@ describe('Ask AI panel', () => {
   it('keeps the conversation as history for follow-ups and starts over on request', async () => {
     const api = { askHelp: vi.fn(async () => reply({ followUps: [] })) };
     render(<HelpAssistant api={api} open onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
-    const box = screen.getByRole('textbox', { name: 'Question about Scraper Studio' });
+    const box = screen.getByRole('textbox', { name: 'Question about Golden Thread' });
     fireEvent.change(box, { target: { value: 'How do budgets work?' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await screen.findByRole('article', { name: 'Answer' });
@@ -75,7 +75,7 @@ describe('Ask AI panel', () => {
     const picture = { title: 'Hero', prompt: 'A lavender comet trail', size: '1536x1024' };
     const api = { askHelp: vi.fn(async () => reply({ answer: 'Here it is.', pages: [], followUps: [], image: picture })), createHelpImage: vi.fn(async () => ({ ...picture, id: 'help-image-1', dataUrl: 'data:image/png;base64,AA==', costUsd: 0.05 })), saveHelpImage: vi.fn() };
     render(<HelpAssistant api={api} open imagesReady onClose={vi.fn()} page={page} onOpenPage={vi.fn()} />);
-    const box = screen.getByRole('textbox', { name: 'Question about Scraper Studio' });
+    const box = screen.getByRole('textbox', { name: 'Question about Golden Thread' });
     fireEvent.change(box, { target: { value: 'Make a hero image' } }); fireEvent.keyDown(box, { key: 'Enter' });
     await screen.findByRole('img', { name: 'Hero' });
     fireEvent.change(box, { target: { value: 'Make it bluer' } }); fireEvent.keyDown(box, { key: 'Enter' });
@@ -193,7 +193,7 @@ const userMsg = { id: 'msg-00000000-0000-4000-8000-0000000000a1', content: 'How 
 const answerMsg = (content, extra = {}) => ({ id: 'msg-00000000-0000-4000-8000-0000000000b1', role: 'assistant', content, pages: [], followUps: [], actions: [], cards: [], read: [], receipt: { costUsd: 0.08, model: 'claude-opus-5-5', route: 'claude-api' }, createdAt: '2026-10-17T10:00:05Z', ...extra });
 const persisted = { listAskConversations: vi.fn(async () => ({ conversations: [] })), readAskConversation: vi.fn(async () => ({ conversation: { ...convo, messages: [] } })), renameAskConversation: vi.fn(), deleteAskConversation: vi.fn() };
 const reducedMotion = () => { window.matchMedia = (query) => ({ matches: /reduce/.test(query), media: query, addEventListener() {}, removeEventListener() {} }); };
-const box = () => screen.getByRole('textbox', { name: 'Question about Scraper Studio' });
+const box = () => screen.getByRole('textbox', { name: 'Question about Golden Thread' });
 const send = (text) => { fireEvent.change(box(), { target: { value: text } }); fireEvent.keyDown(box(), { key: 'Enter' }); };
 
 describe('Ask AI streaming', () => {

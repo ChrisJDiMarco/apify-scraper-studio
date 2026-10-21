@@ -1,5 +1,5 @@
 ; Included by electron-builder's NSIS installer and uninstaller (buildResources is resources/, so it is found by name).
-; Without this macro the installer closes a running Scraper Studio with taskkill, which ends a research run or an AI
+; Without this macro the installer closes a running Golden Thread with taskkill, which ends a research run or an AI
 ; call halfway. Instead it waits until the person quits the app themselves; the app warns them first if work is running.
 ; nsProcess FindProcess sets $R0 to 0 while a process with that file name runs. A silent install (/S) gives up.
 !macro customCheckAppRunning

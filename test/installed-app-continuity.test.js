@@ -21,14 +21,14 @@ function fixture() {
 // tests that depend on those are skipped on Windows; the rest of the probe's logic runs everywhere.
 describe('installed app read-only continuity probe', () => {
   it('requires explicit local app, pointer and clean launch attestation', () => {
-    const args = ['--app', '/Applications/Scraper Studio.app', '--port', '9338', '--image-credential-file', '/private/approved.env'];
+    const args = ['--app', '/Applications/Golden Thread.app', '--port', '9338', '--image-credential-file', '/private/approved.env'];
     expect(() => probe.optionsFromArgs(args)).toThrow('CLEAN_LAUNCH_ATTESTATION_REQUIRED');
     expect(probe.optionsFromArgs([...args, '--clean-launch-confirmed']).expectedDatasets).toBe(4);
     expect(() => probe.optionsFromArgs([...args, '--clean-launch-confirmed', '--profile', 'relative'])).toThrow('ABSOLUTE_PATHS_REQUIRED');
     expect(() => probe.optionsFromArgs([...args, '--clean-launch-confirmed', '--run-provider', 'yes'])).toThrow('INVALID_ARGUMENTS');
   });
   it.skipIf(process.platform === 'win32')('selects only the exact installed renderer and localhost debugging socket', () => {
-    const app = '/Applications/Scraper Studio.app';
+    const app = '/Applications/Golden Thread.app';
     const target = { type: 'page', url: pathToFileURL(path.join(app, 'Contents/Resources/app.asar/out/renderer/index.html')).href, webSocketDebuggerUrl: 'ws://127.0.0.1:9338/devtools/page/fixture' };
     expect(probe.selectTarget([target], app, 9338)).toBe(target.webSocketDebuggerUrl);
     expect(() => probe.selectTarget([{ ...target, webSocketDebuggerUrl: 'ws://remote.example:9338/devtools/page/fixture' }], app, 9338)).toThrow('NONLOCAL_DEBUG_ENDPOINT');
@@ -50,7 +50,7 @@ describe('installed app read-only continuity probe', () => {
   it('calls only the two read-only bridge methods and projects safe values', async () => {
     const h = fixture(); const calls = [];
     const runtime = await vm.runInNewContext(probe.readOnlyExpression({ profile: h.root, datasetIds: ['private-dataset-id'] }), { window: { apifyStudio: {
-      appMeta: async () => { calls.push('appMeta'); return { name: 'Scraper Studio', dataRoot: h.root }; },
+      appMeta: async () => { calls.push('appMeta'); return { name: 'Golden Thread', dataRoot: h.root }; },
       state: async () => { calls.push('state'); return { datasets: [{ id: 'private-dataset-id', text: 'fixture-private-content' }], keys: { APIFY_API_TOKEN: true, GOOGLE_SHEETS_WEBHOOK_URL: true, OPENAI_API_KEY: true }, contentStudio: { workspaces: [{ id: 'general' }, { id: 'semrush' }] }, v5: { schedules: {} } }; },
       saveKey: () => { throw new Error('Mutation forbidden'); }, testImageProvider: () => { throw new Error('Provider forbidden'); },
     } } });
@@ -89,7 +89,7 @@ describe('installed app read-only continuity probe', () => {
     }
   });
   it('checks arm64 and Developer ID metadata without propagating tool output', () => {
-    const exec = (name, args) => name.endsWith('plutil') ? { status: 0, stdout: args[1] === 'CFBundleIdentifier' ? 'com.chrisdimarco.apifyscraperstudio' : 'Scraper Studio' } : name.endsWith('lipo') ? { status: 0, stdout: 'arm64' } : { status: 0, stderr: 'Authority=Developer ID Application: Fixture\nCodeDirectory flags=0x10000(runtime)\nTeamIdentifier=4X5MZ8MGH9\nprivate-output-not-returned' };
+    const exec = (name, args) => name.endsWith('plutil') ? { status: 0, stdout: args[1] === 'CFBundleIdentifier' ? 'com.chrisdimarco.apifyscraperstudio' : 'Golden Thread' } : name.endsWith('lipo') ? { status: 0, stdout: 'arm64' } : { status: 0, stderr: 'Authority=Developer ID Application: Fixture\nCodeDirectory flags=0x10000(runtime)\nTeamIdentifier=4X5MZ8MGH9\nprivate-output-not-returned' };
     const result = probe.installedMetadata('/Applications/Fixture.app', exec); expect(Object.values(result).every(Boolean)).toBe(true); expect(JSON.stringify(result)).not.toContain('Fixture');
   });
 });

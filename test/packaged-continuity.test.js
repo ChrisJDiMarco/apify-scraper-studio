@@ -13,13 +13,13 @@ afterEach(() => { for (const app of fixtureApps.splice(0)) { app.emit('before-qu
 function harness({ packaged = true, customPath = false, hasLock = true, configured = false, savedKey = false, disabled = false, invalidFile = false, brokenKeychain = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-package-fixture-')); roots.push(root);
   const appData = path.join(root, 'Application Support'); const legacy = path.join(appData, 'apify-scraper-studio');
-  const injected = path.join(root, 'injected-profile'); const expectedData = customPath ? injected : packaged ? legacy : path.join(appData, 'Apify Scraper Studio');
+  const injected = path.join(root, 'injected-profile'); const expectedData = customPath ? injected : packaged ? legacy : path.join(appData, 'Golden Thread');
   fs.mkdirSync(expectedData, { recursive: true });
   const appPath = path.join(root, 'installed-app'); fs.mkdirSync(appPath); fs.writeFileSync(path.join(appPath, '.env.local'), 'OPENAI_API_KEY=fixture-discovery-only');
   const externalFile = path.join(root, 'approved.env'); fs.writeFileSync(externalFile, invalidFile ? 'OPENAI_API_KEY="fixture bad value"' : 'OPENAI_API_KEY=fixture-explicit-value\nOTHER_VARIABLE=fixture-unrelated');
   const config = { keys: savedKey ? { OPENAI_API_KEY: { encrypted: true, value: Buffer.from('fixture-saved-override').toString('base64') } } : {}, ...(configured ? { imageCredentialFile: externalFile } : {}), ...(disabled ? { disabledKeys: { OPENAI_API_KEY: true } } : {}) };
   fs.writeFileSync(path.join(expectedData, 'config.json'), JSON.stringify(config));
-  let appName = 'Apify Scraper Studio'; let userData = customPath ? injected : path.join(appData, appName); let imageKey;
+  let appName = 'Golden Thread'; let userData = customPath ? injected : path.join(appData, appName); let imageKey;
   const handlers = new Map(); const exited = new Error('fixture-app-exited');
   const app = Object.assign(new EventEmitter(), { isPackaged: packaged, getName: () => appName, setName: vi.fn(name => { appName = name; }), getPath: name => name === 'appData' ? appData : userData, setPath: vi.fn((name, target) => { if (name === 'userData') userData = target; }), getAppPath: () => appPath, getVersion: () => 'fixture', requestSingleInstanceLock: vi.fn(() => hasLock), exit: vi.fn(() => { throw exited; }), whenReady: () => ({ then() {} }) });
   const events = { has: name => app.listenerCount(name) > 0 };

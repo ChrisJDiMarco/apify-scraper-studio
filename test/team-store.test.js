@@ -41,7 +41,7 @@ describe('team file', () => {
       const h = harness({ files: { 'team.json': text }, openNow: false });
       expect(() => h.open()).toThrow('Team data could not be read (content-studio/team.json). Restore it from a backup before starting.');
     }
-    expect(() => harness({ files: { 'team.json': JSON.stringify({ version: TEAM_VERSION + 1, members: [] }) }, openNow: false }).open()).toThrow('This team file is from a newer Scraper Studio. Update the app or server.');
+    expect(() => harness({ files: { 'team.json': JSON.stringify({ version: TEAM_VERSION + 1, members: [] }) }, openNow: false }).open()).toThrow('This team file is from a newer Golden Thread. Update the app or server.');
     const legacy = harness({ files: { 'team.json': JSON.stringify({ members: [{ id: 'member-1', name: 'Pat', email: 'pat@semrush.com', role: 'editor' }] }) } });
     expect(legacy.store.listMembers()).toMatchObject([{ id: 'member-1', role: 'editor', channelId: null, grants: [], denies: [], disabled: false, link: null, serverAdmin: false }]);
     // Version 1 becomes version 2 with no access changes (everyone keeps exactly what they had), then 3, which only

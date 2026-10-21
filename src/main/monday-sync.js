@@ -11,7 +11,7 @@ const STAGE_LABELS = catalog.stageLabels;
 const REQUEST_TIMEOUT_MS = 30000;
 const RETRYABLE = new Set(['rate', 'concurrency', 'server', 'network']);
 const COMPLEXITY = 'complexity { query after reset_in_x_seconds }';
-const STUDIO_POST = 'Scraper Studio · ';
+const STUDIO_POST = 'Golden Thread · ';
 
 // Plain copy for each kind of failure (the engine adds names and times where the copy needs them).
 const COPY = {

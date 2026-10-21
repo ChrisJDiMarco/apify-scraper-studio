@@ -8,6 +8,8 @@
 // Idempotency: every item carries the studio key (a Studio key column), keys whose create may have happened are
 // persisted 'unsure' before the request leaves and looked up by key before anything is created again, and only an
 // itemMissing answer ever clears a saved item ID. Payload values from webhooks are never trusted: the item is re-read.
+// Posts written before the rename to Golden Thread still count as the studio's own.
+const LEGACY_STUDIO_POST = 'Scraper Studio · ';
 const crypto = require('crypto');
 const catalog = require('../shared/monday.json');
 const api = require('./monday-sync');
@@ -405,7 +407,7 @@ function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken 
         // Comments: Monday's. Stored as plain text (data, never instructions); the studio's own posts are skipped.
         if (link.pull?.comments !== false && row.updates.length) {
           const known = new Set(list(item.notes).map((note) => note.id)); const accountId = store.account()?.userId || '';
-          const fresh = row.updates.filter((update) => !known.has(update.id) && !(update.text.startsWith(api.STUDIO_POST.trim()) && (!accountId || update.creatorId === accountId)))
+          const fresh = row.updates.filter((update) => !known.has(update.id) && !([api.STUDIO_POST, LEGACY_STUDIO_POST].some((prefix) => update.text.startsWith(prefix.trim())) && (!accountId || update.creatorId === accountId)))
             .map((update) => ({ id: update.id, by: update.creatorName || 'Someone on Monday.com', text: clip(update.text, L.noteChars), at: update.at }));
           if (fresh.length) {
             patchOf(key).notes = [...list(item.notes), ...fresh].sort((a, b) => String(a.at).localeCompare(String(b.at))).slice(-L.notesPerItem);

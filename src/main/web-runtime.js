@@ -57,7 +57,7 @@ function busyWork() {
 }
 
 // ── app ──────────────────────────────────────────────────────────────────────────────────────────
-const paths = new Map(); let appName = 'Scraper Studio';
+const paths = new Map(); let appName = 'Golden Thread';
 const app = Object.assign(new EventEmitter(), {
   isPackaged: true, // behave like the installed app: no dev-only local keys, owner lock and data path rules apply
   getName: () => appName,

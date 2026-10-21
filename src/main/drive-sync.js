@@ -63,7 +63,7 @@ function createDriveSync({ root, workspace, credentials, saveServiceAccount, cle
     try {
       const parsed = JSON.parse(text);
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new SyntaxError('not an object');
-      if (Number(parsed.version) > VERSION) throw Object.assign(new Error('The Google Drive sync file is from a newer Scraper Studio. Update the app or server.'), { code: 'driveNewer' });
+      if (Number(parsed.version) > VERSION) throw Object.assign(new Error('The Google Drive sync file is from a newer Golden Thread. Update the app or server.'), { code: 'driveNewer' });
       return { ...fresh(), ...parsed, settings: { ...freshSettings(), ...record(parsed.settings) }, maps: record(parsed.maps), pending: record(parsed.pending), log: list(parsed.log).slice(0, LOG_ROWS) };
     } catch (error) {
       if (error.code === 'driveNewer') throw error;

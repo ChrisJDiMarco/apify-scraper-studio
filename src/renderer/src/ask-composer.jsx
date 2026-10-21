@@ -97,7 +97,7 @@ function AskSlashMenu({ id, items, active, onPick, onHover }) {
 }
 
 // chips: [{ key, kind, label, title?, onRemove }]. queued: the question waiting for the answer to finish, or ''.
-export function AskComposer({ inputRef, value, onChange, onSubmit, onStop, running = false, stopping = false, canStop = false, sendDisabled = false, sendTitle, placeholder, label = 'Question about Scraper Studio', chips = [], queued = '', onCancelQueued, slash = [], onSlash, attachOptions = null, picker = null, onPicker, onAttach, onArrowUp, compact = false, foot = '', spot }) {
+export function AskComposer({ inputRef, value, onChange, onSubmit, onStop, running = false, stopping = false, canStop = false, sendDisabled = false, sendTitle, placeholder, label = 'Question about Golden Thread', chips = [], queued = '', onCancelQueued, slash = [], onSlash, attachOptions = null, picker = null, onPicker, onAttach, onArrowUp, compact = false, foot = '', spot }) {
   const listId = useId();
   const [active, setActive] = useState(0);
   const [closedFor, setClosedFor] = useState(null); // Esc closes the menu until the text changes

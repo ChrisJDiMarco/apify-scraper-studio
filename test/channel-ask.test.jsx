@@ -60,7 +60,7 @@ describe('Ask AI in the channel layout', () => {
     expect(screen.queryByText(/\$\d/)).not.toBeInTheDocument();
     const needs = screen.getByRole('group', { name: 'Needs you now' });
     expect(within(needs).getByRole('button', { name: /new trend for Semrush Blog: say if you’re using it/ })).toBeInTheDocument();
-    const box = screen.getByRole('textbox', { name: 'Question about Scraper Studio' });
+    const box = screen.getByRole('textbox', { name: 'Question about Golden Thread' });
     fireEvent.change(box, { target: { value: 'What’s new for my channel?' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send question' }));
     await waitFor(() => expect(api.askHelp).toHaveBeenCalledTimes(1));
@@ -114,7 +114,7 @@ describe('Ask AI in the channel layout', () => {
     } });
     await screen.findByRole('heading', { level: 1, name: 'Trends for Semrush Blog' });
     fireEvent.click(askButton());
-    const box = await screen.findByRole('textbox', { name: 'Question about Scraper Studio' });
+    const box = await screen.findByRole('textbox', { name: 'Question about Golden Thread' });
     fireEvent.change(box, { target: { value: 'Create a picture for my newest trend' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send question' }));
     expect(await screen.findByRole('button', { name: 'Enlarge Blog hero' })).toBeInTheDocument();
@@ -134,8 +134,8 @@ describe('Ask AI in the channel layout', () => {
     expect(send).toBeDisabled();
     expect(send).toHaveAttribute('title', PREVIEW_TITLE);
     for (const starter of within(screen.getByRole('group', { name: 'Try asking' })).getAllByRole('button')) expect(starter).toBeDisabled();
-    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Scraper Studio' }), { target: { value: 'Hi' } });
-    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Question about Scraper Studio' }), { key: 'Enter' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Golden Thread' }), { target: { value: 'Hi' } });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Question about Golden Thread' }), { key: 'Enter' });
     await act(async () => { await Promise.resolve(); });
     expect(api.askHelp).not.toHaveBeenCalled();
   });

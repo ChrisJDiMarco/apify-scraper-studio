@@ -186,7 +186,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
   if (!root) throw new Error('Ask AI needs the studio data folder.');
   const stamp = () => new Date(now()).toISOString();
   const clock = () => new Date(now()).getTime();
-  const tooNew = () => new Error('This Ask AI data is from a newer Scraper Studio. Update the app or server.');
+  const tooNew = () => new Error('This Ask AI data is from a newer Golden Thread. Update the app or server.');
 
   function personDir(identityId) {
     if (typeof identityId !== 'string' || !IDENTITY_ID.test(identityId)) throw fail('Sign in to use Ask AI.', 403);

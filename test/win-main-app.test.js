@@ -53,7 +53,7 @@ async function load({ platform = 'win32', packaged = false, choice = 0, seed } =
   h.release = () => { for (const answer of held.splice(0)) answer(); };
   const exited = new Error('fixture-app-exited');
   const app = h.app = Object.assign(new EventEmitter(), {
-    isPackaged: packaged, getName: () => 'Scraper Studio', setName: () => {}, setPath: () => {}, getPath: () => root, getVersion: () => 'test',
+    isPackaged: packaged, getName: () => 'Golden Thread', setName: () => {}, setPath: () => {}, getPath: () => root, getVersion: () => 'test',
     requestSingleInstanceLock: () => true, hasSingleInstanceLock: () => true, whenReady: () => Promise.resolve(),
     setAboutPanelOptions: () => {}, showAboutPanel: vi.fn(), setAppUserModelId: vi.fn(), quit: vi.fn(), exit: vi.fn(() => { throw exited; }),
   });
@@ -103,7 +103,7 @@ describe('the Windows app window and menu', () => {
   it('opens with the system frame, the menu bar shown by Alt, a minimum that snaps to half a laptop screen, and a light title bar', async () => {
     const h = await load();
     expect(h.window.options).not.toHaveProperty('titleBarStyle');
-    expect(h.window.options).toMatchObject({ autoHideMenuBar: true, minWidth: 560, minHeight: 560, title: 'Scraper Studio' });
+    expect(h.window.options).toMatchObject({ autoHideMenuBar: true, minWidth: 560, minHeight: 560, title: 'Golden Thread' });
     expect(h.nativeTheme.themeSource).toBe('light');
     expect(h.app.setAppUserModelId).toHaveBeenCalledWith(pkg.build.appId);
     expect(h.window.loaded).toBe(path.resolve('src/renderer/index.html'));
@@ -114,7 +114,7 @@ describe('the Windows app window and menu', () => {
     const menu = dev.templates.at(-1);
     expect(roles(menu)).toEqual(['fileMenu', 'editMenu', 'viewMenu', 'windowMenu', 'help']);
     const about = menu.at(-1).submenu[0];
-    expect(about.label).toBe('About Scraper Studio');
+    expect(about.label).toBe('About Golden Thread');
     about.click(); expect(dev.app.showAboutPanel).toHaveBeenCalledOnce();
     const installed = await load({ packaged: true });
     const view = installed.templates.at(-1).find((item) => item.label === 'View');
@@ -128,7 +128,7 @@ describe('the Windows app window and menu', () => {
     expect(h.window.options).not.toHaveProperty('autoHideMenuBar');
     expect(h.nativeTheme.themeSource).toBe('system');
     expect(h.app.setAppUserModelId).not.toHaveBeenCalled();
-    expect(roles(h.templates.at(-1))).toEqual(['Scraper Studio', 'editMenu', 'viewMenu', 'windowMenu']);
+    expect(roles(h.templates.at(-1))).toEqual(['Golden Thread', 'editMenu', 'viewMenu', 'windowMenu']);
     expect(h.window.listenerCount('close')).toBe(0); // closing the Mac window keeps the app and its work running
     expect(h.window.listenerCount('session-end')).toBe(0);
   });
@@ -141,7 +141,7 @@ describe('the Windows app window and menu', () => {
 });
 
 describe('closing the Windows window while work is running', () => {
-  it('asks first, titled Scraper Studio, and Keep working leaves the window open', async () => {
+  it('asks first, titled Golden Thread, and Keep working leaves the window open', async () => {
     const h = await load();
     const idle = closeEvent(); h.window.emit('close', idle);
     expect(idle.preventDefault).not.toHaveBeenCalled(); expect(h.dialog.showMessageBoxSync).not.toHaveBeenCalled(); // nothing running: no question
@@ -151,7 +151,7 @@ describe('closing the Windows window while work is running', () => {
     expect(h.dialog.showMessageBoxSync).toHaveBeenCalledOnce();
     const [parent, options] = h.dialog.showMessageBoxSync.mock.calls[0];
     expect(parent).toBe(h.window);
-    expect(options).toMatchObject({ type: 'warning', title: 'Scraper Studio', buttons: ['Keep working', 'Quit anyway'], defaultId: 0, cancelId: 0, noLink: true, message: 'Something is still running', detail: expect.stringContaining('Ask AI answer') });
+    expect(options).toMatchObject({ type: 'warning', title: 'Golden Thread', buttons: ['Keep working', 'Quit anyway'], defaultId: 0, cancelId: 0, noLink: true, message: 'Something is still running', detail: expect.stringContaining('Ask AI answer') });
     h.release(); expect(await reply).toMatchObject({ answer: 'Open **Trends** in the sidebar.' }); // the work carried on
   });
 
@@ -166,12 +166,12 @@ describe('closing the Windows window while work is running', () => {
     expect(await reply).toHaveProperty('error'); // the AI request was stopped
   });
 
-  it('asks from Quit with the window as the parent, titled Scraper Studio', async () => {
+  it('asks from Quit with the window as the parent, titled Golden Thread', async () => {
     const h = await load();
     const { reply } = await askAndHold(h);
     const event = closeEvent(); h.app.emit('before-quit', event);
     expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(h.dialog.showMessageBoxSync).toHaveBeenCalledWith(h.window, expect.objectContaining({ title: 'Scraper Studio', message: 'Something is still running' }));
+    expect(h.dialog.showMessageBoxSync).toHaveBeenCalledWith(h.window, expect.objectContaining({ title: 'Golden Thread', message: 'Something is still running' }));
     h.release(); await reply;
   });
 });
@@ -261,7 +261,7 @@ describe('the owner lock at launch', () => {
   it('never lets a dev run take it, and says how to recover in plain words', async () => {
     const h = await load({ seed: leftover });
     expect(h.exitError).toBeTruthy(); expect(h.app.exit).toHaveBeenCalledWith(1);
-    expect(h.dialog.showErrorBox).toHaveBeenCalledWith('Scraper Studio is already open', expect.stringMatching(/^Scraper Studio is already running, or it did not close cleanly\. If it is not running, delete .+\.studio-owner\.json and open it again\.$/));
+    expect(h.dialog.showErrorBox).toHaveBeenCalledWith('Golden Thread is already open', expect.stringMatching(/^Golden Thread is already running, or it did not close cleanly\. If it is not running, delete .+\.studio-owner\.json and open it again\.$/));
     expect(owner(h).nonce).toBe('before-restart');
   });
 

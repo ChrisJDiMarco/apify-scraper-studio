@@ -141,7 +141,7 @@ jobs:
           $dir = Join-Path $env:RUNNER_TEMP 'ScraperStudio'
           $setup = Start-Process -FilePath $installer.FullName -ArgumentList '/S', "/D=$dir" -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Installer exited with $($setup.ExitCode)" }
-          $exe = Join-Path $dir 'Scraper Studio.exe'
+          $exe = Join-Path $dir 'Golden Thread.exe'
           if (-not (Test-Path $exe)) { throw "Installer finished but $exe is missing (wrong-arch package?)" }
           $out = Join-Path $env:RUNNER_TEMP 'studio-stdout.log'
           $err = Join-Path $env:RUNNER_TEMP 'studio-stderr.log'
@@ -157,7 +157,7 @@ jobs:
             Start-Sleep -Seconds 2; $app.Refresh()
             # An error box (showErrorBox, uncaught exception) keeps the process alive under another title, so require
             # the real window title plus the data-folder lock the main process takes at startup.
-            $ready = ($app.MainWindowTitle -eq 'Scraper Studio') -and (Test-Path $lock)
+            $ready = ($app.MainWindowTitle -eq 'Golden Thread') -and (Test-Path $lock)
           } until ($ready -or $app.HasExited -or (Get-Date) -gt $deadline)
           Start-Sleep -Seconds 3
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing

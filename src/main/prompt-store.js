@@ -56,7 +56,7 @@ function createPromptStore({ root, registry = template.REGISTRY, now = () => new
       return { doc: fresh(workspaceId, editionId, promptId), found: false, damaged: true };
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || parsed.promptId !== promptId) { try { fs.renameSync(target, `${target}.unreadable-${Date.now()}`); } catch (_) { /* as above */ } return { doc: fresh(workspaceId, editionId, promptId), found: false, damaged: true }; }
-    if (Number(parsed.format) > FORMAT) throw fail('These saved prompts are from a newer Scraper Studio. Update the app or server.', 409);
+    if (Number(parsed.format) > FORMAT) throw fail('These saved prompts are from a newer Golden Thread. Update the app or server.', 409);
     const doc = { ...fresh(workspaceId, editionId, promptId), ...parsed };
     doc.blocks = cleanOverrides(promptId, doc.editionId || editionId, doc.blocks);
     return { doc, found: true };

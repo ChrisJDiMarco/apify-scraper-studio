@@ -1,4 +1,4 @@
-# Scraper Studio behind company sign-in, on one host:
+# Golden Thread behind company sign-in, on one host:
 #   browser ──TLS──▶ caddy :443 ──▶ oauth2-proxy :4180 (Google Workspace or Okta) ──▶ studio :4174
 # Only oauth2-proxy can reach the studio: they share the internal "backend" network, and the studio believes the
 # signed-in email header only from oauth2-proxy's fixed address there (STUDIO_TRUSTED_PROXY_CIDRS).

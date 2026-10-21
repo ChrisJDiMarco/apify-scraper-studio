@@ -154,7 +154,7 @@ describe('the app guide (Ask AI reads it on every question)', () => {
     // The two things that differ most from the Mac: closing the window quits, and keys use the Windows sign-in.
     expect(section).toMatch(/Closing the window quits the app\*\* and stops schedules/);
     expect(section).toMatch(/Windows sign-in \(Windows data protection, DPAPI\)/);
-    expect(guide).not.toMatch(/Scraper Studio is a Mac app/);
+    expect(guide).not.toMatch(/Golden Thread is a Mac app/);
   });
 
   it('describes the studio as it is, not a tester build', () => {

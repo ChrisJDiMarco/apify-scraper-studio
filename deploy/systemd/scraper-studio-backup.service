@@ -1,6 +1,6 @@
 # One backup of the studio's data folder, safe while the studio runs (scripts/studio-backup.cjs). Run by the timer.
 [Unit]
-Description=Scraper Studio backup
+Description=Golden Thread backup
 After=scraper-studio.service
 
 [Service]

@@ -1,6 +1,6 @@
 # Roles and access
 
-The developer handoff for people, roles and sign-in in Scraper Studio: the Mac app and the browser studio. The app
+The developer handoff for people, roles and sign-in in Golden Thread: the Mac app and the browser studio. The app
 guide (`docs/app-guide.md`, which Ask AI reads) describes the same features for the people using them;
 `docs/web-deploy.md` covers running the server. The manual acceptance checklist is
 `docs/verification/roles-acceptance.md`.

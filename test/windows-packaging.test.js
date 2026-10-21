@@ -31,7 +31,7 @@ describe('npm scripts and electron-builder settings', () => {
   it('names the installer without a space, so latest.yml points at the uploaded file', () => {
     const name = pkg.build.win.artifactName;
     expect(name).not.toMatch(/\s/);
-    expect(name).toBe('Scraper-Studio-${version}-Windows-${arch}.${ext}');
+    expect(name).toBe('Golden-Thread-${version}-Windows-${arch}.${ext}');
     const built = name.replace('${version}', pkg.version).replace('${arch}', 'x64').replace('${ext}', 'exe');
     expect(read('.github/workflows/ci.yml')).toContain('dist/*-Windows-x64.exe'); // what CI installs and uploads
     expect(built).toMatch(/-Windows-x64\.exe$/);

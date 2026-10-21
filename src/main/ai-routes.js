@@ -38,7 +38,7 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
   }
   function cliProblem(cli) {
     if (!cli?.installed) return cli?.error || 'The Claude app (Claude Code) is not installed.';
-    if (cli.missingFlags?.length) return `This Claude app (${cli.version}) is too old for Scraper Studio; it lacks ${cli.missingFlags.join(', ')}. Run "claude update" in ${shellName}.`;
+    if (cli.missingFlags?.length) return `This Claude app (${cli.version}) is too old for Golden Thread; it lacks ${cli.missingFlags.join(', ')}. Run "claude update" in ${shellName}.`;
     if (!cli.loggedIn) return `The Claude app is not signed in. Run "claude auth login" in ${shellName}.`;
     return '';
   }

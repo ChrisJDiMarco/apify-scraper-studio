@@ -1,4 +1,4 @@
-# Scraper Studio design review: October 2026
+# Golden Thread design review: October 2026
 
 > **Status: historical design record** (written with commit `eaa700d`, 2026-10-17). Page names in the "Before" tables
 > are the names at the time. The current verification status lives in [`HANDOFF.md`](../../HANDOFF.md#status); the

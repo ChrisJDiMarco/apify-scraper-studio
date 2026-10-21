@@ -111,7 +111,7 @@ describe('pushing to Monday', () => {
     expect(h.fake.items.get(id).columns.stage).toEqual({ label: 'Approved' });
     const posts = h.fake.updates.filter((row) => row.itemId === id);
     expect(posts).toHaveLength(1);
-    expect(posts[0].text).toMatch(/^Scraper Studio · Dana Lee said Yes in the studio/);
+    expect(posts[0].text).toMatch(/^Golden Thread · Dana Lee said Yes in the studio/);
     await h.engine.push('general');
     expect(h.fake.updates.filter((row) => row.itemId === id)).toHaveLength(1);
   });
@@ -273,13 +273,13 @@ describe('reading changes from Monday', () => {
   it('keeps Monday comments as notes, without the studio’s own posts, ten at most', async () => {
     const h = await linked();
     const id = h.store.item('general', 'r1:t1').itemId;
-    h.fake.comment(id, 'Scraper Studio · Dana Lee said Yes in the studio.', { by: '1', name: 'Studio Bot' });
+    h.fake.comment(id, 'Golden Thread · Dana Lee said Yes in the studio.', { by: '1', name: 'Studio Bot' });
     h.store.setAccount({ userId: '1', userName: 'Studio Bot' });
     for (let i = 0; i < 12; i++) h.fake.comment(id, `Comment ${i} ${'x'.repeat(600)}`);
     await h.engine.pull('general');
     const notes = h.store.item('general', 'r1:t1').notes;
     expect(notes).toHaveLength(10);
-    expect(notes.every((note) => note.text.length <= 500 && !note.text.startsWith('Scraper Studio'))).toBe(true);
+    expect(notes.every((note) => note.text.length <= 500 && !note.text.startsWith('Golden Thread'))).toBe(true);
     await h.engine.pull('general');
     expect(h.store.item('general', 'r1:t1').notes).toHaveLength(10);
     expect(h.engine.readItem({ key: 'r1:t1' }).notes[0]).toMatchObject({ by: 'Dana Lee' });

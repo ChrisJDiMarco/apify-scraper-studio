@@ -1,12 +1,12 @@
-# Scraper Studio app guide
+# Golden Thread app guide
 
-This guide explains how Scraper Studio works: every page, what each control does, what a research run does step by step, what things cost, and how to fix common problems. The in-app **Ask AI** assistant answers from this guide. It describes version 0.3 of Scraper Studio, both the Mac app and the browser studio (see [The browser studio](#the-browser-studio)).
+This guide explains how Golden Thread works: every page, what each control does, what a research run does step by step, what things cost, and how to fix common problems. The in-app **Ask AI** assistant answers from this guide. It describes version 0.3 of Golden Thread, both the Mac app and the browser studio (see [The browser studio](#the-browser-studio)).
 
 Labels in **bold** are the exact words you see in the app. This guide says how things work; what is connected, which edition is in use and what someone's role allows come from the studio itself (Ask AI's LIVE CONTEXT), and those win when the two disagree.
 
-## What Scraper Studio is for
+## What Golden Thread is for
 
-Scraper Studio is a desktop app (Mac or Windows) for social listening research and content. It collects public posts from X (Twitter), LinkedIn and Reddit through Apify, uses Claude to find the trends in those posts, writes an evidence-backed trends report and an editorial toolkit for each trend you approve, and turns them into channel content.
+Golden Thread is a desktop app (Mac or Windows) for social listening research and content. It collects public posts from X (Twitter), LinkedIn and Reddit through Apify, uses Claude to find the trends in those posts, writes an evidence-backed trends report and an editorial toolkit for each trend you approve, and turns them into channel content.
 
 The research pipeline reproduces the team's earlier n8n "Golden Thread" workflow (same sources, batch sizes, scoring and sheet layout), so a few labels mention n8n.
 
@@ -14,7 +14,7 @@ The research pipeline reproduces the team's earlier n8n "Golden Thread" workflow
 
 - A **workspace** holds its own brand knowledge, approved products, taxonomy, reference documents, research programs, runs, trend history and Library. Workspaces share nothing.
 - Each workspace has an **edition**, fixed at creation. **Semrush workspace** has Semrush branding, prompts tuned to SEO and search marketing, starter brand knowledge, and Semrush editorial formats (Backlinko, Exploding Topics, Search Engine Land). **General** (listed as **Your brand**) runs the same pipeline for any brand.
-- A fresh install has **Semrush workspace** and **Your workspace** (General). The Mac app opens in the Semrush workspace, where the sidebar shows the Semrush wordmark and "Research & content studio": the Semrush edition of Scraper Studio.
+- A fresh install has **Semrush workspace** and **Your workspace** (General). The Mac app opens in the Semrush workspace, where the sidebar shows the Semrush wordmark and "Research & content studio": the Semrush edition of Golden Thread.
 - Admins switch workspaces with the workspace switcher at the top of the left sidebar (the workspace's name, with your role and layout under it). Its list ends with **New workspace**, which opens a **Create a workspace** form in Brand knowledge; **New → Workspace** does the same. Editors and channel owners see the workspace name there and follow the studio's active workspace.
 - Some builds, like the Semrush package, have one workspace, **Main** (Semrush edition): the sidebar shows only its name, with no switcher and no **New workspace**, and its name can't be changed. Settings → **Files & workspace** says so.
 - Settings (keys, the Claude connection, Google and Monday.com) apply to every workspace on the Mac; a Monday.com board is linked per workspace. Only admins see Settings.
@@ -292,7 +292,7 @@ Costs show where they help a decision: in the estimate before anything paid star
 
 ## The browser studio
 
-Scraper Studio also runs as a website: the same pages and features as the Mac app, served from a company server. LIVE CONTEXT says which one the person is using ("edition").
+Golden Thread also runs as a website: the same pages and features as the Mac app, served from a company server. LIVE CONTEXT says which one the person is using ("edition").
 
 - **Signing in:** with the company sign-in when the site sits behind it. Otherwise each person opens the personal sign-in link an admin sent them; it signs them in on that browser for 30 days. If a link stops working ("This sign-in link doesn’t work anymore"), ask the studio admin for a new one. Admins can also use the **Admin password** under **Admins** on the sign-in page. **Sign out** is in the account menu at the bottom of the sidebar.
 - **Who can do what:** each person has a role, and possibly their own access changes, set by an admin in **People & access** (see Roles and access). Someone signed in but not added yet sees "You’re not in this studio yet", with **Check again** once an admin adds them.
@@ -308,7 +308,7 @@ Scraper Studio also runs as a website: the same pages and features as the Mac ap
 
 The desktop app also runs on Windows 10 and 11 (64-bit); LIVE CONTEXT's edition then says "Windows app". Elsewhere in this guide, "the Mac" and "the Mac app" mean the desktop app, and what they say applies on Windows too, except:
 
-- **Installing:** run the installer (`Scraper-Studio-<version>-Windows-x64.exe`) and choose a folder. While the build isn't code-signed, SmartScreen says "Windows protected your PC": click **More info**, then **Run anyway**. A managed work PC may block it; ask IT to allow it.
+- **Installing:** run the installer (`Golden-Thread-<version>-Windows-x64.exe`) and choose a folder. While the build isn't code-signed, SmartScreen says "Windows protected your PC": click **More info**, then **Run anyway**. A managed work PC may block it; ask IT to allow it.
 - **Updating:** no automatic updates. Close the app's window to quit it (not during a run), then run the new installer; if the app is still open, the installer asks you to close it and click **Retry**. Your data stays.
 - **Closing the window quits the app** and stops schedules (it asks first if work is still running). Keep it open, or minimized, while a schedule should run, and keep the PC awake.
 - **Keys and tokens** are encrypted with your Windows sign-in (Windows data protection, DPAPI), not a keychain. Only your Windows account on that PC can read them, so a copied data folder can't.
@@ -380,7 +380,7 @@ A channel owner's studio is their channel: **Trends**, **My assets**, **My plan*
 
 Use this list for a new Mac install (on Windows, step 1 is in [On Windows](#on-windows)).
 
-1. **Install and open.** Open the DMG and drag **Scraper Studio** into Applications. A build that isn't notarized by Apple is stopped once at first launch: open the app, click **Done** when macOS says it can't verify it, then open System Settings → Privacy & Security, scroll to Security and click **Open Anyway** next to the Scraper Studio message, and confirm with your password. Alternatively, run `xattr -dr com.apple.quarantine "/Applications/Scraper Studio.app"` once in Terminal before opening it.
+1. **Install and open.** Open the DMG and drag **Golden Thread** into Applications. A build that isn't notarized by Apple is stopped once at first launch: open the app, click **Done** when macOS says it can't verify it, then open System Settings → Privacy & Security, scroll to Security and click **Open Anyway** next to the Golden Thread message, and confirm with your password. Alternatively, run `xattr -dr com.apple.quarantine "/Applications/Golden Thread.app"` once in Terminal before opening it.
 2. **Connect Claude.** Open **Settings → Writing & research**. Under **How to reach Claude**, keep **Automatic (recommended)**. Then do one of these:
    - Install the Claude app (Claude Code) and sign in by running `claude auth login` in Terminal. If you already have it, run `claude update`.
    - Or paste an Anthropic API key (it starts with `sk-ant-`, from console.anthropic.com) in **Anthropic API key** and click **Save key**. Usage is billed to that key's account.
@@ -765,7 +765,7 @@ In the browser studio, keys and tokens are saved on the studio server, and the f
 
 ### How the app reaches Claude
 
-- **Automatic** checks the Claude app with `claude --version`, `claude --help` and `claude auth status`. An app missing any option Scraper Studio needs counts as too old. The app looks for `claude` where Terminal finds it and in the usual install folders.
+- **Automatic** checks the Claude app with `claude --version`, `claude --help` and `claude auth status`. An app missing any option Golden Thread needs counts as too old. The app looks for `claude` where Terminal finds it and in the usual install folders.
 - A working route is remembered for 10 minutes. **Check Claude** always looks again.
 - Before anything that spends money starts (**Start research**, continuing after theme review, **Retry unfinished outputs**, **Generate drafts**, a quick scan's **Start scan**, and the first Ask AI question of a session), the app confirms every connection and model the work needs (Model routing). If one isn't ready, it stops with a message ending "Nothing was started." Through the Claude app each model check is a tiny paid request, remembered until you quit. There is no silent switch to another vendor: only **Claude (automatic)** falls back, from Claude Code to the Anthropic API key.
 
@@ -844,7 +844,7 @@ Estimates run a little high. The first live run of the 1,000-posts-per-platform 
 | Message (start) | Cause | Fix |
 | --- | --- | --- |
 | "The Claude app (Claude Code) is not installed." | No Claude Code and no API key | Install Claude Code, or add an API key in Settings → Writing & research |
-| "This Claude app (…) is too old for Scraper Studio; it lacks …" | Outdated Claude Code | Run `claude update` in Terminal, then **Check Claude** |
+| "This Claude app (…) is too old for Golden Thread; it lacks …" | Outdated Claude Code | Run `claude update` in Terminal, then **Check Claude** |
 | "The Claude app is not signed in." | Signed out | Run `claude auth login`, then **Check Claude** |
 | "… can't use claude-…: … Nothing was started." | Your account or key can't use a stage's model | Pick another model under **AI models and effort per stage**, or use an account with access |
 | "This program's AI budget (…) is far below the estimated …" | AI budget below the start minimum | Raise **AI budget (USD)**, choose lighter models or reduce sources |
@@ -951,10 +951,10 @@ If a research run, content run, chat answer, scraper run or other AI work is run
 See [Schedules](#schedules): the app must be running (on Windows, with its window open) and the computer awake, runs are skipped while the previous run is active or awaiting review, and a failed scheduled run pauses the schedule. Imported schedules arrive paused: click **Resume schedule**.
 
 **Import setup failed.**
-"This is not a Scraper Studio setup file." means the wrong file. "…from a newer Scraper Studio. Update the app…" needs the newer app. "Program "…" already belongs to "…"" means that program lives in another workspace in this studio. "This preview has expired." means open the file again. Nothing is imported unless the whole file passes.
+"This is not a Golden Thread setup file." means the wrong file. "…from a newer Golden Thread. Update the app…" needs the newer app. "Program "…" already belongs to "…"" means that program lives in another workspace in this studio. "This preview has expired." means open the file again. Nothing is imported unless the whole file passes.
 
 **The app won't open a second copy.**
-Only one copy runs at a time; opening it again brings the existing window forward. "Scraper Studio is already open" means another copy, or a server, is using the data folder, or the app did not close cleanly. Quit the other copy first; if none is running, delete the lock file the message names and open the app again. "Scraper Studio could not open its data" means the data folder itself could not be used (its permissions, or a full disk); the message says which.
+Only one copy runs at a time; opening it again brings the existing window forward. "Golden Thread is already open" means another copy, or a server, is using the data folder, or the app did not close cleanly. Quit the other copy first; if none is running, delete the lock file the message names and open the app again. "Golden Thread could not open its data" means the data folder itself could not be used (its permissions, or a full disk); the message says which.
 
 **Where does my data live?**
 On the Mac, in `~/Library/Application Support/apify-scraper-studio`; on Windows, in `%APPDATA%\apify-scraper-studio` (**Settings → Local files & workspace details → Open data folder**). In the browser studio, on the studio server, in the folder its operator chose (`STUDIO_DATA_DIR`); **Open data folder** isn't available there, and keys are encrypted with the server's own secret key instead of the keychain. `content-studio` holds workspaces, programs and runs (one folder per run with its evidence, batches and reports), `content-studio/ask` holds each person's Ask AI conversations and memory, `content-studio/prompts` holds each workspace's prompt versions, and `content-studio/exports` holds exports. `workbooks` holds Sheets imports and edits, and `data.json` holds settings and Data tools data. On the Mac, keys are encrypted with the macOS keychain; on Windows, with your Windows sign-in (DPAPI). Don't edit these files by hand.

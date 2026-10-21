@@ -1,4 +1,4 @@
-# Running Scraper Studio in a browser
+# Running Golden Thread in a browser
 
 The browser studio is the same app as the Mac version: the same pages, research pipeline, Create content,
 Sheets, Ask AI and Settings. One server runs the Mac app's main process (`src/main/index.js`) on a web runtime

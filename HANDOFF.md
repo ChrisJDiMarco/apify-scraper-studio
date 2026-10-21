@@ -1,6 +1,6 @@
-# Scraper Studio: developer handoff
+# Golden Thread: developer handoff
 
-This is the entry point for the team taking over Scraper Studio. Start here, then follow the links. Every command,
+This is the entry point for the team taking over Golden Thread. Start here, then follow the links. Every command,
 variable, path and count below was checked against the code on branch `redesign/ai-library-access` on 2026-10-17.
 
 **Contents**
@@ -28,7 +28,7 @@ variable, path and count below was checked against the code on branch `redesign/
 
 ## What it is
 
-Scraper Studio is a social-listening research and content studio for a marketing team. It collects public posts from
+Golden Thread is a social-listening research and content studio for a marketing team. It collects public posts from
 X, LinkedIn and Reddit through Apify, uses Claude (or Codex) to find the trends in them, lets people approve the ones
 worth a report, writes an evidence-backed **trends report** and **editorial toolkit** per approved trend, and turns any
 report into a full set of **channel assets** (blog, newsletter, paid media, PR, social, affiliate, enterprise sales,
@@ -83,8 +83,8 @@ prompts and formats) and `general`. The browser studio has one active workspace 
 | Prompt goldens | `node scripts/prompt-goldens.mjs --check`: 111 cases, 0 differences. |
 | Lint | `npm run lint`: 0 errors, 79 warnings (mostly `react-hooks/exhaustive-deps`). |
 | Production audit | `npm audit --omit=dev`: 0 vulnerabilities (10 dev-only advisories remain; see follow-ups). |
-| Builds | `npm run build` and `npm run build:web` compile. An unsigned Windows x64 zip of the app, `dist/Scraper-Studio-0.3.0-Windows-x64.zip`, was built on this Mac on 2026-10-18 (`npx electron-builder --win zip --x64 --publish never`). The existing `dist/Scraper Studio-0.3.0-universal.dmg` (built 2026-10-17 11:44) predates the Ask AI schema fix `62cb9da` and the final build-out; rebuild before sharing. The Docker image has not been built since the Dockerfile changed (its launcher was tested in a `node:24-bookworm` container). |
-| Windows | The Windows 10/11 x64 build is implemented (`npm run dist:win`, see [Windows desktop](#windows-desktop)), and its unit tests run on macOS with the platform faked. An unsigned x64 zip of the app was built on this Mac on 2026-10-18 (`Scraper Studio.exe` is PE32+ x86-64, the fuses read as configured, the app icon replaces Electron's), but it has not been run on Windows. No installer has been built yet: the NSIS step needs Rosetta on Apple silicon (`makensis` fails with error -86 without it), or the `windows-installer` CI job on windows-latest. It is unsigned until Semrush supplies signing. |
+| Builds | `npm run build` and `npm run build:web` compile. An unsigned Windows x64 zip of the app, `dist/Scraper-Studio-0.3.0-Windows-x64.zip`, was built on this Mac on 2026-10-18 (`npx electron-builder --win zip --x64 --publish never`). The Mac build `dist/Golden Thread-0.3.0-universal.dmg` was rebuilt on 2026-10-21 after the rename to Golden Thread (signed, not notarized). The Windows zip above predates the rename and still installs as Scraper Studio; rebuild it before sharing. The Docker image has not been built since the Dockerfile changed (its launcher was tested in a `node:24-bookworm` container). |
+| Windows | The Windows 10/11 x64 build is implemented (`npm run dist:win`, see [Windows desktop](#windows-desktop)), and its unit tests run on macOS with the platform faked. An unsigned x64 zip of the app was built on this Mac on 2026-10-18 (`Golden Thread.exe` is PE32+ x86-64, the fuses read as configured, the app icon replaces Electron's), but it has not been run on Windows. No installer has been built yet: the NSIS step needs Rosetta on Apple silicon (`makensis` fails with error -86 without it), or the `windows-installer` CI job on windows-latest. It is unsigned until Semrush supplies signing. |
 | Never verified live | Ask AI after the schema flattening (`62cb9da`) on any route; quick scans; prompt test runs; the Claude CLI and Codex routes end to end; X `since_time:` hour windows; a deployed Sheets bridge or Drive delivery; the deploy kit's oauth2-proxy options; the Windows app on a real Windows PC; notarization; Electron fuses on a built app; the new UI in a real browser (jsdom tests only). |
 | Not switched on | Dark mode tokens exist but nothing enables them. Auto-update code exists but has no feed and nothing calls it. |
 
@@ -819,7 +819,7 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
 ### Windows desktop
 
 - **State.** The Windows 10/11 x64 build is implemented: `npm run dist:win` builds an NSIS installer,
-  `dist/Scraper-Studio-<version>-Windows-x64.exe` (per-user by default; the person can choose the folder). The unit
+  `dist/Golden-Thread-<version>-Windows-x64.exe` (per-user by default; the person can choose the folder). The unit
   tests for every Windows branch run on macOS with the platform injected. No installer has been built or installed on
   a real PC yet.
 - **Building it.** electron-builder's bundled `makensis` is an Intel binary, so on Apple silicon the build needs

@@ -1,6 +1,6 @@
 # A daily backup at 03:15 (or at the next boot if the machine was off). Enable: sudo systemctl enable --now scraper-studio-backup.timer
 [Unit]
-Description=Daily Scraper Studio backup
+Description=Daily Golden Thread backup
 
 [Timer]
 OnCalendar=*-*-* 03:15:00

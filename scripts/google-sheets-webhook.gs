@@ -1,4 +1,4 @@
-// Scraper Studio Sheets bridge: an Apps Script web app the app calls with JSON POSTs.
+// Golden Thread Sheets bridge: an Apps Script web app the app calls with JSON POSTs.
 //
 // Update an existing bridge: paste this file over the old one, run `authorizeBridge` once from the editor and accept
 // the permissions, then Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy. Editing the
@@ -210,7 +210,7 @@ function createSpreadsheet(payload) {
     const folder = payload.folderId ? DriveApp.getFolderById(String(payload.folderId)) : null;
     const properties = PropertiesService.getScriptProperties();
     const draftId = properties.getProperty(DRAFT_PREFIX + requestId);
-    const spreadsheet = draftId ? SpreadsheetApp.openById(draftId) : SpreadsheetApp.create(fileName(payload.title, 'Scraper Studio export'));
+    const spreadsheet = draftId ? SpreadsheetApp.openById(draftId) : SpreadsheetApp.create(fileName(payload.title, 'Golden Thread export'));
     if (!draftId) properties.setProperty(DRAFT_PREFIX + requestId, spreadsheet.getId());
     let first = spreadsheet.getSheets()[0];
     if (draftId) {

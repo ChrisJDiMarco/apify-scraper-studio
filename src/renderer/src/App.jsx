@@ -152,7 +152,7 @@ class ErrorBoundary extends React.Component {
       // A page-level failure keeps the sidebar alive; only a shell failure replaces the window.
       return (
         <div className="app-fallback" role="alert">
-          <strong>{this.props.page ? 'This page hit a problem.' : 'Scraper Studio hit a problem.'}</strong>
+          <strong>{this.props.page ? 'This page hit a problem.' : 'Golden Thread hit a problem.'}</strong>
           <span>Your saved work is safe. {this.props.page ? 'Try again, or open another page from the sidebar.' : 'Try again. If it keeps happening, restart the app.'}</span>
           <details><summary>Technical details</summary><code>{this.state.error.message || String(this.state.error)}</code></details>
           <Button onClick={() => this.setState({ error: null })}>Try again</Button>

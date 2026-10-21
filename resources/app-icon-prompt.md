@@ -1,13 +1,13 @@
-# Scraper Studio Mac icon
+# Golden Thread app icon
 
-Created September 27, 2026 with the built-in ImageGen tool (not the app's OpenAI API connection). Final generated source: `scraper-studio-icon.png`; native bundle asset: `icon.icns`.
+Created October 21, 2026 with OpenAI GPT Image 2.5 Flare on fal.ai (generated through Thinklet), 1024×1024, high quality. Chosen concept: `icon-concepts/a-silk-g.png` (the other three concepts sit beside it). Final source: `golden-thread-icon.png`; native assets: `icon.icns` (macOS) and `icon.png` (Windows, converted by electron-builder).
 
-## Final design brief
+## Prompt
 
-Create a polished macOS application icon for Scraper Studio, a research and content workspace. Use a rounded lavender tile, matching the current Semrush lavender (#C190FF), with a bold dimensional folded S in near-black green (#181E15). Subtle mint edge lighting, satin material, restrained depth, clean lighting, and a simple silhouette legible in the Dock. The S is Scraper Studio's own mark, distinct from Semrush's official comet. No text or additional badges. Transparent exterior with smooth rounded corners.
+A polished, premium macOS Big Sur style application icon for an app named Golden Thread, a research and content studio. Rounded-square squircle tile filling the frame with even transparent padding, smooth corners, soft natural drop shadow. No text, no letters other than the single G described, no badges, no watermark. Crisp silhouette that reads clearly at 32px in the Dock. Studio lighting, refined materials, restrained depth. A bold capital G formed by one continuous strand of glowing golden silk thread that loops to draw the letter, the loose end trailing off with a tiny spark of light; deep midnight navy tile with subtle radial gradient and fine woven-fabric texture.
 
-## Final edit direction
+## Cleanup
 
-Preserve the lavender tile, dark folded S, lighting, and interior detail. Remove all exterior white, pink, and magenta fringe or patches outside the rounded tile; use transparent padding and a clean alpha edge. This was an edit of the lavender concept, which was itself an edit of the original orange concept.
+The model painted a checkerboard instead of returning alpha, so the dark tile was cut out with an anti-aliased rounded-rectangle mask (radius about 239 px at source scale, inset 3 px to drop any checker fringe), scaled to Apple's 824 px body on a 1024 px transparent canvas, and given a soft drop shadow (45% black, 14 px blur, 12 px down).
 
-The generated alpha is preserved. Near-transparent exterior pixels have alpha 1/255 and may appear exaggerated in viewers that display RGB without correctly compositing alpha. Standard `sips` resizing and `iconutil` conversion produce the app's 16–1024 px macOS icon representations. Run `npm run icons:mac` to rebuild; no image generation occurs during packaging.
+Run `npm run icons:mac` to rebuild `icon.icns` and `icon.png` from `golden-thread-icon.png`; no image generation occurs during packaging.

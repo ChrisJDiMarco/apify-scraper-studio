@@ -113,7 +113,7 @@ describe('the New menu', () => {
     await openStudio();
     fireEvent.click(screen.getByRole('button', { name: /^New/ }));
     fireEvent.click(within(screen.getByRole('menu', { name: 'New' })).getByRole('menuitem', { name: 'Quick scan' }));
-    expect(await screen.findByRole('textbox', { name: 'Question about Scraper Studio' })).toHaveValue('Plan a quick scan on ');
+    expect(await screen.findByRole('textbox', { name: 'Question about Golden Thread' })).toHaveValue('Plan a quick scan on ');
   });
 
   it('opens a blank research program in the Advanced layout', async () => {
