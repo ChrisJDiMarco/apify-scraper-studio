@@ -120,6 +120,16 @@ Every variable the browser studio reads. `scripts/studio-web.cjs` lists them too
 | `STUDIO_DAILY_AI_BUDGET_USD` | off | Once the AI spend recorded today (UTC) reaches this, new AI calls are refused until midnight UTC. Codex reports no spend, so its calls aren't counted. |
 | `STUDIO_CODEX_USER_CONFIG` | `0` on the web | `1` lets Codex read its own config file (model, provider, MCP servers, hooks); by default the browser studio skips it. |
 
+**Email** (see [Email](#email))
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `EMAIL_PROVIDER` | `off` | `off`, `preview`, `resend` or `smtp`. |
+| `EMAIL_FROM` | — | The sender, e.g. `Golden Thread <studio@example.com>`. Required for `resend` and `smtp`. |
+| `EMAIL_REPLY_TO` | — | Optional reply-to address. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER` | —, `587`, `1` on port 465, — | The SMTP server, with `EMAIL_PROVIDER=smtp`. |
+| `RESEND_API_KEY`, `SMTP_PASSWORD` | — | **Secrets**, in the secrets file like the admin password. |
+
 **Logs**
 
 | Variable | Default | Purpose |
@@ -150,6 +160,8 @@ So the server reads its secrets once, as `NAME=value` lines, and keeps them only
 STUDIO_SECRET_KEY=<64 random hex characters>
 STUDIO_PASSWORD=<a long admin password>          # password sign-in only
 STUDIO_PROXY_SECRET=<random>                     # optional, see Company sign-in
+RESEND_API_KEY=<re_…>                            # optional, see Email
+SMTP_PASSWORD=<password>                         # optional, see Email
 ```
 
 The lines come from `STUDIO_SECRETS_FD` (a file descriptor) or `STUDIO_SECRETS_FILE` (a path). Both survive restarts
@@ -521,6 +533,41 @@ Roles decide who can see and change what, but a few things are still one setting
 - **On the Codex route** the AI is a command-line agent running as the server's user. Saved keys stay encrypted,
   and the key that decrypts them is safe only when it came in through the secrets file or descriptor (see
   [Secrets](#secrets)); a secret or API key in the server's environment can be read by the AI.
+
+## Email
+
+The studio can email two things, and nothing else:
+
+- **Invites.** Inviting people in **People & access** emails each new person their own sign-in link (password mode)
+  or "sign in with your company account" (company sign-in). The invite screen then says *Invite emailed to
+  &lt;address&gt;*; for anyone whose email failed it shows their link to copy, as it always has.
+- **First sign-ins.** When someone signs in for the first time, every other enabled admin gets
+  *&lt;Name&gt; just signed in for the first time*. Set `STUDIO_PUBLIC_ORIGIN` so that email can link to the studio.
+
+It is **off** until `EMAIL_PROVIDER` is set, and then the studio works exactly as before. A failed email is logged
+(`email-failed`, with the person's id and a reason, never their address or link) and never stops the invite or the
+sign-in. A provider that's set but missing a setting logs `email-not-ready` with what to set, at start.
+
+| `EMAIL_PROVIDER` | What happens | Also set |
+| --- | --- | --- |
+| `off` (default) | Nothing is sent. | — |
+| `preview` | Each email is written to `<STUDIO_DATA_DIR>/email-preview/` as an `.eml` file (open it in any mail app) instead of being sent. No account needed. | `EMAIL_FROM` optional |
+| `resend` | Sent through [Resend](https://resend.com)'s API. | `EMAIL_FROM` on a domain verified in Resend; `RESEND_API_KEY` in the secrets |
+| `smtp` | Sent through any SMTP server: SendGrid, Mailgun, Postmark, Amazon SES, Google Workspace, Microsoft 365. | `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USER`; `SMTP_PASSWORD` in the secrets |
+
+A service not listed here is settings only: use its SMTP details. Port 587 uses STARTTLS (required); port 465 or
+`SMTP_SECURE=1` uses TLS from the start. The secrets go in the secrets file with the others (see [Secrets](#secrets)):
+
+```
+RESEND_API_KEY=re_...
+SMTP_PASSWORD=...
+```
+
+To try it with no account, set `EMAIL_PROVIDER=preview`, restart, invite yourself at a test address and read the
+newest file in `email-preview/`. The files hold real sign-in links: the folder is private (0700, files 0600), only
+the newest 200 are kept, and it's in the data folder, so backups include it. Delete the folder and turn preview off
+when you're done. Invites wait up to 20 seconds for their emails; a slower one still goes out, and the invite screen
+says it's still sending and offers the link.
 
 ## Security notes
 

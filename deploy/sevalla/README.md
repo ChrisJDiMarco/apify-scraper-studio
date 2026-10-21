@@ -48,6 +48,27 @@ Keep this process start command when deploying GitHub updates.
 Personal links are bearer credentials: the admin should provision only `semrush.com` addresses. Password/link
 mode does not verify company email ownership or enforce the SSO-only domain allowlist.
 
+## Email (off until configured)
+
+The studio can email invites (each person's own sign-in link) and tell admins when someone signs in for the first
+time. It sends nothing until `EMAIL_PROVIDER` is set; see [docs/web-deploy.md](../../docs/web-deploy.md#email). To
+turn it on, add these as Sevalla environment variables (the key or password as an encrypted runtime-only variable,
+like `STUDIO_PASSWORD`; the server removes it from its environment at start), then deploy or restart:
+
+| Variable | Resend | Any SMTP service |
+| --- | --- | --- |
+| `EMAIL_PROVIDER` | `resend` | `smtp` |
+| `EMAIL_FROM` | e.g. `Golden Thread <studio@searchengineland.com>`, on a domain verified with the service | same |
+| `RESEND_API_KEY` | the API key (secret) | — |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` | — | from the service, e.g. `smtp.sendgrid.net`, `587`, `apikey` |
+| `SMTP_PASSWORD` | — | the SMTP password or API key (secret) |
+| `STUDIO_PUBLIC_ORIGIN` | `https://goldenthread.searchengineland.com`, if not already set (the first-sign-in email links to it) | same |
+
+Verifying the sender's domain means adding the service's DNS records (SPF/DKIM) to the `searchengineland.com` zone
+in Cloudflare. To check the emails first without an account, set `EMAIL_PROVIDER=preview`: each email is written to
+`/data/email-preview/` as an `.eml` file instead of being sent. Those files contain real sign-in links; delete the
+folder and switch preview off afterwards. Look for `email-sent`, `email-failed` and `email-not-ready` in the logs.
+
 ## Updates
 
 Use Sevalla's manual Deploy action for the latest reviewed `main` commit. The public-Git source does not support
