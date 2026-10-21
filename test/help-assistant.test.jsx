@@ -352,7 +352,8 @@ describe('Ask AI streaming', () => {
     expect(screen.getByText('What changed?')).toBeInTheDocument();
     expect(within(screen.getByRole('navigation', { name: 'Ask AI conversations' })).getByText('Answering…')).toBeInTheDocument();
     emit({ type: 'delta', requestId: 'req-before-reload', conversationId: convo.id, seq: 6, at: 10, text: ' moved.' });
-    expect(answering).toHaveTextContent('Two trends moved.');
+    // Conversation recovery and stream rendering can overlap; assert against the current article after it updates.
+    await waitFor(() => expect(screen.getByRole('article', { name: 'Answering' })).toHaveTextContent('Two trends moved.'));
     emit({ type: 'progress', requestId: 'req-before-reload', conversationId: convo.id, seq: 7, progress: { status: 'done', steps: [], textLength: 17, final: { conversation: convo, userMessage: { ...userMsg, id: 'msg-00000000-0000-4000-8000-0000000000a2', content: 'What changed?' }, message: answerMsg('Two trends moved.', { id: 'msg-00000000-0000-4000-8000-0000000000b2' }) } } });
     expect(await screen.findAllByRole('article', { name: 'Answer' })).toHaveLength(2);
     expect(screen.queryByText('Answering…')).not.toBeInTheDocument();
