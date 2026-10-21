@@ -274,6 +274,19 @@ describe('Links and openers land on what they name', () => {
     expect([...document.querySelectorAll('[data-spot="trends.card"]')].some((node) => node.dataset.spotItem === 'AI Overviews eat clicks')).toBe(true);
   });
 
+  it('stops looking for a trend card when the app closes', async () => {
+    openStudio('admin');
+    await h1(GREETING.name);
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(within(screen.getByRole('region', { name: /Needs your OK/ })).getByRole('button', { name: 'AI Overviews eat clicks' }));
+      cleanup();
+      const query = vi.spyOn(document, 'querySelectorAll');
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(query).not.toHaveBeenCalledWith('[data-spot="trends.card"], [data-spot="trends.ready-card"]');
+    } finally { vi.useRealTimers(); }
+  });
+
   it('a quick scan’s trend link opens the Trend tracker and says why', async () => {
     window.history.replaceState(null, '', '/#/trend/qs-theme');
     const readWorkbook = vi.fn(async ({ workbookId }) => ({ id: workbookId, name: 'Trend tracker', kind: 'tracker', edits: { version: 1, sheets: {} }, sheets: [{ id: 'trends', name: 'Trends', columns: ['Trend'], rows: [['Answer engines']], rowKeys: ['t'] }] }));
