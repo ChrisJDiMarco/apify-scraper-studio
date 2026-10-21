@@ -47,6 +47,7 @@
     "apify-client": "^2.23.4",
     "electron-updater": "^6.8.9",
     "lucide-react": "^1.22.0",
+    "nodemailer": "10.0.16",
     "papaparse": "^5.7.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
