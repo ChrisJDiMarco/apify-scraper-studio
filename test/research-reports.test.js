@@ -314,6 +314,26 @@ describe('comprehensive trends report', () => {
     expect(() => validReport({ caveats: ['Semrush One data was not supplied.'] })).toThrow('mentions "Semrush One"');
     expect(validReport({ executiveSummary: 'A game-changer for search.' }, { editionId: 'general' }).executiveSummary).toBe('A game-changer for search.');
   });
+  it('on the final check, leaves out broken optional items and fixes counts instead of throwing the report away', () => {
+    const request = trendRequest(); const good = goodReport();
+    const draft = goodReport({
+      executiveSummary: `${good.executiveSummary} ${'More detail. '.repeat(300)}`,
+      quotes: [...good.quotes, { evidenceId: 'rd1', text: 'Explainer CTR fell' }, { evidenceId: 'x2', text: 'This sentence was never written by anyone.' }, good.quotes[0]],
+      painPoints: [{ ...good.painPoints[0], postCount: 5 }, { ...good.painPoints[1], postCount: 99 }, good.painPoints[2]],
+      keyTakeaways: [...good.keyTakeaways, 'A fourth takeaway.'], caveats: ['We were flying blind on this one.', 'Small sample.'],
+    });
+    // The first check asks for a repair and names every element that broke a rule.
+    try { validateTrendReport(draft, request.context); throw new Error('should fail'); }
+    catch (error) { expect(error.violations.map(v => v.field)).toEqual(expect.arrayContaining(['executiveSummary', 'quotes[4]', 'quotes[5]', 'quotes[6]', 'painPoints[0].postCount', 'painPoints[1].postCount', 'keyTakeaways', 'caveats[0]'])); }
+    const output = validateTrendReport(draft, request.context, { final: true });
+    expect(output.quotes.map(q => q.evidenceId)).toEqual(['x1', 'x3', 'li1', 'li2']);
+    expect(output.painPoints.map(p => p.postCount)).toEqual([6, 1, 1]); expect(output.keyTakeaways).toHaveLength(3); expect(output.caveats).toEqual(['Small sample.']);
+    expect(output.executiveSummary.length).toBeLessThanOrEqual(3000); expect(output.salvaged.length).toBeGreaterThanOrEqual(7);
+    expect(output.warnings.join(' ')).toMatch(/left out/);
+    // What the report can't do without still fails, even on the final check.
+    expect(() => validateTrendReport(goodReport({ executiveSummary: '' }), request.context, { final: true })).toThrow('executiveSummary is empty');
+    expect(() => validateTrendReport(goodReport({ trendSummary: 'We are flying blind.' }), request.context, { final: true })).toThrow('banned phrase');
+  });
   it('renders the exact n8n report layout with code-rendered metrics and attributions', () => {
     const output = validReport();
     const markdown = renderTrendReport(output);
@@ -474,6 +494,24 @@ describe('editorial toolkit', () => {
     check(goodToolkit({ ctas: { enterprise: ['Only one'], plg: ['a', 'b', 'c'] } }), 'ctas.enterprise needs exactly 2 items (got 1)');
     // Single generic tool words stay usable in product-agnostic copy.
     expect(validateToolkit(goodToolkit({ headlines: ['Visibility and citations moved into AI answers', 'b', 'c', 'd', 'e'] }), context).output.headlines[0]).toBe('Visibility and citations moved into AI answers');
+  });
+  it('on the final check, leaves out list items and an Also fits line that break a rule, keeping decisive checks strict', () => {
+    const { context } = toolkitRequest(); const good = goodToolkit();
+    const draft = goodToolkit({
+      headlines: ['Site Audit finds what AI crawlers miss', ...good.headlines.slice(1), 'A sixth headline'],
+      hooks: ['Semrush One is the answer', ...good.hooks.slice(1)],
+      ctas: { ...good.ctas, plg: ['Upgrade to Enterprise AIO today.', ...good.ctas.plg.slice(1)] },
+      selfServeAngle: { ...good.selfServeAngle, alsoFits: { productId: 'enterprise-aio', toolNames: [], text: 'Enterprise fit.' } },
+      caveats: ['A game-changer for teams.', 'Small sample.'],
+    });
+    expect(() => validateToolkit(draft, context)).toThrow('broke');
+    const { output, flags } = validateToolkit(draft, context, { final: true });
+    expect(output.headlines).toEqual(good.headlines.slice(1)); expect(output.hooks).toEqual(good.hooks.slice(1).map(h => h));
+    expect(output.ctas.plg).toHaveLength(2); expect(output.selfServeAngle.alsoFits).toBeNull(); expect(output.caveats).not.toContain('A game-changer for teams.');
+    expect(flags.filter(f => f.code === 'final-check-salvaged').length).toBeGreaterThanOrEqual(5); expect(output.salvaged.length).toBeGreaterThanOrEqual(5);
+    // Product IDs must still come from the registry, and agnostic prose that names a product still fails.
+    expect(() => validateToolkit(goodToolkit({ enterpriseAngle: { ...good.enterpriseAngle, productId: 'seo-toolkit' } }), context, { final: true })).toThrow('is not an Enterprise product');
+    expect(() => validateToolkit(goodToolkit({ howToTalk: { ...good.howToTalk, intro: 'Lead with the seo toolkit story.' } }), context, { final: true })).toThrow('howToTalk.intro names "SEO Toolkit"');
   });
   it('renders the v6.1 template with code-rendered evidence and the trends doc link', () => {
     const { context } = toolkitRequest();

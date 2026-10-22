@@ -365,21 +365,27 @@ function violationError(problems) {
   const error = new Error(`The draft broke ${problems.length} rule${problems.length === 1 ? '' : 's'}: ${shown}${problems.length > 8 ? ` (+${problems.length - 8} more)` : ''}`.slice(0, 1400));
   error.field = problems[0].field; error.violations = problems; return error;
 }
-function collector() {
-  const problems = [];
+// `final` is the check of the last answer a call will get (the repaired one): a text that runs long is cut and a list
+// with the wrong number of items is kept as it is (extra items cut), each noted in `salvaged`, so a sound draft is never
+// thrown away over its size. Missing text, wrong types and the rules each validator enforces still fail.
+function collector({ final = false } = {}) {
+  const problems = []; const salvaged = [];
   const fail = (field, message) => { problems.push({ field, message }); };
+  // An optional item that breaks a rule: the first check asks for a repair; the final check leaves the item out.
+  const drop = (field, message) => { if (final) salvaged.push(`${message} It was left out.`); else fail(field, message); };
   const string = (value, field, max = 6000, required = true) => {
     if (typeof value !== 'string') { fail(field, `${field} must be text.`); return ''; }
-    const result = value.trim(); if (required && !result) fail(field, `${field} is empty.`); else if (result.length > max) fail(field, `${field} is longer than ${max} characters.`);
+    const result = value.trim(); if (required && !result) fail(field, `${field} is empty.`);
+    else if (result.length > max) { if (!final) fail(field, `${field} is longer than ${max} characters.`); else { salvaged.push(`${field} was longer than ${max} characters and was cut.`); return cutText(result, max).trim(); } }
     return result;
   };
   const items = (value, field, min, max) => {
     if (!Array.isArray(value)) { fail(field, `${field} must be a list.`); return []; }
-    if (value.length < min || value.length > max) fail(field, `${field} needs ${min === max ? `exactly ${min}` : `${min}–${max}`} items (got ${value.length}).`);
+    if (value.length < min || value.length > max) { const message = `${field} needs ${min === max ? `exactly ${min}` : `${min}–${max}`} items (got ${value.length})`; if (final) salvaged.push(`${message}; ${value.length > max ? `the first ${max} were kept` : 'kept as written'}.`); else fail(field, `${message}.`); }
     return value.slice(0, max);
   };
   const record = (value, field) => { if (!value || typeof value !== 'object' || Array.isArray(value)) { fail(field, `${field} must be an object.`); return {}; } return value; };
-  return { problems, fail, string, items, record };
+  return { problems, salvaged, final, fail, drop, string, items, record };
 }
 function bannedPhrase(value, semrush) { const match = (semrush ? SEMRUSH_BANNED : N8N_BANNED).exec(value); return match ? match[0] : ''; }
 function bannedMessage(field, phrase) {
@@ -439,11 +445,11 @@ const cleanLabel = value => oneLine(stripMarkdown(value)).replace(/[\s:]+$/, '')
 const registerEntry = post => ({ id: post.id, text: post.text.slice(0, 1200), url: post.url, platform: post.platform, author: post.author || post.authorName, publishedAt: post.publishedAt || post.date, excerptTruncated: !!post.truncated || post.text.length > 1200 });
 
 // ── Trends report validation ──────────────────────────────────────────────────────────────────────
-function validateTrendReport(raw, context = {}) {
+function validateTrendReport(raw, context = {}, { final = false } = {}) {
   object(context, 'context'); const editionId = edition(context.editionId || 'general'); const semrush = editionId === 'semrush';
   const selection = selectionValue(context.selection, 'context.selection'); const theme = themeValue(context.theme, 'context.theme');
   const posts = new Map(selection.posts.map(post => [post.id, post])); const coverage = selection.coverage; const matched = int(coverage.matchedCount);
-  const { problems, fail, string, items, record } = collector(); const warnings = [];
+  const { problems, salvaged, fail, drop, string, items, record } = collector({ final }); const warnings = [];
   const output = record(raw, 'output');
   const executiveSummary = string(output.executiveSummary, 'executiveSummary', 3000); const trendSummary = string(output.trendSummary, 'trendSummary', 3000);
   // A citation of an ID that was not supplied is dropped with a warning instead of failing the report.
@@ -454,10 +460,10 @@ function validateTrendReport(raw, context = {}) {
   items(output.quotes ?? [], 'quotes', 0, 9).forEach((entry, index) => {
     const field = `quotes[${index}]`; const value = record(entry, field); const evidenceId = string(value.evidenceId, `${field}.evidenceId`, 256); const text = string(value.text, `${field}.text`, 6000);
     const post = evidenceId && known(evidenceId, `${field}.evidenceId`); if (!post || !text) return;
-    if (!['x', 'linkedin'].includes(post.platform)) { fail(field, `${field} quotes a ${PLATFORM_LABELS[post.platform] || post.platform} post (${post.id}). Direct quotes come from Twitter/X and LinkedIn only; summarize it in evidenceLinks instead.`); return; }
+    if (!['x', 'linkedin'].includes(post.platform)) { drop(field, `${field} quotes a ${PLATFORM_LABELS[post.platform] || post.platform} post (${post.id}). Direct quotes come from Twitter/X and LinkedIn only; summarize it in evidenceLinks instead.`); return; }
     const { core, leading, trailing } = quoteParts(text); const found = findQuote(post.text, core);
-    if (!found) { fail(field, `${field} is not an exact excerpt of ${post.id}. Copy one contiguous passage verbatim from that post (no paraphrasing or "..." joins).`); return; }
-    if (seenQuotes.has(found.key)) { fail(field, `${field} repeats an earlier quote. Choose a different passage or post.`); return; }
+    if (!found) { drop(field, `${field} is not an exact excerpt of ${post.id}. Copy one contiguous passage verbatim from that post (no paraphrasing or "..." joins).`); return; }
+    if (seenQuotes.has(found.key)) { drop(field, `${field} repeats an earlier quote. Choose a different passage or post.`); return; }
     seenQuotes.add(found.key);
     quotes.push({ evidenceId: post.id, text: `${leading ? '...' : ''}${found.text}${trailing ? '...' : ''}`, author: post.author || post.authorName, platform: post.platform, date: post.date, url: post.url, metricsLine: metricsLine(post, PRIMARY_KEYS[post.platform]) });
   });
@@ -472,10 +478,11 @@ function validateTrendReport(raw, context = {}) {
   const painLabels = new Set();
   const painPoints = items(output.painPoints, 'painPoints', 3, 3).map((entry, index) => {
     const field = `painPoints[${index}]`; const value = record(entry, field); const label = cleanLabel(string(value.label, `${field}.label`, 200)); const text = string(value.text, `${field}.text`, 3000);
-    const postCount = value.postCount;
-    if (!Number.isInteger(postCount) || postCount < 0 || postCount > matched) fail(`${field}.postCount`, `${field}.postCount must be a whole number from 0 to ${matched} (the matched posts).`);
-    else if (signalCounts.has(nameKey(label)) && signalCounts.get(nameKey(label)) !== postCount) fail(`${field}.postCount`, `${field} "${label}" reports ${postCount} posts, but the pre-analyzed signals count ${signalCounts.get(nameKey(label))}.`);
-    if (label && painLabels.has(nameKey(label))) fail(`${field}.label`, `${field} repeats the pain point "${label}".`); painLabels.add(nameKey(label));
+    let postCount = value.postCount; const counted = signalCounts.get(nameKey(label));
+    // The final check takes the count from the pre-analyzed signals (or the matched posts) instead of failing the report.
+    if (!Number.isInteger(postCount) || postCount < 0 || postCount > matched) { if (final) { salvaged.push(`${field}.postCount ${JSON.stringify(postCount)} was not a count from 0 to ${matched}; ${counted ?? 0} was used.`); postCount = counted ?? 0; } else fail(`${field}.postCount`, `${field}.postCount must be a whole number from 0 to ${matched} (the matched posts).`); }
+    else if (counted !== undefined && counted !== postCount) { if (final) { salvaged.push(`${field} "${label}" reported ${postCount} posts; the pre-analyzed count ${counted} was used.`); postCount = counted; } else fail(`${field}.postCount`, `${field} "${label}" reports ${postCount} posts, but the pre-analyzed signals count ${counted}.`); }
+    if (label && painLabels.has(nameKey(label))) { if (final) salvaged.push(`${field} repeats the pain point "${label}"; kept as written.`); else fail(`${field}.label`, `${field} repeats the pain point "${label}".`); } painLabels.add(nameKey(label));
     return { label, postCount: Number.isInteger(postCount) ? postCount : 0, percent: matched && Number.isInteger(postCount) ? Math.round((postCount / matched) * 100) : 0, text };
   });
   const opportunities = items(output.opportunities, 'opportunities', 3, 3).map((entry, index) => { const field = `opportunities[${index}]`; const value = record(entry, field); return { label: cleanLabel(string(value.label, `${field}.label`, 200)), text: string(value.text, `${field}.text`, 3000) }; });
@@ -487,8 +494,15 @@ function validateTrendReport(raw, context = {}) {
     evidenceId: topPost ? topPost.id : '', note: string(top.highestEngagementNote, 'topPerformingContent.highestEngagementNote', 1000, false), mostDiscussedTopic: string(top.mostDiscussedTopic, 'topPerformingContent.mostDiscussedTopic', 1000), mostRequestedFeature: string(top.mostRequestedFeature, 'topPerformingContent.mostRequestedFeature', 1000),
     post: topPost ? { platform: topPost.platform, author: topPost.author || topPost.authorName, date: topPost.date, url: topPost.url, excerpt: excerpt(topPost.text), metricsLine: metricsLine(topPost, FULL_KEYS[topPost.platform], { skipZero: true }), prevalence: topPost.prevalence } : null,
   };
-  const keyTakeaways = items(output.keyTakeaways, 'keyTakeaways', 3, 3).map((value, index) => string(value, `keyTakeaways[${index}]`, 2000));
-  const caveats = items(output.caveats ?? [], 'caveats', 0, 20).map((value, index) => string(value, `caveats[${index}]`, 1000));
+  let keyTakeaways = items(output.keyTakeaways, 'keyTakeaways', 3, 3).map((value, index) => string(value, `keyTakeaways[${index}]`, 2000));
+  let caveats = items(output.caveats ?? [], 'caveats', 0, 20).map((value, index) => string(value, `caveats[${index}]`, 1000));
+  // The final check leaves out list items and quotes that use banned language; prose the report can't do without still fails.
+  if (final) {
+    const clean = (list, field, pick = entry => entry) => list.filter((entry, index) => { const phrase = bannedPhrase(pick(entry), semrush); if (phrase) salvaged.push(`${field}[${index}] used the banned phrase "${phrase}" and was left out.`); return !phrase; });
+    keyTakeaways = clean(keyTakeaways, 'keyTakeaways'); caveats = clean(caveats, 'caveats');
+    evidenceLinks.splice(0, evidenceLinks.length, ...clean(evidenceLinks, 'evidenceLinks', link => link.description));
+    quotes.splice(0, quotes.length, ...quotes.filter((quote, index) => { const phrase = N8N_BANNED.exec(quote.text)?.[0] || (semrush && SEMRUSH_ONE.exec(quote.text)?.[0]); if (phrase) salvaged.push(`quotes[${index}] used the banned phrase "${phrase}" and was left out.`); return !phrase; }));
+  }
 
   // Banned language applies to everything the model wrote. Verbatim quotes keep practitioner wording,
   // except the n8n phrases (and Semrush One in the Semrush edition), which never appear anywhere.
@@ -496,6 +510,7 @@ function validateTrendReport(raw, context = {}) {
   for (const [field, value] of strings(written)) { const phrase = bannedPhrase(value, semrush); if (phrase) fail(field, bannedMessage(field, phrase)); }
   quotes.forEach((quote, index) => { const phrase = N8N_BANNED.exec(quote.text)?.[0] || (semrush && SEMRUSH_ONE.exec(quote.text)?.[0]); if (phrase) fail(`quotes[${index}]`, `${bannedMessage(`quotes[${index}]`, phrase)} Quote a different passage.`); });
   if (problems.length) throw violationError(problems);
+  warnings.push(...salvaged);
 
   const shownCount = platform => selection.posts.filter(post => post.platform === platform).length;
   if (quotes.length < 6) warnings.push(`Only ${quotes.length} verified direct quote${quotes.length === 1 ? '' : 's'} (target 6–9).`);
@@ -508,7 +523,7 @@ function validateTrendReport(raw, context = {}) {
   return {
     deliverableId: 'evidence-report', layout: TREND_REPORT_LAYOUT, editionId, title: `${theme.name} — Comprehensive Trends Report`, summary: executiveSummary, theme,
     executiveSummary, trendSummary, painPoints, opportunities, technicalDetails, topPerformingContent, keyTakeaways, caveats,
-    aggregateMetrics: selection.metrics, signals: selection.signals, coverage: selection.coverage, quotes, evidenceLinks, warnings,
+    aggregateMetrics: selection.metrics, signals: selection.signals, coverage: selection.coverage, quotes, evidenceLinks, warnings, ...(salvaged.length ? { salvaged } : {}),
     evidenceRegister: cited.map(id => registerEntry(posts.get(id))),
   };
 }
@@ -800,15 +815,17 @@ function distinctiveNames(products) {
 }
 const stripTag = value => clean(value).replace(/^[-*•]\s+/, '').replace(/^\[(ENT|PLG)\]\s*/i, '').trim();
 
-function validateToolkit(raw, context = {}) {
+function validateToolkit(raw, context = {}, { final = false } = {}) {
   object(context, 'context'); const editionId = edition(context.editionId || 'general'); const semrush = editionId === 'semrush';
   const products = validateProductRegistry(context.products || [], { editionId }); const byId = new Map(products.map(product => [product.id, product]));
   const enterpriseNames = Array.isArray(context.enterpriseProducts) ? context.enterpriseProducts.map(clean).filter(Boolean) : [];
   const toolkits = context.toolkits && typeof context.toolkits === 'object' ? context.toolkits : {};
   const { enterprise, selfServe } = segmentProducts(products, enterpriseNames);
-  const { problems, fail, string, items, record } = collector(); const output = record(raw, 'output');
+  const { problems, salvaged, fail, string, items, record } = collector({ final }); const output = record(raw, 'output');
   const pairs = (value, field, a, b, min, max) => items(value, field, min, max).map((entry, index) => { const item = record(entry, `${field}[${index}]`); return { [a]: cleanLabel(string(item[a], `${field}[${index}].${a}`, 200)), [b]: string(item[b], `${field}[${index}].${b}`, 1500) }; });
   const lines = (value, field, count, max = 600) => items(value, field, count, count).map((entry, index) => oneLine(stripTag(string(entry, `${field}[${index}]`, max))));
+  // The final check leaves out list items (a headline, hook, CTA, caveat or Key Tool) that break a wording rule.
+  const prune = (list, field, test, pick = entry => entry) => list.filter((entry, index) => { const reason = test(pick(entry)); if (reason) salvaged.push(`${field}[${index}] ${reason}, so it was left out.`); return !reason; });
   const trendName = oneLine(string(output.trendName, 'trendName', 200)); const whatHappened = string(output.whatHappened, 'whatHappened', 4000);
   const why = record(output.whyMatters, 'whyMatters'); const whyMatters = { intro: string(why.intro, 'whyMatters.intro', 2000), painPoints: pairs(why.painPoints, 'whyMatters.painPoints', 'label', 'text', 3, 3) };
   const talk = record(output.howToTalk, 'howToTalk'); const howToTalk = { intro: string(talk.intro, 'howToTalk.intro', 2000), talkingPoints: pairs(talk.talkingPoints, 'howToTalk.talkingPoints', 'label', 'text', 3, 3) };
@@ -824,35 +841,44 @@ function validateToolkit(raw, context = {}) {
   if (selfServe.length && !selfServeProduct) fail('selfServeAngle.productId', `selfServeAngle.productId "${selfServeId.slice(0, 60)}" is not an affiliate-eligible self-serve toolkit. Use one of: ${selfServe.map(product => product.id).join(', ')}.`);
   if (!selfServe.length && selfServeId) fail('selfServeAngle.productId', 'No self-serve toolkit is registered for this workspace, so selfServeAngle.productId must be "" and the paragraph must state that gap.');
   const keyTools = selfServe.length ? pairs(plg.keyTools, 'selfServeAngle.keyTools', 'toolName', 'text', 3, 5) : none(plg.keyTools, 'selfServeAngle.keyTools', 'No self-serve toolkit is registered, so the Key Tools were left out.');
-  const also = record(plg.alsoFits, 'selfServeAngle.alsoFits'); const alsoId = clean(also.productId); const alsoText = string(also.text, 'selfServeAngle.alsoFits.text', 1000, false);
-  const alsoTools = items(also.toolNames ?? [], 'selfServeAngle.alsoFits.toolNames', 0, 2).map((entry, index) => oneLine(string(entry, `selfServeAngle.alsoFits.toolNames[${index}]`, 200)));
-  const alsoProduct = alsoId ? byId.get(alsoId) : null;
-  if (alsoId) {
-    if (alsoId === selfServeId) fail('selfServeAngle.alsoFits.productId', 'selfServeAngle.alsoFits must name a different toolkit than the SELF-SERVE headline toolkit, or be left empty.');
-    else if (!selfServe.includes(alsoProduct)) fail('selfServeAngle.alsoFits.productId', `selfServeAngle.alsoFits.productId "${alsoId.slice(0, 60)}" is not an affiliate-eligible self-serve toolkit (Enterprise products never appear here).`);
-    if (!alsoText) fail('selfServeAngle.alsoFits.text', 'selfServeAngle.alsoFits.text is empty. Write one sentence, or leave all Also fits fields empty.');
-  }
+  const also = record(plg.alsoFits, 'selfServeAngle.alsoFits'); let alsoId = clean(also.productId); let alsoText = string(also.text, 'selfServeAngle.alsoFits.text', 1000, false);
+  let alsoTools = items(also.toolNames ?? [], 'selfServeAngle.alsoFits.toolNames', 0, 2).map((entry, index) => oneLine(string(entry, `selfServeAngle.alsoFits.toolNames[${index}]`, 200)));
+  let alsoProduct = alsoId ? byId.get(alsoId) : null;
+  // Also fits is optional: the final check leaves out an Also fits line that breaks a rule instead of failing the toolkit.
+  const alsoProblem = !alsoId ? '' : alsoId === selfServeId ? 'selfServeAngle.alsoFits must name a different toolkit than the SELF-SERVE headline toolkit, or be left empty.' : !selfServe.includes(alsoProduct) ? `selfServeAngle.alsoFits.productId "${alsoId.slice(0, 60)}" is not an affiliate-eligible self-serve toolkit (Enterprise products never appear here).` : !alsoText ? 'selfServeAngle.alsoFits.text is empty. Write one sentence, or leave all Also fits fields empty.' : '';
+  if (alsoProblem && final) { salvaged.push(`${alsoProblem} The Also fits line was left out.`); alsoId = ''; alsoText = ''; alsoTools = []; alsoProduct = null; }
+  else if (alsoProblem) fail(alsoProblem.startsWith('selfServeAngle.alsoFits.text') ? 'selfServeAngle.alsoFits.text' : 'selfServeAngle.alsoFits.productId', alsoProblem);
   // An empty productId means "no Also fits" (n8n skips the line); stray text is surfaced, never rendered.
   const alsoIgnored = !alsoId && (alsoText || alsoTools.length);
   const selfServeAngle = { productId: selfServeProduct ? selfServeId : '', paragraph: string(plg.paragraph, 'selfServeAngle.paragraph', 2000), keyTools };
-  const headlines = lines(output.headlines, 'headlines', 5); const subheads = lines(output.subheads, 'subheads', 5); const hooks = lines(output.hooks, 'hooks', 5, 1000);
+  let headlines = lines(output.headlines, 'headlines', 5); let subheads = lines(output.subheads, 'subheads', 5); let hooks = lines(output.hooks, 'hooks', 5, 1000);
   const cta = record(output.ctas, 'ctas'); const ctas = { enterprise: lines(cta.enterprise, 'ctas.enterprise', 2), plg: lines(cta.plg, 'ctas.plg', 3) };
-  const caveats = items(output.caveats ?? [], 'caveats', 0, 20).map((entry, index) => string(entry, `caveats[${index}]`, 1000));
-  const named = (enterprise.length && Array.isArray(ent.capabilities) ? ent.capabilities.length : 0) + (selfServe.length && Array.isArray(plg.keyTools) ? plg.keyTools.length : 0);
-  if (named > MAX_NAMED_TOOLS) fail('selfServeAngle.keyTools', `The two angles name ${named} tools/capabilities; the combined limit is ${MAX_NAMED_TOOLS} (Also fits tools excluded).`);
+  let caveats = items(output.caveats ?? [], 'caveats', 0, 20).map((entry, index) => string(entry, `caveats[${index}]`, 1000));
+  const names = distinctiveNames(products);
+  const enterpriseNamesUsed = [...new Set(products.filter(product => product.segment === 'enterprise').flatMap(product => [product.name, stripParen(product.name)]))].map(name => ({ name, pattern: namePattern(name, 'u') }));
+  if (final) {
+    const banned = value => { const phrase = SEMRUSH_ONE.test(value) ? 'Semrush One' : bannedPhrase(value, semrush); return phrase ? `used the banned phrase "${phrase}"` : ''; };
+    const agnostic = value => banned(value) || (names.find(entry => entry.pattern.test(value)) ? `named "${names.find(entry => entry.pattern.test(value)).name}" (it must be product-agnostic)` : '');
+    const affiliateSafe = value => banned(value) || (enterpriseNamesUsed.find(entry => entry.pattern.test(value)) ? `named the Enterprise product "${enterpriseNamesUsed.find(entry => entry.pattern.test(value)).name}"` : '');
+    headlines = prune(headlines, 'headlines', agnostic); subheads = prune(subheads, 'subheads', agnostic); hooks = prune(hooks, 'hooks', agnostic);
+    ctas.enterprise = prune(ctas.enterprise, 'ctas.enterprise', banned); ctas.plg = prune(ctas.plg, 'ctas.plg', affiliateSafe); caveats = prune(caveats, 'caveats', banned);
+    keyTools.splice(0, keyTools.length, ...prune(keyTools, 'selfServeAngle.keyTools', affiliateSafe, tool => `${tool.toolName} ${tool.text}`));
+    if (alsoId && [alsoText, ...alsoTools].some(value => affiliateSafe(value))) { salvaged.push(`selfServeAngle.alsoFits ${[alsoText, ...alsoTools].map(affiliateSafe).find(Boolean)}, so the Also fits line was left out.`); alsoId = ''; alsoText = ''; alsoTools = []; alsoProduct = null; }
+  }
+  // The final check counts the items kept (lists were already cut to their maximum); the first counts what was sent.
+  const named = final ? enterpriseAngle.capabilities.length + keyTools.length : (enterprise.length && Array.isArray(ent.capabilities) ? ent.capabilities.length : 0) + (selfServe.length && Array.isArray(plg.keyTools) ? plg.keyTools.length : 0);
+  if (named > MAX_NAMED_TOOLS) { if (final) { const keep = Math.max(0, MAX_NAMED_TOOLS - enterpriseAngle.capabilities.length); salvaged.push(`The two angles named ${named} tools/capabilities (limit ${MAX_NAMED_TOOLS}); the first ${keep} Key Tools were kept.`); keyTools.splice(keep); } else fail('selfServeAngle.keyTools', `The two angles name ${named} tools/capabilities; the combined limit is ${MAX_NAMED_TOOLS} (Also fits tools excluded).`); }
 
   const written = { trendName, whatHappened, whyMatters, howToTalk, enterpriseAngle: { paragraph: enterpriseAngle.paragraph, capabilities: enterpriseAngle.capabilities }, selfServeAngle: { paragraph: selfServeAngle.paragraph, keyTools, alsoFits: { toolNames: alsoTools, text: alsoText } }, headlines, subheads, hooks, ctas, caveats };
   for (const [field, value] of strings(written)) {
     if (SEMRUSH_ONE.test(value)) { fail(field, bannedMessage(field, 'Semrush One')); continue; }
     const phrase = bannedPhrase(value, semrush); if (phrase) fail(field, bannedMessage(field, phrase));
   }
-  const names = distinctiveNames(products);
   for (const [field, value] of strings({ whyMatters, howToTalk, headlines, subheads, hooks })) {
     const hit = names.find(entry => entry.pattern.test(value));
     if (hit) fail(field, `${field} names "${hit.name}". WHY THIS MATTERS, HOW TO TALK ABOUT IT, headlines, subheads and hooks must be product-agnostic; rephrase without product or tool names.`);
   }
   // Affiliate safety: an Enterprise product name never appears in the self-serve angle or PLG CTAs.
-  const enterpriseNamesUsed = [...new Set(products.filter(product => product.segment === 'enterprise').flatMap(product => [product.name, stripParen(product.name)]))].map(name => ({ name, pattern: namePattern(name, 'u') }));
   for (const [field, value] of strings({ selfServeAngle: { paragraph: selfServeAngle.paragraph, keyTools, alsoFits: { toolNames: alsoTools, text: alsoText } }, ctas: { plg: ctas.plg } })) {
     const hit = enterpriseNamesUsed.find(entry => entry.pattern.test(value));
     if (hit) fail(field, `${field} names the Enterprise product "${hit.name}". The self-serve angle and [PLG] CTAs must stay affiliate-safe.`);
@@ -867,6 +893,7 @@ function validateToolkit(raw, context = {}) {
   if (alsoMisaligned.length) { reasons.push(`Also fits tools not listed under ${alsoProduct.name} in the Registry.`); misaligned.push(...alsoMisaligned); flags.push({ code: 'also-fits-tools-outside-toolkit', message: `Also fits tools not listed under ${alsoProduct.name} in the Registry: ${alsoMisaligned.join(', ')}.`, tools: alsoMisaligned }); }
   if (alsoIgnored) flags.push({ code: 'also-fits-without-toolkit', message: 'The Also fits line had text or tools but no toolkit, so it was left out.', tools: alsoTools });
   for (const entry of dropped) flags.push({ code: 'gap-angle-items-dropped', message: entry.message, tools: [] });
+  for (const message of salvaged) flags.push({ code: 'final-check-salvaged', message, tools: [] });
   const selfServeNames = distinctiveNames(selfServe.map(product => ({ ...product, tools: [] })));
   for (const [field, value] of strings({ enterpriseAngle: { paragraph: enterpriseAngle.paragraph, capabilities: enterpriseAngle.capabilities } })) {
     const hit = selfServeNames.find(entry => entry.pattern.test(value));
@@ -886,6 +913,7 @@ function validateToolkit(raw, context = {}) {
     selfServeAngle: { ...selfServeAngle, productName: selfServeProduct?.name || '', productUrl: selfServeProduct?.url || '', keyTools: keyTools.map(tool => ({ ...tool, url: selfServeProduct ? toolUrl(selfServeProduct, tool.toolName) : '' })), alsoFits: alsoProduct ? { productId: alsoProduct.id, productName: alsoProduct.name, productUrl: alsoProduct.url, toolNames: alsoTools, text: alsoText } : null },
     headlines, subheads, hooks, ctas, caveats: [...new Set([...caveats, ...gaps])], aggregateMetrics: context.metrics || null, trendsDocUrl: safeUrl(context.trendsDocUrl), toolkitCheck,
     approvedProducts: used.map(({ id, name, url, segment }) => ({ id, name, url, segment })),
+    ...(salvaged.length ? { salvaged } : {}),
   };
   return { output: result, flags };
 }

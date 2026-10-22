@@ -420,26 +420,42 @@ function ids(v, allowed, field, { allowEmpty = false } = {}) {
   if ((!allowEmpty && !result.length) || new Set(result).size !== result.length || result.some((id) => !allowed.has(id))) fail(field, `${field} must contain unique IDs from the supplied evidence.`);
   return result;
 }
+// Lenient readers for enrichment fields: wrong types are skipped, long text is cut, lists are capped.
+const lenientText = (v, max) => text(v).slice(0, max);
+function lenientList(v, maxItems, maxLength) { return [...new Set((Array.isArray(v) ? v : []).filter((x) => typeof x === 'string').map((x) => text(x).slice(0, maxLength)).filter(Boolean))].slice(0, maxItems); }
+const oneOf = (v, values, fallback) => (values.includes(v) ? v : fallback);
+// Every per-item problem names the element it came from (candidates[2].summary), so a repair prompt can point at it.
+function noneUsable(kind, dropped, hint) { const first = dropped[0] || { field: kind, message: `No usable ${kind}.` }; fail(first.field, `No usable ${kind}: ${first.message}${dropped.length > 1 ? ` (and ${dropped.length - 1} more)` : ''} ${hint}`); }
 function validateCandidates(output, { runId, batch, items = batch?.items || [] } = {}) {
   object(output, 'discovery'); runId = string(runId, 'runId', 160, true);
   if (!batch || batch.runId !== runId || items.some((i) => i.runId !== runId)) fail('runId', 'Candidate evidence must be scoped to this run and batch.');
+  if (!Array.isArray(output.candidates)) fail('candidates', 'candidates must be a list.');
   const allowed = new Set(batch.evidenceIds || batch.items.map((i) => i.id)); const itemMap = new Map(items.map((i) => [i.id, i]));
   const resolve = refLookup([...allowed], postRef);
-  const names = new Set(); let droppedRefs = 0; let droppedCandidates = 0;
-  const returned = array(output.candidates, 'candidates', 10);
-  const candidates = returned.flatMap((candidate) => {
-    object(candidate, 'candidate'); const name = string(candidate.name, 'candidate.name', 160, true);
-    if (names.has(name.toLowerCase())) fail('candidate.name', 'Merge duplicate candidate names within a batch.'); names.add(name.toLowerCase());
-    // A reference that is not in this batch is dropped rather than failing the batch; a candidate
-    // left with no real evidence is dropped too. Nothing is attributed to a post it did not cite.
-    const cited = strings(candidate.evidenceIds, 'candidate.evidenceIds', MAX_EVIDENCE_ITEMS, 200);
-    const evidenceIds = [...new Set(cited.map(resolve).filter(Boolean))];
-    droppedRefs += cited.filter((value) => !resolve(value)).length;
-    if (!evidenceIds.length) { droppedCandidates++; return []; }
-    return [{ id: `candidate-${digest(`${runId}:${batch.id}:${name.toLowerCase()}`)}`, runId, batchId: batch.id, name, summary: string(candidate.summary, 'candidate.summary', 4000, true), painPoint: enumValue(candidate.painPoint, PAIN_POINTS, 'painPoint'), semanticIntentSignals: strings(candidate.semanticIntentSignals, 'semanticIntentSignals', 15, 300), actionability: string(candidate.actionability, 'actionability', 2000), evidenceIds, evidenceCount: evidenceIds.length, platforms: [...new Set(evidenceIds.map((id) => itemMap.get(id)?.platform).filter(Boolean))] }];
+  // The schema allows 10 candidates; any beyond that are not read.
+  const returned = output.candidates.slice(0, 10); const byName = new Map(); const dropped = []; let droppedRefs = 0; let mergedNames = 0;
+  // The cited posts decide whether a candidate is kept: a reference that is not in this batch is dropped, and a candidate
+  // left with no real evidence (or no name or summary) is dropped too. Nothing is attributed to a post it did not cite.
+  // Everything else is enrichment and is trimmed or defaulted; one malformed candidate never fails the batch.
+  returned.forEach((candidate, index) => {
+    const at = `candidates[${index}]`;
+    try {
+      object(candidate, at);
+      const name = lenientText(candidate.name, 160); if (!name) fail(`${at}.name`, `${at}.name is empty.`);
+      const cited = (Array.isArray(candidate.evidenceIds) ? candidate.evidenceIds : []).filter((x) => typeof x === 'string').map(text);
+      const evidenceIds = [...new Set(cited.map(resolve).filter(Boolean))];
+      droppedRefs += cited.filter((value) => !resolve(value)).length;
+      if (!evidenceIds.length) fail(`${at}.evidenceIds`, `${at} ("${name.slice(0, 60)}") cited only ids that are not in this batch.`);
+      const summary = lenientText(candidate.summary, 4000); if (!summary) fail(`${at}.summary`, `${at}.summary is empty.`);
+      const previous = byName.get(name.toLowerCase());
+      // A repeated name is the same candidate: its evidence and signals join the first one.
+      if (previous) { previous.evidenceIds = [...new Set([...previous.evidenceIds, ...evidenceIds])]; previous.semanticIntentSignals = [...new Set([...previous.semanticIntentSignals, ...lenientList(candidate.semanticIntentSignals, 15, 300)])].slice(0, 15); mergedNames++; return; }
+      byName.set(name.toLowerCase(), { id: `candidate-${digest(`${runId}:${batch.id}:${name.toLowerCase()}`)}`, runId, batchId: batch.id, name, summary, painPoint: oneOf(candidate.painPoint, PAIN_POINTS, 'None'), semanticIntentSignals: lenientList(candidate.semanticIntentSignals, 15, 300), actionability: lenientText(candidate.actionability, 2000), evidenceIds });
+    } catch (error) { if (error.field === undefined) throw error; dropped.push({ field: error.field, message: error.message }); }
   });
-  if (returned.length && !candidates.length) fail('candidate.evidenceIds', 'Every candidate cited only ids that are not in this batch. Cite posts with the "id" values shown in this batch.');
-  return { candidates, receipt: { runId, batchId: batch.id, inputCount: allowed.size, candidateCount: candidates.length, citedCount: new Set(candidates.flatMap((c) => c.evidenceIds)).size, droppedRefs, droppedCandidates } };
+  const candidates = [...byName.values()].map((c) => ({ ...c, evidenceCount: c.evidenceIds.length, platforms: [...new Set(c.evidenceIds.map((id) => itemMap.get(id)?.platform).filter(Boolean))] }));
+  if (returned.length && !candidates.length) noneUsable('candidates', dropped, 'Cite posts with the "id" values shown in this batch, and give every candidate a name and summary.');
+  return { candidates, receipt: { runId, batchId: batch.id, inputCount: allowed.size, candidateCount: candidates.length, citedCount: new Set(candidates.flatMap((c) => c.evidenceIds)).size, droppedRefs, droppedCandidates: dropped.length, mergedNames, ignoredCount: Math.max(0, output.candidates.length - returned.length), ...(dropped.length ? { droppedReasons: dropped.slice(0, 5).map((d) => d.message) } : {}) } };
 }
 // n8n "Aggregate Batch Candidates": merge by lower-cased name, union the intent signals and
 // evidence, keep every source candidate ID so themes still trace back to posts.
@@ -464,60 +480,84 @@ function validateThemes(output, { runId, candidates = [], previousThemes = [], m
   object(output, 'synthesis'); runId = string(runId, 'runId', 160, true); number(maxThemes, 'maxThemes', 1, 6, 6, true);
   array(candidates, 'candidates', 100000); array(previousThemes, 'previousThemes', 10000);
   if (candidates.some((c) => c.runId !== runId)) fail('runId', 'All candidates must belong to this research run.');
-  const candidateMap = new Map(candidates.map((c) => [c.id, c])); const previousMap = new Map(previousThemes.map((t) => [t.id, t])); const seen = new Set();
+  if (!Array.isArray(output.themes)) fail('themes', 'themes must be a list.');
+  const candidateMap = new Map(candidates.map((c) => [c.id, c])); const previousMap = new Map(previousThemes.map((t) => [t.id, t]));
   const categories = new Set((taxonomy?.categories || []).map((entry) => entry.category.toLowerCase()));
-  const resolve = refLookup(candidates.map((c) => c.id), candidateRef); let droppedRefs = 0;
-  const returned = array(output.themes, 'themes', 12);
-  const themes = returned.flatMap((theme) => {
-    object(theme, 'theme'); const name = string(theme.name, 'theme.name', 160, true).replace(/[.!?;:,]+$/, '');
-    // Unknown candidate references are dropped; a theme left with none has no evidence and is dropped.
-    const cited = strings(theme.candidateIds, 'theme.candidateIds', MAX_EVIDENCE_ITEMS, 200);
-    const candidateIds = [...new Set(cited.map(resolve).filter(Boolean))];
-    droppedRefs += cited.filter((value) => !resolve(value)).length;
-    if (!candidateIds.length) return [];
-    const existingId = theme.existingThemeId == null ? '' : string(theme.existingThemeId, 'existingThemeId', 160, true);
-    if (existingId && !previousMap.has(existingId)) fail('existingThemeId', 'A historical theme must reference a known stable theme ID.');
-    const id = existingId || `theme-${digest(`${runId}:${name.toLowerCase()}`)}`;
-    if (seen.has(id) || seen.has(`name:${name.toLowerCase()}`)) fail('themes', 'Themes must have unique IDs and names.'); seen.add(id); seen.add(`name:${name.toLowerCase()}`);
-    const evidenceIds = [...new Set(candidateIds.flatMap((key) => candidateMap.get(key).evidenceIds))];
-    const previous = previousMap.get(existingId);
-    const taxonomyCategory = string(theme.taxonomyCategory, 'taxonomyCategory', 160);
-    if (categories.size && taxonomyCategory && taxonomyCategory.toUpperCase() !== 'NONE' && !categories.has(taxonomyCategory.toLowerCase())) fail('taxonomyCategory', `Use only a taxonomy category from the supplied list (got “${taxonomyCategory}”).`);
-    const platforms = [...new Set(candidateIds.flatMap((key) => candidateMap.get(key).platforms || []))];
-    return {
-      id, runId, name, description: string(theme.description, 'theme.description', 5000, true), candidateIds, evidenceIds, evidenceCount: evidenceIds.length, platforms,
-      novelty: enumValue(theme.novelty, ['NEW TOPIC', 'NEW ANGLE', 'EVERGREEN'], 'novelty'), matchingKeywords: strings(theme.matchingKeywords, 'matchingKeywords', 30, 160), matchingCriteria: string(theme.matchingCriteria, 'matchingCriteria', 3000, true), negativeCriteria: string(theme.negativeCriteria, 'negativeCriteria', 3000), taxonomyCategory,
-      contentGap: theme.contentGap === undefined ? '' : enumValue(theme.contentGap, intel.TAXONOMY_ZONES, 'contentGap'), gapRationale: string(theme.gapRationale, 'gapRationale', 3000), recentTrend: theme.recentTrend === undefined ? '' : enumValue(theme.recentTrend, intel.RECENT_TRENDS, 'recentTrend'),
-      crossPlatform: theme.crossPlatform === undefined ? platforms.length > 1 : bool(theme.crossPlatform, 'crossPlatform'), totalEvidence: theme.totalEvidence === undefined ? evidenceIds.length : number(theme.totalEvidence, 'totalEvidence', 0, 1000000, 0, true),
-      aliases: [...new Set([...(previous?.aliases || []), ...(previous && previous.name !== name ? [previous.name] : [])])].slice(-50),
-    };
+  const resolve = refLookup(candidates.map((c) => c.id), candidateRef); let droppedRefs = 0; const dropped = []; const notes = [];
+  const returned = output.themes.slice(0, 12); const byId = new Map(); const nameToId = new Map();
+  // The cited candidates and the theme's name decide whether it is kept; unknown candidate references are dropped and a
+  // theme left with none has no evidence and is dropped. A theme with no description and no matching criteria is dropped
+  // (tagging can't use it). Everything else is enrichment: trimmed, defaulted or ignored, never a reason to fail synthesis.
+  returned.forEach((theme, index) => {
+    const at = `themes[${index}]`;
+    try {
+      object(theme, at); const name = lenientText(theme.name, 160).replace(/[.!?;:,]+$/, ''); if (!name) fail(`${at}.name`, `${at}.name is empty.`);
+      const cited = (Array.isArray(theme.candidateIds) ? theme.candidateIds : []).filter((x) => typeof x === 'string').map(text);
+      const candidateIds = [...new Set(cited.map(resolve).filter(Boolean))];
+      droppedRefs += cited.filter((value) => !resolve(value)).length;
+      if (!candidateIds.length) fail(`${at}.candidateIds`, `${at} ("${name.slice(0, 60)}") cited only candidate ids that were not supplied.`);
+      const description = lenientText(theme.description, 5000); const criteria = lenientText(theme.matchingCriteria, 3000);
+      if (!description && !criteria) fail(`${at}.description`, `${at}.description and matchingCriteria are both empty.`);
+      // A link to a tracked theme the model invented is ignored: the theme is treated as new.
+      let existingId = typeof theme.existingThemeId === 'string' ? text(theme.existingThemeId) : '';
+      if (existingId && !previousMap.has(existingId)) { notes.push(`${at}.existingThemeId "${existingId.slice(0, 60)}" is not a known theme; treated as new.`); existingId = ''; }
+      const id = existingId || `theme-${digest(`${runId}:${name.toLowerCase()}`)}`;
+      // A repeated theme (same ID or name) is the same theme: its candidates join the first one.
+      const same = byId.get(id) || byId.get(nameToId.get(name.toLowerCase()));
+      if (same) { same.candidateIds = [...new Set([...same.candidateIds, ...candidateIds])]; notes.push(`${at} repeated "${same.name}"; merged.`); return; }
+      let taxonomyCategory = lenientText(theme.taxonomyCategory, 160);
+      if (categories.size && taxonomyCategory && taxonomyCategory.toUpperCase() !== 'NONE' && !categories.has(taxonomyCategory.toLowerCase())) { notes.push(`${at}.taxonomyCategory "${taxonomyCategory.slice(0, 60)}" is not in the taxonomy; left blank.`); taxonomyCategory = ''; }
+      const previous = previousMap.get(existingId);
+      byId.set(id, {
+        id, runId, name, description: description || criteria, candidateIds,
+        novelty: oneOf(theme.novelty, ['NEW TOPIC', 'NEW ANGLE', 'EVERGREEN'], 'NEW TOPIC'), matchingKeywords: lenientList(theme.matchingKeywords, 30, 160), matchingCriteria: criteria || description, negativeCriteria: lenientText(theme.negativeCriteria, 3000), taxonomyCategory,
+        contentGap: oneOf(theme.contentGap, intel.TAXONOMY_ZONES, ''), gapRationale: lenientText(theme.gapRationale, 3000), recentTrend: oneOf(theme.recentTrend, intel.RECENT_TRENDS, ''),
+        crossPlatform: theme.crossPlatform, totalEvidence: theme.totalEvidence,
+        aliases: [...new Set([...(previous?.aliases || []), ...(previous && previous.name !== name ? [previous.name] : [])])].slice(-50),
+      });
+      nameToId.set(name.toLowerCase(), id);
+    } catch (error) { if (error.field === undefined) throw error; dropped.push({ field: error.field, message: error.message }); }
   });
-  if (returned.length && !themes.length) fail('theme.candidateIds', 'Every theme cited only candidate ids that were not supplied. Use the "id" values of the INPUT CANDIDATES.');
+  const themes = [...byId.values()].map((theme) => {
+    const evidenceIds = [...new Set(theme.candidateIds.flatMap((key) => candidateMap.get(key).evidenceIds))];
+    const platforms = [...new Set(theme.candidateIds.flatMap((key) => candidateMap.get(key).platforms || []))];
+    const totalEvidence = Number.isInteger(theme.totalEvidence) && theme.totalEvidence >= 0 && theme.totalEvidence <= 1000000 ? theme.totalEvidence : evidenceIds.length;
+    return { ...theme, evidenceIds, evidenceCount: evidenceIds.length, platforms, crossPlatform: typeof theme.crossPlatform === 'boolean' ? theme.crossPlatform : platforms.length > 1, totalEvidence };
+  });
+  if (returned.length && !themes.length) noneUsable('themes', dropped, 'Use the "id" values of the INPUT CANDIDATES in candidateIds, and give every theme a name and description.');
   // n8n "To Rows (6)": rank by name quality, cross-platform reach and evidence, then hard-cap.
   const ranked = intel.rankThemes(themes).slice(0, maxThemes);
-  return { themes: ranked, receipt: { runId, candidateCount: candidates.length, themeCount: ranked.length, returnedCount: themes.length, droppedRefs, citedCount: new Set(ranked.flatMap((t) => t.evidenceIds)).size, maximumThemes: maxThemes, nameIssues: ranked.filter((t) => t.nameIssues.length).map((t) => ({ name: t.name, issues: t.nameIssues })) } };
+  return { themes: ranked, receipt: { runId, candidateCount: candidates.length, themeCount: ranked.length, returnedCount: themes.length, droppedRefs, droppedThemes: dropped.length, ...(dropped.length || notes.length ? { notes: [...dropped.map((d) => d.message), ...notes].slice(0, 10) } : {}), citedCount: new Set(ranked.flatMap((t) => t.evidenceIds)).size, maximumThemes: maxThemes, nameIssues: ranked.filter((t) => t.nameIssues.length).map((t) => ({ name: t.name, issues: t.nameIssues })) } };
 }
 // The theme matching agent's answer, checked: every new theme once, existing IDs only, one new
 // theme per existing theme, and the NAME QUALITY OVERRIDE enforced deterministically.
 function validateThemeMatches(output, { themes = [], existing = [] } = {}) {
-  object(output, 'matching');
+  object(output, 'matching'); if (!Array.isArray(output.matches)) fail('matches', 'matches must be a list.');
   const themeMap = new Map(themes.map((t) => [t.id, t])); const existingMap = new Map(existing.map((t) => [t.id, t]));
-  const matches = new Map(); const claimed = new Set();
-  for (const entry of array(output.matches, 'matches', 12)) {
-    object(entry, 'match'); const themeId = string(entry.themeId, 'match.themeId', 160, true);
-    if (!themeMap.has(themeId)) fail('match.themeId', 'Return each new theme ID exactly as supplied.');
-    if (matches.has(themeId)) fail('match.themeId', 'Return each new theme at most once.');
-    const matchedId = entry.matchedExistingId == null || entry.matchedExistingId === '' ? null : string(entry.matchedExistingId, 'matchedExistingId', 160, true);
-    if (matchedId && !existingMap.has(matchedId)) fail('matchedExistingId', 'Match only to an existing theme ID from the supplied list, or null.');
-    const usable = matchedId && !claimed.has(matchedId) ? matchedId : null; if (usable) claimed.add(usable);
-    const theme = themeMap.get(themeId); const previous = usable ? existingMap.get(usable) : null;
-    const nameSource = enumValue(entry.nameSource, ['new', 'existing', 'rewritten'], 'nameSource');
-    const proposed = string(entry.finalName, 'finalName', 160, true).replace(/[.!?;:,]+$/, '');
-    const finalName = previous ? intel.preferredThemeName({ proposed: nameSource === 'existing' ? previous.name : proposed, existing: previous.name, original: theme.name }) : intel.preferredThemeName({ proposed, original: theme.name });
-    matches.set(themeId, { themeId, matchedExistingId: usable, existingName: previous?.name || '', finalName, nameSource: !previous ? (finalName === theme.name ? 'new' : 'rewritten') : finalName === previous.name ? 'existing' : finalName === theme.name ? 'new' : 'rewritten', reason: string(entry.reason, 'match.reason', 2000) });
-  }
+  const matches = new Map(); const claimed = new Set(); const dropped = []; const notes = [];
+  const returned = output.matches.slice(0, 12);
+  // The new theme's ID decides which theme an entry is about: an entry for an unknown theme (or a repeat) is dropped, and
+  // its theme is treated as new below. A match to a tracked theme that doesn't exist is treated as no match. Names and
+  // reasons are enrichment, and the NAME QUALITY OVERRIDE is enforced deterministically either way.
+  returned.forEach((entry, index) => {
+    const at = `matches[${index}]`;
+    try {
+      object(entry, at); const themeId = lenientText(entry.themeId, 160);
+      if (!themeMap.has(themeId)) fail(`${at}.themeId`, `${at}.themeId "${themeId.slice(0, 60)}" is not one of the supplied new theme IDs.`);
+      if (matches.has(themeId)) { notes.push(`${at} repeated theme ${themeId}; the first answer was kept.`); return; }
+      let matchedId = typeof entry.matchedExistingId === 'string' ? text(entry.matchedExistingId) : '';
+      if (matchedId && !existingMap.has(matchedId)) { notes.push(`${at}.matchedExistingId "${matchedId.slice(0, 60)}" is not a tracked theme; treated as new.`); matchedId = ''; }
+      const usable = matchedId && !claimed.has(matchedId) ? matchedId : null; if (usable) claimed.add(usable);
+      const theme = themeMap.get(themeId); const previous = usable ? existingMap.get(usable) : null;
+      const nameSource = oneOf(entry.nameSource, ['new', 'existing', 'rewritten'], 'new');
+      const proposed = lenientText(entry.finalName, 160).replace(/[.!?;:,]+$/, '') || theme.name;
+      const finalName = previous ? intel.preferredThemeName({ proposed: nameSource === 'existing' ? previous.name : proposed, existing: previous.name, original: theme.name }) : intel.preferredThemeName({ proposed, original: theme.name });
+      matches.set(themeId, { themeId, matchedExistingId: usable, existingName: previous?.name || '', finalName, nameSource: !previous ? (finalName === theme.name ? 'new' : 'rewritten') : finalName === previous.name ? 'existing' : finalName === theme.name ? 'new' : 'rewritten', reason: lenientText(entry.reason, 2000) });
+    } catch (error) { if (error.field === undefined) throw error; dropped.push({ field: error.field, message: error.message }); }
+  });
+  if (returned.length && themes.length && !matches.size) noneUsable('matches', dropped, 'Return each new theme ID exactly as supplied.');
   for (const theme of themes) if (!matches.has(theme.id)) matches.set(theme.id, { themeId: theme.id, matchedExistingId: null, existingName: '', finalName: theme.name, nameSource: 'new', reason: 'Not returned by the matching step; treated as a new topic.' });
-  return { matches: [...matches.values()], receipt: { themeCount: themes.length, existingCount: existing.length, matchedCount: [...matches.values()].filter((m) => m.matchedExistingId).length } };
+  return { matches: [...matches.values()], receipt: { themeCount: themes.length, existingCount: existing.length, matchedCount: [...matches.values()].filter((m) => m.matchedExistingId).length, ...(dropped.length || notes.length ? { notes: [...dropped.map((d) => d.message), ...notes].slice(0, 10) } : {}) } };
 }
 const ENTITY_KEYS = ['tools', 'people', 'companies']; const MAX_ENTITIES = 30;
 function lenientEntities(v) {

@@ -340,7 +340,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     }
   }
   // A call whose structured output fails validation gets one repair attempt with the validation
-  // message; a call stopped by its spending cap gets one retry with a larger cap.
+  // message; a call stopped by its spending cap gets one retry with a larger cap. The repaired answer is checked with
+  // { final: true }: validators that support it (the report builders) leave out optional items that still break a rule
+  // and cut what runs long, instead of throwing a paid-for draft away. If the repaired answer is still unusable, the
+  // first answer gets the same final check before the call fails (with the repair's error, which names the fields).
   async function aiValidated(run, key, schema, prompt, validate, options = {}) {
     const call = async (callKey, text) => {
       try { return await ai(run, callKey, schema, text, 1, options); }
@@ -353,8 +356,21 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     try { return validate(raw); } catch (error) {
       check(run);
       const repaired = await call(`${key}-repair`, prompt + researchPrompts.repairInstruction(error, raw));
-      return validate(repaired);
+      let result;
+      try { result = validate(repaired, { final: true }); } catch (repairError) {
+        if (repairError?.field === undefined) throw repairError;
+        try { result = validate(raw, { final: true }); } catch (_) { throw repairError; }
+      }
+      if (Array.isArray(result?.salvaged) && result.salvaged.length) run.warnings = [...new Set([...(run.warnings || []), `${options.message || key}: the AI's corrected draft still broke ${result.salvaged.length} rule${result.salvaged.length === 1 ? '' : 's'}, so the parts that didn't pass were left out (${result.salvaged.slice(0, 3).join(' ').slice(0, 400)}).`])];
+      return result;
     }
+  }
+  // A stage that can't be split (synthesis, matching, a report) and whose answer failed its checks twice stops with a
+  // message that says what failed and that a retry runs only that step again: everything finished before it is saved.
+  function unusableStep(run, error, step, kept) {
+    if (!unusableOutput(run, error)) return error;
+    const failed = new Error(`${step} failed its checks twice (${String(error.field || 'not valid JSON')}: ${safeError(error).slice(0, 300)}). ${kept} Retry runs only this step again.`);
+    failed.field = error.field; failed.cause = error; return failed;
   }
   async function pool(items, limit, worker) {
     const queue = [...items]; let failure;
@@ -961,8 +977,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       check(run); const cache = file(run.id, `${batch.id}.validated.json`); let result;
       if (fs.existsSync(cache)) result = read(cache);
       else {
-        const prompt = researchPrompts.discoveryPrompt({ batch, query: program.query, ...edition, notes: program.notes?.research || '', blocks: snapshotBlocks(input.prompts, 'research.discovery') });
-        result = await aiValidated(run, batch.id, research.DISCOVERY_SCHEMA, prompt, raw => research.validateCandidates(raw, { runId: run.id, batch }), { ...settings, estimateUsd: estimateCall(settings, prompt, STAGE_OUTPUT_TOKENS.discovery), message: `Discovering trends · ${research.PLATFORM_LABELS[batch.platform]} batch ${batch.platformBatchNumber}` });
+        result = await discoverGroup(run, batch, batch, { program, input, edition, settings }, `Discovering trends · ${research.PLATFORM_LABELS[batch.platform]} batch ${batch.platformBatchNumber}`);
         write(cache, { ...result, platform: batch.platform, batchNumber: batch.platformBatchNumber, itemsProcessed: batch.items.length, completedAt: stamp() });
       }
       byBatch.set(batch.id, result.candidates); run.discoveryProgress.completed++; save();
@@ -981,7 +996,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const prompt = researchPrompts.synthesisPrompt({ candidates: merged, totalPosts: discovery.receipt.plannedCount, sources, maxThemes: program.maxThemes, taxonomy, query: program.query, ...edition, notes: program.notes?.research || '', blocks: snapshotBlocks(input.prompts, 'research.synthesis') });
       if (prompt.length > 2500000) throw new Error('Theme synthesis exceeds the context budget. Use a shorter window or fewer sources; every completed discovery batch is saved.');
       run.stage = 'synthesis'; save();
-      synthesized = await aiValidated(run, 'theme-synthesis', { ...research.THEMES_SCHEMA, properties: { themes: { ...research.THEMES_SCHEMA.properties.themes, maxItems: program.maxThemes } } }, prompt, raw => research.validateThemes(raw, { runId: run.id, candidates: merged, maxThemes: program.maxThemes, taxonomy }), { ...synthesisSettings, estimateUsd: estimateCall(synthesisSettings, prompt, STAGE_OUTPUT_TOKENS.synthesis), message: 'Synthesizing the top themes' });
+      try { synthesized = await aiValidated(run, 'theme-synthesis', { ...research.THEMES_SCHEMA, properties: { themes: { ...research.THEMES_SCHEMA.properties.themes, maxItems: program.maxThemes } } }, prompt, raw => research.validateThemes(raw, { runId: run.id, candidates: merged, maxThemes: program.maxThemes, taxonomy }), { ...synthesisSettings, estimateUsd: estimateCall(synthesisSettings, prompt, STAGE_OUTPUT_TOKENS.synthesis), message: 'Synthesizing the top themes' }); }
+      catch (error) { throw unusableStep(run, error, 'Theme synthesis', `All ${discovery.batches.length} discovery batches are saved and won't be paid for again.`); }
       write(synthesisCache, synthesized);
     }
     let themes = synthesized.themes;
@@ -995,7 +1011,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         const matchingSettings = stageAi(run, 'matching');
         const prompt = researchPrompts.matchingPrompt({ themes, existing, ...edition, blocks: snapshotBlocks(input.prompts, 'research.matching') });
         run.stage = 'matching'; save();
-        matching = await aiValidated(run, 'theme-matching', research.MATCHING_SCHEMA, prompt, raw => research.validateThemeMatches(raw, { themes, existing }), { ...matchingSettings, estimateUsd: estimateCall(matchingSettings, prompt, STAGE_OUTPUT_TOKENS.matching), message: 'Matching themes against the repository' });
+        try { matching = await aiValidated(run, 'theme-matching', research.MATCHING_SCHEMA, prompt, raw => research.validateThemeMatches(raw, { themes, existing }), { ...matchingSettings, estimateUsd: estimateCall(matchingSettings, prompt, STAGE_OUTPUT_TOKENS.matching), message: 'Matching themes against the repository' }); }
+        catch (error) { throw unusableStep(run, error, 'Matching themes against tracked trends', 'Discovery and theme synthesis are saved and won\u2019t be paid for again.'); }
         write(matchingCache, matching);
       }
       const byTheme = new Map(matching.matches.map(match => [match.themeId, match])); const names = new Set();
@@ -1038,6 +1055,32 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const { candidateIds: _c, evidenceIds: _e, runId: _r, ...fields } = theme;
       const entry = { ...(previous || {}), ...fields, workspaceId: run.workspaceId, status: previous?.status === 'archived' ? 'active' : previous?.status || 'active', firstDetectedAt: previous?.firstDetectedAt || now, lastDetectedAt: now, detectionCount: theme.scoring.count, lastRunId: run.id, evidenceCount: theme.evidenceCount, updatedAt: now };
       state.themes = state.themes.filter(row => !(row.workspaceId === run.workspaceId && row.id === theme.id)); state.themes.push(entry);
+    }
+  }
+  // Discovery works the same way as tagging below: a batch whose answer is still rejected after its repair (or isn't
+  // JSON) is split in half and each half read on its own. Halves below DISCOVERY_MIN_SPLIT posts aren't split again:
+  // that group adds no candidates and the run says so. Cancellation, budget and provider errors still stop the run.
+  const DISCOVERY_MIN_SPLIT = 40;
+  async function discoverGroup(run, batch, group, { program, input, edition, settings }, label) {
+    const prompt = researchPrompts.discoveryPrompt({ batch: group, query: program.query, ...edition, notes: program.notes?.research || '', blocks: snapshotBlocks(input.prompts, 'research.discovery') });
+    try {
+      const result = await aiValidated(run, group.id, research.DISCOVERY_SCHEMA, prompt, raw => research.validateCandidates(raw, { runId: run.id, batch: group }), { ...settings, estimateUsd: estimateCall(settings, prompt, STAGE_OUTPUT_TOKENS.discovery), message: label });
+      return { ...result, candidates: result.candidates.map(candidate => ({ ...candidate, batchId: batch.id })) };
+    } catch (error) {
+      if (!unusableOutput(run, error)) throw error;
+      const where = `${research.PLATFORM_LABELS[batch.platform]} discovery batch ${batch.platformBatchNumber}`;
+      if (group.items.length < DISCOVERY_MIN_SPLIT) {
+        run.warnings = [...new Set([...(run.warnings || []), `${where}: ${group.items.length} posts could not be read after repeated attempts (${safeError(error).slice(0, 160)}), so they add no trend candidates. The rest of the run is unaffected.`])];
+        return { candidates: [], receipt: { runId: run.id, batchId: group.id, inputCount: group.items.length, candidateCount: 0, citedCount: 0, unreadCount: group.items.length } };
+      }
+      run.warnings = [...new Set([...(run.warnings || []), `${where}: a discovery response was rejected (${safeError(error).slice(0, 160)}), so its posts were read again in smaller groups.`])];
+      const half = Math.ceil(group.items.length / 2); const results = [];
+      for (const [index, items] of [group.items.slice(0, half), group.items.slice(half)].entries()) {
+        const part = { ...group, id: `${group.id}-${index + 1}`, items, evidenceIds: items.map(item => item.id) };
+        results.push(await discoverGroup(run, batch, part, { program, input, edition, settings }, `${label} (smaller group ${index + 1} of 2)`));
+      }
+      const candidates = research.mergeCandidates(results.flatMap(r => r.candidates)).map(({ sourceCandidateIds: _s, batchCount: _b, ...candidate }) => ({ ...candidate, id: `candidate-${createHash('sha256').update(`${run.id}:${batch.id}:${candidate.name.toLowerCase()}`).digest('hex').slice(0, 24)}`, batchId: batch.id }));
+      return { candidates, receipt: { runId: run.id, batchId: batch.id, inputCount: group.items.length, candidateCount: candidates.length, citedCount: new Set(candidates.flatMap(c => c.evidenceIds)).size, unreadCount: results.reduce((sum, r) => sum + (r.receipt?.unreadCount || 0), 0), split: true } };
     }
   }
   // A response the validator still rejects after its repair attempt (or that isn't JSON) is a problem
@@ -1142,17 +1185,17 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         let output;
         if (job.id === 'evidence-report') {
           const request = lib.buildTrendReportRequest({ theme: payload.theme, selection: payload.selection, editionId: input.editionId, brandName: payload.brandName, analysisFocus: payload.analysisFocus, targetAudience: payload.targetAudience, notes: payload.notes || '', blocks: snapshotBlocks(input.prompts, 'reports.trends-report') });
-          output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, raw => lib.validateTrendReport(raw, request.context), { ...reportSettings, estimateUsd: estimateCall(reportSettings, request.prompt, STAGE_OUTPUT_TOKENS.report), message: `Writing the trends report · ${payload.theme.name}`, timeoutMs: 2400000 });
+          output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, (raw, opts) => lib.validateTrendReport(raw, request.context, opts), { ...reportSettings, estimateUsd: estimateCall(reportSettings, request.prompt, STAGE_OUTPUT_TOKENS.report), message: `Writing the trends report · ${payload.theme.name}`, timeoutMs: 2400000 });
         } else {
           const reportJob = run.jobs.find(entry => entry.id === 'evidence-report');
           if (reportJob?.status !== 'succeeded' || !reportJob.assetId) throw new Error('The editorial toolkit is built from the trends report. Generate the report first.');
           const trendReport = read(file(run.id, `${reportJob.assetId}.json`));
           const registryDoc = (input.referenceDocs || []).find(doc => doc.kind === 'registry');
           const request = lib.buildToolkitRequest({ theme: payload.theme, trendReport, trendReportMarkdown: content.renderContentExport(trendReport), metrics: payload.selection.metrics, registryText: registryDoc?.text || '', products: input.productRegistry || [], referenceDocs: (input.referenceDocs || []).filter(doc => doc.kind !== 'registry'), enterpriseProducts: input.enterpriseProducts || [], editionId: input.editionId, brandName: payload.brandName, notes: payload.notes || '', blocks: snapshotBlocks(input.prompts, 'reports.editorial-toolkit') });
-          output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, raw => lib.validateToolkit(raw, request.context).output, { ...toolkitSettings, estimateUsd: estimateCall(toolkitSettings, request.prompt, STAGE_OUTPUT_TOKENS.toolkit), message: `Writing the editorial toolkit · ${payload.theme.name}`, timeoutMs: 2400000 });
+          output = await aiValidated(run, `output-${job.id}`, request.schema, request.prompt, (raw, opts) => lib.validateToolkit(raw, request.context, opts).output, { ...toolkitSettings, estimateUsd: estimateCall(toolkitSettings, request.prompt, STAGE_OUTPUT_TOKENS.toolkit), message: `Writing the editorial toolkit · ${payload.theme.name}`, timeoutMs: 2400000 });
         }
         job.assetId = saveTextAsset(run, deliverable, output).id; job.status = 'succeeded';
-      } catch (error) { job.status = stopped.has(run.id) ? 'cancelled' : 'failed'; job.error = safeError(error); }
+      } catch (error) { job.status = stopped.has(run.id) ? 'cancelled' : 'failed'; job.error = safeError(unusableStep(run, error, `The ${job.label || 'report'} draft`, 'Finished reports are kept.')); }
       save(); check(run);
     }
     run.status = run.jobs.every(j => j.status === 'succeeded') ? 'succeeded' : run.jobs.some(j => j.status === 'succeeded') ? 'partial' : 'failed';

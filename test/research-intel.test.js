@@ -76,7 +76,21 @@ describe('theme names (n8n To Rows (6) and NAME QUALITY OVERRIDE)', () => {
       ['t2', 'old-2', 'INP Diagnosis Confusion', 'existing'],
       ['t3', null, 'Reddit Answer Box Surge', 'new'],
     ]);
-    expect(() => validateThemeMatches({ matches: [{ themeId: 't1', matchedExistingId: 'invented', finalName: 'x y z', nameSource: 'new', reason: '' }] }, { themes, existing })).toThrow(/existing theme ID/);
+    // A match to a tracked theme that doesn't exist is treated as no match (a new topic), not a failed matching step.
+    const invented = validateThemeMatches({ matches: [{ themeId: 't1', matchedExistingId: 'invented', finalName: 'x y z', nameSource: 'new', reason: '' }] }, { themes, existing });
+    expect(invented.matches[0]).toMatchObject({ themeId: 't1', matchedExistingId: null, existingName: '' }); expect(invented.receipt.notes.join(' ')).toMatch(/not a tracked theme/);
+  });
+  it('drops one malformed matching entry instead of failing the step', () => {
+    const themes = [{ id: 't1', name: 'AI Overviews Traffic Collapse' }, { id: 't2', name: 'INP Diagnosis Confusion' }]; const existing = [{ id: 'old-1', name: 'AI Overviews Traffic Collapse' }];
+    const result = validateThemeMatches({ matches: [
+      { themeId: 'invented', matchedExistingId: 'old-1', finalName: 'x', nameSource: 'new', reason: '' }, 'junk',
+      { themeId: 't1', matchedExistingId: 'old-1', finalName: '', nameSource: 'bogus', reason: 'r'.repeat(5000) },
+      { themeId: 't1', matchedExistingId: null, finalName: 'Repeat', nameSource: 'new', reason: '' },
+    ] }, { themes, existing });
+    expect(result.matches.map((m) => [m.themeId, m.matchedExistingId])).toEqual([['t1', 'old-1'], ['t2', null]]);
+    expect(result.matches[0].reason).toHaveLength(2000);
+    try { validateThemeMatches({ matches: [{ themeId: 'nope' }] }, { themes, existing }); throw new Error('should fail'); }
+    catch (error) { expect(error.field).toBe('matches[0].themeId'); expect(error.message).toMatch(/No usable matches/); }
   });
 });
 

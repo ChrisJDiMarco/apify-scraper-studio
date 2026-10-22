@@ -69,10 +69,15 @@ function taggingPrompt({ batch, themes, blocks = null, trace = false, ...edition
   return `SYSTEM INSTRUCTIONS\n${system}\n\nTASK\n${user}`;
 }
 
-// Appended to a prompt when its structured output failed validation, so the model can fix it.
+// Appended to a prompt when its structured output failed validation, so the model can fix it. The fields the checks
+// rejected (error.field, or every rule a report broke in error.violations) are named first, so the model fixes those
+// elements instead of guessing; a message that already starts with its field is left as it is.
 function repairInstruction(error, previous) {
   const shown = previous === undefined ? '' : JSON.stringify(previous).slice(0, 60000);
-  return `\n\nYOUR PREVIOUS RESPONSE WAS REJECTED BY VALIDATION: ${String(error?.message || error).slice(0, 1500)}\nReturn a complete, corrected response for the whole task.${shown ? `\nPrevious response (for reference):\n${shown}` : ''}`;
+  const message = String(error?.message || error);
+  const fields = [...new Set([...(Array.isArray(error?.violations) ? error.violations.map((v) => v?.field) : []), error?.field].filter((f) => typeof f === 'string' && f))];
+  const named = fields.length && !(fields.length === 1 && message.startsWith(fields[0])) ? `Fix ${fields.length === 1 ? 'this field' : 'these fields'}: ${fields.slice(0, 12).join(', ')}${fields.length > 12 ? ` (+${fields.length - 12} more)` : ''}. ` : '';
+  return `\n\nYOUR PREVIOUS RESPONSE WAS REJECTED BY VALIDATION: ${(named + message).slice(0, 1500)}\nReturn a complete, corrected response for the whole task.${shown ? `\nPrevious response (for reference):\n${shown}` : ''}`;
 }
 
 module.exports = { domainFor, discoveryPrompt, synthesisPrompt, matchingPrompt, taggingPrompt, themeBlocks, repairInstruction };
