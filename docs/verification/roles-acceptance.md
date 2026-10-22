@@ -40,7 +40,7 @@ Mac and web.
 - [ ] **People & access › Roles**: the matrix shows Admin locked ("Everything. Can’t be changed."), Editor, Channel owner and any custom roles, grouped, with **Costs money** tags. Turning off **See research and evidence** for Editor turns off what needs it, with a note; the dirty bar reads "N changes · affects M people"; **Review and save** lists each role's changes and who's affected, then saves once. Saving from a second admin window that opened earlier says who changed roles and when, with **Reload**. Settings and People and access can't be turned on for anyone. Below 860px, **Show** picks one role at a time and the page never scrolls sideways.
 - [ ] **New role** from Viewer: the new column starts with reads and **Use Ask AI** only. Give it to a person: they see no costs anywhere (state, report reader, run cards, Ask AI) and no Sheets or Data tools. **Ask AI** works, with "Saved for you only. AI can be mistaken." under the box. **Rename** and **Delete** (which asks where to move its people) work; a role in use can't be deleted without moving them.
 - [ ] **Preview as…**: a role, a custom channel role (asks which channel) and one person ("Previewing what Riley Jones (Editor, 1 change) sees."). The preview matches what that person sees; every write is refused; **Back to Admin** ends it.
-- [ ] **People & access › Access log**: each change above is a sentence ("Alex turned off Edit AI prompts for Editor · affects 4 people · Oct 17, 10:42") that opens to show its changes; the Person, Role and What filters, **Load older** and **Download CSV** work. Turning off a sign-in link is logged.
+- [ ] **People & access › Access log**: each change above is a sentence ("Alex turned off Edit AI prompts for Editor · affects 4 people · Oct 17, 10:42") that opens to show its changes; the Person, Role and What filters, **Load older** and **Download CSV** work. **Sign out everywhere** is logged.
 - [ ] On the Mac: People shows the Mac note with Preview buttons per channel and Preview as an editor; Roles and Access log work, and a role change shows in View as at once.
 - [ ] **Analytics**: the range chips, funnel, Channels table (**Copy reminder**), Trends × channels matrix (cell details, **Change answer**), **Show skipped and waiting**, Recent activity and **Download CSV**.
 - [ ] Web, workspace switch: the picker asks first ("Everyone using the studio … switches"). An editor with an unsaved report edit keeps the editor open with a note and **Copy my text**.
@@ -84,7 +84,11 @@ Web, on a desktop browser and a phone; then Mac View as.
 
 - [ ] A person not in People (company sign-in) sees "You’re not in this studio yet", their email, the admins to ask, **Check again** and **Copy my email**. After an admin adds them, **Check again** lets them in.
 - [ ] A disabled person sees "Your access to this studio is paused."
-- [ ] An expired or replaced link shows "This sign-in link doesn’t work anymore. Ask your studio admin for a new one." with no password form.
+- [ ] An expired, replaced or already-used link shows "This sign-in link doesn’t work anymore: each link works once, and only for a few days. …" with **Go to sign-in** and no password form.
+- [ ] Opening someone else's link while signed in shows "This link is for <name>" with **Stay signed in as <you>** first; choosing it leaves you signed in as yourself and the link unused.
+- [ ] A used link signs nobody in the second time. A restart or deploy signs nobody out.
+- [ ] With Google set up: **Sign in with Google** signs in someone in People; an account not in People sees "That Google account isn’t in this studio."
+- [ ] With email on: **Email me a sign-in link** says the same thing for any address, and the link arrives only for people in the studio.
 
 ## Sign-in and the server
 

@@ -51,7 +51,7 @@ export async function request(url, init = {}) {
   if (redirected || response.status === 401 || (proxySignIn && response.status === 403 && !isJson)) {
     const mode = body.signIn || (proxySignIn || redirected ? 'proxy' : 'password');
     window.dispatchEvent(new CustomEvent('studio-signed-out', { detail: mode }));
-    throw Object.assign(new SignedOut(body.error || 'Sign in to this studio.'), { mode, status: 401 });
+    throw Object.assign(new SignedOut(body.error || 'Sign in to this studio.'), { mode, status: 401, methods: body.methods || null });
   }
   // status and code (forbidden, preview, editConflict…) stay on the error so screens can tell a refusal from a failure.
   if (!response.ok) {

@@ -50,7 +50,7 @@ describe('email from the browser studio', () => {
   afterAll(() => { vi.restoreAllMocks(); runtime?.shutdown(); });
 
   it('says email is on, so the invite form can say so', async () => {
-    expect((await chris('team:list')).signIn).toEqual({ web: true, sso: false, links: true, linkDays: 30, email: true });
+    expect((await chris('team:list')).signIn).toEqual({ web: true, sso: false, links: true, google: false, inviteLinks: true, linkDays: 7, email: true });
   });
 
   it('emails each new person their own sign-in link, and a failed email still invites them', async () => {
@@ -75,7 +75,7 @@ describe('email from the browser studio', () => {
     const result = await chris('team:invite', { people: [{ email: 'casey@semrush.com', name: 'Casey Kim' }], role: 'editor' });
     const token = result.links[0].url.split('#signin=')[1];
     const before = sent.length;
-    expect(people().linkLogin(token, { origin: 'https://studio.example.com' })).toMatchObject({ memberId: result.members[0].id });
+    expect(people().useLink(token, { origin: 'https://studio.example.com' })).toMatchObject({ memberId: result.members[0].id });
     await until(() => sent.length > before);
     const notices = sent.slice(before);
     expect(notices.map((email) => email.to[0])).toEqual(['chris@semrush.com']); // the only admin, and never Casey
@@ -83,10 +83,16 @@ describe('email from the browser studio', () => {
     expect(notices[0].text).toContain('Casey Kim (casey@semrush.com, Editor) just signed in to Golden Thread for the first time');
     expect(notices[0].text).toContain('https://studio.example.com');
     expect(notices[0].text).not.toContain(token);
-    // Signing in again, or after a restart reads team.json back, is not a first time.
-    people().linkLogin(token, { origin: 'https://studio.example.com' });
+    // The link is used up. Signing in again with a new one, or after a restart reads team.json back, is not a first time.
+    expect(people().useLink(token, { origin: 'https://studio.example.com' })).toBeNull();
+    const again = await chris('team:sign-in-link', { id: result.members[0].id });
+    expect(again).toMatchObject({ emailed: true, to: 'casey@semrush.com' }); expect(again).not.toHaveProperty('url'); // email on: the admin never sees it
+    await until(() => sent.length > before + 1);
+    const resent = sent.at(-1);
+    expect(resent).toMatchObject({ to: ['casey@semrush.com'], subject: 'Your sign-in link for the Golden Thread studio', tags: [{ name: 'kind', value: 'sign-in-link' }] });
+    people().useLink(resent.text.match(/#signin=([0-9a-f]{64})/)[1], { origin: 'https://studio.example.com' });
     await sleep(50);
-    expect(sent.length).toBe(before + 1);
+    expect(sent.length).toBe(before + 2);
     const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'content-studio', 'team.json'), 'utf8')).members.find((member) => member.email === 'casey@semrush.com');
     expect(saved.firstSignInAt).toEqual(expect.any(String));
   });

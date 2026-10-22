@@ -44,8 +44,8 @@ async function fixture({ people, handlers = {}, ...extra } = {}) {
   const { server } = createStudioServer({ webRoot, password: PASSWORD, runtime, logEvent: (entry) => logs.push(entry), ...extra });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve)); const base = `http://127.0.0.1:${server.address().port}`;
   resources.push({ server, root });
-  async function request(route, { method = 'GET', body, raw, cookie, origin = base, headers = {} } = {}) {
-    return fetch(`${base}${route}`, { method, headers: { ...(method === 'POST' && origin !== false ? { Origin: origin } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers }, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
+  async function request(route, { method = 'GET', body, raw, cookie, origin = base, headers = {}, redirect = 'follow' } = {}) {
+    return fetch(`${base}${route}`, { method, redirect, headers: { ...(method === 'POST' && origin !== false ? { Origin: origin } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers }, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
   }
   async function login() { const response = await request('/api/login', { method: 'POST', body: { password: PASSWORD } }); expect(response.status).toBe(200); return response.headers.get('set-cookie').split(';')[0]; }
   const rpc = (cookie, body) => request('/api/rpc', { method: 'POST', cookie, body });
@@ -166,19 +166,26 @@ describe('browser studio server', () => {
   });
 });
 
-// The main process's `people` provider, reduced to what the server asks of it: members with personal links, the admin
-// password identity, SSO lookups and a per-viewer projection that names who it was made for.
-function peopleStub() {
-  const member = (id, name, email, role, channelId = null) => ({ id, name, email, role, channelId, disabled: false, link: { id: `${id}-link`, token: randomBytes(32).toString('hex') } });
+// The main process's `people` provider, reduced to what the server asks of it: members with one-time links and a
+// sessionEpoch, the admin password identity, SSO and Google lookups, emailed links and a per-viewer projection that names
+// who it was made for. token(id) makes a fresh one-time link for that member, as People would.
+function peopleStub({ email = false } = {}) {
+  const member = (id, name, address, role, channelId = null) => ({ id, name, email: address, role, channelId, disabled: false, sessionEpoch: 0 });
   const members = new Map([member('member-alex', 'Alex', 'alex@semrush.com', 'channel', 'blog'), member('member-riley', 'Riley', 'riley@semrush.com', 'editor'), member('member-pat', 'Pat', 'pat@semrush.com', 'admin')].map((m) => [m.id, m]));
   const identity = (m, via) => ({ id: m.id, name: m.name, email: m.email, role: m.disabled ? null : m.role, channelId: m.channelId, via, disabled: m.disabled, memberSince: '2026-10-01T00:00:00.000Z' });
+  const links = new Map(); // token → member id, one per member, used up on sign-in
+  const holder = (token) => { const m = members.get(links.get(token)); return m && !m.disabled ? m : null; };
   const stub = {
-    members, views: [], logs: [],
-    token: (id) => members.get(id).link.token,
+    members, views: [], logs: [], emailed: [],
+    token: (id) => { for (const [token, owner] of links) if (owner === id) links.delete(token); const token = randomBytes(32).toString('hex'); links.set(token, id); return token; },
     ownerIdentity: () => ({ id: 'owner', name: 'Studio admin', email: '', role: 'admin', channelId: null, via: 'password', disabled: false }),
-    fromProxyEmail: (email) => { const m = [...members.values()].find((entry) => entry.email === email); return m ? identity(m, 'proxy') : { id: `guest:${email}`, name: email.split('@')[0], email, role: null, channelId: null, via: 'proxy' }; },
-    fromLinkSession: (session) => { const m = members.get(session.memberId); return m && m.link?.id === session.linkId ? identity(m, 'link') : null; },
-    linkLogin: (token) => { const m = [...members.values()].find((entry) => entry.link?.token === token && !entry.disabled); return m ? { memberId: m.id, linkId: m.link.id } : null; },
+    fromProxyEmail: (address) => { const m = [...members.values()].find((entry) => entry.email === address); return m ? identity(m, 'proxy') : { id: `guest:${address}`, name: address.split('@')[0], email: address, role: null, channelId: null, via: 'proxy' }; },
+    fromMemberSession: (session) => { const m = members.get(session.memberId); return m && !m.disabled && m.sessionEpoch === session.epoch ? identity(m, session.via) : null; },
+    peekLink: (token) => { const m = holder(token); return m ? { id: m.id, name: m.name, email: m.email } : null; },
+    useLink: (token) => { const m = holder(token); if (!m) return null; links.delete(token); return { memberId: m.id, epoch: m.sessionEpoch }; },
+    googleLogin: (address) => { const m = [...members.values()].find((entry) => entry.email === address); if (!m) return { refused: 'not-invited' }; if (m.disabled) return { refused: 'paused' }; return { memberId: m.id, epoch: m.sessionEpoch }; },
+    emailReady: () => email,
+    requestEmailLink: async (address, context) => { stub.emailed.push({ address, origin: context.origin }); },
     view: (base, who, session) => { stub.views.push(who.id); return JSON.stringify({ ...base, viewer: { id: who.id, role: who.role, viewAs: session?.viewAs?.role || null } }); },
     logEvent: (entry) => stub.logs.push(entry),
   };
@@ -208,19 +215,23 @@ describe('browser studio server with people and roles', () => {
   const linkLogin = (h, linkToken, cookie) => h.request('/api/login', { method: 'POST', cookie, body: { linkToken } });
   const cookieOf = (response) => response.headers.get('set-cookie').split(';')[0];
 
-  it('signs people in with their personal link for 30 days, passes who they are to each call, and logs no tokens', async () => {
+  it('signs people in once with a link, for 30 days, passes who they are to each call, and logs no tokens', async () => {
     const people = peopleStub(); const h = await fixture({ people });
-    const signedIn = await linkLogin(h, people.token('member-alex'));
+    const link = people.token('member-alex');
+    const signedIn = await linkLogin(h, link);
     expect(signedIn.status).toBe(200); expect(signedIn.headers.get('set-cookie')).toMatch(/HttpOnly; SameSite=Strict; Path=\/; Max-Age=2592000$/);
     const cookie = cookieOf(signedIn);
     expect(await (await h.request('/api/session', { cookie })).json()).toEqual({ ok: true, user: 'alex@semrush.com', signOut: true, viewer: { name: 'Alex', email: 'alex@semrush.com', role: 'channel', channelId: 'blog', disabled: false } });
     expect((await h.rpc(cookie, { channel: 'state' })).status).toBe(200);
-    expect(h.runtime.calls.at(-1)).toMatchObject({ channel: 'state', user: 'member-alex', session: 'link', origin: h.base });
+    expect(h.runtime.calls.at(-1)).toMatchObject({ channel: 'state', user: 'member-alex', session: 'member', origin: h.base });
+    // The link is used up: opening it again (someone it was forwarded to, the admin who made it) signs nobody in.
+    const again = await linkLogin(h, link);
+    expect(again.status).toBe(401); expect(await again.json()).toEqual({ error: roles.copy.linkInvalid, signIn: 'link-invalid' });
     const admin = await h.login();
     await h.rpc(admin, { channel: 'app-meta' });
     expect(h.runtime.calls.at(-1)).toMatchObject({ channel: 'app-meta', user: 'owner', session: 'password' });
-    expect(people.logs).toEqual([expect.objectContaining({ event: 'sign-in', kind: 'link', memberId: 'member-alex' }), expect.objectContaining({ event: 'sign-in', kind: 'password' })]);
-    expect(JSON.stringify(people.logs)).not.toContain(people.token('member-alex')); expect(JSON.stringify(people.logs)).not.toContain(cookie.split('=')[1]);
+    expect(people.logs).toEqual([expect.objectContaining({ event: 'sign-in', kind: 'link', memberId: 'member-alex' }), expect.objectContaining({ event: 'sign-in-failed', kind: 'link' }), expect.objectContaining({ event: 'sign-in', kind: 'password' })]);
+    expect(JSON.stringify(people.logs)).not.toContain(link); expect(JSON.stringify(people.logs)).not.toContain(cookie.split('=')[1]);
   });
 
   it('refuses an unknown, malformed or turned-off link with its own answer, and never lets bad links lock anyone out', async () => {
@@ -228,8 +239,8 @@ describe('browser studio server with people and roles', () => {
     const unknown = await linkLogin(h, randomBytes(32).toString('hex'));
     expect(unknown.status).toBe(401); expect(await unknown.json()).toEqual({ error: roles.copy.linkInvalid, signIn: 'link-invalid' });
     expect((await linkLogin(h, 'not-a-token')).status).toBe(401);
-    people.members.get('member-alex').disabled = true;
-    expect((await linkLogin(h, people.token('member-alex'))).status).toBe(401);
+    const paused = people.token('member-alex'); people.members.get('member-alex').disabled = true;
+    expect((await linkLogin(h, paused)).status).toBe(401);
     // Behind the reverse proxy everyone arrives from one address: a flood of bad links from it must not stop people
     // with real links, or the admin password, from signing in (link tokens are 32 random bytes; guessing is hopeless).
     for (let i = 0; i < 20; i++) expect((await linkLogin(h, randomBytes(32).toString('hex'))).status).toBe(401);
@@ -273,26 +284,35 @@ describe('browser studio server with people and roles', () => {
     expect(await (await h.request('/api/session', { headers: { 'X-Auth-Request-Email': 'Pat@semrush.com' } })).json()).toEqual({ ok: true, user: 'pat@semrush.com', signOut: false, viewer: { name: 'Pat', email: 'pat@semrush.com', role: 'admin', channelId: null, disabled: false } });
   });
 
-  it('expires admin password sessions after 12 hours and link sessions after 30 days', async () => {
+  it('expires admin password sessions after 12 hours, and member sessions 30 days after they were last used', async () => {
     const people = peopleStub(); const h = await fixture({ people });
-    const admin = await h.login(); const alex = cookieOf(await linkLogin(h, people.token('member-alex')));
+    const admin = await h.login(); const alex = cookieOf(await linkLogin(h, people.token('member-alex'))); const riley = cookieOf(await linkLogin(h, people.token('member-riley')));
     const start = Date.now(); const later = (ms) => vi.spyOn(Date, 'now').mockReturnValue(start + ms);
     later(13 * 3600000);
     expect((await h.request('/api/session', { cookie: admin })).status).toBe(401);
     expect((await h.request('/api/session', { cookie: alex })).status).toBe(200);
+    // Riley keeps using the studio: their session is pushed back to 30 days (at most once a day), and so is the cookie.
+    later(20 * 24 * 3600000);
+    const renewed = await h.request('/api/session', { cookie: riley });
+    expect(renewed.status).toBe(200); expect(renewed.headers.get('set-cookie')).toMatch(/^studio_session=[a-f0-9]{64}; HttpOnly; SameSite=Strict; Path=\/; Max-Age=2592000$/);
+    expect((await h.request('/api/session', { cookie: riley })).headers.get('set-cookie')).toBeNull(); // not again the same day
     later(31 * 24 * 3600000);
     const expired = await h.request('/api/session', { cookie: alex });
-    expect(expired.status).toBe(401); expect(await expired.json()).toMatchObject({ signIn: 'password' });
+    expect(expired.status).toBe(401); expect(await expired.json()).toMatchObject({ signIn: 'password', methods: { password: true, google: false, email: false } });
+    expect((await h.request('/api/session', { cookie: riley })).status).toBe(200);
   });
 
-  it('signs out every browser that used a link once the link is replaced, and closes their live updates', async () => {
+  it('signs someone out of every browser when their sessions are ended, and closes their live updates', async () => {
     const people = peopleStub(); const h = await fixture({ people });
     const phone = cookieOf(await linkLogin(h, people.token('member-alex'))); const laptop = cookieOf(await linkLogin(h, people.token('member-alex')));
+    const riley = cookieOf(await linkLogin(h, people.token('member-riley')));
     const stream = await openStream(h.base, laptop);
-    people.members.get('member-alex').link = { id: 'member-alex-link-2', token: randomBytes(32).toString('hex') };
+    people.members.get('member-alex').sessionEpoch = 1; // Sign out everywhere, or pausing them
     h.runtime.broadcast({ version: 1 });
     expect(await stream.ended()).toBe(true);
     for (const cookie of [phone, laptop]) expect((await h.request('/api/session', { cookie })).status).toBe(401);
+    expect((await h.request('/api/session', { cookie: riley })).status).toBe(200); // nobody else
+    expect((await h.request('/api/session', { cookie: cookieOf(await linkLogin(h, people.token('member-alex'))) })).status).toBe(200); // they can sign in again
   });
 
   it('ends the session a browser arrived with when a link signs it in, and its stream with it', async () => {
@@ -390,5 +410,143 @@ describe('browser studio server with people and roles', () => {
     const stale = await h.rpc(cookie, { channel: 'studio:editStudioAsset', payload: {} });
     expect(stale.status).toBe(409); expect(await stale.json()).toEqual({ error: 'Riley saved this report first.', code: 'editConflict' });
     expect(await (await h.rpc(cookie, { channel: 'open-source-url', payload: 'x' })).json()).toEqual({ error: 'That file no longer exists.' });
+  });
+});
+
+describe('one-time links, emailed links, Google sign-in and saved sessions', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+  const cookieOf = (response) => response.headers.get('set-cookie').split(';')[0];
+  const linkInfo = (h, linkToken, cookie) => h.request('/api/login/link', { method: 'POST', cookie, body: { linkToken } });
+
+  it('says whose link it is and who this browser is signed in as, without using the link', async () => {
+    const people = peopleStub(); const h = await fixture({ people });
+    const link = people.token('member-alex');
+    expect(await (await linkInfo(h, link)).json()).toEqual({ name: 'Alex', email: 'a•••@semrush.com', signedInAs: null });
+    // An admin who clicks Alex's invite sees that it's Alex's, and that they'd stop being themselves.
+    const admin = await h.login();
+    expect(await (await linkInfo(h, link, admin)).json()).toEqual({ name: 'Alex', email: 'a•••@semrush.com', signedInAs: { name: 'Studio admin', same: false } });
+    expect((await h.request('/api/session', { cookie: admin })).status).toBe(200); // still the admin
+    const alex = cookieOf(await h.request('/api/login', { method: 'POST', body: { linkToken: link } })); // the link still worked
+    const again = people.token('member-alex');
+    expect((await (await linkInfo(h, again, alex)).json()).signedInAs).toEqual({ name: 'Alex', same: true });
+    expect((await linkInfo(h, randomBytes(32).toString('hex'))).status).toBe(401);
+    expect(people.logs.filter((entry) => entry.event === 'sign-in')).toHaveLength(2); // peeking signed nobody in
+  });
+
+  it('emails a sign-in link on request with the same answer for anyone, and limits how often', async () => {
+    const off = await fixture({ people: peopleStub() });
+    expect((await off.request('/api/login/email', { method: 'POST', body: { email: 'alex@semrush.com' } })).status).toBe(400);
+    const people = peopleStub({ email: true }); const h = await fixture({ people });
+    const ask = (email, headers) => h.request('/api/login/email', { method: 'POST', body: { email }, headers });
+    const member = await ask('Alex@Semrush.com'); const stranger = await ask('nobody@example.com');
+    expect(member.status).toBe(200); expect(stranger.status).toBe(200);
+    expect(await member.json()).toEqual(await stranger.json()); // nothing tells who is in the studio
+    expect((await ask('not an email')).status).toBe(400);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The provider decides whether there's anyone to email; the server only passes the address and the page's origin.
+    expect(people.emailed).toEqual([{ address: 'alex@semrush.com', origin: h.base }, { address: 'nobody@example.com', origin: h.base }]);
+    for (let i = 0; i < 3; i++) await ask('riley@semrush.com');
+    expect((await ask('riley@semrush.com')).status).toBe(429); // five a client per 10 minutes
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(people.emailed.filter((entry) => entry.address === 'riley@semrush.com')).toHaveLength(3);
+    expect(JSON.stringify(people.logs)).not.toContain('riley@semrush.com');
+  });
+
+  it('keeps signed-in browsers through a restart, storing only a hash of each cookie', async () => {
+    const people = peopleStub(); const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'studio-sessions-')), 'web-sessions.json');
+    const first = await fixture({ people, sessionFile: file });
+    const alex = cookieOf(await first.request('/api/login', { method: 'POST', body: { linkToken: people.token('member-alex') } }));
+    const admin = await first.login();
+    await new Promise((resolve) => first.server.close(resolve)); // saves on close
+    const saved = fs.readFileSync(file, 'utf8');
+    expect(saved).not.toContain(alex.split('=')[1]); expect(saved).not.toContain(admin.split('=')[1]);
+    if (process.platform !== 'win32') expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    const second = await fixture({ people, sessionFile: file });
+    expect((await (await second.request('/api/session', { cookie: alex })).json()).viewer.name).toBe('Alex');
+    expect((await second.request('/api/session', { cookie: admin })).status).toBe(200);
+    people.members.get('member-alex').sessionEpoch = 1;
+    expect((await second.request('/api/session', { cookie: alex })).status).toBe(401);
+  });
+
+  describe('Google sign-in', () => {
+    const GOOGLE = { googleClientId: 'client-123.apps.googleusercontent.com', googleClientSecret: 'google-secret-value', publicOrigin: 'http://127.0.0.1' };
+    // A Google stand-in: the token endpoint answers with an ID token for `claims` (nonce copied from the sign-in).
+    function google(claims = {}, { status = 200 } = {}) {
+      const seen = [];
+      const fetchImpl = async (url, init) => {
+        const body = new URLSearchParams(init.body); seen.push({ url, body });
+        const payload = { iss: 'https://accounts.google.com', aud: GOOGLE.googleClientId, exp: Math.floor(Date.now() / 1000) + 300, email: 'riley@semrush.com', email_verified: true, nonce: google.nonce, ...claims };
+        const part = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+        return { ok: status === 200, status, json: async () => (status === 200 ? { id_token: `${part({ alg: 'RS256' })}.${part(payload)}.sig` } : { error: 'invalid_grant' }) };
+      };
+      return { fetchImpl, seen };
+    }
+    async function start(h) {
+      const response = await h.request('/api/auth/google/start', { redirect: 'manual' });
+      const location = new URL(response.headers.get('location'));
+      google.nonce = location.searchParams.get('nonce');
+      return { response, location, cookie: response.headers.get('set-cookie').split(';')[0], state: location.searchParams.get('state') };
+    }
+    const back = (h, { state, cookie, code = 'auth-code' }) => fetch(`${h.base}/api/auth/google/callback?state=${state}&code=${code}`, { redirect: 'manual', headers: { Cookie: cookie } });
+
+    it('needs both Google settings and the public origin', () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-google-config-')); resources.push({ root, server: { close: (done) => done() } });
+      const runtime = fakeRuntime(root, {});
+      expect(() => createStudioServer({ webRoot: root, password: PASSWORD, runtime, googleClientId: 'x' })).toThrow(/both STUDIO_GOOGLE_CLIENT_ID and STUDIO_GOOGLE_CLIENT_SECRET/);
+      expect(() => createStudioServer({ webRoot: root, password: PASSWORD, runtime, googleClientId: 'x', googleClientSecret: 'y' })).toThrow(/STUDIO_PUBLIC_ORIGIN/);
+    });
+
+    it('sends people to Google with PKCE, then signs in the member whose verified email it is', async () => {
+      const people = peopleStub(); const stub = google(); const h = await fixture({ people, ...GOOGLE, fetchImpl: stub.fetchImpl });
+      expect(await (await h.request('/api/session')).json()).toMatchObject({ methods: { google: true, password: true } });
+      const { response, location, cookie, state } = await start(h);
+      expect(response.status).toBe(302); expect(location.origin + location.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth');
+      expect(Object.fromEntries(location.searchParams)).toMatchObject({ client_id: GOOGLE.googleClientId, redirect_uri: 'http://127.0.0.1/api/auth/google/callback', response_type: 'code', scope: 'openid email profile', code_challenge_method: 'S256' });
+      expect(response.headers.get('set-cookie')).toMatch(/^studio_google=[a-f0-9]{64}; HttpOnly; SameSite=Lax; Path=\/api\/auth\/google; Max-Age=600/);
+      const done = await back(h, { state, cookie });
+      expect(done.status).toBe(302); expect(done.headers.get('location')).toBe('/');
+      const session = done.headers.getSetCookie().find((part) => part.startsWith('studio_session=')).split(';')[0];
+      expect(done.headers.getSetCookie()).toContain('studio_google=; HttpOnly; SameSite=Lax; Path=/api/auth/google; Max-Age=0');
+      expect((await (await h.request('/api/session', { cookie: session })).json()).viewer).toMatchObject({ name: 'Riley', role: 'editor' });
+      // The code went to Google with the PKCE verifier that matches the challenge, and the client secret.
+      const sent = stub.seen[0].body; const challenge = (await import('node:crypto')).createHash('sha256').update(sent.get('code_verifier')).digest('base64url');
+      expect(challenge).toBe(location.searchParams.get('code_challenge')); expect(sent.get('client_secret')).toBe(GOOGLE.googleClientSecret);
+      expect(JSON.stringify(people.logs)).not.toContain('google-secret-value');
+      // The same Google answer can't be replayed.
+      expect((await back(h, { state, cookie })).headers.get('location')).toBe('/#signin-error=expired');
+    });
+
+    it('signs nobody in for a wrong state, someone not in People, a paused member, another domain or a bad token', async () => {
+      const cases = [
+        [{}, (s) => ({ ...s, cookie: `studio_google=${'a'.repeat(64)}` }), 'expired'],
+        [{ email: 'stranger@gmail.com' }, (s) => s, 'not-invited'],
+        [{ email_verified: false }, (s) => s, 'unverified'],
+        [{ nonce: 'replayed' }, (s) => s, 'failed'],
+        [{ aud: 'someone-else' }, (s) => s, 'failed'],
+        [{ exp: 1 }, (s) => s, 'failed'],
+      ];
+      for (const [claims, tweak, code] of cases) {
+        const people = peopleStub(); const h = await fixture({ people, ...GOOGLE, fetchImpl: google(claims).fetchImpl });
+        const answer = await back(h, tweak(await start(h)));
+        expect([claims, answer.headers.get('location')]).toEqual([claims, `/#signin-error=${code}`]);
+        expect(answer.headers.get('set-cookie')).not.toMatch(/studio_session=[a-f0-9]/);
+      }
+      const people = peopleStub(); people.members.get('member-riley').disabled = true;
+      const paused = await fixture({ people, ...GOOGLE, fetchImpl: google().fetchImpl });
+      expect((await back(paused, await start(paused))).headers.get('location')).toBe('/#signin-error=paused');
+      const limited = await fixture({ people: peopleStub(), ...GOOGLE, googleDomains: 'searchengineland.com', fetchImpl: google().fetchImpl });
+      const limitedStart = await start(limited); expect(limitedStart.location.searchParams.get('hd')).toBe('searchengineland.com');
+      expect((await back(limited, limitedStart)).headers.get('location')).toBe('/#signin-error=domain');
+      const refused = await fixture({ people: peopleStub(), ...GOOGLE, fetchImpl: google({}, { status: 400 }).fetchImpl });
+      expect((await back(refused, await start(refused))).headers.get('location')).toBe('/#signin-error=failed');
+      const cancelled = await fixture({ people: peopleStub(), ...GOOGLE, fetchImpl: google().fetchImpl });
+      const { state, cookie } = await start(cancelled);
+      expect((await fetch(`${cancelled.base}/api/auth/google/callback?state=${state}&error=access_denied`, { redirect: 'manual', headers: { Cookie: cookie } })).headers.get('location')).toBe('/#signin-error=cancelled');
+    });
+
+    it('stays off without its settings and under company sign-in', async () => {
+      const h = await fixture({ people: peopleStub() });
+      expect((await h.request('/api/auth/google/start', { redirect: 'manual' })).headers.get('location')).toBe('/#signin-error=google-off');
+    });
   });
 });

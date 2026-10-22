@@ -48,6 +48,22 @@ Keep this process start command when deploying GitHub updates.
 Personal links are bearer credentials: the admin should provision only `semrush.com` addresses. Password/link
 mode does not verify company email ownership or enforce the SSO-only domain allowlist.
 
+## Sign in with Google
+
+People sign in with their Google account; the email must belong to someone in People & access. To turn it on:
+
+1. In Google Cloud Console, in a project the company owns: **APIs & Services › OAuth consent screen**: **Internal** if
+   everyone uses the company Google Workspace (otherwise **External**), app name *Golden Thread*, scopes `openid`,
+   `email`, `profile`.
+2. **Credentials › Create credentials › OAuth client ID › Web application**, with the authorized redirect URI
+   `https://goldenthread.searchengineland.com/api/auth/google/callback`.
+3. In Sevalla, add `STUDIO_GOOGLE_CLIENT_ID` (the client ID) and `STUDIO_GOOGLE_CLIENT_SECRET` (encrypted, runtime
+   only, like `STUDIO_PASSWORD`). `STUDIO_PUBLIC_ORIGIN` must be `https://goldenthread.searchengineland.com`.
+   Optionally `STUDIO_GOOGLE_ALLOWED_DOMAINS=semrush.com,searchengineland.com`. Restart.
+
+The sign-in page then leads with **Sign in with Google**, keeps **Email me a sign-in link** for anyone without a
+Google account (when email is on), and tucks the admin password under **Admin password**.
+
 ## Email (off until configured)
 
 Sevalla blocks SMTP ports 25, 465 and 587 everywhere, and 2525 in Oracle Cloud regions (including this app’s Ashburn region). Use an HTTPS provider: Resend or Mailgun.
@@ -63,7 +79,8 @@ For the existing Mailgun account, set these encrypted runtime-only variables, th
 
 Mailgun uses HTTPS on port 443 with open/click tracking disabled for sign-in links. Keep the existing OnDMARC SPF/DMARC setup and Marketo records when verifying the sending domain. Never publish an extra SPF record. SMTP variables can remain unused when `EMAIL_PROVIDER=mailgun`.
 
-The studio can email invites (each person's own sign-in link) and tell admins when someone signs in for the first
+The studio can email invites (each person's own one-time sign-in link, or how to sign in with Google), sign-in links
+people ask for on the sign-in page, and tell admins when someone signs in for the first
 time. It sends nothing until `EMAIL_PROVIDER` is set; see [docs/web-deploy.md](../../docs/web-deploy.md#email). To
 turn it on, add these as Sevalla environment variables (the key or password as an encrypted runtime-only variable,
 like `STUDIO_PASSWORD`; the server removes it from its environment at start), then deploy or restart:

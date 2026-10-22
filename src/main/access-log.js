@@ -64,7 +64,7 @@ function describeAuditRow(row, ctx = {}) {
       return `${who} changed ${rows.length} things ${name} can do: ${joinAnd(rows.map((entry) => personCapability(entry, c)))}`;
     }
     case 'link-issued': return `${who} made a new sign-in link for ${name}`;
-    case 'link-revoked': return `${who} turned off ${possessive(name)} sign-in link`;
+    case 'link-revoked': return `${who} signed ${name} out of every browser`;
     case 'role-created': {
       const base = field('base');
       return `${who} made the ${name} role, built on ${c.role(base?.to, base?.toLabel)}`;

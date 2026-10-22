@@ -141,17 +141,18 @@ export function AccessList({ access, base, roleCaps, roleName = 'role', grants, 
 }
 
 // ---------- Links ----------
+// Links work once, so a used link is gone: what's left to show is an unused one, or how the person signs in.
 export function linkStatus(member, signIn = {}) {
   const link = member.link;
   if (link) {
-    if (expired(link)) return `Link expired ${formatDay(link.expiresAt)}`;
-    return [`Link made ${formatDay(link.createdAt)}`, link.expiresAt ? `works until ${formatDay(link.expiresAt)}` : 'never expires', link.lastUsedAt ? `used ${formatDay(link.lastUsedAt)}` : 'not used yet'].join(' · ');
+    if (expired(link)) return `Sign-in link expired ${formatDay(link.expiresAt)} without being used`;
+    return [`Sign-in link sent ${formatDay(link.createdAt)}`, 'not used yet', link.expiresAt ? `works until ${formatDay(link.expiresAt)}` : ''].filter(Boolean).join(' · ');
   }
-  if (!member.lastSeenAt) return 'Never signed in';
-  return signIn.links && !signIn.sso ? 'No link' : '';
+  if (!member.lastSeenAt) return signIn.google ? 'Signs in with Google' : 'Never signed in';
+  return signIn.google ? 'Signs in with Google or an emailed link' : '';
 }
 export function linkMessage({ url, expiresAt, studioName = 'research studio' }) {
-  return `Here’s your sign-in link for the ${studioName}: ${url}. ${expiresAt ? `It works until ${formatDay(expiresAt)}.` : 'It doesn’t expire.'} Open it in your work browser.`;
+  return `Here’s your sign-in link for the ${studioName}: ${url}. It works once${expiresAt ? `, until ${formatDay(expiresAt)}` : ''}, so open it in the browser you’ll use for work.`;
 }
 export function LinkPanel({ member, panel, studioName, onDone }) {
   const [copied, setCopied] = useState('');
@@ -160,11 +161,11 @@ export function LinkPanel({ member, panel, studioName, onDone }) {
   useEffect(() => { ref.current?.focus(); }, [panel.url]);
   async function copy(kind, text) { if (await copyText(text)) { setCopied(kind); setTimeout(() => setCopied(''), 1800); } }
   return <div className="people-link-panel" role="region" aria-label={`Sign-in link for ${member.name}`}>
-    <h3 ref={ref} tabIndex={-1}>Send {firstName(member.name) || 'them'} this link</h3>
+    <h3 ref={ref} tabIndex={-1}>Send {firstName(member.name) || 'them'} this link. Don’t open it yourself</h3>
     <div className="people-link-row"><input readOnly value={panel.url} aria-label={`Sign-in link for ${member.name}`} onFocus={(event) => event.target.select()} /><button type="button" className="studio-primary small" onClick={() => copy('url', panel.url)}>{copied === 'url' ? <Check size={14} aria-hidden="true" /> : <ClipboardCopy size={14} aria-hidden="true" />}{copied === 'url' ? 'Copied' : 'Copy link'}</button></div>
     <p className="people-link-message">{message}</p>
     <div className="people-link-actions"><button type="button" className="studio-quiet small" onClick={() => copy('message', message)}>{copied === 'message' ? <Check size={14} aria-hidden="true" /> : <ClipboardCopy size={14} aria-hidden="true" />}{copied === 'message' ? 'Copied' : 'Copy message'}</button>{onDone && <button type="button" className="studio-link" onClick={onDone}>Done</button>}</div>
-    <p className="studio-hint">Only {firstName(member.name) || 'they'} should use it. Making a new link turns this one off.</p>
+    <p className="studio-hint">It works once, and whoever opens it is signed in as {firstName(member.name) || 'them'}. To see what they see, use Preview instead.</p>
   </div>;
 }
 
@@ -270,8 +271,11 @@ export function PersonSheet({ team, member, viewer = {}, web = false, api, actio
     } catch (failure) { setSaving(false); setProblem(failure?.message || 'That couldn’t be saved. Try again.'); }
   }
   async function makeLink() {
-    if (member.link && !expired(member.link) && !(await confirm({ title: `Make a new link for ${first}?`, lines: [`${first}’s current link will stop working, and anyone signed in with it is signed out.`], confirmLabel: 'Make a new link' }))) return;
-    try { const result = await runWith(action, () => api.createSignInLink({ id: member.id })); if (result?.url) { setPanel({ url: result.url, expiresAt: result.expiresAt || null }); onLinkMade?.(member, result); } }
+    try {
+      const result = await runWith(action, () => api.createSignInLink({ id: member.id }));
+      if (result?.emailed) { setPanel({ emailed: result.to || member.email }); onLinkMade?.(member, result); }
+      else if (result?.url) { setPanel({ url: result.url, expiresAt: result.expiresAt || null, emailFailed: Boolean(result.emailFailed) }); onLinkMade?.(member, result); }
+    }
     catch (failure) { setProblem(failure?.message || 'The link couldn’t be made. Try again.'); }
   }
   const tabs = TABS.filter(([id]) => id !== 'signin' || web);
@@ -315,11 +319,14 @@ export function PersonSheet({ team, member, viewer = {}, web = false, api, actio
           {web && !sso && <>
             <p className="people-signin-status"><strong>{member.lastSeenAt ? `Last signed in ${formatDay(member.lastSeenAt)}` : 'Never signed in'}</strong><span>{linkStatus(member, team?.signIn)}</span></p>
             {links && !member.disabled && <div className="people-link-actions">
-              <button type="button" className="studio-primary small" {...writeProps(viewer, saving)} onClick={makeLink}><Link2 size={14} aria-hidden="true" />{member.link ? 'Make a new sign-in link' : 'Make a sign-in link'}</button>
-              {member.link && onTurnOffLink && <button type="button" className="studio-quiet small" {...writeProps(viewer, saving)} onClick={() => onTurnOffLink(member)}><Unlink size={14} aria-hidden="true" />Turn off link</button>}
+              <button type="button" className="studio-primary small" {...writeProps(viewer, saving)} onClick={makeLink}><Link2 size={14} aria-hidden="true" />{team?.signIn?.email ? `Email ${first} a sign-in link` : 'Make a sign-in link'}</button>
+              {(member.link || member.lastSeenAt) && onTurnOffLink && <button type="button" className="studio-quiet small" {...writeProps(viewer, saving)} onClick={() => onTurnOffLink(member)}><Unlink size={14} aria-hidden="true" />Sign out everywhere</button>}
             </div>}
-            {member.disabled && <p className="studio-hint">Turn {first} back on before making a sign-in link.</p>}
-            {panel && <LinkPanel member={member} panel={panel} studioName={studioName} />}
+            {links && !member.disabled && <p className="studio-hint">{team?.signIn?.google ? `${first} signs in with Google using ${member.email || 'their work email'}, or gets a one-time link by email from the sign-in page.` : `Each link works once. ${first} can also get one by email from the sign-in page.`}</p>}
+            {member.disabled && <p className="studio-hint">Turn {first} back on before sending a sign-in link.</p>}
+            {panel?.emailed && <p className="people-signin-status" role="status"><strong>Sign-in link emailed to {panel.emailed}.</strong><span>It works once{team?.signIn?.linkDays ? ` and lasts ${team.signIn.linkDays} days unused` : ''}.</span></p>}
+            {panel?.emailFailed && <p className="studio-error" role="alert">The email didn’t go out, so copy the link below and send it to {first} yourself.</p>}
+            {panel?.url && <LinkPanel member={member} panel={panel} studioName={studioName} />}
           </>}
         </div>}
         {tab === 'activity' && <MemberActivity api={api} memberId={member.id} />}

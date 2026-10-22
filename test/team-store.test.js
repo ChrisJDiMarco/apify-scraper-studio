@@ -122,9 +122,9 @@ describe('members', () => {
     store.setAdoption({ workspaceId: 'semrush', themeId: 'theme-aio', channelId: 'blog', status: 'using' }, { id: alex.id, name: 'Alex' });
     store.log('adoption', 'semrush', { themeId: 'theme-aio', channelId: 'blog', status: 'using' }, { id: alex.id, name: 'Alex' });
     const paused = store.saveMember({ id: alex.id, disabled: true }, ADMIN);
-    expect(paused).toMatchObject({ disabled: true, link: null });
+    expect(paused).toMatchObject({ disabled: true, link: null, sessionEpoch: 1 }); // every browser they were signed in on ends
     expect(store.prefsFor(alex.id)).toEqual({ uiMode: '', welcomedAt: '', inboxSeenAt: '', focusChannels: [], navRail: null });
-    expect(store.memberByLinkToken(token)).toBeNull();
+    expect(store.useLinkToken(token)).toBeNull();
     expect(store.identityFor(store.memberById(alex.id))).toMatchObject({ role: null, channelId: null, disabled: true });
     expect(() => store.issueLink(alex.id, ADMIN)).toThrow('Turn this person back on before making a sign-in link.');
     const removed = store.removeMember(alex.id, ADMIN);
@@ -139,7 +139,7 @@ describe('members', () => {
 });
 
 describe('sign-in links', () => {
-  it('issues a link once, stores only its hash and finds the member from the token', () => {
+  it('issues a link, stores only its hash, shows whose it is without using it, and lets it sign in once', () => {
     const h = harness(); const { store } = h;
     const alex = store.saveMember({ name: 'Alex', email: 'alex@semrush.com', role: 'channel', channelId: 'blog' }, ADMIN);
     const issued = store.issueLink(alex.id, ADMIN, { days: 30 });
@@ -149,25 +149,30 @@ describe('sign-in links', () => {
     expect(raw).not.toContain(issued.token);
     const stored = h.file().members[0].link;
     expect(stored.hash).toBe(crypto.createHash('sha256').update(issued.token).digest('hex'));
-    expect(stored.id).toMatch(/^[0-9a-f]{32}$/);
+    expect(stored).toMatchObject({ id: expect.stringMatching(/^[0-9a-f]{32}$/), purpose: 'invite' });
     expect(JSON.stringify(store.listMembers())).not.toContain(stored.hash);
+    // Peeking (the page asks "Sign in as Alex?" first) changes nothing.
+    expect(store.peekLinkToken(issued.token)).toMatchObject({ id: alex.id, name: 'Alex', email: 'alex@semrush.com' });
+    expect(store.peekLinkToken(issued.token.toUpperCase())?.id).toBe(alex.id);
+    expect(store.memberById(alex.id).lastSeenAt).toBe('');
     h.advance(MINUTE);
-    const found = store.memberByLinkToken(issued.token);
-    expect(found).toMatchObject({ member: { id: alex.id, lastSeenAt: '2026-10-16T09:01:00.000Z', link: { lastUsedAt: '2026-10-16T09:01:00.000Z' } }, linkId: stored.id });
-    expect(found.member.link).not.toHaveProperty('hash');
-    expect(store.memberByLinkToken(issued.token.toUpperCase())?.member.id).toBe(alex.id);
-    for (const bad of ['', 'abc', 'g'.repeat(64), null, 42, crypto.randomBytes(32).toString('hex')]) expect(store.memberByLinkToken(bad)).toBeNull();
+    const used = store.useLinkToken(issued.token);
+    expect(used).toMatchObject({ member: { id: alex.id, lastSeenAt: '2026-10-16T09:01:00.000Z', link: null }, first: true, epoch: 0 });
+    // Used up: a forwarded copy, or the admin who made it, gets nothing.
+    expect(store.useLinkToken(issued.token)).toBeNull(); expect(store.peekLinkToken(issued.token)).toBeNull();
+    expect(h.file().members[0].link).toBeNull();
+    for (const bad of ['', 'abc', 'g'.repeat(64), null, 42, crypto.randomBytes(32).toString('hex')]) { expect(store.useLinkToken(bad)).toBeNull(); expect(store.peekLinkToken(bad)).toBeNull(); }
   });
 
   // The first-sign-in email (index.js emailFirstSignIn) hangs on these: true once per member, saved, never again.
-  it('says when a sign-in is someone’s first, once, by link or by company sign-in', () => {
+  it('says when a sign-in is someone’s first, once, by link, Google or company sign-in', () => {
     const h = harness(); const { store } = h;
     const ann = store.saveMember({ name: 'Ann', email: 'ann@semrush.com', role: 'editor' }, ADMIN);
-    const { token } = store.issueLink(ann.id, ADMIN);
-    expect(store.memberByLinkToken(token).first).toBe(true);
+    expect(store.useLinkToken(store.issueLink(ann.id, ADMIN).token).first).toBe(true);
     expect(h.file().members[0].firstSignInAt).toBe('2026-10-16T09:00:00.000Z');
-    expect(store.memberByLinkToken(token).first).toBe(false);
-    expect(h.open().memberByLinkToken(token).first).toBe(false); // after a restart too
+    expect(store.useLinkToken(store.issueLink(ann.id, ADMIN).token).first).toBe(false);
+    const third = store.issueLink(ann.id, ADMIN).token;
+    expect(h.open().useLinkToken(third).first).toBe(false); // after a restart too
     const bea = store.saveMember({ name: 'Bea', email: 'bea@semrush.com', role: 'editor' }, ADMIN);
     expect(store.noteSignIn(bea.id)).toBe(true);
     expect(store.noteSignIn(bea.id)).toBe(false);
@@ -178,6 +183,9 @@ describe('sign-in links', () => {
     expect(store.noteSignIn(cal.id)).toBe(false);
     expect(h.file().members.find((member) => member.id === cal.id).firstSignInAt).toEqual(expect.any(String));
     expect(store.noteSignIn('member-missing')).toBe(false);
+    const dee = store.saveMember({ name: 'Dee', email: 'dee@semrush.com', role: 'editor' }, ADMIN);
+    expect(store.signInByEmail('DEE@semrush.com')).toMatchObject({ member: { id: dee.id }, first: true, epoch: 0 });
+    expect(store.signInByEmail('dee@semrush.com').first).toBe(false);
   });
 
   it('lists the admins to tell, and keeps tokens out of its log lines', () => {
@@ -198,33 +206,58 @@ describe('sign-in links', () => {
     const ids = ['Ann', 'Bea', 'Cal'].map((name) => store.saveMember({ name, email: `${name.toLowerCase()}@semrush.com`, role: 'editor' }, ADMIN).id);
     const tokens = ids.map((id) => store.issueLink(id, ADMIN).token);
     const compare = vi.spyOn(crypto, 'timingSafeEqual');
-    expect(store.memberByLinkToken(tokens[0]).member.name).toBe('Ann');
+    expect(store.useLinkToken(tokens[0]).member.name).toBe('Ann');
     expect(compare).toHaveBeenCalledTimes(3); // no early exit on the first match
   });
 
-  it('expires links, keeps never-expiring ones and replaces or revokes them', () => {
+  it('expires links within 30 days, 20 minutes for an emailed one, and replaces an unused one', () => {
     const h = harness(); const { store } = h;
     const alex = store.saveMember({ name: 'Alex', email: 'alex@semrush.com', role: 'channel', channelId: 'blog' }, ADMIN);
     const first = store.issueLink(alex.id, ADMIN, { days: 2 });
-    h.advance(2 * DAY - MINUTE); expect(store.memberByLinkToken(first.token)).not.toBeNull();
-    h.advance(MINUTE); expect(store.memberByLinkToken(first.token)).toBeNull();
-    const forever = store.issueLink(alex.id, ADMIN, { days: 0 });
-    expect(forever.link.expiresAt).toBeNull();
-    h.advance(4000 * DAY); expect(store.memberByLinkToken(forever.token)).not.toBeNull();
-    expect(store.issueLink(alex.id, ADMIN, { days: 'not a number' }).link.expiresAt).toBe(new Date(h.clock.ms + 30 * DAY).toISOString());
-    // A fraction of a day is a short link, never one that lasts forever (STUDIO_LINK_DAYS=0.5).
+    h.advance(2 * DAY - MINUTE); expect(store.peekLinkToken(first.token)).not.toBeNull();
+    h.advance(MINUTE); expect(store.useLinkToken(first.token)).toBeNull();
+    // No link lasts forever or longer than 30 days; nonsense means the 7-day default.
+    expect(store.issueLink(alex.id, ADMIN, { days: 0 }).link.expiresAt).toBe(new Date(h.clock.ms + 7 * DAY).toISOString());
+    expect(store.issueLink(alex.id, ADMIN, { days: 3650 }).link.expiresAt).toBe(new Date(h.clock.ms + 30 * DAY).toISOString());
+    expect(store.issueLink(alex.id, ADMIN, { days: 'not a number' }).link.expiresAt).toBe(new Date(h.clock.ms + 7 * DAY).toISOString());
     const half = store.issueLink(alex.id, ADMIN, { days: 0.5 });
     expect(half.link.expiresAt).toBe(new Date(h.clock.ms + DAY / 2).toISOString());
-    h.advance(DAY / 2 - MINUTE); expect(store.memberByLinkToken(half.token)).not.toBeNull();
-    h.advance(MINUTE); expect(store.memberByLinkToken(half.token)).toBeNull();
-    const oldLinkId = store.memberById(alex.id).link.id;
-    const fresh = store.issueLink(alex.id, ADMIN);
-    expect(store.memberById(alex.id).link.id).not.toBe(oldLinkId); // sessions bound to the old link end
-    expect(store.memberByLinkToken(forever.token)).toBeNull();
-    expect(store.revokeLink(alex.id, ADMIN)).toMatchObject({ link: null });
-    expect(store.memberByLinkToken(fresh.token)).toBeNull();
-    expect(store.revokeLink(alex.id, ADMIN)).toMatchObject({ link: null });
+    // The link someone asks for on the sign-in page lasts 20 minutes, and replaces the unused one.
+    const emailed = store.issueLink(alex.id, null, { purpose: 'email' });
+    expect(emailed.link.expiresAt).toBe(new Date(h.clock.ms + 20 * MINUTE).toISOString());
+    expect(store.memberById(alex.id).link.purpose).toBe('email');
+    expect(store.useLinkToken(half.token)).toBeNull();
+    h.advance(20 * MINUTE); expect(store.useLinkToken(emailed.token)).toBeNull();
     expect(() => store.issueLink('member-missing', ADMIN)).toThrow(/isn’t in the studio/);
+  });
+
+  it('gives a link made before links worked once one more use, within 30 days of when it was made', () => {
+    const h = harness(); const { store } = h;
+    const alex = store.saveMember({ name: 'Alex', email: 'alex@semrush.com', role: 'editor' }, ADMIN);
+    const bea = store.saveMember({ name: 'Bea', email: 'bea@semrush.com', role: 'editor' }, ADMIN);
+    const token = crypto.randomBytes(32).toString('hex'); const old = crypto.randomBytes(32).toString('hex');
+    const file = h.file();
+    file.members.find((m) => m.id === alex.id).link = { id: 'a'.repeat(32), hash: crypto.createHash('sha256').update(token).digest('hex'), createdAt: '2026-10-10T09:00:00.000Z', expiresAt: null, lastUsedAt: '2026-10-11T09:00:00.000Z' };
+    file.members.find((m) => m.id === bea.id).link = { id: 'b'.repeat(32), hash: crypto.createHash('sha256').update(old).digest('hex'), createdAt: '2025-01-01T09:00:00.000Z', expiresAt: '2035-01-01T09:00:00.000Z', lastUsedAt: '' };
+    fs.writeFileSync(path.join(h.root, 'team.json'), JSON.stringify(file));
+    const reopened = h.open();
+    expect(reopened.useLinkToken(old)).toBeNull(); // a ten-year link from last year is over
+    expect(reopened.useLinkToken(token)?.member.id).toBe(alex.id);
+    expect(reopened.useLinkToken(token)).toBeNull();
+  });
+
+  it('signs someone out everywhere, and lets only enabled people sign in by email', () => {
+    const h = harness(); const { store } = h;
+    const alex = store.saveMember({ name: 'Alex', email: 'alex@semrush.com', role: 'editor' }, ADMIN);
+    const { token } = store.issueLink(alex.id, ADMIN);
+    expect(store.revokeLink(alex.id, ADMIN)).toMatchObject({ link: null, sessionEpoch: 1 });
+    expect(store.useLinkToken(token)).toBeNull();
+    expect(store.revokeLink(alex.id, ADMIN).sessionEpoch).toBe(2);
+    expect(store.useLinkToken(store.issueLink(alex.id, ADMIN).token).epoch).toBe(2); // new sessions carry the new epoch
+    expect(store.memberForSignIn('ALEX@semrush.com')?.id).toBe(alex.id);
+    expect(store.memberForSignIn('nobody@semrush.com')).toBeNull();
+    store.saveMember({ id: alex.id, disabled: true }, ADMIN);
+    expect(store.memberForSignIn('alex@semrush.com')).toBeNull(); expect(store.signInByEmail('alex@semrush.com')).toBeNull();
   });
 });
 
@@ -503,7 +536,7 @@ describe('roles and access (team.json v2)', () => {
     expect(result.links).toHaveLength(2);
     expect(result.links[0]).toEqual({ id: result.members[0].id, token: expect.stringMatching(/^[0-9a-f]{64}$/), expiresAt: '2026-10-23T09:00:00.000Z' });
     expect(JSON.stringify(h.file())).not.toContain(result.links[0].token);
-    expect(store.memberByLinkToken(result.links[0].token)?.member.id).toBe(result.members[0].id);
+    expect(store.useLinkToken(result.links[0].token)?.member.id).toBe(result.members[0].id);
     expect(result.audit.map((row) => row.kind)).toEqual(['member-added', 'link-issued', 'member-added', 'link-issued']);
     expect(store.inviteMembers({ people: ['riley@semrush.com'], role: 'editor' }, ADMIN)).toMatchObject({ members: [], skipped: [{ reason: 'Already in the studio' }] });
     expect(() => store.inviteMembers({ people: [], role: 'editor' }, ADMIN)).toThrow('Add between 1 and 50 email addresses.');

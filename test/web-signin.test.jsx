@@ -32,35 +32,77 @@ const SESSION = [200, { ok: true, user: '', signOut: true, viewer: { name: 'Alex
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); stored.clear(); });
 
 describe('browser sign-in', () => {
-  it('clears a sign-in link from the address bar before sending it, then opens the studio', async () => {
-    const { order, fetch } = await openPage(`#signin=${TOKEN}`, { '/api/login': [200, { ok: true }], '/api/session': SESSION });
+  const ALEX_LINK = [200, { name: 'Alex Kim', email: 'a•••@semrush.com', signedInAs: null }];
+  it('clears a sign-in link from the address bar, asks whose it is, and uses it only when they say so', async () => {
+    const { order, fetch } = await openPage(`#signin=${TOKEN}`, { '/api/login/link': ALEX_LINK, '/api/login': [200, { ok: true }], '/api/session': SESSION });
+    expect(await screen.findByRole('heading', { name: 'Sign in as Alex Kim?' })).toBeInTheDocument();
+    expect(screen.getByText(/It works once and then stops working/)).toHaveTextContent('Alex Kim’s (a•••@semrush.com)');
+    expect(order).toEqual(['clear address', '/api/login/link']); // nothing used yet
+    fireEvent.click(screen.getByRole('button', { name: 'Continue as Alex' }));
     expect(await screen.findByText('Studio app')).toBeInTheDocument();
-    expect(order.slice(0, 3)).toEqual(['clear address', '/api/login', '/api/session']);
+    expect(order.slice(0, 4)).toEqual(['clear address', '/api/login/link', '/api/login', '/api/session']);
     expect(window.location.hash).toBe('');
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ linkToken: TOKEN });
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ linkToken: TOKEN });
     expect(window.localStorage.getItem('studio.signin')).toBe('link');
   });
 
-  it('shows a link that no longer works on its own screen, with no password form', async () => {
-    await openPage(`#signin=${TOKEN}`, { '/api/login': [401, { error: roles.copy.linkInvalid, signIn: 'link-invalid' }] });
+  it('keeps an admin who opens someone else’s link signed in as themselves unless they choose otherwise', async () => {
+    const { order } = await openPage(`#signin=${TOKEN}`, { '/api/login/link': [200, { name: 'Leigh Park', email: 'l•••@searchengineland.com', signedInAs: { name: 'John Blanchard', same: false } }], '/api/session': SESSION });
+    expect(await screen.findByRole('heading', { name: 'This link is for Leigh Park' })).toBeInTheDocument();
+    expect(screen.getByText(/You’re signed in as John Blanchard on this browser/)).toHaveTextContent('use View as in People instead');
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.map((button) => button.textContent)).toEqual(['Stay signed in as John Blanchard', 'Sign out and continue as Leigh']);
+    fireEvent.click(buttons[0]);
+    expect(await screen.findByText('Studio app')).toBeInTheDocument();
+    expect(order).not.toContain('/api/login'); // Leigh's link is still unused, and John is still John
+  });
+
+  it('goes straight in when the link is for whoever is already signed in, without using it', async () => {
+    const { order } = await openPage(`#signin=${TOKEN}`, { '/api/login/link': [200, { name: 'Alex Kim', email: 'a•••@semrush.com', signedInAs: { name: 'Alex Kim', same: true } }], '/api/session': SESSION });
+    expect(await screen.findByText('Studio app')).toBeInTheDocument();
+    expect(order).not.toContain('/api/login');
+  });
+
+  it('shows a link that no longer works on its own screen, with the way to the sign-in page', async () => {
+    await openPage(`#signin=${TOKEN}`, { '/api/login/link': [401, { error: roles.copy.linkInvalid, signIn: 'link-invalid' }], '/api/session': [401, { error: 'Sign in to this studio.', signIn: 'password', methods: { password: true, google: true, email: false } }] });
     expect(await screen.findByRole('alert')).toHaveTextContent(roles.copy.linkInvalid);
     expect(screen.queryByLabelText('Admin password')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to sign-in' }));
+    expect(await screen.findByRole('link', { name: 'Sign in with Google' })).toHaveAttribute('href', '/api/auth/google/start');
   });
 
   it('keeps the link in memory to try again when the server is busy', async () => {
-    const { fetch } = await openPage(`#signin=${TOKEN}`, { '/api/login': [[429, { error: 'Too many attempts. Try again in a minute.' }], [200, { ok: true }]], '/api/session': SESSION });
-    expect(await screen.findByRole('alert')).toHaveTextContent('Too many attempts. Try again in a minute.');
+    const { fetch } = await openPage(`#signin=${TOKEN}`, { '/api/login/link': [[429, { error: 'Too many requests. Try again in a minute.' }], ALEX_LINK], '/api/login': [200, { ok: true }], '/api/session': SESSION });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Too many requests. Try again in a minute.');
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Alex' }));
     expect(await screen.findByText('Studio app')).toBeInTheDocument();
-    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ linkToken: TOKEN });
+    expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ linkToken: TOKEN });
   });
 
-  it('leads the signed-out screen with the sign-in link and keeps the admin password below', async () => {
+  it('leads with Sign in with Google, offers an emailed link, and tucks the admin password away', async () => {
+    const { fetch } = await openPage('', { '/api/session': [401, { error: 'Sign in to this studio.', signIn: 'password', methods: { password: true, google: true, email: true } }], '/api/login/email': [200, { ok: true, message: 'If that address belongs to someone in this studio, a sign-in link is on its way. It works once, for 20 minutes.' }] });
+    expect(await screen.findByText('Sign in with the Google account your invite was sent to.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sign in with Google' })).toHaveAttribute('href', '/api/auth/google/start');
+    expect(screen.getByText('Admin password', { selector: 'summary' }).closest('details')).not.toHaveAttribute('open');
+    fireEvent.change(screen.getByLabelText('No Google account? Get a link by email'), { target: { value: 'leigh@searchengineland.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Email me a sign-in link' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('a sign-in link is on its way');
+    expect(JSON.parse(fetch.mock.calls.at(-1)[1].body)).toEqual({ email: 'leigh@searchengineland.com' });
+  });
+
+  it('says why Google didn’t sign someone in', async () => {
+    await openPage('#signin-error=not-invited', { '/api/session': [401, { error: 'Sign in to this studio.', signIn: 'password', methods: { password: true, google: true, email: false } }] });
+    expect(await screen.findByRole('alert')).toHaveTextContent('That Google account isn’t in this studio.');
+    expect(window.location.hash).toBe('');
+  });
+
+  it('with only links and the password, points people to their admin and keeps the password form open', async () => {
     window.localStorage.setItem('studio.signin', 'link');
-    await openPage('', { '/api/session': [401, { error: 'Sign in to this studio.', signIn: 'password' }] });
+    await openPage('', { '/api/session': [401, { error: 'Sign in to this studio.', signIn: 'password', methods: { password: true, google: false, email: false } }] });
     expect(await screen.findByText('Open the sign-in link your admin sent you. It signs you in on this browser.')).toBeInTheDocument();
-    expect(screen.getByText('Signed out? Open your sign-in link again.')).toBeInTheDocument();
+    expect(screen.getByText('Signed out? Ask an admin for a new sign-in link: each one works once.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Admins' })).toBeInTheDocument();
     expect(screen.getByLabelText('Admin password')).toHaveAttribute('type', 'password');
     expect(screen.queryByText(/team password/i)).toBeNull();

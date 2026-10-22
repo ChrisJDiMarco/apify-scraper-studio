@@ -100,7 +100,7 @@
     "sharedSet": "This set was made with other channels. Ask an editor.",
     "preview": "You’re previewing as {who}. Switch back to Admin to make changes.",
     "alreadyMaking": "Your {channel} assets for this trend are already being made.",
-    "linkInvalid": "This sign-in link doesn’t work anymore. Ask your studio admin for a new one.",
+    "linkInvalid": "This sign-in link doesn’t work anymore: each link works once, and only for a few days. Go to the sign-in page to sign in another way, or ask your studio admin for a new link.",
     "editConflict": "{name} saved this report at {time}, after you opened it. Copy your text, reopen the report and try again.",
     "researchRunning": "{name} started a search with this program at {time}. It’s still running.",
     "selfChange": "You can’t change your own access. Ask another admin.",

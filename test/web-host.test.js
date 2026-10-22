@@ -165,12 +165,17 @@ describe('people and roles in the browser studio', () => {
     } finally { people.view = original; stop(); }
   });
 
-  it('signs out every browser that used a link once a new one is made', async () => {
+  it('signs someone out of every browser with Sign out everywhere, and a new link signs them in once', async () => {
     const stream = await openStream(alex); expect(stream.status).toBe(200);
     const fresh = (await rpc('team:sign-in-link', { id: alexId })).result.url;
+    expect((await fetch(`${base}/api/session`, { headers: { Cookie: alex } })).status).toBe(200); // a new link signs nobody out
+    await rpc('team:revoke-link', { id: alexId });
     expect(await stream.ended()).toBe(true);
     expect((await fetch(`${base}/api/session`, { headers: { Cookie: alex } })).status).toBe(401);
-    const again = await login({ linkToken: tokenOf(fresh) }); expect(again.status).toBe(200);
+    expect((await login({ linkToken: tokenOf(fresh) })).status).toBe(401); // the unused link was turned off with it
+    const next = tokenOf((await rpc('team:sign-in-link', { id: alexId })).result.url);
+    const again = await login({ linkToken: next }); expect(again.status).toBe(200);
+    expect((await login({ linkToken: next })).status).toBe(401); // used up
     alex = again.headers.get('set-cookie').split(';')[0];
     expect((await rpcAs(alex, 'state')).body.result.viewer.role).toBe('channel');
   });

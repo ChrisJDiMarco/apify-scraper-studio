@@ -73,7 +73,7 @@ describe('People & access: the People tab', () => {
     const alex = row('Alex Smith');
     expect(within(alex).getByText('Channel owner')).toBeInTheDocument();
     expect(within(alex).getByText('Semrush Blog')).toBeInTheDocument();
-    expect(within(alex).getByText(`Link made ${day('2026-10-12T09:00:00.000Z')} · works until ${day(later)} · used ${day('2026-10-14T09:00:00.000Z')}`)).toBeInTheDocument();
+    expect(within(alex).getByText(`Sign-in link sent ${day('2026-10-12T09:00:00.000Z')} · not used yet · works until ${day(later)}`)).toBeInTheDocument();
     const riley = row('Riley Jones');
     expect(within(riley).getAllByText('Never signed in').length).toBeGreaterThan(0);
     expect(within(riley).getByRole('button', { name: /Custom access for Riley Jones: 1 turned off/ })).toHaveTextContent('Custom access −1');
@@ -118,7 +118,7 @@ describe('People & access: the People tab', () => {
     expect(screen.queryByRole('menuitem', { name: 'Disable' })).not.toBeInTheDocument();
   });
 
-  it('confirms before replacing a link, then shows it ready to copy and paste', async () => {
+  it('with email off, shows a new link ready to copy, warning the admin not to open it', async () => {
     const services = api();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const writeText = vi.fn(async () => {});
@@ -126,24 +126,27 @@ describe('People & access: the People tab', () => {
     render(<PeopleView api={services} web viewer={sam} />);
     await screen.findByRole('table');
     openMenu('Alex Smith');
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Make a new sign-in link' }));
-    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Alex’s current link will stop working, and anyone signed in with it is signed out.')));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Make a sign-in link' }));
     await waitFor(() => expect(services.createSignInLink).toHaveBeenCalledWith({ id: 'm-alex' }));
+    expect(confirm).not.toHaveBeenCalled(); // a new link replaces an unused one and signs nobody out
     const panel = await screen.findByRole('region', { name: 'Sign-in link for Alex Smith' });
+    expect(within(panel).getByRole('heading')).toHaveTextContent('Send Alex this link. Don’t open it yourself');
+    expect(panel).toHaveTextContent('whoever opens it is signed in as Alex. To see what they see, use Preview instead.');
     expect(within(panel).getByRole('textbox', { name: 'Sign-in link for Alex Smith' })).toHaveValue('https://studio.semrush.com/#signin=abc123');
-    const message = `Here’s your sign-in link for the Semrush research studio: https://studio.semrush.com/#signin=abc123. It works until ${day(later)}. Open it in your work browser.`;
+    const message = `Here’s your sign-in link for the Semrush research studio: https://studio.semrush.com/#signin=abc123. It works once, until ${day(later)}, so open it in the browser you’ll use for work.`;
     expect(within(panel).getByText(message)).toBeInTheDocument();
     fireEvent.click(within(panel).getByRole('button', { name: /Copy message/ }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(message));
   });
 
-  it('turns off a link, disables gently and removes only after confirming', async () => {
+  it('signs someone out everywhere, disables gently and removes only after confirming', async () => {
     const services = api();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<PeopleView api={services} web viewer={sam} />);
     await screen.findByRole('table');
     openMenu('Alex Smith');
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Turn off link' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sign out everywhere' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Every browser Alex is signed in on is signed out')));
     await waitFor(() => expect(services.revokeSignInLink).toHaveBeenCalledWith({ id: 'm-alex' }));
     openMenu('Riley Jones');
     fireEvent.click(screen.getByRole('menuitem', { name: 'Disable' }));
@@ -260,7 +263,7 @@ describe('Invite people', () => {
     render(<PeopleView api={services} web viewer={sam} />);
     fireEvent.click(await screen.findByRole('button', { name: /Invite people/ }));
     const dialog = screen.getByRole('dialog', { name: 'Invite people' });
-    expect(dialog).toHaveTextContent('Each person gets an email with their own sign-in link.');
+    expect(dialog).toHaveTextContent('Each person gets an email with their own one-time sign-in link.');
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Work emails' }), { target: { value: 'pat@semrush.com, sam.ray@semrush.com, ' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Invite 2 people' }));
     const result = await screen.findByRole('dialog', { name: '2 people invited' });
@@ -529,10 +532,11 @@ describe('People & access on the Mac', () => {
 describe('people helpers', () => {
   it('words link status and the message to send', () => {
     expect(linkStatus({ link: null, lastSeenAt: '' })).toBe('Never signed in');
-    expect(linkStatus({ link: null, lastSeenAt: '2026-10-14T09:00:00.000Z' }, { links: true })).toBe('No link');
-    expect(linkStatus({ link: { createdAt: '2026-10-12T09:00:00.000Z', expiresAt: null, lastUsedAt: '' } })).toBe(`Link made ${day('2026-10-12T09:00:00.000Z')} · never expires · not used yet`);
-    expect(linkStatus({ link: { createdAt: '2026-01-12T09:00:00.000Z', expiresAt: '2026-02-11T09:00:00.000Z' } })).toMatch(/^Link expired /);
-    expect(linkMessage({ url: 'https://x.test/#signin=1', expiresAt: null })).toBe('Here’s your sign-in link for the research studio: https://x.test/#signin=1. It doesn’t expire. Open it in your work browser.');
+    expect(linkStatus({ link: null, lastSeenAt: '' }, { links: true, google: true })).toBe('Signs in with Google');
+    expect(linkStatus({ link: null, lastSeenAt: '2026-10-14T09:00:00.000Z' }, { links: true })).toBe('');
+    expect(linkStatus({ link: { createdAt: '2026-10-12T09:00:00.000Z', expiresAt: '2099-10-19T09:00:00.000Z', lastUsedAt: '' } })).toMatch(new RegExp(`^Sign-in link sent ${day('2026-10-12T09:00:00.000Z')} · not used yet`));
+    expect(linkStatus({ link: { createdAt: '2026-01-12T09:00:00.000Z', expiresAt: '2026-02-11T09:00:00.000Z' } })).toMatch(/^Sign-in link expired .* without being used$/);
+    expect(linkMessage({ url: 'https://x.test/#signin=1', expiresAt: null })).toBe('Here’s your sign-in link for the research studio: https://x.test/#signin=1. It works once, so open it in the browser you’ll use for work.');
   });
 
   it('filters and sorts people, words last active, and parses pasted emails', () => {

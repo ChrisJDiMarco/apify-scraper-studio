@@ -22,8 +22,9 @@ function people() {
     members,
     ownerIdentity: () => ({ id: 'owner', name: 'Studio admin', email: '', role: 'admin', channelId: null, via: 'password', disabled: false }),
     fromProxyEmail: () => null,
-    fromLinkSession: (session) => { const m = members.get(session.memberId); return m ? { id: m.id, name: m.name, email: m.email, role: m.role, channelId: null, via: 'link', disabled: false } : null; },
-    linkLogin: (token) => { const m = [...members.values()].find((entry) => entry.link.token === token); return m ? { memberId: m.id, linkId: m.link.id } : null; },
+    // Links here sign in as often as a test needs (one-time use is studio-server.test.js's to check).
+    fromMemberSession: (session) => { const m = members.get(session.memberId); return m ? { id: m.id, name: m.name, email: m.email, role: m.role, channelId: null, via: 'link', disabled: false } : null; },
+    useLink: (token) => { const m = [...members.values()].find((entry) => entry.link.token === token); return m ? { memberId: m.id, epoch: 0 } : null; },
     view: (base) => JSON.stringify(base),
     logEvent: () => {},
   };

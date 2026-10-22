@@ -32,9 +32,10 @@ STUDIO_DATA_DIR=~/.scraper-studio-web STUDIO_SECRETS_FD=0 npm run start:web < ~/
 ```
 
 Open http://127.0.0.1:4174 and sign in under **Admins** with the admin password. Add people in **People & access**
-and send each one their sign-in link. Keep the same `STUDIO_SECRET_KEY` from then on: it decrypts the keys saved in
-Settings. The server prints one line saying how people sign in, for example
-`Sign-in: admin password, plus personal sign-in links from People (new links work for 30 days).`
+and invite them (each gets a one-time sign-in link, or signs in with Google once it's set up). Keep the same
+`STUDIO_SECRET_KEY` from then on: it decrypts the keys saved in Settings. The server prints one line saying how people
+sign in, for example
+`Sign-in: admin password, and one-time sign-in links (invite links last 7 days unused); signed-in browsers stay signed in across restarts.`
 On your own computer the secrets file is readable by your user, which is fine for a trial; a shared server should
 follow [Secrets](#secrets). Press Ctrl-C to stop; press it again to stop without waiting for running work.
 
@@ -90,14 +91,17 @@ Every variable the browser studio reads. `scripts/studio-web.cjs` lists them too
 | `STUDIO_SECRETS_FILE` | — | A file holding the same lines: a Docker or Compose secret, a Kubernetes Secret volume. Set this or `STUDIO_SECRETS_FD`, not both. |
 | `STUDIO_RUN_AS` | `node` in the image | When the server starts as root: the `user` or `user:group` it switches to right after reading the secrets, before it touches the data folder. Without it the server refuses to run as root. |
 | `STUDIO_SECRET_KEY` | required | 32+ random characters. Encrypts keys saved in Settings. Losing it means re-entering those keys. A secret: put it in the secrets file. Set as an environment variable it still works, with a startup warning. |
-| `STUDIO_PASSWORD` | unless sign-in comes from a proxy | The **admin password**, 16+ characters. It signs in as an admin, so give it only to admins: it's break-glass access. Everyone else signs in with a personal sign-in link. A secret, like the key. |
+| `STUDIO_PASSWORD` | unless sign-in comes from a proxy | The **admin password**, 16+ characters. It signs in as an admin, so give it only to admins: it's break-glass access. Everyone else signs in with Google or a one-time sign-in link. A secret, like the key. |
 | `STUDIO_PROXY_SECRET` | — | 16+ characters. When set, the trusted email header is believed only on requests that also carry `X-Studio-Proxy-Secret` with this value. A secret, like the key. |
 
 **Sign-in**
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `STUDIO_LINK_DAYS` | `30` | How long a new sign-in link works; `0` means until it's replaced or turned off. Password mode only. |
+| `STUDIO_LINK_DAYS` | `7` | How long an unused invite link works, at most 30 days. Every sign-in link works once. Password mode only. |
+| `STUDIO_GOOGLE_CLIENT_ID` | — | Turns on **Sign in with Google** (password mode), with `STUDIO_GOOGLE_CLIENT_SECRET` and `STUDIO_PUBLIC_ORIGIN`. See [Google sign-in](#google-sign-in). |
+| `STUDIO_GOOGLE_CLIENT_SECRET` | — | The Google OAuth client's secret. A secret: secrets file or an encrypted runtime-only variable. |
+| `STUDIO_GOOGLE_ALLOWED_DOMAINS` | — | Optional, comma-separated: only these email domains may use Google sign-in. People must still be in People. |
 | `STUDIO_TRUSTED_EMAIL_HEADER` | — | Company sign-in: the header your sign-in proxy sets with the signed-in email: `x-forwarded-email` (oauth2-proxy in front of the app), `x-auth-request-email` (oauth2-proxy behind nginx `auth_request`) or `cf-access-authenticated-user-email` (Cloudflare Access). |
 | `STUDIO_ALLOWED_EMAIL_DOMAINS` | with the header | Comma-separated, e.g. `semrush.com`. Other emails are refused. |
 | `STUDIO_TRUSTED_PROXY_CIDRS` | with the header, unless `STUDIO_PROXY_SECRET` | Comma-separated IP addresses or CIDR ranges the sign-in proxy connects from, IPv4 or IPv6, e.g. `127.0.0.1/32,::1/128` (proxy on the same host) or `172.30.10.10/32` (the proxy container in `deploy/compose`). The header from any other address is ignored. With company sign-in the server won't start without this or `STUDIO_PROXY_SECRET`; with both set, a request must pass both. |
@@ -328,8 +332,9 @@ process mid-drain: Docker's default is 10 seconds (`docker stop -t`, Compose `st
 
 **After a deploy**, open tabs keep running the old page until reloaded. Every API answer carries the server's build
 (`X-Studio-Build`, and the first event of each live-update stream), so a tab that is older than the server shows "A new
-version of the studio is ready. Reload to use it." with a Reload button. Sessions live in memory, so people who use a
-sign-in link or the admin password sign in again after a restart; company sign-in isn't affected.
+version of the studio is ready. Reload to use it." with a Reload button. Signed-in browsers stay signed in: sessions
+are saved in the data folder (`web-sessions.json`, only a SHA-256 of each cookie, 0600), so a restart or deploy signs
+nobody out.
 
 **The data-folder lock** (`content-studio/.studio-owner.json`) keeps a second server off the same folder. It records
 the process, the host or container, the boot, and a heartbeat refreshed every 30 seconds. A lock left by a killed
@@ -491,19 +496,44 @@ Pick one of the two setups.
 lists the people who are always admins: they're added on first sign-in and can't be demoted or removed in People.
 Everyone else needs adding in People by an admin.
 
-**Admin password plus personal sign-in links.** Without a proxy, `STUDIO_PASSWORD` is the admin password. It always
-signs in as an admin, so only admins should know it. Everyone else gets a personal sign-in link:
+**Admin password, Google and one-time sign-in links.** Without a proxy, `STUDIO_PASSWORD` is the admin password. It
+always signs in as an admin, so only admins should know it. Everyone else signs in as themselves:
 
-1. An admin adds the person in **People & access** and chooses **Make a new sign-in link**.
-2. The admin sends the link (`https://studio.example.com/#signin=…`). The part after `#` never reaches the server or
-   its logs, and the page removes it from the address bar as soon as it opens.
-3. Opening the link signs that browser in for 30 days. The link itself works for `STUDIO_LINK_DAYS` days (default
-   30), and can be used again on another browser or after being signed out.
-4. Making a new link, or **Turn off link**, signs out every browser that used the old one. Disabling or removing a
-   person ends their access at once. An admin password session lasts 12 hours.
+1. **Sign in with Google** (when [set up](#google-sign-in)): the Google account's verified email must belong to someone
+   enabled in People. Google never adds anyone on its own.
+2. **A one-time sign-in link**, which an invite sends (or an admin sends again from the person's **Sign-in** tab), or
+   which the person asks for on the sign-in page (**Email me a sign-in link**, when email is on: it lasts 20 minutes,
+   and the page answers the same whether or not the address is in the studio). The part after `#` never reaches the
+   server or its logs, and the page removes it from the address bar as soon as it opens.
+3. **Every link works once.** Before using it, the page says whose link it is. If the browser is already signed in as
+   someone else (an admin clicking an invite), it says so and offers **Stay signed in as …** first, so nobody becomes
+   someone else by accident. A used, replaced or expired link signs nobody in. Unused invite links last
+   `STUDIO_LINK_DAYS` (default 7, at most 30). With email on, admins never see the link: it goes straight to the person,
+   and only a failed email shows it to copy, with a warning not to open it.
+4. A person's session lasts 30 days from when they last used the studio, on up to 10 browsers. **Sign out everywhere**
+   (their row menu or Sign-in tab), disabling or removing them ends every session at once. An admin password session
+   lasts 12 hours.
 
-These sessions are kept in memory, so a restart or deploy signs out everyone who used a link or the admin password.
-People with links open their link again; admins use the password again. Company sign-in isn't affected.
+Sessions are saved in the data folder, so restarts and deploys sign nobody out. To see what someone else sees, admins
+use **Preview as** in People, which is read-only, never their link.
+
+### Google sign-in
+
+1. In Google Cloud Console (a project your organisation owns), open **APIs & Services › OAuth consent screen**:
+   choose **Internal** if everyone signs in with the company's Google Workspace, otherwise **External**; app name
+   *Golden Thread*; scopes `openid`, `email`, `profile` only.
+2. **APIs & Services › Credentials › Create credentials › OAuth client ID**: type **Web application**. Authorized
+   redirect URI: `https://<your studio address>/api/auth/google/callback` (exactly `STUDIO_PUBLIC_ORIGIN` plus that
+   path). No JavaScript origins are needed.
+3. Set `STUDIO_GOOGLE_CLIENT_ID` (an ordinary variable), `STUDIO_GOOGLE_CLIENT_SECRET` (a secret), and
+   `STUDIO_PUBLIC_ORIGIN`; optionally `STUDIO_GOOGLE_ALLOWED_DOMAINS` (for example `semrush.com,searchengineland.com`).
+   Restart. The sign-in page then leads with **Sign in with Google**, and invites say to sign in with Google instead of
+   carrying a link.
+
+The studio uses the authorization-code flow with PKCE, a state cookie and a nonce, and reads the ID token straight from
+Google's token endpoint over TLS; it checks the issuer, audience, expiry, nonce and that the email is verified.
+`STUDIO_ADMIN_EMAILS` also works here: a listed address signing in with Google is always an enabled admin (the way back
+in if nobody can manage People).
 
 ### Rollout
 
@@ -514,7 +544,7 @@ Before roles, everyone who could sign in had full access. To switch over without
    team password would otherwise sign in as an admin.
 2. Restart the server, sign in as an admin, and add the editors and channel owners in **People & access**. Each
    channel owner gets one channel.
-3. In password mode, send each person their sign-in link.
+3. In password mode, invite each person: with email on, the invite goes to them; otherwise copy each link to them.
 4. Announce the studio's address.
 
 **Recovery.** If nobody can manage People (the last admin left, or an admin was turned off by mistake), add your
@@ -538,9 +568,10 @@ Roles decide who can see and change what, but a few things are still one setting
 
 The studio can email two things, and nothing else:
 
-- **Invites.** Inviting people in **People & access** emails each new person their own sign-in link (password mode)
-  or "sign in with your company account" (company sign-in). The invite screen then says *Invite emailed to
-  &lt;address&gt;*; for anyone whose email failed it shows their link to copy, as it always has.
+- **Invites.** Inviting people in **People & access** emails each new person their own one-time sign-in link
+  (password mode), or how to sign in with Google or their company account. The invite screen then says *Invite emailed
+  to &lt;address&gt;*; for anyone whose email failed it shows their link to copy, with a warning not to open it.
+- **Sign-in links.** A new link from a person's **Sign-in** tab, and the link someone asks for on the sign-in page.
 - **First sign-ins.** When someone signs in for the first time, every other enabled admin gets
   *&lt;Name&gt; just signed in for the first time*. Set `STUDIO_PUBLIC_ORIGIN` so that email can link to the studio.
 
@@ -575,10 +606,11 @@ says it's still sending and offers the link.
 
 ## Security notes
 
-- Every request needs a session (admin password or sign-in link) or a trusted-proxy email, except the health checks,
-  which reveal nothing private. Admin-password tries are limited to ten a minute per client (per proxy-forwarded
-  client with `STUDIO_TRUST_PROXY=1`). Sign-in link tries aren't counted: a link token is 32 random bytes, and
-  counting them would let anyone lock everyone out.
+- Every request needs a session (admin password, Google or a one-time sign-in link) or a trusted-proxy email, except
+  the health checks, which reveal nothing private. Admin-password tries are limited to ten a minute per client (per
+  proxy-forwarded client with `STUDIO_TRUST_PROXY=1`). Sign-in link tries aren't counted: a link token is 32 random
+  bytes, and counting them would let anyone lock everyone out. **Email me a sign-in link** is limited to five requests
+  per client per 10 minutes and three emails per address per 15 minutes, and answers the same for any address.
 - The email header is believed only from `STUDIO_TRUSTED_PROXY_CIDRS` and/or with `STUDIO_PROXY_SECRET`; the server
   won't start with company sign-in and neither set.
 - Every action is checked against the person's role on the server, including live updates: each browser receives

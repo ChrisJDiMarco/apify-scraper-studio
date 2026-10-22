@@ -21,7 +21,6 @@ export { linkMessage, linkStatus } from './person-sheet.jsx';
 // Roles and the access log still work and change what View as shows.
 const list = (value) => (Array.isArray(value) ? value : []);
 const runWith = (action, fn) => (action ? action(fn, '', true) : Promise.resolve().then(fn));
-const expired = (link) => Boolean(link?.expiresAt) && new Date(link.expiresAt).getTime() < Date.now();
 const TAB_KEY = 'studio.people.tab';
 const TABS = [['people', 'People'], ['roles', 'Roles'], ['log', 'Access log']];
 function readTab() { try { const value = window.localStorage.getItem(TAB_KEY); return TABS.some(([id]) => id === value) ? value : 'people'; } catch { return 'people'; } }
@@ -164,20 +163,23 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
     catch (failure) { showToast(failure?.message || 'That didn’t work. Try again.', { tone: 'error' }); return null; }
   }
   const first = (member) => firstName(member.name) || member.name;
+  // With email on, the link goes straight to the person and nobody here sees it; otherwise it's shown to copy and send.
   async function makeLink(member) {
-    if (member.link && !expired(member.link) && !(await confirm({ title: `Make a new link for ${first(member)}?`, lines: [`${first(member)}’s current link will stop working, and anyone signed in with it is signed out.`], confirmLabel: 'Make a new link' }))) return;
-    await write(() => api.createSignInLink({ id: member.id }), (result) => { if (result?.url) setPanel({ memberId: member.id, url: result.url, expiresAt: result.expiresAt || null }); });
+    await write(() => api.createSignInLink({ id: member.id }), (result) => {
+      if (result?.emailed) showToast(`Sign-in link emailed to ${result.to || member.email}.`);
+      else if (result?.url) { setPanel({ memberId: member.id, url: result.url, expiresAt: result.expiresAt || null }); if (result.emailFailed) showToast('The email didn’t go out, so copy the link and send it yourself.', { tone: 'error' }); }
+    });
   }
   async function turnOffLink(member) {
-    if (!(await confirm({ title: `Turn off ${first(member)}’s sign-in link?`, lines: ['Anyone signed in with it is signed out.'], confirmLabel: 'Turn off link', tone: 'danger' }))) return;
-    await write(() => api.revokeSignInLink({ id: member.id }), () => { if (panel?.memberId === member.id) setPanel(null); showToast(`${member.name}’s link is off.`); });
+    if (!(await confirm({ title: `Sign ${first(member)} out everywhere?`, lines: [`Every browser ${first(member)} is signed in on is signed out, and an unused sign-in link stops working. They can sign in again the usual way.`], confirmLabel: 'Sign out everywhere', tone: 'danger' }))) return;
+    await write(() => api.revokeSignInLink({ id: member.id }), () => { if (panel?.memberId === member.id) setPanel(null); showToast(`${member.name} is signed out everywhere.`); });
   }
   async function setDisabled(member, disabled) {
     if (disabled && !(await confirm({ title: `Disable ${member.name}?`, lines: ['They can’t use the studio until you enable them again. Their answers and history stay.'], confirmLabel: 'Disable', tone: 'danger' }))) return;
     await write(() => api.saveMember({ id: member.id, name: member.name, email: member.email, role: member.role, channelId: member.channelId || null, disabled }), () => showToast(disabled ? `${member.name} is disabled.` : `${member.name} can use the studio again.`));
   }
   async function remove(member) {
-    if (!(await confirm({ title: `Remove ${member.name} from the studio?`, lines: ['Their answers and history stay, and their sign-in link stops working. To stop access for a while instead, disable them.'], confirmLabel: 'Remove', tone: 'danger' }))) return;
+    if (!(await confirm({ title: `Remove ${member.name} from the studio?`, lines: ['Their answers and history stay, and they’re signed out everywhere. To stop access for a while instead, disable them.'], confirmLabel: 'Remove', tone: 'danger' }))) return;
     await write(() => api.removeMember({ id: member.id }), () => { if (panel?.memberId === member.id) setPanel(null); setSheet(null); showToast(`${member.name} was removed.`); });
   }
   function invited(result) {

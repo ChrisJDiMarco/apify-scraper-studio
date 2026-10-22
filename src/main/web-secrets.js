@@ -16,8 +16,9 @@
 // as before, with a warning.
 const fs = require('fs');
 
-// RESEND_API_KEY, SMTP_PASSWORD and MAILGUN_API_KEY are email's (src/main/email.js), read the same way so the AI can't print them either.
-const SECRET_NAMES = Object.freeze(['STUDIO_SECRET_KEY', 'STUDIO_PASSWORD', 'STUDIO_PROXY_SECRET', 'RESEND_API_KEY', 'SMTP_PASSWORD', 'MAILGUN_API_KEY']);
+// RESEND_API_KEY, SMTP_PASSWORD and MAILGUN_API_KEY are email's (src/main/email.js), and STUDIO_GOOGLE_CLIENT_SECRET is
+// Google sign-in's, read the same way so the AI can't print them either.
+const SECRET_NAMES = Object.freeze(['STUDIO_SECRET_KEY', 'STUDIO_PASSWORD', 'STUDIO_PROXY_SECRET', 'RESEND_API_KEY', 'SMTP_PASSWORD', 'MAILGUN_API_KEY', 'STUDIO_GOOGLE_CLIENT_SECRET']);
 const MAX_SECRETS_BYTES = 64 * 1024;
 
 // "NAME=value", "export NAME=value", optional single or double quotes; blank lines and # comments are skipped.

@@ -1,7 +1,7 @@
 'use strict';
-// The studio's emails, each as { subject, text, html }: the invite (with the person's own sign-in link, or "sign in with
-// your company account" when the studio uses company sign-in) and the notice admins get when someone signs in for the
-// first time. Everything a person typed is escaped in the HTML. CommonJS, Electron-free.
+// The studio's emails, each as { subject, text, html }: the invite (with the person's own one-time sign-in link, or how to
+// sign in with Google or their company account), a sign-in link someone asked for, and the notice admins get when
+// someone signs in for the first time. Everything a person typed is escaped in the HTML. CommonJS, Electron-free.
 const STUDIO = 'Golden Thread';
 const GOLD = '#b8860b';
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -29,23 +29,38 @@ function layout({ studioName, heading, paragraphs, button, footnote }) {
     + '</table></td></tr></table></body></html>';
 }
 
-// inviteEmail({ name, inviter, roleLabel, url, expiresAt, origin, sso, studioName }). url is their personal sign-in
-// link; with company sign-in (sso) there is no link and they sign in at origin.
-function inviteEmail({ name = '', inviter = '', roleLabel = '', url = '', expiresAt = null, origin = '', sso = false, studioName = STUDIO } = {}) {
-  const studio = line(studioName) || STUDIO; const who = line(inviter); const role = line(roleLabel);
+// inviteEmail({ name, email, inviter, roleLabel, url, expiresAt, origin, sso, google, again, studioName }). url is their
+// one-time sign-in link; with company sign-in (sso) or Google sign-in there is no link and they sign in at origin with
+// that account. again: a new link an admin sent later, not the first invite.
+function inviteEmail({ name = '', email = '', inviter = '', roleLabel = '', url = '', expiresAt = null, origin = '', sso = false, google = false, again = false, studioName = STUDIO } = {}) {
+  const studio = line(studioName) || STUDIO; const who = line(inviter); const role = line(roleLabel); const address = line(email);
   const greeting = line(name) ? `Hi ${line(name)},` : 'Hi,';
-  const invited = `${who || 'An admin'} invited you to the ${studio} studio${role ? ` as ${withArticle(role)}` : ''}.`;
+  const invited = again ? `${who || 'An admin'} sent you a new link to sign in to the ${studio} studio.` : `${who || 'An admin'} invited you to the ${studio} studio${role ? ` as ${withArticle(role)}` : ''}.`;
   const until = day(expiresAt);
-  const subject = `You’ve been invited to the ${studio} studio`;
-  if (sso || !url) {
+  const subject = again ? `Your sign-in link for the ${studio} studio` : `You’ve been invited to the ${studio} studio`;
+  const heading = again ? 'Your sign-in link' : 'You’ve been invited to the studio';
+  if (sso || google || !url) {
     const where = line(origin);
-    const text = [greeting, '', invited, '', `Sign in with your company account${where ? ` at ${where}` : ''}.`, '', `— ${studio}`].join('\n');
-    const html = layout({ studioName: studio, heading: 'You’ve been invited to the studio', paragraphs: [escape(greeting), escape(invited), `Sign in with your company account${where ? ` at <a href="${escape(where)}" style="color:${GOLD}">${escape(where)}</a>` : ''}.`], button: where ? { url: where, label: `Open ${studio}` } : null, footnote: '' });
+    const how = google ? `Choose “Sign in with Google” and use your Google account${address ? ` for ${address}` : ''}.` : 'Sign in with your company account.';
+    const at = where ? `Open ${where}, then ${how.charAt(0).toLowerCase()}${how.slice(1)}` : how;
+    const text = [greeting, '', invited, '', at, '', `— ${studio}`].join('\n');
+    const html = layout({ studioName: studio, heading, paragraphs: [escape(greeting), escape(invited), escape(how)], button: where ? { url: where, label: `Open ${studio}` } : null, footnote: google ? 'No Google account for this address? Choose “Email me a sign-in link” on the sign-in page instead.' : '' });
     return { subject, text, html };
   }
-  const care = `This link is just for you, so please don’t forward it.${until ? ` It works until ${until}.` : ''} If it stops working, ask ${who || 'an admin'} for a new one.`;
+  const care = `This link signs you in once, on one browser, and is just for you, so please don’t forward it.${until ? ` Use it by ${until}.` : ''} Later, sign in from the studio’s sign-in page${who ? ` or ask ${who} for a new link` : ''}.`;
   const text = [greeting, '', invited, '', 'Sign in with your personal link:', url, '', care, '', `— ${studio}`].join('\n');
-  const html = layout({ studioName: studio, heading: 'You’ve been invited to the studio', paragraphs: [escape(greeting), escape(invited)], button: { url, label: `Sign in to ${studio}` }, footnote: `${escape(care)}<br><br>If the button doesn’t work, paste this into your browser:<br><span style="word-break:break-all">${escape(url)}</span>` });
+  const html = layout({ studioName: studio, heading, paragraphs: [escape(greeting), escape(invited)], button: { url, label: `Sign in to ${studio}` }, footnote: `${escape(care)}<br><br>If the button doesn’t work, paste this into your browser:<br><span style="word-break:break-all">${escape(url)}</span>` });
+  return { subject, text, html };
+}
+
+// signInLinkEmail({ name, url, minutes, studioName }): the link someone asked for on the sign-in page.
+function signInLinkEmail({ name = '', url = '', minutes = 20, studioName = STUDIO } = {}) {
+  const studio = line(studioName) || STUDIO; const greeting = line(name) ? `Hi ${line(name)},` : 'Hi,';
+  const subject = `Sign in to ${studio}`;
+  const lead = `Here’s the sign-in link you asked for. It works once, for the next ${minutes} minutes.`;
+  const care = 'If you didn’t ask for it, you can ignore this email: nobody can sign in without opening this link.';
+  const text = [greeting, '', lead, url, '', care, '', `— ${studio}`].join('\n');
+  const html = layout({ studioName: studio, heading: subject, paragraphs: [escape(greeting), escape(lead)], button: { url, label: `Sign in to ${studio}` }, footnote: `${escape(care)}<br><br>If the button doesn’t work, paste this into your browser:<br><span style="word-break:break-all">${escape(url)}</span>` });
   return { subject, text, html };
 }
 
@@ -63,4 +78,4 @@ function firstSignInEmail({ name = '', email = '', roleLabel = '', at = '', orig
   return { subject, text, html };
 }
 
-module.exports = { inviteEmail, firstSignInEmail, escape, STUDIO };
+module.exports = { inviteEmail, signInLinkEmail, firstSignInEmail, escape, STUDIO };

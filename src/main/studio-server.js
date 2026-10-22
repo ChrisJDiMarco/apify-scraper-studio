@@ -4,8 +4,9 @@
 // in for file dialogs, downloads for saved or opened files, and /api/events streams state like the
 // desktop's state-changed push. Put it behind a TLS reverse proxy; it binds to localhost by default.
 // Who is signing in comes from the main process's `people` provider (runtime.provided('people')): the admin
-// password, a trusted SSO header or a personal sign-in link each resolve to an identity whose role the main
-// process enforces. Without a provider (older hosts and tests) every signed-in browser has full access, as before.
+// password, a trusted SSO header, Google sign-in or a one-time sign-in link each resolve to an identity whose role the
+// main process enforces. Sessions are kept by the SHA-256 of their cookie (never the cookie itself) and, with a data
+// folder, saved to web-sessions.json there, so a restart or deploy doesn't sign anyone out. Without a provider (older hosts and tests) every signed-in browser has full access, as before.
 // GET /healthz (the process answers) and GET /readyz (it can do its job) need no sign-in and reveal nothing private.
 const http = require('http');
 const net = require('net');
@@ -18,6 +19,7 @@ const { methods } = require('../shared/studio-api-channels.json');
 const { copy: COPY, capabilities: CAPABILITIES = [], readMethods: READ_METHODS = [], paidMethods: PAID_METHODS = [] } = require('../shared/roles.json');
 const { effectiveRole } = require('./roles');
 const { createServerLog, errorFields } = require('./server-log');
+const { writeFileDurable } = require('../shared/durable-write');
 
 const CHANNEL_OF = Object.fromEntries(Object.entries(methods).map(([method, entry]) => [method, typeof entry === 'string' ? entry : entry.channel]));
 const UI_CHANNELS = new Set(Object.values(CHANNEL_OF));
@@ -26,8 +28,16 @@ const READ_CHANNELS = new Set(READ_METHODS.map((method) => CHANNEL_OF[method]).f
 // refused; stopping work, reads and ordinary saves still go through.
 const DRAIN_REFUSED = new Set(CAPABILITIES.filter((capability) => capability.spends).flatMap((capability) => capability.methods || []).filter((method) => !READ_METHODS.includes(method) && !/^(?:cancel|pause)/.test(method)).concat(PAID_METHODS).map((method) => CHANNEL_OF[method]).filter(Boolean));
 const SESSION_MS = 12 * 3600000; // admin password sessions
-const LINK_SESSION_MS = 30 * 24 * 3600000; // personal sign-in link sessions: busy people shouldn't need the link every day
-const MAX_LINK_SESSIONS = 10; // per person, so one link can't fill the session table
+const MEMBER_SESSION_MS = 30 * 24 * 3600000; // a member's session (Google, a link): renewed while they keep using it
+const SESSION_RENEW_MS = 24 * 3600000; // a member session is pushed back to 30 days at most once a day
+const MAX_MEMBER_SESSIONS = 10; // per person: their oldest browser gives way
+const GOOGLE_PENDING_MS = 10 * 60000; // a Google sign-in must come back within 10 minutes
+const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GOOGLE_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
+// "Email me a sign-in link": per client address and per email address, so nobody can flood someone's inbox.
+const EMAIL_LINK_PER_CLIENT = { count: 5, ms: 10 * 60000 };
+const EMAIL_LINK_PER_ADDRESS = { count: 3, ms: 15 * 60000 };
 const MAX_SESSIONS = 1000;
 const MAX_PROXY_SESSIONS = 5000; // SSO people's View as entries; the oldest goes first
 const NO_ACCESS_CHANNELS = new Set(['app-meta', 'state']); // all a signed-in person without a role may call
@@ -56,6 +66,10 @@ const redact = (message) => String(message || 'Request failed.').replace(/(?:sk-
 const safeName = (value) => path.basename(String(value || 'upload')).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').trim().slice(0, 180) || 'upload';
 const noAccessMessage = (identity) => (identity.disabled ? `${COPY.paused} Ask an admin if you need it back.` : 'You’re not in this studio yet. Ask a studio admin to add you.');
 const digest = (value) => createHash('sha256').update(String(value)).digest();
+const keyOf = (cookie) => createHash('sha256').update(String(cookie)).digest('hex');
+const base64url = (buffer) => Buffer.from(buffer).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+// p•••@example.com: enough for someone to recognise their own address on a shared screen.
+const maskEmail = (email) => { const [local = '', domain = ''] = String(email || '').split('@'); return local && domain ? `${local[0]}•••@${domain}` : ''; };
 let version = ''; try { version = require('../../package.json').version || ''; } catch (_) { version = ''; }
 // The role this request acts as: View as only ever lowers a real admin's role, and only for this session.
 function effective(identity, session) {
@@ -90,7 +104,7 @@ const peerOf = (req) => { const raw = String(req.socket?.remoteAddress || ''); r
 // Node's own errors (a missing file, a full disk, a bug) carry server paths and internals; people get a reference instead.
 const systemError = (error) => Boolean(error) && !error.status && (typeof error.syscall === 'string' || typeof error.errno === 'number' || /^ERR_[A-Z0-9_]+$/.test(String(error.code || '')) || error instanceof TypeError || error instanceof ReferenceError);
 
-function createStudioServer({ webRoot, password, secureCookies = false, runtime, transferDir, trustedEmailHeader = '', allowedEmailDomains = '', publicOrigin = '', logEvent = null, trustProxy = false, trustedProxies = '', proxySecret = '', maxEventStreams = DEFAULT_EVENT_STREAMS, maxStreamsPerPerson = DEFAULT_STREAMS_PER_PERSON, serverLog = null, lockRoot = '', minFreeMb = 256, buildId = null, streamTuning = {} } = {}) {
+function createStudioServer({ webRoot, password, secureCookies = false, runtime, transferDir, trustedEmailHeader = '', allowedEmailDomains = '', publicOrigin = '', logEvent = null, trustProxy = false, trustedProxies = '', proxySecret = '', maxEventStreams = DEFAULT_EVENT_STREAMS, maxStreamsPerPerson = DEFAULT_STREAMS_PER_PERSON, serverLog = null, lockRoot = '', minFreeMb = 256, buildId = null, streamTuning = {}, googleClientId = '', googleClientSecret = '', googleDomains = '', sessionFile = undefined, fetchImpl = globalThis.fetch } = {}) {
   const trustedHeader = String(trustedEmailHeader || '').trim().toLowerCase();
   // Behind a proxy that rewrites Host, the page's public origin (https://studio.example.com) is the same-origin reference.
   const publicHost = publicOrigin ? new URL(publicOrigin).host : '';
@@ -105,6 +119,14 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
   if (proxySecret && String(proxySecret).length < 16) throw new Error('Set STUDIO_PROXY_SECRET to a random value of at least 16 characters.');
   if (trustedHeader && !proxyList && !proxySecretDigest) throw new Error('Set STUDIO_TRUSTED_PROXY_CIDRS to the sign-in proxy’s address (for example 127.0.0.1/32 on the same host, or the proxy container’s address), or STUDIO_PROXY_SECRET to a secret the proxy sends in the X-Studio-Proxy-Secret header, when sign-in comes from a trusted proxy header.');
   if (!runtime || typeof runtime.invoke !== 'function') throw new Error('The studio server needs the web runtime.');
+  // Google sign-in (STUDIO_GOOGLE_CLIENT_ID and STUDIO_GOOGLE_CLIENT_SECRET): only beside the admin password, never with
+  // company sign-in, whose proxy already owns sign-in. Google sends people back to one fixed address, so it needs the
+  // public origin. STUDIO_GOOGLE_ALLOWED_DOMAINS optionally limits which email domains may use it.
+  const googleId = String(googleClientId || '').trim(); const googleSecret = String(googleClientSecret || '');
+  if (Boolean(googleId) !== Boolean(googleSecret)) throw new Error('Set both STUDIO_GOOGLE_CLIENT_ID and STUDIO_GOOGLE_CLIENT_SECRET for Google sign-in, or neither.');
+  const origin = String(publicOrigin || '').trim().replace(/\/+$/, '');
+  if (googleId && !trustedHeader && !/^https?:\/\/[^/\s?#]+$/i.test(origin)) throw new Error('Set STUDIO_PUBLIC_ORIGIN (for example https://studio.example.com) for Google sign-in: Google sends people back to it.');
+  const google = googleId && !trustedHeader ? { id: googleId, secret: googleSecret, redirect: `${origin}/api/auth/google/callback`, domains: String(googleDomains || '').split(',').map((domain) => domain.trim().toLowerCase().replace(/^@/, '')).filter(Boolean) } : null;
   const streamCap = Math.max(1, Math.floor(Number(maxEventStreams) || DEFAULT_EVENT_STREAMS)); const perPerson = Math.max(1, Math.floor(Number(maxStreamsPerPerson) || DEFAULT_STREAMS_PER_PERSON));
   // Tests shorten these; the server uses the defaults.
   const { coalesceMs = STATE_COALESCE_MS, stallMs = STREAM_STALL_MS, backlogBytes = STREAM_BACKLOG_BYTES, heartbeatMs = 25000 } = streamTuning || {};
@@ -116,9 +138,35 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
   let build = typeof buildId === 'string' ? buildId : '';
   if (buildId === null) { try { build = buildIdFrom(fs.readFileSync(path.join(webRoot, 'index.html'), 'utf8')); } catch (_) { build = ''; } }
 
-  // sessions: cookie token → { expires, kind: 'password'|'link', memberId?, linkId?, viewAs }. proxySessions: email → { viewAs },
-  // so an SSO admin's View as lasts until the server restarts. Both live in memory: a deploy signs link users out.
+  // sessions: SHA-256 of the cookie → { expires, kind: 'password'|'member', memberId?, epoch?, via?, createdAt, viewAs }.
+  // A member session holds the member's sessionEpoch from when it started; disabling them or signing them out
+  // everywhere bumps it, which ends the session. proxySessions: email → { viewAs }, so an SSO admin's View as lasts until
+  // the server restarts. googlePending: state → { verifier, nonce, expires } while someone is at Google.
   const sessions = new Map(); const proxySessions = new Map(); const attempts = new Map(); const uploads = new Map(); const downloads = new Map(); const streams = new Set();
+  const googlePending = new Map(); const emailAsks = new Map();
+  const storePath = sessionFile !== undefined ? sessionFile : runtime.settings?.dataDir ? path.join(runtime.settings.dataDir, 'web-sessions.json') : '';
+  let savedJson = '';
+  function loadSessions() {
+    if (!storePath) return;
+    let parsed; try { parsed = JSON.parse(fs.readFileSync(storePath, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') slog.log('warn', 'sessions-unreadable', { code: error.code || 'parse' }); return; }
+    const now = Date.now();
+    for (const [key, entry] of Array.isArray(parsed?.sessions) ? parsed.sessions : []) {
+      if (typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key) || !entry || typeof entry !== 'object' || !(entry.expires > now)) continue;
+      if (entry.kind === 'password') sessions.set(key, { kind: 'password', expires: entry.expires, createdAt: entry.createdAt || 0, viewAs: entry.viewAs ?? null });
+      else if (entry.kind === 'member' && typeof entry.memberId === 'string') sessions.set(key, { kind: 'member', memberId: entry.memberId, epoch: Number(entry.epoch) || 0, via: typeof entry.via === 'string' ? entry.via : 'link', expires: entry.expires, createdAt: entry.createdAt || 0, viewAs: entry.viewAs ?? null });
+    }
+    savedJson = JSON.stringify({ version: 1, sessions: [...sessions] });
+  }
+  // Writes the table when it changed (durable-write: temp file, fsync, rename; 0600). View as changes the entries in place, so the sweep
+  // also saves. Best effort: a failed save only means a restart would sign people out.
+  function saveSessions() {
+    if (!storePath) return;
+    const text = JSON.stringify({ version: 1, sessions: [...sessions] }); if (text === savedJson) return;
+    try { writeFileDurable(storePath, text, { mode: 0o600 }); savedJson = text; }
+    catch (error) { slog.log('warn', 'sessions-save-failed', { code: error.code || '' }); }
+  }
+  let saveTimer = null;
+  const saveSoon = () => { if (!saveTimer) { saveTimer = setTimeout(() => { saveTimer = null; saveSessions(); }, 200); saveTimer.unref?.(); } };
   let draining = false; let inFlight = 0;
   const hookWindow = { minute: 0, count: 0 };
   const people = () => (typeof runtime.provided === 'function' && runtime.provided('people')) || null;
@@ -136,6 +184,10 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
   }
   const cookieToken = (req) => req.headers.cookie?.match(/(?:^|;\s*)studio_session=([a-f0-9]{64})(?:;|$)/)?.[1];
   const sessionCookie = (id, ms) => `studio_session=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.round(ms / 1000)}${secureCookie ? '; Secure' : ''}`;
+  // The Google round trip's own cookie: Lax, because Google's redirect back is a cross-site navigation a Strict cookie
+  // wouldn't ride on, and scoped to the callback's path.
+  const googleCookie = (state, ms) => `studio_google=${state}; HttpOnly; SameSite=Lax; Path=/api/auth/google; Max-Age=${Math.round(ms / 1000)}${secureCookie ? '; Secure' : ''}`;
+  const googleState = (req) => req.headers.cookie?.match(/(?:^|;\s*)studio_google=([a-f0-9]{64})(?:;|$)/)?.[1];
   function fromProxy(req) {
     if (proxyList) { const peer = peerOf(req); if (!peer || !proxyList.list.check(peer, net.isIPv6(peer) ? 'ipv6' : 'ipv4')) return false; }
     if (proxySecretDigest) { const sent = req.headers[PROXY_SECRET_HEADER]; if (typeof sent !== 'string' || !timingSafeEqual(digest(sent), proxySecretDigest)) return false; }
@@ -149,13 +201,13 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     return /^[^@\s]+@([a-z0-9.-]+)$/.test(email) && domains.includes(email.split('@')[1]) ? email : '';
   }
   // Ending a session also closes the live-update streams it opened, so a signed-out tab stops receiving state.
-  function endSession(id) {
-    if (!id) return;
-    sessions.delete(id);
-    for (const stream of [...streams]) if (stream.token === id) stream.stop();
+  function endSession(key) {
+    if (!key) return;
+    if (sessions.delete(key)) saveSoon();
+    for (const stream of [...streams]) if (stream.token === key) stream.stop();
   }
-  // Who is making this request: { identity, session, token, email }, or null when signed out. The member is looked up on
-  // every request, so a role change, a disabled member or a replaced sign-in link applies at once. Without a people
+  // Who is making this request: { identity, session, token (the session's key), email }, or null when signed out. The
+  // member is looked up on every request, so a role change, a disabled member or "Sign out everywhere" applies at once. Without a people
   // provider, identity stays null and the request has full access, as before roles.
   function identify(req) {
     const provider = people(); const email = proxyUser(req);
@@ -166,12 +218,12 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
       const identity = provider ? provider.fromProxyEmail(email) || { id: `guest:${email}`, name: email.split('@')[0], email, role: null, channelId: null, via: 'proxy' } : null;
       return { identity, session, token: '', email };
     }
-    const id = cookieToken(req); const entry = id ? sessions.get(id) : null;
+    const cookie = cookieToken(req); const key = cookie ? keyOf(cookie) : ''; const entry = key ? sessions.get(key) : null;
     if (!entry || !(entry.expires > Date.now())) return null;
-    if (!provider) return { identity: null, session: entry, token: id, email: '' };
-    const identity = entry.kind === 'link' ? provider.fromLinkSession(entry) : provider.ownerIdentity();
-    if (!identity) { endSession(id); return null; } // the member was removed, or their link was replaced or turned off
-    return { identity, session: entry, token: id, email: '' };
+    if (!provider) return { identity: null, session: entry, token: key, email: '' };
+    const identity = entry.kind === 'member' ? provider.fromMemberSession(entry) : entry.kind === 'password' ? provider.ownerIdentity() : null;
+    if (!identity) { endSession(key); return null; } // the member was removed or paused, or signed out everywhere
+    return { identity, session: entry, token: key, email: '' };
   }
   const noAccess = (who) => Boolean(who.identity) && !who.identity.role;
   const ownerOf = (who) => who.identity?.id || ''; // uploads and downloads belong to the identity that made them
@@ -211,8 +263,12 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     for (const [id, entry] of downloads) if (entry.expires < now) forgetDownload(id);
     for (const [id, entry] of sessions) if (entry.expires < now) endSession(id);
     for (const [key, entry] of attempts) if (entry.until < now) attempts.delete(key);
+    for (const [key, entry] of emailAsks) if (entry.until < now) emailAsks.delete(key);
+    for (const [state, entry] of googlePending) if (entry.expires < now) googlePending.delete(state);
+    saveSessions();
   }
   const sweeper = setInterval(sweep, 60000); sweeper.unref();
+  loadSessions();
 
   function offerDownloads(files, saveDir, owner) {
     const offered = files.map((file) => {
@@ -414,31 +470,52 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     const ready = checks.data === 'ok' && checks.disk === 'ok' && checks.lock === 'ok' && !draining;
     return { ready, version, checks };
   }
-  // Starts a session for a successful sign-in. The session the browser arrived with (someone else's link, an older
-  // password session) ends first, so one browser never holds two people's sessions.
-  function startSession(req, res, entry, ms, resetKey = '') {
-    endSession(cookieToken(req)); sweep();
-    if (sessions.size >= MAX_SESSIONS) { log({ event: 'sign-in-failed', kind: entry.kind, reason: 'session-limit' }); return send(res, 429, { error: 'The studio has reached its sign-in limit. Ask an admin to restart it.' }); }
-    if (entry.kind === 'link') {
-      const own = [...sessions].filter(([, session]) => session.kind === 'link' && session.memberId === entry.memberId).sort((a, b) => a[1].expires - b[1].expires);
-      for (const [id] of own.slice(0, Math.max(0, own.length - MAX_LINK_SESSIONS + 1))) endSession(id);
+  // Starts a session for a successful sign-in and answers with its cookie: JSON, or a redirect for Google's round trip.
+  // The session the browser arrived with (someone else's, an older password session) ends first, so one browser never
+  // holds two people's sessions. Google's return is cross-site, so the old Strict cookie isn't sent then; the new cookie
+  // replaces it in the browser, and the old session simply expires.
+  function startSession(req, res, entry, ms, { resetKey = '', redirect = '', extraCookies = [] } = {}) {
+    const arrived = cookieToken(req); if (arrived) endSession(keyOf(arrived)); sweep();
+    if (sessions.size >= MAX_SESSIONS) {
+      log({ event: 'sign-in-failed', kind: entry.via || entry.kind, reason: 'session-limit' });
+      return redirect ? sendRedirect(res, '/#signin-error=busy', extraCookies) : send(res, 429, { error: 'The studio has reached its sign-in limit. Ask an admin to restart it.' });
     }
-    const id = token(); sessions.set(id, { ...entry, expires: Date.now() + ms, viewAs: null }); if (resetKey) attempts.delete(resetKey);
-    log({ event: 'sign-in', kind: entry.kind, ...(entry.memberId ? { memberId: entry.memberId } : {}) });
-    return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(id, ms) });
+    if (entry.kind === 'member') {
+      const own = [...sessions].filter(([, session]) => session.kind === 'member' && session.memberId === entry.memberId).sort((a, b) => a[1].expires - b[1].expires);
+      for (const [key] of own.slice(0, Math.max(0, own.length - MAX_MEMBER_SESSIONS + 1))) endSession(key);
+    }
+    const id = token(); sessions.set(keyOf(id), { ...entry, createdAt: Date.now(), expires: Date.now() + ms, viewAs: null }); saveSoon();
+    if (resetKey) attempts.delete(resetKey);
+    log({ event: 'sign-in', kind: entry.via || entry.kind, ...(entry.memberId ? { memberId: entry.memberId } : {}) });
+    const cookies = [...extraCookies, sessionCookie(id, ms)];
+    return redirect ? sendRedirect(res, redirect, cookies) : send(res, 200, { ok: true }, { 'Set-Cookie': cookies });
+  }
+  function sendRedirect(res, location, cookies = []) {
+    res.writeHead(302, { Location: location, 'Cache-Control': 'no-store', ...(cookies.length ? { 'Set-Cookie': cookies } : {}) });
+    res.end();
+  }
+  // How this studio signs people in, for the signed-out page.
+  const signInMethods = () => ({ password: Boolean(password) && !trustedHeader, google: Boolean(google), email: Boolean(password) && !trustedHeader && Boolean(people()?.emailReady?.()) });
+  const signedOutBody = () => ({ error: 'Sign in to this studio.', signIn: password && !trustedHeader ? 'password' : 'proxy', methods: signInMethods() });
+  // Counts one try against a { count, ms } window; true while under the limit.
+  function underLimit(table, key, limit) {
+    const now = Date.now(); const entry = table.get(key) || { count: 0, until: now + limit.ms };
+    if (entry.until < now) { entry.count = 0; entry.until = now + limit.ms; }
+    entry.count++; table.set(key, entry); return entry.count <= limit.count;
   }
   async function login(req, res) {
     if (!password) return send(res, 400, { error: 'This studio signs in through your company login.' });
     const body = await json(req, MAX_LOGIN_BYTES);
-    // A personal sign-in link: the token came from the page's #signin= fragment, so it never reached a server log. Tokens
-    // are 32 random bytes, so guessing one is hopeless and needs no limit; counting link tries against the password
-    // limiter would let anyone lock every channel owner and editor out, since behind a proxy they share one address.
-    // The origin check already passed, so the page's address goes along for the first-sign-in email's link.
+    // A one-time sign-in link: the token came from the page's #signin= fragment, so it never reached a server log. The
+    // page shows whose link it is first (POST /api/login/link) and sends it here only once the person says so; this
+    // uses it up. Tokens are 32 random bytes, so guessing one is hopeless and needs no limit; counting link tries against
+    // the password limiter would let anyone lock every member out, since behind a proxy they share one address. The
+    // origin check already passed, so the page's address goes along for the first-sign-in email's link.
     if (body.linkToken !== undefined) {
       const provider = people(); const linkToken = String(body.linkToken || '');
-      const found = provider && /^[a-f0-9]{64}$/.test(linkToken) ? provider.linkLogin(linkToken, { origin: new URL(req.headers.origin).origin }) : null;
+      const found = provider && /^[a-f0-9]{64}$/.test(linkToken) ? provider.useLink(linkToken, { origin: new URL(req.headers.origin).origin }) : null;
       if (!found) { log({ event: 'sign-in-failed', kind: 'link' }); return send(res, 401, { error: COPY.linkInvalid, signIn: 'link-invalid' }); }
-      return startSession(req, res, { kind: 'link', memberId: found.memberId, linkId: found.linkId }, LINK_SESSION_MS);
+      return startSession(req, res, { kind: 'member', memberId: found.memberId, epoch: found.epoch, via: 'link' }, MEMBER_SESSION_MS);
     }
     // The admin password: ten tries a minute per client address.
     const key = clientKey(req); const entry = attempts.get(key) || { count: 0, until: Date.now() + 60000 };
@@ -447,7 +524,70 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     if (entry.count > 10) { log({ event: 'sign-in-failed', kind: 'password', reason: 'rate-limited' }); return send(res, 429, { error: 'Too many attempts. Try again in a minute.' }); }
     const supplied = Buffer.from(String(body.password || '')); const expected = Buffer.from(password);
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) { log({ event: 'sign-in-failed', kind: 'password' }); return send(res, 401, { error: 'Password did not match.' }); }
-    return startSession(req, res, { kind: 'password' }, SESSION_MS, key);
+    return startSession(req, res, { kind: 'password' }, SESSION_MS, { resetKey: key });
+  }
+  // Whose link this is, without using it, and who this browser is signed in as now, so the page can ask before
+  // switching people. Clicking someone else's link (an admin checking an invite) then changes nothing unless they say so.
+  async function linkInfo(req, res) {
+    if (!password) return send(res, 400, { error: 'This studio signs in through your company login.' });
+    const body = await json(req, MAX_LOGIN_BYTES); const provider = people(); const linkToken = String(body.linkToken || '');
+    const member = provider && /^[a-f0-9]{64}$/.test(linkToken) ? provider.peekLink(linkToken) : null;
+    if (!member) return send(res, 401, { error: COPY.linkInvalid, signIn: 'link-invalid' });
+    const current = identify(req); const now = current?.identity || null;
+    return send(res, 200, { name: member.name || '', email: maskEmail(member.email), signedInAs: now ? { name: now.name || 'Studio admin', same: now.id === member.id } : null });
+  }
+  // "Email me a sign-in link". Always the same answer, whether or not the address belongs to someone, so the page can't
+  // be used to find out who is in the studio; the email goes out after the answer, so timing doesn't tell either.
+  async function emailLink(req, res) {
+    const provider = people();
+    if (!password || trustedHeader || !provider?.emailReady?.()) return send(res, 400, { error: 'This studio can’t email sign-in links. Ask an admin for one.' });
+    const body = await json(req, MAX_LOGIN_BYTES); const email = String(body.email || '').trim().toLowerCase().slice(0, 254);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res, 400, { error: 'Enter your work email address.' });
+    if (!underLimit(emailAsks, `client:${clientKey(req)}`, EMAIL_LINK_PER_CLIENT)) { log({ event: 'sign-in-email-refused', reason: 'rate-limited' }); return send(res, 429, { error: 'Too many requests. Try again in a few minutes.' }); }
+    const answer = { ok: true, message: 'If that address belongs to someone in this studio, a sign-in link is on its way. It works once, for 20 minutes.' };
+    if (!underLimit(emailAsks, `email:${keyOf(email)}`, EMAIL_LINK_PER_ADDRESS)) { log({ event: 'sign-in-email-refused', reason: 'address-limit' }); return send(res, 200, answer); }
+    const pageOrigin = new URL(req.headers.origin).origin;
+    send(res, 200, answer);
+    Promise.resolve().then(() => provider.requestEmailLink(email, { origin: pageOrigin })).catch((error) => log({ event: 'sign-in-email-failed', error: redact(error?.message).slice(0, 200) }));
+    return undefined;
+  }
+  // ---------- Google sign-in (OpenID Connect, authorization code with PKCE) ----------
+  // start: a fresh state (in a Lax cookie and in memory), nonce and PKCE verifier, then off to Google's account chooser.
+  function googleStart(res) {
+    sweep();
+    if (googlePending.size >= 1000) googlePending.delete(googlePending.keys().next().value);
+    const state = token(); const verifier = base64url(randomBytes(32)); const nonce = token();
+    googlePending.set(state, { verifier, nonce, expires: Date.now() + GOOGLE_PENDING_MS });
+    const params = new URLSearchParams({ client_id: google.id, redirect_uri: google.redirect, response_type: 'code', scope: 'openid email profile', state, nonce, code_challenge: base64url(createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256', prompt: 'select_account' });
+    if (google.domains.length === 1) params.set('hd', google.domains[0]);
+    return sendRedirect(res, `${GOOGLE_AUTH_URL}?${params}`, [googleCookie(state, GOOGLE_PENDING_MS)]);
+  }
+  // callback: the state must match this browser's cookie and a pending sign-in; the code is exchanged with Google over
+  // TLS for an ID token (OpenID Connect Core 3.1.3.7 lets a token from the token endpoint stand on TLS alone), whose
+  // issuer, audience, expiry, nonce and verified email are checked. The email must belong to someone enabled in People
+  // (or STUDIO_ADMIN_EMAILS); Google never adds anyone on its own.
+  async function googleCallback(url, req, res) {
+    const clear = googleCookie('', 0); const state = url.searchParams.get('state') || '';
+    const fail = (reason, code = 'failed') => { log({ event: 'sign-in-failed', kind: 'google', reason }); return sendRedirect(res, `/#signin-error=${code}`, [clear]); };
+    const pending = state && googleState(req) === state ? googlePending.get(state) : null; if (state) googlePending.delete(state);
+    if (url.searchParams.get('error')) return fail(String(url.searchParams.get('error')).slice(0, 40), 'cancelled');
+    if (!pending || pending.expires < Date.now()) return fail('state', 'expired');
+    const code = url.searchParams.get('code') || ''; if (!code || code.length > 2048) return fail('code');
+    let payload;
+    try {
+      const answer = await fetchImpl(GOOGLE_TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code, client_id: google.id, client_secret: google.secret, redirect_uri: google.redirect, grant_type: 'authorization_code', code_verifier: pending.verifier }).toString(), signal: AbortSignal.timeout(10000) });
+      const tokens = await answer.json().catch(() => ({}));
+      if (!answer.ok || typeof tokens.id_token !== 'string') return fail(`token-${answer.status}`);
+      const part = tokens.id_token.split('.')[1] || '';
+      payload = JSON.parse(Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+    } catch (error) { return fail(error?.name === 'TimeoutError' ? 'timeout' : 'exchange'); }
+    if (!payload || !GOOGLE_ISSUERS.has(payload.iss) || (Array.isArray(payload.aud) ? !payload.aud.includes(google.id) : payload.aud !== google.id) || !(Number(payload.exp) * 1000 > Date.now()) || payload.nonce !== pending.nonce) return fail('id-token');
+    const email = String(payload.email || '').trim().toLowerCase();
+    if (!email || (payload.email_verified !== true && payload.email_verified !== 'true')) return fail('unverified', 'unverified');
+    if (google.domains.length && !google.domains.includes(email.split('@')[1])) return fail('domain', 'domain');
+    const found = people()?.googleLogin(email, { origin }) || null;
+    if (!found?.memberId) return fail(found?.refused || 'not-invited', found?.refused === 'paused' ? 'paused' : 'not-invited');
+    return startSession(req, res, { kind: 'member', memberId: found.memberId, epoch: found.epoch, via: 'google' }, MEMBER_SESSION_MS, { redirect: '/', extraCookies: [clear] });
   }
 
   // Server paths in a message written for people (a handler naming a file) become "…" before it reaches the browser.
@@ -527,12 +667,22 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
         if (!origin || !originHost || (originHost !== req.headers.host && originHost !== publicHost)) return send(res, 403, { error: 'Use the studio page to make requests.' });
       }
       if (url.pathname === '/api/login' && req.method === 'POST') return await login(req, res);
+      if (url.pathname === '/api/login/link' && req.method === 'POST') return await linkInfo(req, res);
+      if (url.pathname === '/api/login/email' && req.method === 'POST') return await emailLink(req, res);
+      if (url.pathname === '/api/auth/google/start' || url.pathname === '/api/auth/google/callback') {
+        if (req.method !== 'GET') return send(res, 405, { error: 'Unsupported method.' });
+        if (!google) return sendRedirect(res, '/#signin-error=google-off');
+        return url.pathname.endsWith('/start') ? googleStart(res) : await googleCallback(url, req, res);
+      }
       if (url.pathname.startsWith('/api/')) {
         const who = identify(req); req.studioWho = who;
-        if (!who) return send(res, 401, { error: 'Sign in to this studio.', signIn: password ? 'password' : 'proxy' });
+        if (!who) return send(res, 401, signedOutBody());
         if (url.pathname === '/api/session' && req.method === 'GET') {
-          const { identity } = who;
-          return send(res, 200, { ok: true, user: who.email || identity?.email || '', signOut: !who.email, viewer: identity ? { name: identity.name || '', email: identity.email || '', role: identity.role ?? null, channelId: identity.channelId ?? null, disabled: Boolean(identity.disabled) } : null });
+          const { identity, session } = who;
+          // Someone who keeps using the studio stays signed in: their session goes back to 30 days, at most once a day.
+          const headers = {};
+          if (session?.kind === 'member' && session.expires - Date.now() < MEMBER_SESSION_MS - SESSION_RENEW_MS) { session.expires = Date.now() + MEMBER_SESSION_MS; saveSoon(); headers['Set-Cookie'] = sessionCookie(cookieToken(req), MEMBER_SESSION_MS); }
+          return send(res, 200, { ok: true, user: who.email || identity?.email || '', signOut: !who.email, viewer: identity ? { name: identity.name || '', email: identity.email || '', role: identity.role ?? null, channelId: identity.channelId ?? null, disabled: Boolean(identity.disabled) } : null }, headers);
         }
         if (url.pathname === '/api/logout' && req.method === 'POST') { endSession(who.token); return send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie('', 0) }); }
         if (url.pathname === '/api/events' && req.method === 'GET') return events(req, res, who);
@@ -546,7 +696,7 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
       return staticFile(url, req, res);
     } catch (error) { failed(error, req, res, requestId); }
   });
-  server.on('close', () => { clearInterval(sweeper); for (const entry of [...streams]) entry.stop(); });
+  server.on('close', () => { clearInterval(sweeper); clearTimeout(saveTimer); saveSessions(); for (const entry of [...streams]) entry.stop(); });
   return {
     server,
     // The stop sequence (scripts/studio-web.cjs): drain() refuses new paid work and tells every tab the studio is

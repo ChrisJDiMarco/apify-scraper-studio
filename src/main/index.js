@@ -1918,15 +1918,40 @@ const contentWorkspace = createContentWorkspace({
 // an admin, and View as lives in this process; on the web each browser request carries its identity and session.
 const access = createAccess({ teamStore, roles, workspace: contentWorkspace, web: WEB_RUNTIME, currentCall: WEB_RUNTIME ? require('./web-runtime').currentCall : () => null, notes: { inboxFor: (identityId) => (reportNotes ? reportNotes.inboxFor(identityId) : null) } });
 const OWNER_IDENTITY = Object.freeze({ id: 'owner', name: 'Studio admin', email: '', role: 'admin', channelId: null, via: 'password', disabled: false, memberSince: null });
-// The browser studio's sign-in, for studio-server.js: the admin password, a trusted SSO email or a personal sign-in link
-// becomes an identity, and each live-update stream is written as that person's projection of the state.
+// The browser studio's sign-in, for studio-server.js: the admin password, a trusted SSO email, Google or a one-time
+// sign-in link becomes an identity, and each live-update stream is written as that person's projection of the state.
 if (WEB_RUNTIME) require('./web-runtime').provide('people', {
   ownerIdentity: () => OWNER_IDENTITY,
   // A member's first sign-in (either way) tells the admins by email, when email is on (emailFirstSignIn below).
   fromProxyEmail: (email) => { const identity = teamStore.fromProxyEmail(email); if (identity?.role) { if (teamStore.noteSignIn(identity.id)) emailFirstSignIn(identity.id); teamStore.touch(identity.id); } return identity; },
-  // A replaced or turned-off link, or a removed member, ends every session that used it.
-  fromLinkSession: (entry) => { const member = teamStore.memberById(entry?.memberId); if (!member?.link || member.link.id !== entry.linkId) return null; teamStore.touch(member.id); return teamStore.identityFor(member, 'link'); },
-  linkLogin: (token, { origin = '' } = {}) => { const found = teamStore.memberByLinkToken(token); if (found?.first) emailFirstSignIn(found.member.id, origin); return found ? { memberId: found.member.id, linkId: found.linkId } : null; },
+  // A member's browser session (Google or a link). Removing or pausing them, or "Sign out everywhere" (a new
+  // sessionEpoch), ends it.
+  fromMemberSession: (entry) => {
+    const member = teamStore.memberById(entry?.memberId);
+    if (!member || member.disabled || (Number(member.sessionEpoch) || 0) !== (Number(entry.epoch) || 0)) return null;
+    teamStore.touch(member.id); return teamStore.identityFor(member, entry.via === 'google' ? 'google' : 'link');
+  },
+  // Whose link this is, before anyone uses it (the page asks first); then using it, which ends it.
+  peekLink: (token) => teamStore.peekLinkToken(token),
+  useLink: (token, { origin = '' } = {}) => { const found = teamStore.useLinkToken(token); if (!found) return null; if (found.first) emailFirstSignIn(found.member.id, origin); return { memberId: found.member.id, epoch: found.epoch }; },
+  // Google's verified email. STUDIO_ADMIN_EMAILS are made (or restored as) admins the same way company sign-in does;
+  // anyone else must already be in People and enabled.
+  googleLogin: (email, { origin = '' } = {}) => {
+    const identity = teamStore.fromProxyEmail(email);
+    if (!identity?.role) return { refused: identity?.disabled ? 'paused' : 'not-invited' };
+    const found = teamStore.signInByEmail(email); if (!found) return { refused: 'not-invited' };
+    if (found.first) emailFirstSignIn(found.member.id, origin);
+    return { memberId: found.member.id, epoch: found.epoch };
+  },
+  // "Email me a sign-in link": a 20-minute, one-time link to an enabled member's own address. Nothing for anyone else,
+  // and the page's answer is the same either way.
+  emailReady: () => mailer.status().ready,
+  requestEmailLink: async (email, { origin = '' } = {}) => {
+    const member = teamStore.memberForSignIn(email);
+    if (!member || !mailer.status().ready) { teamStore.logEvent({ event: 'sign-in-email-skipped', reason: member ? 'email-off' : 'not-a-member' }); return; }
+    const { token } = teamStore.issueLink(member.id, null, { purpose: 'email' });
+    await sendEmail('sign-in-link', member.email, emailTemplates.signInLinkEmail({ name: member.name, url: `${emailOrigin(origin)}/#signin=${token}`, minutes: 20 }), { memberId: member.id });
+  },
   view: (base, identity, session) => JSON.stringify(access.project(base, access.viewerFor(identity, session))),
   // Uploads follow the role policy (a custom role without imports can't pick a file), and each rendering of the state is
   // keyed on the whole viewer, so a preview of one person or a custom role never shares another view's copy.
@@ -3518,14 +3543,17 @@ const { accessLogRows } = require('./access-log');
 const { auditForMember } = require('./team-store');
 const objectPayload = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 const refuse = (message, status, code) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
-// STUDIO_LINK_DAYS: how long a new sign-in link works (0 = until it's replaced or turned off); 30 when unset or invalid.
-function linkDays() { const raw = String(process.env.STUDIO_LINK_DAYS ?? '').trim(); const days = raw === '' ? 30 : Number(raw); return Number.isFinite(days) && days >= 0 ? days : 30; }
+// STUDIO_LINK_DAYS: how long an unused invite link works, up to 30 days; 7 when unset or invalid. Every link works once.
+function linkDays() { const raw = String(process.env.STUDIO_LINK_DAYS ?? '').trim(); const days = raw === '' ? 7 : Number(raw); return Number.isFinite(days) && days > 0 ? Math.min(30, days) : 7; }
 // Company sign-in (a trusted proxy header) or the admin password with personal sign-in links. Links only exist without SSO.
 // The server keeps the admin password out of process.env (scripts/studio-web.cjs), so it tells the web runtime it has one.
+// With Google sign-in on, invites carry no link: people sign in with Google, or ask for an emailed link on the page.
 function signInSettings() {
   const sso = WEB_RUNTIME && Boolean(String(process.env.STUDIO_TRUSTED_EMAIL_HEADER || '').trim());
   const password = WEB_RUNTIME && (Boolean(process.env.STUDIO_PASSWORD) || require('./web-runtime').settings?.passwordSignIn === true);
-  return { web: WEB_RUNTIME, sso, links: WEB_RUNTIME && !sso && password, linkDays: linkDays(), email: mailer.status().ready };
+  const links = WEB_RUNTIME && !sso && password;
+  const google = links && require('./web-runtime').settings?.googleSignIn === true;
+  return { web: WEB_RUNTIME, sso, links, google, inviteLinks: links && !google, linkDays: linkDays(), email: mailer.status().ready };
 }
 // ── Email: invites and first-sign-in notices (src/main/email.js, docs/web-deploy.md#email) ──
 // Off unless the browser studio's EMAIL_PROVIDER is set; the Mac app never sends any. A failed email is logged (never its
@@ -3549,15 +3577,16 @@ function emailOrigin(given = '') {
 // Each new person's invite, two at a time (Resend's default limit is 2 a second). Answers [{ id, status }] with status
 // 'sent', 'failed' or 'sending' (still going after EMAIL_WAIT_MS); [] when email is off or nobody can sign in yet.
 async function emailInvites(members, links, signIn, inviter) {
-  if (!mailer.status().ready || !members.length || (!signIn.sso && !links.length)) return [];
+  const noLink = signIn.sso || signIn.google; // they sign in with their company or Google account: nothing to send but the address
+  if (!mailer.status().ready || !members.length || (!noLink && !links.length)) return [];
   const origin = emailOrigin(); const urls = new Map(links.map((link) => [link.id, link]));
   const statuses = new Map(members.map((member) => [member.id, 'sending']));
-  const queue = members.filter((member) => member.email && (signIn.sso || urls.has(member.id)));
+  const queue = members.filter((member) => member.email && (noLink || urls.has(member.id)));
   for (const member of members) if (!queue.includes(member)) statuses.set(member.id, 'failed');
   const worker = async () => {
     for (let member = queue.shift(); member; member = queue.shift()) {
       const link = urls.get(member.id);
-      const message = emailTemplates.inviteEmail({ name: member.name, inviter, roleLabel: roleLabelOf(member.role), url: link?.url || '', expiresAt: link?.expiresAt ?? null, origin, sso: signIn.sso });
+      const message = emailTemplates.inviteEmail({ name: member.name, email: member.email, inviter, roleLabel: roleLabelOf(member.role), url: link?.url || '', expiresAt: link?.expiresAt ?? null, origin, sso: signIn.sso, google: signIn.google });
       statuses.set(member.id, (await sendEmail('invite', member.email, message, { memberId: member.id })) ? 'sent' : 'failed');
     }
   };
@@ -3624,21 +3653,31 @@ handle('team:remove-member', (_, payload = {}) => {
   emitState();
   return { ok: true, activity: memberActivity(removed, 'removed'), audit: [auditForMember(removed, null, roleLabelOf)] };
 });
-// A new link replaces the old one: every browser that used the old link is signed out (its live updates end at this
-// broadcast). The token appears only in this answer; team.json keeps its hash.
-handle('team:sign-in-link', (_, payload = {}) => {
+// A one-time link that replaces an unused one (it doesn't sign anyone out). With email on it goes straight to the
+// person and the admin never sees it, so nobody can open someone else's link by accident; only when email is off or
+// fails does the answer carry the link to copy. The token is never stored, only its hash.
+handle('team:sign-in-link', async (_, payload = {}) => {
   if (!WEB_RUNTIME) throw refuse(roles.COPY.linksWebOnly, 400, 'linksWebOnly');
   if (!signInSettings().links) throw refuse('This studio signs in through your company login, so people don’t need sign-in links.', 400);
   const origin = linkOrigin();
   const { token, link, member } = teamStore.issueLink(String(objectPayload(payload).id || ''), access.identityForCall(), { days: linkDays() });
   emitState();
-  return { url: `${origin}/#signin=${token}`, expiresAt: link.expiresAt ?? null, activity: { memberId: member.id, name: member.name }, audit: [{ kind: 'link-issued', target: { type: 'member', id: member.id, name: member.name }, changes: [], affected: 1 }] };
+  const url = `${origin}/#signin=${token}`; const logged = { activity: { memberId: member.id, name: member.name }, audit: [{ kind: 'link-issued', target: { type: 'member', id: member.id, name: member.name }, changes: [], affected: 1 }] };
+  if (mailer.status().ready && member.email) {
+    const by = access.identityForCall();
+    const sent = await sendEmail('sign-in-link', member.email, emailTemplates.inviteEmail({ name: member.name, email: member.email, inviter: by?.id === OWNER_IDENTITY.id ? '' : by?.name || '', roleLabel: roleLabelOf(member.role), url, expiresAt: link.expiresAt ?? null, origin, again: true }), { memberId: member.id });
+    if (sent) return { emailed: true, to: member.email, expiresAt: link.expiresAt ?? null, ...logged };
+    return { url, emailFailed: true, expiresAt: link.expiresAt ?? null, ...logged };
+  }
+  return { url, expiresAt: link.expiresAt ?? null, ...logged };
 });
+// Sign out everywhere: ends every browser session the person has (their live updates close at this broadcast) and
+// turns off an unused link.
 handle('team:revoke-link', (_, payload = {}) => {
-  const id = String(objectPayload(payload).id || ''); const before = teamStore.memberById(id);
+  const id = String(objectPayload(payload).id || '');
   const member = teamStore.revokeLink(id, access.identityForCall());
   emitState();
-  return { ok: true, audit: before?.link ? [{ kind: 'link-revoked', target: { type: 'member', id: member.id, name: member.name }, changes: [], affected: 1 }] : [] };
+  return { ok: true, audit: [{ kind: 'link-revoked', target: { type: 'member', id: member.id, name: member.name }, changes: [], affected: 1 }] };
 });
 // Role policy: what Editor and Channel owner can do, custom roles, and one person's own access. Each change bumps the
 // policy's rev (a stale page gets policyConflict) and reaches everyone's state at once.
@@ -3657,7 +3696,7 @@ handle('team:member-access', (_, payload = {}) => {
 // stay in the answer so People can offer them to copy when an email fails.
 handle('team:invite', async (_, payload = {}) => {
   const input = objectPayload(payload); const signIn = signInSettings();
-  const makeLinks = input.makeLinks !== false && signIn.links;
+  const makeLinks = input.makeLinks !== false && signIn.inviteLinks;
   const origin = makeLinks ? linkOrigin() : '';
   const by = access.identityForCall();
   const result = teamStore.inviteMembers({ people: input.people, role: input.role, channelId: input.channelId, grants: input.grants, denies: input.denies, makeLinks, linkDays: linkDays() }, by);

@@ -337,7 +337,10 @@ commented template with the same variables (except the ones the tooling sets).
 | `STUDIO_PUBLIC_ORIGIN` | — | The public `https://` address when a proxy rewrites `Host`; https also marks the cookie Secure. |
 | `STUDIO_SECURE_COOKIES` | — | `1` behind HTTPS: Secure cookie and HSTS. |
 | `STUDIO_TRUST_PROXY` | — | `1`: count admin-password tries per client from `X-Forwarded-For` (only when nothing but the proxy reaches the studio). |
-| `STUDIO_LINK_DAYS` | `30` | How long a new personal sign-in link works; `0` = until replaced or turned off. |
+| `STUDIO_LINK_DAYS` | `7` | How long an unused invite link works, at most 30 days. Every sign-in link works once. |
+| `STUDIO_GOOGLE_CLIENT_ID` | — | With the admin password: turns on “Sign in with Google” (with `STUDIO_GOOGLE_CLIENT_SECRET` and `STUDIO_PUBLIC_ORIGIN`). The Google client’s redirect URI is `<origin>/api/auth/google/callback`. |
+| `STUDIO_GOOGLE_CLIENT_SECRET` | — | Google sign-in’s client secret. A secret: in the secrets file, or an encrypted runtime-only variable. |
+| `STUDIO_GOOGLE_ALLOWED_DOMAINS` | — | Optional: only these email domains may sign in with Google (comma-separated). People must still be in People. |
 | `STUDIO_DRAIN_SECONDS` | `25` | On SIGTERM/SIGINT, how long running work may finish. Keep the platform's stop grace period longer. |
 | `STUDIO_KEEPALIVE_SECONDS` | `75` | Idle keep-alive for proxy connections; keep above the proxy's idle timeout. |
 | `STUDIO_MAX_EVENT_STREAMS` | `200` | Live-update streams for the whole server. |
@@ -564,8 +567,9 @@ Summary; the full model is in [SECURITY.md](SECURITY.md).
   capabilities (`roles.json`); previews are read-only; each browser receives only the state its role may see (money
   stripped for roles without See costs).
 - **Authentication (web)**: company sign-in through a proxy header trusted only from `STUDIO_TRUSTED_PROXY_CIDRS`
-  and/or with `STUDIO_PROXY_SECRET`, or the admin password plus personal sign-in links (32 random bytes, stored as
-  SHA-256 hashes, compared timing-safely). Sessions are in memory.
+  and/or with `STUDIO_PROXY_SECRET`, or the admin password plus Google sign-in (OIDC code flow with PKCE) and one-time
+  sign-in links (32 random bytes, stored as SHA-256 hashes, compared timing-safely, used up on sign-in, confirmed on the
+  page before use). Sessions are saved as SHA-256 hashes of their cookies in `web-sessions.json` and survive restarts.
 - **Secrets**: read once from `STUDIO_SECRETS_FD`/`STUDIO_SECRETS_FILE`, kept out of `process.env`; the container
   reads a root-only file as root and switches to `node`. Keys in Settings are encrypted at rest. AI CLIs get an
   environment without `STUDIO_*` and key variables.

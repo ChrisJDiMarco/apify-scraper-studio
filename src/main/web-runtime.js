@@ -21,7 +21,7 @@ const broadcasts = new EventEmitter(); broadcasts.setMaxListeners(0);
 // password, only to the browser session that asked, when one is named).
 const personal = new EventEmitter(); personal.setMaxListeners(0);
 // draining: the server is stopping (SIGTERM): readiness answers 503 and new paid work is refused (studio-server.js).
-const settings = { dataDir: '', secretKey: '', transferDir: '', passwordSignIn: false, draining: false, emailSecrets: {} };
+const settings = { dataDir: '', secretKey: '', transferDir: '', passwordSignIn: false, googleSignIn: false, draining: false, emailSecrets: {} };
 const MIN_SECRET_LENGTH = 32;
 const CIPHER_TAG = Buffer.from('sw1');
 
@@ -35,11 +35,12 @@ function privateFolder(dir, warn = (message) => console.warn(message)) {
 
 // passwordSignIn: the admin password is set (scripts/studio-web.cjs reads it from STUDIO_SECRETS_FD or the environment
 // and keeps it out of process.env), so People can make personal sign-in links.
+// googleSignIn: STUDIO_GOOGLE_CLIENT_ID and its secret are set, so people sign in with Google and invites carry no link.
 // emailSecrets: RESEND_API_KEY, SMTP_PASSWORD and MAILGUN_API_KEY from the same secrets, for src/main/email.js; never in the answer.
-function configure({ dataDir, secretKey, transferDir, passwordSignIn = false, emailSecrets = {} } = {}) {
+function configure({ dataDir, secretKey, transferDir, passwordSignIn = false, googleSignIn = false, emailSecrets = {} } = {}) {
   if (!dataDir) throw new Error('Set STUDIO_DATA_DIR to the folder that holds the studio data.');
   if (typeof secretKey !== 'string' || secretKey.length < MIN_SECRET_LENGTH) throw new Error(`Set STUDIO_SECRET_KEY to a random value of at least ${MIN_SECRET_LENGTH} characters; it encrypts saved keys.`);
-  settings.dataDir = path.resolve(dataDir); settings.secretKey = secretKey; settings.transferDir = path.resolve(transferDir || path.join(settings.dataDir, 'web-transfers')); settings.passwordSignIn = Boolean(passwordSignIn); settings.draining = false;
+  settings.dataDir = path.resolve(dataDir); settings.secretKey = secretKey; settings.transferDir = path.resolve(transferDir || path.join(settings.dataDir, 'web-transfers')); settings.passwordSignIn = Boolean(passwordSignIn); settings.googleSignIn = Boolean(googleSignIn); settings.draining = false;
   settings.emailSecrets = Object.fromEntries(['RESEND_API_KEY', 'SMTP_PASSWORD', 'MAILGUN_API_KEY'].filter((name) => typeof emailSecrets?.[name] === 'string' && emailSecrets[name]).map((name) => [name, emailSecrets[name]]));
   privateFolder(settings.dataDir); privateFolder(settings.transferDir);
   const { secretKey: _secret, emailSecrets: _email, ...visible } = settings;

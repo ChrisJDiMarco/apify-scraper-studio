@@ -93,9 +93,9 @@ export function InviteDialog({ team, viewer = {}, api, action, preset = {}, stud
     const linkRows = links.map((link) => ({ ...link, member: byId.get(link.id), email: emailOf.get(link.id) || '' })).filter((row) => row.member);
     const emailed = members.filter((member) => emailOf.get(member.id) === 'sent');
     const unsent = linkRows.filter((row) => row.email !== 'sent');
-    const sso = Boolean(result.signIn?.sso ?? signIn.sso);
+    const sso = Boolean(result.signIn?.sso ?? signIn.sso); const google = Boolean(result.signIn?.google ?? signIn.google);
     const where = origin || (typeof window !== 'undefined' ? window.location.origin : '');
-    const ssoMessage = `You’re invited to the ${studioName || 'research studio'}. Sign in at ${where} with your company account.`;
+    const ssoMessage = google ? `You’re invited to the ${studioName || 'research studio'}. Go to ${where} and choose “Sign in with Google” with your work Google account.` : `You’re invited to the ${studioName || 'research studio'}. Sign in at ${where} with your company account.`;
     const all = unsent.map((row) => `${row.member.name}: ${row.url}`).join('\n');
     const emailNote = (row) => (row.email === 'failed' ? `Couldn’t email ${row.member.email}. Copy their link and send it yourself.` : row.email === 'sending' ? `Still emailing ${row.member.email}. If it doesn’t arrive, copy their link.` : '');
     return <Dialog labelledBy={titleId} onClose={onClose} className="people-sheet people-invite" wide>
@@ -103,7 +103,7 @@ export function InviteDialog({ team, viewer = {}, api, action, preset = {}, stud
       <div className="studio-dialog-body">
         {emailed.length > 0 && <ul className="people-invite-emailed" aria-label="Invites emailed">{emailed.map((member) => <li key={member.id}><Check size={14} aria-hidden="true" /><span>Invite emailed to <strong>{member.email}</strong></span></li>)}</ul>}
         {members.length > 0 && unsent.length > 0 && <>
-          <p className="studio-hint">{emailed.length ? 'These invites weren’t emailed. Send each person their own link. Only they should use it.' : 'Send each person their own link. Only they should use it.'}</p>
+          <p className="studio-hint">{emailed.length ? 'These invites weren’t emailed. Send each person their own link, and don’t open it yourself: it works once and signs in as them.' : 'Send each person their own link, and don’t open it yourself: it works once and signs in as them.'}</p>
           <ul className="people-invite-links">{unsent.map((row) => <li key={row.id}>
             <span><strong>{row.member.name}</strong><small>{emailNote(row) || row.member.email}</small></span>
             <span className="people-invite-actions">
@@ -113,8 +113,8 @@ export function InviteDialog({ team, viewer = {}, api, action, preset = {}, stud
           </li>)}</ul>
           {unsent.length > 1 && <button type="button" className="studio-quiet small" onClick={() => copy('all', all)}>{copied === 'all' ? <Check size={14} aria-hidden="true" /> : <ClipboardCopy size={14} aria-hidden="true" />}{copied === 'all' ? 'Copied' : 'Copy all links'}</button>}
         </>}
-        {members.length > 0 && !linkRows.length && emailed.length < members.length && (sso
-          ? <div className="people-invite-sso"><p>They can sign in at <strong>{where}</strong> with their company account.</p><button type="button" className="studio-quiet small" onClick={() => copy('sso', ssoMessage)}>{copied === 'sso' ? <Check size={14} aria-hidden="true" /> : <ClipboardCopy size={14} aria-hidden="true" />}{copied === 'sso' ? 'Copied' : 'Copy invite message'}</button></div>
+        {members.length > 0 && !linkRows.length && emailed.length < members.length && (sso || google
+          ? <div className="people-invite-sso"><p>They can sign in at <strong>{where}</strong> with their {google ? 'Google account' : 'company account'}.</p><button type="button" className="studio-quiet small" onClick={() => copy('sso', ssoMessage)}>{copied === 'sso' ? <Check size={14} aria-hidden="true" /> : <ClipboardCopy size={14} aria-hidden="true" />}{copied === 'sso' ? 'Copied' : 'Copy invite message'}</button></div>
           : <p className="studio-hint">They’re in the studio. Make each person’s sign-in link from their row when you’re ready to send it.</p>)}
         {skipped.length > 0 && <section className="people-invite-skipped" aria-label="Not invited"><h3>Not invited</h3><ul>{skipped.map((row, index) => <li key={`${row.email}-${index}`}><span>{row.email || 'A blank line'}</span><small>{row.reason}</small></li>)}</ul></section>}
       </div>
@@ -152,7 +152,7 @@ export function InviteDialog({ team, viewer = {}, api, action, preset = {}, stud
           {adjust && <AccessList access={access} base={base} roleCaps={roleDef?.capabilities} roleName={roleDef?.label || 'chosen'} grants={grants} denies={denies} notes={notes} onChange={(next) => { setGrants(next.grants); setDenies(next.denies); setNotes(next.note ? { [next.id]: next.note } : {}); }} />}
         </div>}
         {!signIn.links && !signIn.sso && <p className="studio-hint">This studio doesn’t use sign-in links, so nobody is sent one.</p>}
-        {signIn.email && (signIn.links || signIn.sso) && <p className="studio-hint">Each person gets an email with {signIn.links ? 'their own sign-in link' : 'how to sign in'}.</p>}
+        {signIn.email && (signIn.links || signIn.sso) && <p className="studio-hint">Each person gets an email with {signIn.google || signIn.sso ? 'how to sign in' : 'their own one-time sign-in link'}.</p>}
         {problem && <p className="studio-error" role="alert">{problem}</p>}
       </div>
       <footer className="studio-dialog-foot">

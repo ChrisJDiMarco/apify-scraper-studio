@@ -11,6 +11,8 @@
 // - Remove keeps their adoptions and activity (both snapshot by.name) and deletes their prefs and sign-in link. Their
 //   sessions end because identify() no longer finds them.
 // - Disable is the same, but the record stays; they see "Your access to this studio is paused."
+// - Every browser session carries the member's sessionEpoch from when it started. Disabling someone or "Sign out
+//   everywhere" bumps it, which ends all of their sessions at once.
 // - Re-adding an email creates a new id. A channel change leaves old answers with the channel.
 // - Owners of one channel share one answer per trend ("Answered by <name>").
 // - In proxy mode an email change means they sign in with the new address from then on.
@@ -111,6 +113,12 @@ const INVITE_LIMIT = 50;
 const TOUCH_MS = 5 * 60 * 1000;
 const MERGE_MS = 10 * 60 * 1000;
 const DAY_MS = 86400000;
+// Sign-in links work once. An invite (or one an admin makes) lasts STUDIO_LINK_DAYS, at most 30 days; one the person asks
+// for by email lasts 20 minutes. Either way the first use ends it, so a link that is forwarded, left in a mailbox or
+// clicked by the admin who made it can't become a standing way in as someone else.
+const MAX_LINK_DAYS = 30;
+const EMAIL_LINK_MINUTES = 20;
+const linkLifetimeMs = (days) => { const value = Number(days); return (Number.isFinite(value) && value > 0 ? Math.min(MAX_LINK_DAYS, value) : 7) * DAY_MS; };
 const UI_MODES = ['simple', 'classic'];
 const SECRET_KEY = /token|hash|password|secret|cookie|payload/i;
 const HEX_SECRET = /^[0-9a-f]{32,}$/i;
@@ -429,7 +437,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
   function publicMember(member) {
     if (!member) return null;
     const { link, ...rest } = member;
-    return { ...copy(rest), channelId: rest.channelId ?? null, disabled: Boolean(rest.disabled), grants: [...list(rest.grants)], denies: [...list(rest.denies)], link: link ? { id: link.id, createdAt: link.createdAt, expiresAt: link.expiresAt ?? null, lastUsedAt: link.lastUsedAt || '' } : null, serverAdmin: isServerAdmin(rest.email) };
+    return { ...copy(rest), channelId: rest.channelId ?? null, disabled: Boolean(rest.disabled), grants: [...list(rest.grants)], denies: [...list(rest.denies)], sessionEpoch: Number(rest.sessionEpoch) || 0, link: link ? { id: link.id, purpose: link.purpose || 'invite', createdAt: link.createdAt, expiresAt: link.expiresAt ?? null, lastUsedAt: link.lastUsedAt || '' } : null, serverAdmin: isServerAdmin(rest.email) };
   }
   const listMembers = () => data.members.map(publicMember);
   const memberById = (id) => publicMember(record(id));
@@ -469,7 +477,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
         const baseChanged = (roleDef(existing.role)?.base || null) !== def.base;
         Object.assign(existing, { name, email, role, channelId, disabled, updatedAt: at });
         if (baseChanged || def.base === 'admin') Object.assign(existing, { grants: [], denies: [] });
-        if (pausing) { existing.link = null; delete data.prefs[existing.id]; }
+        if (pausing) { existing.link = null; existing.sessionEpoch = (Number(existing.sessionEpoch) || 0) + 1; delete data.prefs[existing.id]; }
         return publicMember(existing);
       }
       const member = { id: `member-${crypto.randomUUID()}`, name, email, role, channelId, disabled, grants: [], denies: [], createdAt: at, updatedAt: at, createdBy: actorOf(by), lastSeenAt: '', link: null };
@@ -530,8 +538,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
       adding.push({ email, name });
     }
     if (!adding.length) return { members: [], links: [], skipped, audit: [] };
-    const requested = Number(payload.linkDays ?? 30);
-    const lifetime = Number.isFinite(requested) && requested >= 0 ? Math.min(3650, requested) : 30;
+    const lifetime = linkLifetimeMs(payload.linkDays);
     const audit = []; const links = [];
     const members = change(() => {
       const at = stamp();
@@ -539,7 +546,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
         const member = { id: `member-${crypto.randomUUID()}`, name, email, role: def.id, channelId, disabled: false, grants: [...access.grants], denies: [...access.denies], createdAt: at, updatedAt: at, createdBy: actorOf(by), lastSeenAt: '', link: null };
         if (payload.makeLinks === true) {
           const token = crypto.randomBytes(32).toString('hex');
-          member.link = { id: crypto.randomBytes(16).toString('hex'), hash: sha256(token), createdAt: at, expiresAt: lifetime ? new Date(clock() + lifetime * DAY_MS).toISOString() : null, lastUsedAt: '' };
+          member.link = newLink(token, 'invite', lifetime, at);
           links.push({ id: member.id, token, expiresAt: member.link.expiresAt });
         }
         data.members.push(member);
@@ -553,31 +560,34 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
   }
 
   // ---------- Personal sign-in links ----------
-  // 32 random bytes, kept only as a SHA-256 hash. days 0 means the link never expires, and a fraction of a day is honoured
-  // (0.5 is 12 hours, never "forever"); a new link replaces the old one, which signs out every device that used it. The
-  // gate logs who made or turned off a link, so `by` is not stored here.
-  function issueLink(id, by = {}, { days = 30 } = {}) {
+  // 32 random bytes, kept only as a SHA-256 hash, one at a time per person: a new link replaces an unused one. A link
+  // works once (useLinkToken ends it) and never longer than MAX_LINK_DAYS. purpose is 'invite' (made by an admin or an
+  // invite) or 'email' (the person asked for it on the sign-in page). The gate logs who made or turned off a link.
+  function newLink(token, purpose, lifetimeMs, createdAt = stamp()) {
+    return { id: crypto.randomBytes(16).toString('hex'), hash: sha256(token), purpose, createdAt, expiresAt: new Date(clock() + lifetimeMs).toISOString(), lastUsedAt: '' };
+  }
+  function issueLink(id, by = {}, { days = 7, purpose = 'invite' } = {}) {
     const member = record(id);
     if (!member) throw fail('That person isn’t in the studio anymore.', 404);
     if (member.disabled) throw fail('Turn this person back on before making a sign-in link.', 409);
-    const requested = Number(days);
-    const lifetime = Number.isFinite(requested) && requested >= 0 ? Math.min(3650, requested) : 30;
+    const lifetime = purpose === 'email' ? EMAIL_LINK_MINUTES * 60000 : linkLifetimeMs(days);
     const token = crypto.randomBytes(32).toString('hex');
     return change(() => {
       const createdAt = stamp();
-      member.link = { id: crypto.randomBytes(16).toString('hex'), hash: sha256(token), createdAt, expiresAt: lifetime ? new Date(clock() + lifetime * DAY_MS).toISOString() : null, lastUsedAt: '' };
+      member.link = newLink(token, purpose === 'email' ? 'email' : 'invite', lifetime, createdAt);
       member.updatedAt = createdAt;
       return { token, link: { createdAt, expiresAt: member.link.expiresAt, lastUsedAt: '' }, member: publicMember(member) };
     });
   }
+  // Turns off an unused link and signs the person out of every browser.
   function revokeLink(id, by = {}) {
     const member = record(id);
     if (!member) throw fail('That person isn’t in the studio anymore.', 404);
-    if (!member.link) return publicMember(member);
-    return change(() => { member.link = null; member.updatedAt = stamp(); return publicMember(member); });
+    return change(() => { member.link = null; member.sessionEpoch = (Number(member.sessionEpoch) || 0) + 1; member.updatedAt = stamp(); return publicMember(member); });
   }
-  // Compares against every member's hash in constant time per hash, then refuses expired links and disabled members.
-  function memberByLinkToken(token) {
+  // The live member a link token belongs to, compared against every member's hash in constant time per hash. Expired
+  // links and disabled members don't count.
+  function linkHolder(token) {
     const value = typeof token === 'string' ? token.trim().toLowerCase() : '';
     if (!/^[0-9a-f]{64}$/.test(value)) return null;
     const digest = Buffer.from(sha256(value), 'hex');
@@ -588,13 +598,29 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
       if (crypto.timingSafeEqual(Buffer.from(hash, 'hex'), digest) && !found) found = member;
     }
     if (!found || found.disabled) return null;
-    if (found.link.expiresAt && !(time(found.link.expiresAt) > clock())) return null;
-    const first = !found.firstSignInAt && !found.lastSeenAt;
-    change(() => { const at = stamp(); found.link.lastUsedAt = at; found.lastSeenAt = at; if (!found.firstSignInAt) found.firstSignInAt = at; });
-    touched.set(found.id, clock());
-    return { member: publicMember(found), linkId: found.link.id, first };
+    // Links made before links worked once could last up to 10 years; they get MAX_LINK_DAYS from when they were made.
+    const expires = found.link.expiresAt ? time(found.link.expiresAt) : time(found.link.createdAt) + MAX_LINK_DAYS * DAY_MS;
+    if (!(Math.min(expires, time(found.link.createdAt) + MAX_LINK_DAYS * DAY_MS) > clock())) return null;
+    return found;
   }
-  // Company sign-in's counterpart of memberByLinkToken's `first`: true once per member, the first time they sign in
+  // Who a link would sign in, without using it: the sign-in page asks before it does.
+  function peekLinkToken(token) { const found = linkHolder(token); return found ? publicMember(found) : null; }
+  // Signs in with a link and ends it. Returns { member, first, epoch } or null.
+  function useLinkToken(token) {
+    const found = linkHolder(token); if (!found) return null;
+    return markSignIn(found);
+  }
+  // The enabled member with this email, for Google sign-in and emailed links; null for anyone else.
+  function memberForSignIn(email) { const found = recordByEmail(email); return found && !found.disabled && roleDef(found.role) ? publicMember(found) : null; }
+  // Google sign-in: the account's email is the member's. Returns { member, first, epoch } or null.
+  function signInByEmail(email) { const found = recordByEmail(email); return found && !found.disabled && roleDef(found.role) ? markSignIn(found) : null; }
+  function markSignIn(found) {
+    const first = !found.firstSignInAt && !found.lastSeenAt;
+    change(() => { const at = stamp(); found.link = null; found.lastSeenAt = at; if (!found.firstSignInAt) found.firstSignInAt = at; });
+    touched.set(found.id, clock());
+    return { member: publicMember(found), first, epoch: Number(found.sessionEpoch) || 0 };
+  }
+  // Company sign-in's counterpart of markSignIn's `first`: true once per member, the first time they sign in
   // (firstSignInAt is saved at once, so a restart never counts it again). Someone seen before firstSignInAt existed
   // gets it set quietly. Best effort: a failed write answers false, and the next request tries again.
   function noteSignIn(id) {
@@ -842,7 +868,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
 
   return {
     listMembers, memberById, memberByEmail, isServerAdmin, saveMember, removeMember, saveMemberAccess, inviteMembers,
-    issueLink, revokeLink, memberByLinkToken,
+    issueLink, revokeLink, peekLinkToken, useLinkToken, memberForSignIn, signInByEmail,
     fromProxyEmail, identityFor, identityForEmail, touch,
     accessPolicy, accessFor, accessSummary, roleLabel, saveRolePolicy, saveRole, deleteRole,
     setAdoption, adoptionsFor,

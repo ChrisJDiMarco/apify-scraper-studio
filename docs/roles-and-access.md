@@ -272,14 +272,16 @@ own `workflow-run` / `workflow-changed` activity rows. Without `readWorkflows` t
 
 ## Identity and sign-in
 
-`identity = { id, name, email, role, roleId, channelId, via, disabled, memberSince }`, `via` ∈ `desktop | password | proxy | link`.
+`identity = { id, name, email, role, roleId, channelId, via, disabled, memberSince }`, `via` ∈ `desktop | password | proxy | google | link`.
 `role` is the role's base (`admin | editor | channel | null`) and `roleId` the role itself (a custom role's id), so
 studio-server's checks keep working; `teamStore.identityFor` fills both, and an identity without `roleId` uses `role`.
 
 - **Mac app**: always `{ id: 'local', role: 'admin', via: 'desktop' }`. View as lives in process memory and clears on quit.
 - **Admin password** (web, `STUDIO_PASSWORD`): break-glass admin, `{ id: 'owner', name: 'Studio admin' }`. Sessions last 12 hours; each browser session keeps its own View as.
 - **Company sign-in** (`STUDIO_TRUSTED_EMAIL_HEADER` + `STUDIO_ALLOWED_EMAIL_DOMAINS`): the member is found by email, case-insensitive. `STUDIO_ADMIN_EMAILS` is authoritative: a listed email is always an enabled admin (created or re-promoted at sign-in), shown as "Set by the server", and can't be changed in People. Unknown emails get role `null`. No sign-in links and no Sign out button: the proxy owns the session.
-- **Personal sign-in link** (password mode only): `<origin>/#signin=<64 hex>`. The page reads the fragment, removes it from the address bar first, then posts `/api/login { linkToken }`. The server compares SHA-256 hashes timing-safely against every member, refuses expired links and disabled members, ends any session the browser arrived with, and starts a 30-day link session bound to the link id. Making a new link, turning the link off, disabling or removing the person ends every session that used it. Sessions are in memory, so a restart signs people out (they reopen their link).
+- **Google sign-in** (password mode, `STUDIO_GOOGLE_CLIENT_ID` + `STUDIO_GOOGLE_CLIENT_SECRET`): `GET /api/auth/google/start` → Google (code flow, PKCE S256, `state` in a Lax cookie scoped to `/api/auth/google`, a nonce) → `/api/auth/google/callback`, which exchanges the code over TLS, checks issuer, audience, expiry, nonce and `email_verified`, optionally the domain (`STUDIO_GOOGLE_ALLOWED_DOMAINS`), and signs in the enabled member with that email (`teamStore.signInByEmail`; `STUDIO_ADMIN_EMAILS` are made admins as with company sign-in). Anyone else goes back to `/#signin-error=<code>`.
+- **One-time sign-in link** (password mode): `<origin>/#signin=<64 hex>`, one per member (`member.link`, `purpose` `invite` or `email`). The page reads the fragment and removes it from the address bar first, then posts `/api/login/link { linkToken }`, which answers whose link it is (name, masked email) and who the browser is signed in as now, without using it. Only when the person confirms does it post `/api/login { linkToken }`, which uses the link up (`teamStore.useLinkToken` clears `member.link`). The server compares SHA-256 hashes timing-safely against every member and refuses expired links and disabled members. Invite links last `STUDIO_LINK_DAYS` (default 7, at most 30; links from before one-time links get one more use within 30 days of being made); **Email me a sign-in link** (`POST /api/login/email`, rate-limited, the same answer for any address) sends one that lasts 20 minutes. With email on, `team:sign-in-link` emails the link and returns `{ emailed, to }`, never the URL.
+- **Member sessions** (Google or a link): `{ kind: 'member', memberId, epoch, via }`, 30 days from last use (renewed on `/api/session` at most daily), at most 10 per member. `epoch` is the member's `sessionEpoch` when the session began; disabling them or **Sign out everywhere** (`team:revoke-link`, which also clears an unused link) bumps it and ends every session. Sessions are kept by the SHA-256 of their cookie in `<data>/web-sessions.json` (0600, durable writes), so restarts and deploys sign nobody out.
 - **Effective role**: View as only lowers a real admin's role: any non-admin role (`{ role }`, a channel-based one with a
   `channelId`) or one person (`{ memberId }`, with their own grants and denies, read fresh on every call). `admin`
   clears it. A demoted admin's old View as is ignored.
@@ -307,8 +309,10 @@ server refuses to start with neither (`studio-server.js` `proxyAllowList`).
 | `STUDIO_PROXY_SECRET` | Optional secret the sign-in proxy sends as `X-Studio-Proxy-Secret`. A secret: in the secrets file. |
 | `STUDIO_TRUSTED_EMAIL_HEADER`, `STUDIO_ALLOWED_EMAIL_DOMAINS` | Company sign-in through a proxy. The proxy must strip any copy of the header the browser sends. |
 | `STUDIO_TRUSTED_PROXY_CIDRS` | With the header: the addresses (IPs or CIDR ranges) the proxy connects from. Required unless `STUDIO_PROXY_SECRET` is set. |
-| `STUDIO_ADMIN_EMAILS` | Comma-separated emails that are always admins (company sign-in). Also the recovery path. |
-| `STUDIO_LINK_DAYS` | How long a new sign-in link works. Default 30, fractions allowed (0.5 = 12 hours), 0 = until replaced or turned off. |
+| `STUDIO_ADMIN_EMAILS` | Comma-separated emails that are always admins (company or Google sign-in). Also the recovery path. |
+| `STUDIO_LINK_DAYS` | How long an unused invite link works. Default 7, at most 30, fractions allowed (0.5 = 12 hours). Every link works once. |
+| `STUDIO_GOOGLE_CLIENT_ID`, `STUDIO_GOOGLE_CLIENT_SECRET` | Sign in with Google (password mode). The secret is a secret; needs `STUDIO_PUBLIC_ORIGIN`. |
+| `STUDIO_GOOGLE_ALLOWED_DOMAINS` | Optional: the only email domains Google sign-in accepts. |
 | `STUDIO_PUBLIC_ORIGIN` | The public https address; used for sign-in link URLs when the request has no Origin, and makes the cookie Secure. |
 | `STUDIO_TRUST_PROXY` | `1` when only the proxy reaches the server: password tries count per forwarded client. |
 | `STUDIO_SECURE_COOKIES`, `STUDIO_DATA_DIR`, `STUDIO_HOST`, `PORT`, `STUDIO_MAX_EVENT_STREAMS`, `STUDIO_MAX_STREAMS_PER_PERSON` and the rest | As in `docs/web-deploy.md` (the full table) and `HANDOFF.md`. |
@@ -342,7 +346,7 @@ Server-wide API keys set as environment variables are exposed the same way; save
    **new** `STUDIO_PASSWORD` known only to admins, passed through the secrets file. Anyone with the old shared password would otherwise sign in as an admin.
 2. Restart, sign in as an admin, and invite editors and channel owners in **People & access** (one channel each).
    Adjust what roles can do on the Roles tab if the defaults don't fit.
-3. In password mode, send each person their sign-in link (Invite makes them in the same step).
+3. In password mode, invite each person: the invite emails them a one-time link (or, with Google sign-in, tells them to sign in with Google). With email off, copy each link to them.
 4. Announce the studio's address.
 
 **Recovery**: add your email to `STUDIO_ADMIN_EMAILS` and restart; in password mode the admin password always signs in
@@ -497,7 +501,7 @@ All windows are UTC, over the last `days`. `readyTrends` (channel-view.js) is th
 | sharedSet | This set was made with other channels. Ask an editor. |
 | preview | You’re previewing as {who}. Switch back to Admin to make changes. |
 | alreadyMaking | Your {channel} assets for this trend are already being made. |
-| linkInvalid | This sign-in link doesn’t work anymore. Ask your studio admin for a new one. |
+| linkInvalid | This sign-in link doesn’t work anymore: each link works once, and only for a few days. Go to the sign-in page to sign in another way, or ask your studio admin for a new link. |
 | editConflict | {name} saved this report at {time}, after you opened it. Copy your text, reopen the report and try again. |
 | researchRunning | {name} started a search with this program at {time}. It’s still running. |
 | selfChange | You can’t change your own access. Ask another admin. |

@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 // fetch, SMTP a fake nodemailer transport, and preview writes into a temporary folder.
 const require = createRequire(import.meta.url);
 const { createMailer, readConfig, redact, RESEND_URL, PREVIEW_KEEP } = require('../src/main/email.js');
-const { inviteEmail, firstSignInEmail } = require('../src/main/email-templates.js');
+const { inviteEmail, signInLinkEmail, firstSignInEmail } = require('../src/main/email-templates.js');
 const roots = [];
 const tempDir = () => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'email-')); roots.push(dir); return dir; };
 afterAll(() => { for (const dir of roots) fs.rmSync(dir, { recursive: true, force: true }); });
@@ -171,7 +171,8 @@ describe('email templates', () => {
     expect(email.text).toContain('Hi Pat Lee,');
     expect(email.text).toContain('John Blanchard invited you to the Golden Thread studio as an Editor.');
     expect(email.text).toContain(`Sign in with your personal link:\n${url}`);
-    expect(email.text).toContain('It works until Nov 20, 2026.');
+    expect(email.text).toContain('This link signs you in once, on one browser, and is just for you');
+    expect(email.text).toContain('Use it by Nov 20, 2026.');
     expect(email.html).toContain(`href="${url}"`);
     expect(email.html).toContain('Sign in to Golden Thread');
     expect(email.html).toContain('You’ve been invited to the studio');
@@ -180,9 +181,28 @@ describe('email templates', () => {
   it('tells people to use their company account when the studio uses company sign-in', () => {
     const email = inviteEmail({ name: 'Pat', inviter: 'John', roleLabel: 'Channel owner', sso: true, origin: 'https://goldenthread.searchengineland.com' });
     expect(email.text).toContain('as a Channel owner');
-    expect(email.text).toContain('Sign in with your company account at https://goldenthread.searchengineland.com.');
+    expect(email.text).toContain('Open https://goldenthread.searchengineland.com, then sign in with your company account.');
     expect(email.text).not.toContain('#signin=');
     expect(email.html).toContain('company account');
+  });
+
+  it('tells people to sign in with Google, with the address their invite went to, and sends no link', () => {
+    const email = inviteEmail({ name: 'Leigh', email: 'leigh@searchengineland.com', inviter: 'John', roleLabel: 'Editor', google: true, url: `https://x.example.com/#signin=${TOKEN}`, origin: 'https://goldenthread.searchengineland.com' });
+    expect(email.text).toContain('Open https://goldenthread.searchengineland.com, then choose “Sign in with Google” and use your Google account for leigh@searchengineland.com.');
+    expect(email.text + email.html).not.toContain('#signin=');
+    expect(email.html).toContain('Email me a sign-in link');
+  });
+
+  it('words a new link from an admin, and the link someone asked for on the sign-in page', () => {
+    const url = `https://goldenthread.searchengineland.com/#signin=${TOKEN}`;
+    const again = inviteEmail({ name: 'Pat', inviter: 'John', url, again: true });
+    expect(again.subject).toBe('Your sign-in link for the Golden Thread studio');
+    expect(again.text).toContain('John sent you a new link to sign in to the Golden Thread studio.');
+    const asked = signInLinkEmail({ name: 'Pat', url });
+    expect(asked.subject).toBe('Sign in to Golden Thread');
+    expect(asked.text).toContain(`It works once, for the next 20 minutes.\n${url}`);
+    expect(asked.text).toContain('If you didn’t ask for it, you can ignore this email');
+    expect(asked.html).toContain(`href="${url}"`);
   });
 
   it('escapes what people typed in the HTML', () => {

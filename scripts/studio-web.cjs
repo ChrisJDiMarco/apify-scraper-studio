@@ -12,15 +12,18 @@
 //                          its starting environment, including the AI on the Codex route (src/main/web-secrets.js)
 //   STUDIO_SECRET_KEY      32+ random characters; encrypts keys saved in Settings
 //   Sign-in, one of:
-//   STUDIO_PASSWORD        admin password (16+ characters): break-glass admin access. Everyone else signs in with the
-//                          personal sign-in link an admin makes in People & access
+//   STUDIO_PASSWORD        admin password (16+ characters): break-glass admin access. Everyone else signs in with Google
+//                          (below) or a one-time sign-in link: from an invite, or one they ask for by email
+//   STUDIO_GOOGLE_CLIENT_ID + STUDIO_GOOGLE_CLIENT_SECRET (a secret)  with the password: "Sign in with Google". Needs
+//                          STUDIO_PUBLIC_ORIGIN; the Google client's redirect URI is <origin>/api/auth/google/callback
+//   STUDIO_GOOGLE_ALLOWED_DOMAINS  optional: only these email domains may sign in with Google (they must still be in People)
 //   STUDIO_TRUSTED_EMAIL_HEADER + STUDIO_ALLOWED_EMAIL_DOMAINS  company sign-in through a proxy, e.g.
 //                          x-forwarded-email + semrush.com. The proxy must strip any copy of the header the browser sends
 //   STUDIO_TRUSTED_PROXY_CIDRS  with the header: the proxy's addresses (IPs or CIDR ranges); the header is ignored from
 //                          anyone else. And/or STUDIO_PROXY_SECRET (a secret): the proxy sends it as X-Studio-Proxy-Secret
-//   STUDIO_ADMIN_EMAILS    with company sign-in: comma-separated emails that are always admins (also the way back in
-//                          if nobody can manage People)
-//   STUDIO_LINK_DAYS       how long a new sign-in link works (default 30; 0 = until it's replaced or turned off)
+//   STUDIO_ADMIN_EMAILS    with company or Google sign-in: comma-separated emails that are always admins (also the way
+//                          back in if nobody can manage People)
+//   STUDIO_LINK_DAYS       how long an unused invite link works (default 7, at most 30). Every link works once
 //   STUDIO_PUBLIC_ORIGIN   https://studio.example.com when the proxy rewrites the Host header; https also makes the
 //                          session cookie Secure
 //   STUDIO_SECURE_COOKIES  1 behind HTTPS (Secure cookie and HSTS);  STUDIO_HOST / PORT  bind address (default 127.0.0.1:4174)
@@ -54,10 +57,12 @@ if (!fs.existsSync(path.join(webRoot, 'index.html'))) fail('Build the browser ap
 // The secrets are read once, from STUDIO_SECRETS_FD or STUDIO_SECRETS_FILE when set, and kept only in memory.
 let secrets;
 try { secrets = require('../src/main/web-secrets').readSecrets(); } catch (error) { fail(error.message); }
-const { STUDIO_SECRET_KEY: secretKey, STUDIO_PASSWORD: password, STUDIO_PROXY_SECRET: proxySecret, RESEND_API_KEY: resendKey, SMTP_PASSWORD: smtpPassword, MAILGUN_API_KEY: mailgunKey } = secrets.values;
+const { STUDIO_SECRET_KEY: secretKey, STUDIO_PASSWORD: password, STUDIO_PROXY_SECRET: proxySecret, RESEND_API_KEY: resendKey, SMTP_PASSWORD: smtpPassword, MAILGUN_API_KEY: mailgunKey, STUDIO_GOOGLE_CLIENT_SECRET: googleSecret } = secrets.values;
+const googleId = String(process.env.STUDIO_GOOGLE_CLIENT_ID || '').trim();
+const googleOn = Boolean(googleId && googleSecret && password && !String(process.env.STUDIO_TRUSTED_EMAIL_HEADER || '').trim());
 // None is in process.env from here on, so nothing the server starts inherits them (the AI CLI environment also drops
 // every STUDIO_* variable). That can't remove them from the environment block this process started with, hence the warning.
-for (const name of ['STUDIO_SECRET_KEY', 'STUDIO_PASSWORD', 'STUDIO_PROXY_SECRET', 'RESEND_API_KEY', 'SMTP_PASSWORD', 'MAILGUN_API_KEY', 'STUDIO_SECRETS_FD', 'STUDIO_SECRETS_FILE']) delete process.env[name];
+for (const name of ['STUDIO_SECRET_KEY', 'STUDIO_PASSWORD', 'STUDIO_PROXY_SECRET', 'RESEND_API_KEY', 'SMTP_PASSWORD', 'MAILGUN_API_KEY', 'STUDIO_GOOGLE_CLIENT_SECRET', 'STUDIO_SECRETS_FD', 'STUDIO_SECRETS_FILE']) delete process.env[name];
 
 // Started as root (the container image): the secrets are read, then the process becomes STUDIO_RUN_AS, which can't open
 // a root-only secrets file again. On Linux the switch also makes this process's memory and starting environment
@@ -81,7 +86,8 @@ if (secrets.fromEnvironment.length && !droppedRoot) {
   warnings.push(`Warning: ${secrets.fromEnvironment.join(' and ')} came from the environment, where anything this server starts can read ${them}, including the AI on the Codex route. Pass ${them} with STUDIO_SECRETS_FD or STUDIO_SECRETS_FILE instead (docs/web-deploy.md).`);
 }
 if (secrets.file) { let readable = false; try { fs.accessSync(secrets.file, fs.constants.R_OK); readable = true; } catch (_) { readable = false; } if (readable) warnings.push(`Warning: STUDIO_SECRETS_FILE (${secrets.file}) is readable by the server’s own user, so the AI on the Codex route could read it. Make it root-only (0400) and start as root with STUDIO_RUN_AS (the container image does), or use STUDIO_SECRETS_FD.`); }
-if (secrets.unknown.length) warnings.push(`Ignored ${secrets.unknown.join(', ')} in the secrets: only STUDIO_SECRET_KEY, STUDIO_PASSWORD, STUDIO_PROXY_SECRET, RESEND_API_KEY, SMTP_PASSWORD and MAILGUN_API_KEY are read there.`);
+if (secrets.unknown.length) warnings.push(`Ignored ${secrets.unknown.join(', ')} in the secrets: only STUDIO_SECRET_KEY, STUDIO_PASSWORD, STUDIO_PROXY_SECRET, RESEND_API_KEY, SMTP_PASSWORD, MAILGUN_API_KEY and STUDIO_GOOGLE_CLIENT_SECRET are read there.`);
+if (Boolean(googleId) !== Boolean(googleSecret)) warnings.push('Warning: Google sign-in needs both STUDIO_GOOGLE_CLIENT_ID and STUDIO_GOOGLE_CLIENT_SECRET, so it is off.');
 
 const drainSeconds = number('STUDIO_DRAIN_SECONDS', 25, 0, 3600);
 const keepAliveSeconds = number('STUDIO_KEEPALIVE_SECONDS', 75, 1, 3600);
@@ -89,7 +95,7 @@ const port = number('PORT', 4174, 0, 65535);
 const bind = process.env.STUDIO_HOST || '127.0.0.1';
 const runtime = require('../src/main/web-runtime');
 let dataDir;
-try { ({ dataDir } = runtime.configure({ dataDir: process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.scraper-studio-web'), secretKey, transferDir: process.env.STUDIO_TRANSFER_DIR, passwordSignIn: Boolean(password), emailSecrets: { RESEND_API_KEY: resendKey, SMTP_PASSWORD: smtpPassword, MAILGUN_API_KEY: mailgunKey } })); }
+try { ({ dataDir } = runtime.configure({ dataDir: process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.scraper-studio-web'), secretKey, transferDir: process.env.STUDIO_TRANSFER_DIR, passwordSignIn: Boolean(password), googleSignIn: googleOn, emailSecrets: { RESEND_API_KEY: resendKey, SMTP_PASSWORD: smtpPassword, MAILGUN_API_KEY: mailgunKey } })); }
 catch (error) { fail(error.message); }
 // The data-folder lock is released when the process exits, after aborted work has saved its last state, not at 'quit'.
 require('../src/main/studio-owner-lock').releaseOnlyAtExit();
@@ -104,6 +110,7 @@ try {
     allowedEmailDomains: process.env.STUDIO_ALLOWED_EMAIL_DOMAINS,
     trustedProxies: process.env.STUDIO_TRUSTED_PROXY_CIDRS, proxySecret,
     publicOrigin: process.env.STUDIO_PUBLIC_ORIGIN,
+    ...(googleOn ? { googleClientId: googleId, googleClientSecret: googleSecret, googleDomains: process.env.STUDIO_GOOGLE_ALLOWED_DOMAINS } : {}),
     trustProxy: process.env.STUDIO_TRUST_PROXY === '1',
     maxEventStreams: number('STUDIO_MAX_EVENT_STREAMS', 200, 1, 100000),
     maxStreamsPerPerson: number('STUDIO_MAX_STREAMS_PER_PERSON', 5, 1, 100),
@@ -123,8 +130,8 @@ function signInLine() {
     const trust = [String(process.env.STUDIO_TRUSTED_PROXY_CIDRS || '').trim() && `from ${String(process.env.STUDIO_TRUSTED_PROXY_CIDRS).split(',').map((entry) => entry.trim()).filter(Boolean).join(', ')}`, proxySecret && 'with the proxy secret'].filter(Boolean).join(' and ');
     return `Sign-in: company login through the ${header.toLowerCase()} header (${process.env.STUDIO_ALLOWED_EMAIL_DOMAINS}), trusted only ${trust}; ${admins ? `${admins} admin ${admins === 1 ? 'email' : 'emails'} from STUDIO_ADMIN_EMAILS` : 'no STUDIO_ADMIN_EMAILS, so only admins already in People can manage people'}; sign-in links off.`;
   }
-  const raw = String(process.env.STUDIO_LINK_DAYS ?? '').trim(); const days = raw === '' ? 30 : Number(raw);
-  return `Sign-in: admin password, plus personal sign-in links from People (new links work ${days === 0 ? 'until they are replaced or turned off' : `for ${Number.isFinite(days) && days > 0 ? days : 30} days`}).`;
+  const raw = String(process.env.STUDIO_LINK_DAYS ?? '').trim(); const asked = raw === '' ? 7 : Number(raw); const days = Number.isFinite(asked) && asked > 0 ? Math.min(30, asked) : 7;
+  return `Sign-in: admin password${googleOn ? ', Google sign-in for people in People' : ''}, and one-time sign-in links${googleOn ? '' : ` (invite links last ${days} ${days === 1 ? 'day' : 'days'} unused)`}; signed-in browsers stay signed in across restarts.`;
 }
 server.on('error', (error) => fail(error.code === 'EADDRINUSE' ? `Port ${port} on ${bind} is already in use. Stop the other server or set PORT.` : `The server could not start: ${error.message}`));
 server.listen(port, bind, () => {

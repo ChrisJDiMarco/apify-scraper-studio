@@ -176,7 +176,7 @@ describe('the gate on the browser studio', () => {
     const link = await chris('team:sign-in-link', { id: member.id });
     expect(link).toEqual({ url: expect.stringMatching(/^https:\/\/studio\.example\.com\/#signin=[0-9a-f]{64}$/), expiresAt: expect.any(String) });
     const team = await chris('team:list');
-    expect(team.signIn).toEqual({ web: true, sso: false, links: true, linkDays: 30, email: false });
+    expect(team.signIn).toEqual({ web: true, sso: false, links: true, google: false, inviteLinks: true, linkDays: 7, email: false });
     expect(team.members.find((entry) => entry.id === member.id).link).toEqual({ createdAt: expect.any(String), expiresAt: link.expiresAt, lastUsedAt: '' });
     expect(JSON.stringify(team)).not.toMatch(/hash|signin=/);
     expect(team.channels.find((channel) => channel.id === 'pr').owners).toEqual([{ id: member.id, name: 'Dana' }]);
@@ -309,8 +309,8 @@ describe('the gate on the Mac app', () => {
     expect(pushed.contentStudio.programs).toHaveLength(2);
   });
 
-  it('tells the Mac app that sign-in links are for the web version', () => {
-    expect(() => handlers.get('team:sign-in-link')(null, { id: 'member-x' })).toThrow('Sign-in links are for the web version.');
-    expect(handlers.get('team:list')().signIn).toEqual({ web: false, sso: false, links: false, linkDays: 30, email: false });
+  it('tells the Mac app that sign-in links are for the web version', async () => {
+    await expect(handlers.get('team:sign-in-link')(null, { id: 'member-x' })).rejects.toThrow('Sign-in links are for the web version.');
+    expect(handlers.get('team:list')().signIn).toEqual({ web: false, sso: false, links: false, google: false, inviteLinks: false, linkDays: 7, email: false });
   });
 });
