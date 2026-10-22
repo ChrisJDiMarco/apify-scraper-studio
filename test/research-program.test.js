@@ -142,7 +142,42 @@ describe('complete batch traversal and validated discovery', () => {
     const { candidates } = makeCandidates(cohort(3)); const result = validateThemes(themeOutput(candidates, { existingThemeId: 'existing-theme' }), { runId: 'run-a', candidates, previousThemes: [{ id: 'existing-theme', name: 'Old verbose reporting theme' }] });
     expect(result.themes).toHaveLength(1); expect(result.themes[0]).toMatchObject({ id: 'existing-theme', evidenceCount: 2, aliases: ['Old verbose reporting theme'] });
     expect(validateThemes({ themes: [] }, { runId: 'run-a', candidates }).themes).toEqual([]);
-    expect(() => validateThemes(themeOutput(candidates, { existingThemeId: 'invented' }), { runId: 'run-a', candidates })).toThrow(/known stable/);
+    // A link to a tracked theme that doesn't exist is ignored: the theme is kept as new, not a failed synthesis.
+    const invented = validateThemes(themeOutput(candidates, { existingThemeId: 'invented' }), { runId: 'run-a', candidates });
+    expect(invented.themes[0].id).toMatch(/^theme-/); expect(invented.receipt.notes.join(' ')).toMatch(/not a known theme/);
+  });
+  it('drops one malformed discovery candidate instead of failing the batch, and names the failing field', () => {
+    const items = cohort(3); const batch = buildDiscoveryBatches({ runId: 'run-a', items }).batches[0]; const good = candidateOutput(batch).candidates[0];
+    const result = validateCandidates({ candidates: [
+      good, 'not an object', { ...good, name: '' }, { ...good, name: 'No summary', summary: '' },
+      { ...good, name: 'Messy enrichment', painPoint: 'Invented', semanticIntentSignals: Array.from({ length: 40 }, (_, i) => `signal ${i}`).concat(7), actionability: 'x'.repeat(5000) },
+      { ...good, name: 'search reporting friction', evidenceIds: ['p3'] },
+    ] }, { runId: 'run-a', batch });
+    expect(result.candidates.map((c) => c.name)).toEqual(['Search reporting friction', 'Messy enrichment']);
+    expect(result.candidates[0].evidenceIds).toEqual(batch.evidenceIds.slice(0, 3)); expect(result.receipt).toMatchObject({ droppedCandidates: 3, mergedNames: 1 });
+    expect(result.candidates[1]).toMatchObject({ painPoint: 'None' }); expect(result.candidates[1].semanticIntentSignals).toHaveLength(15); expect(result.candidates[1].actionability).toHaveLength(2000);
+    // More than the 10 the schema allows is read, not rejected.
+    const many = validateCandidates({ candidates: Array.from({ length: 14 }, (_, i) => ({ ...good, name: `Trend ${i}` })) }, { runId: 'run-a', batch });
+    expect(many.candidates).toHaveLength(10); expect(many.receipt.ignoredCount).toBe(4);
+    // Only a response with nothing usable fails, and its message points at the element.
+    try { validateCandidates({ candidates: [{ ...good, summary: '' }] }, { runId: 'run-a', batch }); throw new Error('should fail'); }
+    catch (error) { expect(error.field).toBe('candidates[0].summary'); expect(error.message).toMatch(/candidates\[0\]\.summary is empty/); }
+  });
+  it('keeps the usable themes when one synthesis theme is malformed, repeated or off-taxonomy', () => {
+    const { candidates } = makeCandidates(cohort(3)); const base = themeOutput(candidates).themes[0];
+    const taxonomy = { categories: [{ category: 'Reporting' }] };
+    const result = validateThemes({ themes: [
+      base, null, { ...base, name: 'Ghost theme', candidateIds: ['c99'] }, { ...base, name: 'Empty theme', description: '', matchingCriteria: '' },
+      { ...base, name: 'Search Reporting Friction', description: 'Repeat' },
+      { ...base, name: 'Second Trend Name Here', novelty: 'BRAND NEW', taxonomyCategory: 'Invented category', contentGap: 'nope', recentTrend: 'nope', crossPlatform: 'yes', totalEvidence: -4, matchingKeywords: Array.from({ length: 40 }, (_, i) => `k${i}`), description: 'd'.repeat(6000), matchingCriteria: '' },
+    ] }, { runId: 'run-a', candidates, taxonomy });
+    expect(result.themes.map((t) => t.name).sort()).toEqual(['Search reporting friction', 'Second Trend Name Here']);
+    const second = result.themes.find((t) => t.name === 'Second Trend Name Here');
+    expect(second).toMatchObject({ novelty: 'NEW TOPIC', taxonomyCategory: '', contentGap: '', recentTrend: '', crossPlatform: false, totalEvidence: 2 });
+    expect(second.description).toHaveLength(5000); expect(second.matchingCriteria).toBe(second.description); expect(second.matchingKeywords).toHaveLength(30);
+    expect(result.receipt.droppedThemes).toBe(3);
+    try { validateThemes({ themes: [{ ...base, candidateIds: ['c99'] }] }, { runId: 'run-a', candidates }); throw new Error('should fail'); }
+    catch (error) { expect(error.field).toBe('themes[0].candidateIds'); expect(error.message).toMatch(/No usable themes: themes\[0\]/); }
   });
 });
 

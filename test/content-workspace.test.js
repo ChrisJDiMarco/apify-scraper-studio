@@ -11,6 +11,7 @@ const sourceRows = (count) => Array.from({ length: count }, (_, i) => ({ id: `so
 const program = (extra = {}) => ({ id: 'program-a', name: 'Weekly research', sourceGroups: [{ platform: 'x', targets: ['researcher'] }], window: { startDate: '2026-09-20', endDate: '2026-09-26' }, budgets: { collectionUsd: 1, aiUsd: 10 }, ...extra });
 import fixture from './helpers/research-ai-fixture.js';
 const { researchOutput, stageOf } = fixture;
+const callKey = request => path.basename(request.outputPath).replace(/\.raw\.json$/, '');
 function outputFor(request) {
   const research = researchOutput(request); if (research) return research;
   const sectionIds = request.schema.properties.sections.items.properties.id.enum;
@@ -123,6 +124,60 @@ describe('persistent content workspace orchestration', () => {
     expect(result.status).toBe('succeeded'); expect(result.warnings.join(' ')).toMatch(/smaller groups/);
     const assignments = JSON.parse(fs.readFileSync(path.join(h.root, 'runs', run.id, 'assignments.json'), 'utf8'));
     expect(assignments).toHaveLength(45); expect(assignments.filter(a => a.unclassified)).toHaveLength(0);
+  });
+  it('splits a discovery batch whose responses keep failing validation and reads the halves', async () => {
+    const h = harness({ count: 405, runAI: async (request, calls, output) => {
+      const result = output(request);
+      if (stageOf(request) === 'discovery' && (request.prompt.match(/"id":"p\d+"/g) || []).length > 100) result.candidates.forEach(c => { c.evidenceIds = ['invented-id']; });
+      return result;
+    } });
+    const run = await discover(h);
+    expect(run.status).toBe('awaiting-review'); expect(run.themes.length).toBeGreaterThan(0);
+    expect(run.warnings.join(' ')).toMatch(/read again in smaller groups/);
+    const keys = h.calls.filter(c => stageOf(c) === 'discovery').map(callKey);
+    expect(keys.filter(k => /-1$|-2$/.test(k)).length).toBeGreaterThanOrEqual(4);
+    // The repair prompt names the element that failed, not a generic hint.
+    expect(h.calls.find(c => callKey(c).endsWith('-repair')).prompt).toMatch(/REJECTED BY VALIDATION: Fix this field: candidates\[0\]\.evidenceIds\. No usable candidates/);
+    const cached = fs.readdirSync(path.join(h.root, 'runs', run.id)).filter(f => /^batch-[0-9a-f]+\.validated\.json$/.test(f));
+    expect(cached.length).toBe(run.discoveryProgress.total);
+  });
+  it('skips a small discovery group that can never be read, with a warning, instead of failing the run', async () => {
+    const h = harness({ count: 405, runAI: async (request, calls, output) => {
+      const result = output(request);
+      if (stageOf(request) === 'discovery' && (request.prompt.match(/"id":"p\d+"/g) || []).length < 40) return { candidates: 'not a list' };
+      return result;
+    } });
+    const run = await discover(h);
+    expect(run.status).toBe('awaiting-review'); expect(run.warnings.join(' ')).toMatch(/could not be read after repeated attempts/);
+  });
+  it('stops at theme synthesis with a clear, resumable message when its answer fails twice, then retries only that step', async () => {
+    let broken = true;
+    const h = harness({ count: 405, runAI: async (request, calls, output) => {
+      const result = output(request);
+      if (broken && stageOf(request) === 'synthesis') result.themes.forEach(t => { t.candidateIds = ['c999']; });
+      return result;
+    } });
+    const failed = await discover(h);
+    expect(failed.status).toBe('failed');
+    expect(failed.message).toMatch(/^Theme synthesis failed its checks twice \(themes\[0\]\.candidateIds: No usable themes/);
+    expect(failed.message).toMatch(/discovery batches are saved and won't be paid for again\. Retry runs only this step again\./);
+    expect(h.calls.filter(c => stageOf(c) === 'synthesis').map(callKey)).toEqual(['theme-synthesis', 'theme-synthesis-repair']);
+    const discoveryCalls = h.calls.filter(c => stageOf(c) === 'discovery').length; broken = false;
+    h.api.retryStudioRun({ runId: failed.id }); await h.api.waitForIdle();
+    expect(h.api.readStudioRun({ runId: failed.id }).status).toBe('awaiting-review');
+    expect(h.calls.filter(c => stageOf(c) === 'discovery')).toHaveLength(discoveryCalls);
+  });
+  it('keeps a trends report whose repaired draft still has a bad quote, leaving the quote out', async () => {
+    const h = harness({ runAI: async (request, calls, output) => {
+      const result = output(request);
+      if (stageOf(request) === 'trend-report') { const id = request.prompt.match(/EVIDENCE_ID: (\S+)/)[1]; result.quotes = [{ evidenceId: id, text: 'Words this practitioner never wrote anywhere.' }]; }
+      return result;
+    } });
+    const run = await discover(h); const result = await approveAndContinue(h, run);
+    expect(result.status).toBe('succeeded');
+    expect(h.calls.filter(c => stageOf(c) === 'trend-report').map(callKey)).toEqual(['output-evidence-report', 'output-evidence-report-repair']);
+    const report = h.api.readStudioAsset({ assetId: h.api.publicState().assets.find(a => a.deliverableId === 'evidence-report').id });
+    expect(report.output.quotes).toEqual([]); expect(report.output.salvaged.join(' ')).toMatch(/quotes\[0\] is not an exact excerpt.*left out/);
   });
   it('retries failed report children while preserving already saved report assets', async () => {
     let failed = false;
