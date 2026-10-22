@@ -15,6 +15,17 @@ const labels = (model) => model.groups.map((group) => [group.id, group.items.map
 const ids = (rows) => rows.map((row) => row.id);
 
 describe('buildNav: Simple', () => {
+  it('gives Simple’s Settings to anyone who may open Brand knowledge (it lives there), never Advanced’s or a channel owner’s', () => {
+    const brandEditor = editor({ hiddenPages: ['settings', 'analytics', 'people'] });
+    const simple = buildNav({ viewer: brandEditor, layout: 'simple', state: state({}, { APIFY_API_TOKEN: false }), edition: 'semrush' });
+    expect(findNavItem(simple, 'settings')).toMatchObject({ kind: 'settings', shortcut: '⌘,', warn: false });
+    expect(simple.shortcuts.map((row) => row.keys)).toContain('⌘,');
+    expect(findNavItem(buildNav({ viewer: brandEditor, layout: 'classic', state: state(), edition: 'semrush' }), 'settings')).toBeNull();
+    expect(findNavItem(buildNav({ viewer: editor(), layout: 'simple', state: state(), edition: 'semrush' }), 'settings')).toBeNull();
+    expect(findNavItem(buildNav({ viewer: brandEditor, layout: 'simple', state: state(), edition: 'semrush', hasStudio: false }), 'settings')).toBeNull();
+    expect(findNavItem(buildNav({ viewer: { ...owner, hiddenPages: [] }, layout: 'channel', state: state(), edition: 'semrush' }), 'settings')).toBeNull();
+  });
+
   it('lists the work in order, then the Studio group, and numbers ⌘1–9 in that order (Settings keeps ⌘,)', () => {
     const nav = buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' });
     expect(labels(nav)).toEqual([['work', ['Home', 'Trends', 'Reports', 'Assets', 'Inbox', 'Calendar']], ['studio', ['Prompts', 'Analytics', 'People & access', 'Settings']]]);

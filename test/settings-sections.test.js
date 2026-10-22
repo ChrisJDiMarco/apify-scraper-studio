@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SETTINGS_GROUPS, SETTINGS_SECTIONS, SETTINGS_SECTION_IDS, SPOT_SECTION, sectionId, sectionStatus, visibleSections } from '../src/renderer/src/settings-sections.js';
 
 // The Settings section list: page order, which sections show, and the nav's status dot for each.
-const ALL = { models: true, brandImages: true, monday: true, setupShare: true };
+const ALL = { models: true, brandKnowledge: true, brandImages: true, monday: true, setupShare: true };
 const ctx = (state = {}, extra = {}) => ({ state, web: false, has: ALL, ...extra });
 
 describe('Settings sections', () => {
@@ -22,8 +22,20 @@ describe('Settings sections', () => {
     expect(web.find((section) => section.id === 'details').label).toBe('Studio details');
     expect(visibleSections(ctx()).find((section) => section.id === 'details').label).toBe('Files & workspace');
     const bare = visibleSections(ctx({}, { has: {} })).map((section) => section.id);
-    for (const id of ['models', 'brand-images', 'monday', 'share']) expect(bare).not.toContain(id);
+    for (const id of ['models', 'brand-knowledge', 'brand-images', 'monday', 'share']) expect(bare).not.toContain(id);
     expect(visibleSections(ctx()).find((section) => section.id === 'google-docs').collapsible).toBe(true);
+  });
+
+  it('puts Brand knowledge first under Brand, opened by its Advanced names too, with a dot for an empty one', () => {
+    expect(SETTINGS_SECTIONS.find((section) => section.id === 'brand-knowledge')).toMatchObject({ group: 'brand', label: 'Brand knowledge' });
+    expect(SETTINGS_SECTION_IDS.indexOf('brand-knowledge')).toBe(SETTINGS_SECTION_IDS.indexOf('brand-images') - 1);
+    expect(sectionId('knowledge')).toBe('brand-knowledge');
+    expect(sectionId('brands')).toBe('brand-knowledge');
+    expect(sectionId('brand')).toBe('brand-images'); // older links keep their section
+    const studio = (knowledge) => ({ contentStudio: { activeWorkspaceId: 'w1', workspaces: [{ id: 'w1', name: 'Main', editionId: 'semrush', knowledge }] } });
+    expect(sectionStatus('brand-knowledge', ctx(studio({ name: 'Main', editionId: 'semrush', voice: '' })))).toEqual({ tone: 'attention', label: 'Not filled in' });
+    expect(sectionStatus('brand-knowledge', ctx(studio({ name: 'Main', voice: 'Plain and direct.' })))).toEqual({ tone: 'ready', label: 'Saved' });
+    expect(sectionStatus('brand-knowledge', ctx())).toEqual({ tone: 'attention', label: 'Not filled in' });
   });
 
   it('maps old names and help spots to sections', () => {

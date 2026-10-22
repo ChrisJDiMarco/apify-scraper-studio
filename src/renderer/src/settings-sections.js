@@ -25,6 +25,9 @@ export const SETTINGS_SECTIONS = Object.freeze([
   { id: 'sources', group: 'connect', label: 'Source collection', spot: 'settings.apify' },
   { id: 'ai', group: 'ai', label: 'AI connections', spot: 'settings.ai-connections' },
   { id: 'models', group: 'ai', label: 'Model routing', spot: 'settings.model-routing', when: (c) => Boolean(c.has?.models) },
+  // Brand knowledge: the Advanced layout's whole page (Content › Brand knowledge), drawn here in the Simple layout only.
+  // App passes its renderer when the layout is Simple and the role may open Brand knowledge (roles.json editBrand).
+  { id: 'brand-knowledge', group: 'brand', label: 'Brand knowledge', when: (c) => Boolean(c.has?.brandKnowledge) },
   { id: 'brand-images', group: 'brand', label: 'Brand reference images', spot: 'settings.brand-images', when: (c) => Boolean(c.has?.brandImages) },
   { id: 'google-drive', group: 'integrations', label: 'Google Drive', spot: 'settings.google-drive' },
   { id: 'google-docs', group: 'integrations', label: 'Google Docs', spot: 'settings.google-docs', collapsible: true },
@@ -39,7 +42,7 @@ export const SETTINGS_SECTION_IDS = Object.freeze(SETTINGS_SECTIONS.map((section
 
 // Older names that still open the right section: links and help spots written before AI connections replaced
 // "Writing & research" and "Image generation".
-export const SECTION_ALIASES = Object.freeze({ writing: 'ai', claude: 'ai', images: 'ai', pictures: 'ai', 'ai-connections': 'ai', routing: 'models', 'model-routing': 'models', brand: 'brand-images', sheets: 'google-sheets', drive: 'google-drive', 'drive-sync': 'google-drive', docs: 'google-docs', address: 'web-address', setup: 'share' });
+export const SECTION_ALIASES = Object.freeze({ writing: 'ai', claude: 'ai', images: 'ai', pictures: 'ai', 'ai-connections': 'ai', routing: 'models', 'model-routing': 'models', brand: 'brand-images', knowledge: 'brand-knowledge', brands: 'brand-knowledge', sheets: 'google-sheets', drive: 'google-drive', 'drive-sync': 'google-drive', docs: 'google-docs', address: 'web-address', setup: 'share' });
 export const sectionId = (value) => { const id = String(value || '').trim().toLowerCase(); return SETTINGS_SECTION_IDS.includes(id) ? id : SECTION_ALIASES[id] || ''; };
 
 // A help spot's section (settings.monday → monday), for Show me steps that point into Settings.
@@ -50,7 +53,7 @@ export const SPOT_SECTION = Object.freeze({
 
 const labelOf = (section, ctx) => (typeof section.label === 'function' ? section.label(ctx) : section.label);
 
-// ctx = { state, web, has: { models, brandImages, monday, setupShare } } → [{ id, group, label, collapsible }] in page order.
+// ctx = { state, web, has: { models, brandKnowledge, brandImages, monday, setupShare } } → [{ id, group, label, collapsible }] in page order.
 export function visibleSections(ctx = {}) {
   return SETTINGS_SECTIONS.filter((section) => !section.when || section.when(ctx)).map((section) => ({ id: section.id, group: section.group, label: labelOf(section, ctx), collapsible: Boolean(section.collapsible), spot: section.spot || '' }));
 }
@@ -75,6 +78,12 @@ export function sectionStatus(id, ctx = {}) {
     return tone('neutral', 'Not checked');
   }
   if (id === 'models') return settings.aiRouting?.updatedAt ? tone('ready', 'Customized') : tone('neutral', 'Defaults');
+  if (id === 'brand-knowledge') {
+    const studio = state.contentStudio || {};
+    const workspace = list(studio.workspaces).find((row) => row.id === studio.activeWorkspaceId);
+    const filled = Object.entries(workspace?.knowledge || {}).some(([key, value]) => key !== 'name' && key !== 'editionId' && typeof value === 'string' && value.trim());
+    return filled ? tone('ready', 'Saved') : tone('attention', 'Not filled in');
+  }
   if (id === 'brand-images') {
     const studio = state.contentStudio || {};
     const workspace = list(studio.workspaces).find((row) => row.id === studio.activeWorkspaceId);
