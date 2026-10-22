@@ -114,7 +114,7 @@ Simple mode is on by default. It shows the studio as a few pages in the left sid
 - **Inbox** (⌘5): what changed that needs you, with an unread count (see [Inbox](#inbox)).
 - **Calendar** (⌘6): when each channel plans to use the trends it took (see [Calendar and My plan](#calendar-and-my-plan)).
 - **Ask AI** (⌘J, from the top of the sidebar): the assistant as a full page (see Ask AI).
-- The **Studio** pages, for admins (and **Prompts** for editors whose role can see prompts): **Prompts**, **Analytics**, **People & access** and **Settings** (⌘,): connections, Claude, images, **Brand knowledge** and brand reference images, Google and Monday.com. Someone who may edit brand knowledge but isn't an admin gets Settings with just Brand knowledge. The layout switch is in the sidebar, not in Settings.
+- The **Studio** pages, for admins (and **Prompts** for editors whose role can see prompts): **Prompts**, **Analytics**, **People & access**, **Brand knowledge** (for anyone who may edit it, editors included) and **Settings** (⌘,): connections, Claude, images, brand reference images, Google and Monday.com. The layout switch is in the sidebar, not in Settings.
 
 While work runs, **N running** at the bottom of the sidebar lists it, each with **Open** and **Stop**.
 
@@ -691,7 +691,7 @@ Drafts use the workspace's brand knowledge and approved products as they were at
 
 ## Brand knowledge
 
-In the Advanced layout it's under **Content**; in Simple it's **Settings → Brand knowledge** (the same page). Brand knowledge has two tabs: **Workspace knowledge** and **Research brand profiles** (profiles used by the Data tools pages).
+In the Advanced layout it's under **Content**; in Simple it's **Brand knowledge** in the sidebar's Studio group (the same page). Brand knowledge has two tabs: **Workspace knowledge** and **Research brand profiles** (profiles used by the Data tools pages).
 
 **Workspace knowledge**:
 
@@ -748,7 +748,6 @@ Sections, top to bottom (Monday.com comes after Google Sheets):
   - **Claude Code** (your Claude plan) and **Codex** (your ChatGPT plan, not metered) use the sign-in of the machine the studio runs on; in the browser studio that is the studio server's sign-in, and the cards say so. When one isn't signed in, the card shows the command to run in Terminal (`claude auth login`, `codex login`) with **Copy**.
   - **Anthropic API key**, **OpenAI API key** (pictures, and OpenAI models), **OpenRouter** (any model through one key; choose which providers may see prompts) and **fal.ai** (pictures and short videos): **Save key**, **Clear**, **Test**. Keys are stored encrypted and sent only to their vendor.
 - **Model routing** (admins): which connection, model and effort each AI job uses (finding trends, tagging, reports, every channel asset, pictures, the short video, Ask AI, data tools), with a typical cost and a status per job. Start from a preset (**Balanced**, the tuned default; **Lowest cost**; **Highest quality**); its effect is shown before anything is saved. **Test…** runs one job's prompt on the sample after showing its estimate. **Save routing** applies it to new runs; runs that already started keep what they started with. A research program can choose its own model for a stage (**AI for this program**); that wins for its runs.
-- **Brand knowledge** (Simple layout only): the whole [Brand knowledge](#brand-knowledge) page. Its dot is amber until something is filled in.
 - **Brand reference images**: what the studio's pictures should look like. One set per kind of picture: in the Semrush workspace **Semrush campaign graphics** (Social Team — Hero Graphic), **Search Engine Land editorial heroes** and **Search Engine Land social graphics**; in the general workspace **Campaign graphics**. Each set holds up to 6 PNG, JPEG or WebP pictures under 10 MB: **Add style example…** and **Add approved logo…** (one logo per set; n8n's SEL hero used five style examples and the 2026 SEL logo). A picture's menu switches it between **Style example** and **Approved logo**, and the bin button removes it after you confirm. The pictures are kept in the studio's data folder (in the browser studio, on the studio server). Every picture the studio draws sends its set: channel asset pictures, Create content pictures, Ask AI pictures (Ask AI picks the set) and picture test runs in Prompts. A run keeps the set it started with.
 - **Google Drive** (admins): **Connect** a Google service account (paste its JSON key) and share your Drive folder with the address shown, as Editor (an access token works too but expires hourly). Paste the folder link (shared drives work), **Save folder**, **Test**. **Add every new report to Drive**: trends reports, toolkits and quick scan reports become Google Docs in folders like the Library; an edit updates the same Doc a minute later, and readers show **Open in Drive**. **Include channel assets**, **Copy existing reports**, **Sync log** (**Retry**), **Disconnect** (files stay).
 - **Google Docs**: **Google Docs access token** with **Connect Docs** and **Disconnect**. Tokens expire.

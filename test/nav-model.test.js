@@ -15,20 +15,21 @@ const labels = (model) => model.groups.map((group) => [group.id, group.items.map
 const ids = (rows) => rows.map((row) => row.id);
 
 describe('buildNav: Simple', () => {
-  it('gives Simple’s Settings to anyone who may open Brand knowledge (it lives there), never Advanced’s or a channel owner’s', () => {
+  it('lists Brand knowledge in Simple’s Studio group for anyone who may open it, never a channel owner, and keeps Settings for admins', () => {
     const brandEditor = editor({ hiddenPages: ['settings', 'analytics', 'people'] });
-    const simple = buildNav({ viewer: brandEditor, layout: 'simple', state: state({}, { APIFY_API_TOKEN: false }), edition: 'semrush' });
-    expect(findNavItem(simple, 'settings')).toMatchObject({ kind: 'settings', shortcut: '⌘,', warn: false });
-    expect(simple.shortcuts.map((row) => row.keys)).toContain('⌘,');
-    expect(findNavItem(buildNav({ viewer: brandEditor, layout: 'classic', state: state(), edition: 'semrush' }), 'settings')).toBeNull();
-    expect(findNavItem(buildNav({ viewer: editor(), layout: 'simple', state: state(), edition: 'semrush' }), 'settings')).toBeNull();
-    expect(findNavItem(buildNav({ viewer: brandEditor, layout: 'simple', state: state(), edition: 'semrush', hasStudio: false }), 'settings')).toBeNull();
-    expect(findNavItem(buildNav({ viewer: { ...owner, hiddenPages: [] }, layout: 'channel', state: state(), edition: 'semrush' }), 'settings')).toBeNull();
+    const simple = buildNav({ viewer: brandEditor, layout: 'simple', state: state(), edition: 'semrush' });
+    expect(findNavItem(simple, 'knowledge')).toMatchObject({ kind: 'simple', target: 'knowledge', group: 'studio', icon: 'BookOpen', spot: 'nav.knowledge' });
+    expect(findNavItem(simple, 'settings')).toBeNull(); // Brand knowledge no longer opens Settings for someone who isn't an admin
+    expect(findNavItem(buildNav({ viewer: editor({ hiddenPages: ['knowledge'] }), layout: 'simple', state: state(), edition: 'semrush' }), 'knowledge')).toBeNull();
+    expect(findNavItem(buildNav({ viewer: brandEditor, layout: 'simple', state: state(), edition: 'semrush', hasStudio: false }), 'knowledge')).toBeNull();
+    expect(findNavItem(buildNav({ viewer: { ...owner, hiddenPages: [] }, layout: 'channel', state: state(), edition: 'semrush' }), 'knowledge')).toBeNull();
+    // Advanced keeps it under Content.
+    expect(findNavItem(buildNav({ viewer: brandEditor, layout: 'classic', state: state(), edition: 'semrush' }), 'knowledge')).toMatchObject({ group: 'content' });
   });
 
   it('lists the work in order, then the Studio group, and numbers ⌘1–9 in that order (Settings keeps ⌘,)', () => {
     const nav = buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' });
-    expect(labels(nav)).toEqual([['work', ['Home', 'Trends', 'Reports', 'Assets', 'Inbox', 'Calendar']], ['studio', ['Prompts', 'Analytics', 'People & access', 'Settings']]]);
+    expect(labels(nav)).toEqual([['work', ['Home', 'Trends', 'Reports', 'Assets', 'Inbox', 'Calendar']], ['studio', ['Prompts', 'Analytics', 'People & access', 'Brand knowledge', 'Settings']]]);
     expect(nav.groups.map((group) => group.label)).toEqual(['', 'Studio']);
     expect(nav.order.map((row) => `${row.id} ${row.shortcut}`)).toEqual(['home ⌘1', 'trends ⌘2', 'reports ⌘3', 'assets ⌘4', 'inbox ⌘5', 'calendar ⌘6', 'prompts ⌘7', 'analytics ⌘8', 'people ⌘9']);
     expect(findNavItem(nav, 'settings')).toMatchObject({ kind: 'settings', shortcut: '⌘,', spot: 'nav.settings' });

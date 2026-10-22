@@ -187,7 +187,7 @@ describe('StudioSidebar: pages', () => {
     expect(trends.querySelector('.sb-badge')).toHaveAttribute('aria-hidden', 'true');
     expect(main().getByRole('button', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     expect(main().getByRole('button', { name: 'Settings, Apify isn’t connected' })).toHaveAttribute('aria-keyshortcuts', 'Meta+,');
-    expect(within(main().getByRole('group', { name: 'Studio' })).getAllByRole('button').map((button) => button.querySelector('.sb-text').textContent)).toEqual(['Prompts', 'Analytics', 'People & access', 'Settings']);
+    expect(within(main().getByRole('group', { name: 'Studio' })).getAllByRole('button').map((button) => button.querySelector('.sb-text').textContent)).toEqual(['Prompts', 'Analytics', 'People & access', 'Brand knowledge', 'Settings']);
     fireEvent.click(main().getByRole('button', { name: 'People & access' }));
     expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: 'people', kind: 'admin', target: 'people' }));
   });

@@ -159,7 +159,7 @@ describe('Simple mode', () => {
 
   it('opens in Simple mode by default with its pages, Settings, and Ask AI pinned above them', async () => {
     await openSimple();
-    expect(navLabels()).toEqual(['Home', 'Trends', 'Reports', 'Assets', 'Inbox', 'Calendar', 'Settings']);
+    expect(navLabels()).toEqual(['Home', 'Trends', 'Reports', 'Assets', 'Inbox', 'Calendar', 'Brand knowledge', 'Settings']);
     expect(screen.getByRole('button', { name: 'Ask AI' })).toHaveAttribute('data-spot', 'nav.ask');
     expect(nav('Trends')).toHaveAccessibleName('Trends, 1 needs your OK');
     expect(within(screen.getByRole('navigation', { name: 'Main' })).queryByRole('group', { name: 'Research' })).not.toBeInTheDocument();

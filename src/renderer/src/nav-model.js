@@ -185,10 +185,9 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   const semrush = edition === 'semrush';
   const modes = list(viewer.modes).length ? list(viewer.modes) : ['simple', 'classic'];
   const settingsAllowed = !channelShell && can('saveSettings') && !hidden.has('settings');
-  // Simple's Settings also holds Brand knowledge (Advanced keeps it under Content), so someone who may open Brand
-  // knowledge but not the studio's settings still gets Settings there, with that one section.
-  const brandInSettings = layout === 'simple' && hasStudio && !hidden.has('knowledge');
-  const settingsShown = settingsAllowed || brandInSettings;
+  const settingsShown = settingsAllowed;
+  // Simple lists Brand knowledge in its Studio group, before Settings (Advanced keeps it under Content).
+  const brandInSimple = layout === 'simple' && hasStudio && !hidden.has('knowledge');
   // Ask AI: Advanced's drawer for anyone who may ask; Simple's page and the channel layout's page when the role lists it
   // (viewer.nav, from Use Ask AI) too. A channel owner's Ask AI answers from their channel only (the server's side).
   const askAllowed = can('askHelp') && (layout === 'classic' || ((!listedMain || listedMain.has('ask')) && !hidden.has('ask')));
@@ -250,6 +249,7 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   if (!channelShell) {
     const adminListed = (id) => !listedAdmin || listedAdmin.has(id);
     const studioItems = STUDIO_PAGES.filter((page) => adminListed(page.id) && !hidden.has(page.id) && can(page.method)).map((page) => item(page, { kind: 'admin' }));
+    if (brandInSimple) studioItems.push(item({ id: 'knowledge', label: 'Brand knowledge', icon: 'BookOpen' }, { kind: 'simple', target: 'knowledge', spot: 'nav.knowledge' }));
     if (settingsShown) studioItems.push(item({ id: 'settings', label: 'Settings', icon: 'Settings2' }, { kind: 'settings', target: 'settings', shortcut: '⌘,', ...(settingsAllowed && apifyMissing ? { warn: true, warnLabel: 'Apify isn’t connected' } : {}) }));
     if (studioItems.length) groups.push({ id: 'studio', label: 'Studio', collapsible: false, open: true, items: studioItems });
   }

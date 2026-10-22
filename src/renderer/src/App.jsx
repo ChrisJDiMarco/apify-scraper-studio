@@ -325,10 +325,9 @@ function StudioApp({ api }) {
   const simpleTabs = [...simpleShape.order.map((row) => row.target), ...simplePages.filter((row) => row.kind !== 'settings' && !simpleShape.order.includes(row)).map((row) => row.target), ...(askPage ? ['ask'] : [])];
   const adminPages = simplePages.filter((row) => row.kind === 'admin').map((row) => row.id);
   const studioAllowed = (view) => !hiddenPages.has(view);
-  // Simple's Settings holds the Brand knowledge page (Advanced keeps it under Content), for anyone who may open it, so
-  // Settings opens in Simple for them even when the studio's own settings are an admin's.
-  const knowledgeInSettings = Boolean(api.contentCatalog) && studioAllowed('knowledge');
-  const simpleSettings = settingsAllowed || knowledgeInSettings;
+  // Simple lists the Brand knowledge page in its Studio group (Advanced keeps it under Content), for anyone who may open it.
+  const knowledgeInSimple = Boolean(api.contentCatalog) && studioAllowed('knowledge');
+  const simpleSettings = settingsAllowed;
   const simpleAllowed = (id) => (id === 'ask' ? askPage : simpleIds.has(id) || (id === 'settings' && simpleSettings));
   function pageAllowed(view) {
     const studio = STUDIO_HOME_FOR[view] || (STUDIO_VIEWS.has(view) ? view : '');
@@ -532,7 +531,7 @@ function StudioApp({ api }) {
 
   // Ask AI's "Open" buttons name a studio view (Research programs, Library…) or an app page (Sheets, Settings…).
   function openHelpPage(page) {
-    if (mode === 'simple' && (page === 'knowledge' || page === 'brands')) { openClassicPage(page); return; }
+    if (mode === 'simple' && (page === 'knowledge' || page === 'brands')) { openClassicPage(page); return; } // Simple's own page
     if (STUDIO_VIEWS.has(page)) navigateStudio(page);
     else navigate(page);
   }
@@ -551,11 +550,11 @@ function StudioApp({ api }) {
   // go with it (Sheets takes { workbookId }; Research programs and Create content take { runId }, the run to show).
   function openClassicPage(view, args = {}, { confirmed = false } = {}) {
     if (!pageAllowed(view)) { setNotice(pageOffNotice(view)); return; }
-    // Brand knowledge lives in Simple's Settings: Ask AI's Open buttons, the palette and old links land there, not on a peek.
-    if ((view === 'knowledge' || view === 'brands') && mode === 'simple' && knowledgeInSettings) {
+    // Brand knowledge is a Simple page of its own: Ask AI's Open buttons, the palette and old links land there, not on a peek.
+    if ((view === 'knowledge' || view === 'brands') && mode === 'simple' && knowledgeInSimple) {
       if (!confirmed && !guard.confirmLeave()) return;
       if (view === 'brands') setKnowledgeTab('profiles');
-      openSettings('brand-knowledge', { confirmed: true });
+      goSimple('knowledge');
       return;
     }
     if (!confirmed && !guard.confirmLeave()) return;
@@ -595,7 +594,7 @@ function StudioApp({ api }) {
   // { key, section }: the Settings section to jump to (settings-sections.js ids; '' = the top), once per key.
   const [settingsRequest, setSettingsRequest] = useState(null);
   function openSettings(section = '', { confirmed = false } = {}) {
-    if (!(settingsAllowed || (mode === 'simple' && knowledgeInSettings)) || (!confirmed && !guard.confirmLeave())) return;
+    if (!settingsAllowed || (!confirmed && !guard.confirmLeave())) return;
     setSettingsRequest({ key: Date.now(), section: typeof section === 'string' ? section : '' }); // click handlers pass an event
     if (mode === 'simple') withViewTransition(() => setSimpleTab('settings'));
     else navigate('settings', {}, { confirmed: true });
@@ -861,9 +860,9 @@ function StudioApp({ api }) {
     const tabId = { overview: 'home', board: 'trends', library: 'reports' }[page] || page;
     if (!tabId) return;
     if (tabId === 'settings') {
-      // #/settings/brand-knowledge: Settings in Simple, Content › Brand knowledge in Advanced.
+      // #/settings/brand-knowledge (older links): Simple's Brand knowledge page, Content › Brand knowledge in Advanced.
       if (sectionId(target.section) === 'brand-knowledge') {
-        if (mode === 'simple' && knowledgeInSettings) openSettings('brand-knowledge');
+        if (mode === 'simple' && knowledgeInSimple) goSimple('knowledge');
         else if (mode === 'classic' && pageAllowed('knowledge')) navigateStudio('knowledge');
         else setNotice(pageOffNotice(settingsAllowed ? 'knowledge' : 'settings'));
         return;
@@ -1177,7 +1176,6 @@ function StudioApp({ api }) {
       busy={busy}
       meta={meta}
       role={viewer.role || 'admin'}
-      renderBrandKnowledge={mode === 'simple' && knowledgeInSettings ? renderBrandKnowledge : undefined}
       setupApi={api}
       request={settingsRequest}
       onOpenPrograms={() => navigateStudio('research')}
@@ -1222,7 +1220,7 @@ function StudioApp({ api }) {
   function renderBrandKnowledge() {
     return <ContentStudioView state={state} api={api} busy={busy} activeView="knowledge" shellNavigation workspaceControlsInShell={Boolean(contentWorkspace)} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={(page) => openTargetRef.current({ kind: 'page', page })} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={renderResearchProfiles} web={web} />;
   }
-  const renderSimplePage = (id) => (id === 'settings' ? renderSettings() : SHARED_PAGES[id] && !ADMIN_PAGES[id] ? renderSharedPage(id) : renderAdminPage(id));
+  const renderSimplePage = (id) => (id === 'settings' ? renderSettings() : id === 'knowledge' ? renderBrandKnowledge() : SHARED_PAGES[id] && !ADMIN_PAGES[id] ? renderSharedPage(id) : renderAdminPage(id));
 
   const content = useMemo(() => {
     const common = { state, busy };
@@ -1310,9 +1308,9 @@ function StudioApp({ api }) {
     const listed = new Set(pages.map((row) => row.label));
     // From Simple, an Advanced page opens as a peek; it says so, and turns up when the person types its name. The
     // General edition's content-studio tabs aren't in its sidebar, but the palette finds them.
-    const tabs = !semrushShell ? generalStudioTabs({ viewer, hasStudio: Boolean(api.contentCatalog) }).map((row) => entry(classicShape, row, { id: `studio-${row.id}`, hint: mode === 'simple' ? (row.id === 'knowledge' && knowledgeInSettings ? 'Settings' : 'Advanced layout · Content studio') : 'Content studio', keywords: `${mode === 'simple' ? 'advanced ' : ''}content studio` })) : [];
+    const tabs = !semrushShell ? generalStudioTabs({ viewer, hasStudio: Boolean(api.contentCatalog) }).map((row) => entry(classicShape, row, { id: `studio-${row.id}`, hint: mode === 'simple' ? (row.id === 'knowledge' && knowledgeInSimple ? 'Studio' : 'Advanced layout · Content studio') : 'Content studio', keywords: `${mode === 'simple' ? 'advanced ' : ''}content studio` })) : [];
     // Brand knowledge opens in Simple's Settings (openClassicPage), so it says so instead of "Advanced layout".
-    const peeks = mode === 'simple' ? navPages(classicShape).filter((row) => !['admin', 'settings'].includes(row.kind) && !listed.has(`Open ${row.label}`)).map((row) => (row.id === 'knowledge' && knowledgeInSettings ? entry(classicShape, row, { hint: 'Settings', keywords: 'settings brand voice products' }) : entry(classicShape, row, { hint: 'Advanced layout', keywords: `advanced ${groupOf(classicShape, row)}`.trim() }))) : [];
+    const peeks = mode === 'simple' ? navPages(classicShape).filter((row) => !['admin', 'settings'].includes(row.kind) && !listed.has(`Open ${row.label}`)).map((row) => (row.id === 'knowledge' && knowledgeInSimple ? entry(classicShape, row, { hint: 'Studio', keywords: 'brand voice products' }) : entry(classicShape, row, { hint: 'Advanced layout', keywords: `advanced ${groupOf(classicShape, row)}`.trim() }))) : [];
     const create = nav.actions.create.filter((row) => !row.disabled && !(row.id === 'research' && (row.programId || row.choices.length))).map((row) => ({ id: `create-${row.id}`, label: row.label, hint: row.hint, icon: iconOf(row.icon), group: PALETTE_GROUPS.create, keywords: 'new create make start', action: 'create', args: { kind: row.id, programId: row.programId || '' } }));
     const content = api.contentCatalog && state.contentStudio ? paletteContent({ studio: state.contentStudio, board: classicActions.board, canStartResearch: Boolean(api.startResearchRun) && can('startResearchRun'), canDecide: can('decideResearchTheme'), folders: mode !== 'channel' && (mode === 'simple' ? simpleAllowed('assets') : studioAllowed('library')) }) : [];
     // Next up: the same rows as Home's rail, first when nothing is typed.
@@ -1374,7 +1372,7 @@ function StudioApp({ api }) {
   // decisions made a moment ago) and unread Inbox rows. ⌘1–9 walk its order.
   const nav = buildNav({ ...navBase, layout: mode, counts: { waiting: can('decideResearchTheme') ? classicActions.waiting.length : 0 }, inboxUnread: inboxCount });
   const activeNavId = mode === 'channel' ? channelTab : mode === 'simple' ? simpleTab : active === 'content-studio' ? (semrushShell ? studioView : 'content-studio') : active === 'marketing-template' ? 'templates' : active;
-  keysRef.current = { mode, order: nav.order, openNavItem, settingsAllowed: settingsAllowed || (mode === 'simple' && knowledgeInSettings), openSettings, canAsk: Boolean(nav.actions.ask), toggleAsk, canRail: !narrow, toggleRail, canCreate: nav.actions.create.length > 0, openNew: openNewMenu };
+  keysRef.current = { mode, order: nav.order, openNavItem, settingsAllowed, openSettings, canAsk: Boolean(nav.actions.ask), toggleAsk, canRail: !narrow, toggleRail, canCreate: nav.actions.create.length > 0, openNew: openNewMenu };
   // Share links (#/report/…, #/trend/…, #/assets/…, #/prompt/…), opened once the studio has loaded and this person has a
   // role (a link opened while signed out was kept through sign-in by web/main.jsx). Someone without a role keeps the link
   // in the address bar until they're let in.

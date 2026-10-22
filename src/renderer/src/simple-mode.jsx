@@ -26,7 +26,7 @@ import './simple-mode.css';
 // and the ⌘1–9 shortcuts). Home is the weekly briefing (what needs you and what changed), Trends asks yes or no, Reports
 // reads (and edits) what was written, Assets holds channel assets and pictures, Inbox and Calendar follow the team's
 // work, and Ask AI answers anything, does the work after you confirm, and can take you to any control and spotlight it.
-// The Studio pages (Prompts, Analytics, People & access, Settings) and Inbox and Calendar render through `renderPage`.
+// The Studio pages (Prompts, Analytics, People & access, Brand knowledge, Settings) and Inbox and Calendar render through `renderPage`.
 // Everything else is in the Advanced layout.
 // The Simple pages in sidebar order (nav-model.js SIMPLE_PAGES, which also holds their labels and icons), then Ask AI:
 // the tabs SimpleMode allows when it's drawn without App.
@@ -66,9 +66,9 @@ export function askIntro(can, { admin = false } = {}) {
 }
 // Ask AI page links (main/help-assistant.js HELP_PAGES ids) that have a home in Simple mode; anything else opens in the
 // Advanced layout. `reports` there is Dataset reports and `dashboard` the Collection overview, so neither maps to a tab.
-const SIMPLE_PAGE = { overview: 'home', library: 'reports', board: 'trends', settings: 'settings', assets: 'assets', inbox: 'inbox', calendar: 'calendar', prompts: 'prompts', analytics: 'analytics', people: 'people' };
+const SIMPLE_PAGE = { overview: 'home', library: 'reports', board: 'trends', settings: 'settings', assets: 'assets', inbox: 'inbox', calendar: 'calendar', prompts: 'prompts', analytics: 'analytics', people: 'people', knowledge: 'knowledge' };
 // Pages App draws (renderPage) inside the Simple column.
-const SHELL_PAGES = new Set(['analytics', 'people', 'prompts', 'inbox', 'calendar']);
+const SHELL_PAGES = new Set(['analytics', 'people', 'prompts', 'knowledge', 'inbox', 'calendar']);
 const ACTIVE = new Set(['queued', 'running']);
 const list = (value) => (Array.isArray(value) ? value : []);
 const plural = (count, word) => `${number(count)} ${word}${count === 1 ? '' : 's'}`;

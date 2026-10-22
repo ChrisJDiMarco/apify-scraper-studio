@@ -194,9 +194,8 @@ people`; `bottom: settings`) filtered by `pages` (each page's capability); a cha
 capability is missing, then `data-tools` when Use data tools is (the `pageGroups` entry, so Simple Reports and the
 Advanced Dataset reports page don't collide); a default editor still gets exactly `settings, knowledge, analytics,
 people`. The sidebar's group for prompts, analytics, people and settings is labelled **Studio**. In the Simple layout,
-Settings also holds the Brand knowledge page (section `brand-knowledge`; Advanced keeps it under Content), so Simple
-shows Settings to anyone without `knowledge` in `hiddenPages`; someone without the `settings` capability sees only that
-section there (the renderer's `nav-model.js` and `settings-view.jsx`; the server still refuses other settings calls). The renderer shows a
+Brand knowledge is its own page in the Studio group (Advanced keeps it under Content), shown to anyone without
+`knowledge` in `hiddenPages` (the renderer's `nav-model.js`). The renderer shows a
 control when `can(viewer, method)` (`roleAllowed || allowed`) and runs it only when
 `canRun(viewer, method)` (`allowed`); write buttons spread `writeProps(viewer)` so a preview shows them turned off with
 the title "Buttons that change things are off in a preview." An admin previewing an editor therefore sees the editor's
@@ -234,7 +233,7 @@ of role may ever hold it. “Spends” marks paid work (it needs See costs on an
 | | `exportPublish` Export and publish | A E | editor | readAssets, readResearch | `publishStudioRun, saveReportToDrive, exportStudioRun, exportResearchReview, syncTrendBoardToMonday, readMondaySyncLog` |
 | Studio setup | `seeCosts` See costs and budgets (projection `money`) | A E | editor | | none |
 | | `managePrograms` Manage research programs | A | editor | readResearch, seeCosts | `listAiModels, saveResearchProgram`; workflow budgets and playbooks: `approveWorkflowBudget, applyPlaybook, savePlaybook, deletePlaybook` |
-| | `editBrand` Edit brand knowledge (Advanced: Content › Brand knowledge; Simple: Settings › Brand knowledge) | A | editor | | taxonomy, reference docs, brand images, product registry, `deleteBrandProfile` |
+| | `editBrand` Edit brand knowledge (Advanced: Content › Brand knowledge; Simple: Studio › Brand knowledge) | A | editor | | taxonomy, reference docs, brand images, product registry, `deleteBrandProfile` |
 | | `manageWorkspaces` Switch workspaces | A | editor | | `selectContentWorkspace, saveContentWorkspace` |
 | | `seeAnalytics` See team analytics | A | editor | | `getTrendAnalytics` |
 | Admin only (locked) | `settings` Settings and connections | A | none | | keys, settings, AI and connection checks, Monday.com setup (`connectMonday`, `saveMondayLink`, `disconnectMonday` …), the Google Drive folder sync (`connectDriveSync`, `saveDriveSync`, `startDriveBackfill`, `readDriveSyncLog` …), data folders, setup files, sheet maintenance, `setPromptLock` |
