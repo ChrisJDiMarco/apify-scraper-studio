@@ -65,6 +65,7 @@ const copies = [
   ['src/main/team-store.js', 'out/main/team-store.js'],
   ['src/main/email.js', 'out/main/email.js'], // invites and first-sign-in notices (browser studio; off unless EMAIL_PROVIDER)
   ['src/main/email-templates.js', 'out/main/email-templates.js'],
+  ['src/main/run-alerts.js', 'out/main/run-alerts.js'],
   ['src/main/access.js', 'out/main/access.js'],
   ['src/main/access-log.js', 'out/main/access-log.js'], // People & access → Access log sentences
   ['src/main/channel-view.js', 'out/main/channel-view.js'],

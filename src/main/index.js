@@ -1842,6 +1842,9 @@ const { createMailer, redact: redactEmailError } = require('./email');
 const emailTemplates = require('./email-templates');
 const mailer = createMailer({ env: WEB_RUNTIME ? process.env : {}, secrets: WEB_RUNTIME ? require('./web-runtime').settings?.emailSecrets || {} : {}, dataDir: dataRoot(), fetch: typeof fetch === 'function' ? fetch : undefined });
 if (mailer.status().problem) teamStore.logEvent({ event: 'email-not-ready', provider: mailer.status().provider, problem: mailer.status().problem });
+// A run that ends failed or partial emails the admins and whoever started it (run-alerts.js; never for a cancel, and only
+// in the browser studio).
+const runAlerts = require('./run-alerts').createRunAlerts({ ready: () => WEB_RUNTIME && mailer.status().ready, adminContacts: () => teamStore.adminContacts(), memberById: (id) => teamStore.memberById(id), send: sendEmail, origin: () => emailOrigin(), log: (event) => teamStore.logEvent(event) });
 // Ask AI's conversations and long-term memory, one folder per person (src/main/ask-store.js), beside team.json. Never in
 // the broadcast state: the help:* methods read them for the person asking.
 const askStore = require('./ask-store').createAskStore({ root: dataPath('content-studio', 'ask') });
@@ -1864,6 +1867,7 @@ const contentWorkspace = createContentWorkspace({
   root: dataPath('content-studio'), emit: () => { emitState(); workflowEngine?.poke(); },
   isWorkflowCall, hooks: {
     onResearchRunStarted: (run) => workflowEngine?.onResearchRunStarted(run), onAssetEdited: (event) => reportDocs?.outsideEdit(event),
+    onRunEnded: (event) => runAlerts.runEnded(event),
     // Google Drive folder sync: every report written or edited is queued; a program's old "Publish reports to Google
     // Drive" runs only until a folder is connected; Monday.com cards link the Drive copy.
     onAssetChanged: (event) => driveSync?.assetChanged(event),
@@ -3555,7 +3559,7 @@ function signInSettings() {
   const google = links && require('./web-runtime').settings?.googleSignIn === true;
   return { web: WEB_RUNTIME, sso, links, google, inviteLinks: links && !google, linkDays: linkDays(), email: mailer.status().ready };
 }
-// ── Email: invites and first-sign-in notices (src/main/email.js, docs/web-deploy.md#email) ──
+// ── Email: invites, first-sign-in and stopped-run notices (src/main/email.js, docs/web-deploy.md#email) ──
 // Off unless the browser studio's EMAIL_PROVIDER is set; the Mac app never sends any. A failed email is logged (never its
 // address or link) and never fails the invite or sign-in it belongs to: People still shows each link to copy.
 const EMAIL_WAIT_MS = 20000; // how long an invite waits for its emails before answering; slower ones still go out
