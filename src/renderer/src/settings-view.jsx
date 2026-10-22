@@ -214,9 +214,10 @@ function DetailsSection({ state, meta, busy, web, onOpenDataFolder, onOpenWorksp
 // renderer's API: getAiConnections, testAiConnection, listAiModels, previewAiRouting, saveAiRouting, estimateAiTaskTest,
 // testAiTask). layout ('simple' | 'classic') turns Model routing's job groups into accordions in the Simple layout.
 // `request` ({ key, section } | null) jumps to a section once per key (a #/settings/<section> link, a setup step, a Show
-// me step); `extraSections` ({ [id]: () => element }) lets another build supply or replace a section's renderer without
+// me step); `renderBrandKnowledge` (() => element, Simple only) draws the Brand knowledge page as a section, and is the
+// one section someone who may edit brand knowledge but not the studio's settings sees; `extraSections` ({ [id]: () => element }) lets another build supply or replace a section's renderer without
 // editing this file; `narrow` forces the compact "Jump to" menu (tests).
-export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, meta, busy, layout, request = null, extraSections = {}, narrow: forcedNarrow, onSaveKey, onClearKey, onSaveSettings, onTestSheetsBridge, onArchiveAndClearSheets, onImportWorkingSheets, onReplaySheetRun, onOpenDataFolder, onOpenWorkspace, onSaveMondayBoard, onClearMondayBoard }) {
+export function SettingsView({ role = 'admin', renderBrandKnowledge, setupApi, onOpenPrograms, state, meta, busy, layout, request = null, extraSections = {}, narrow: forcedNarrow, onSaveKey, onClearKey, onSaveSettings, onTestSheetsBridge, onArchiveAndClearSheets, onImportWorkingSheets, onReplaySheetRun, onOpenDataFolder, onOpenWorkspace, onSaveMondayBoard, onClearMondayBoard }) {
   const web = meta?.runtime === 'web'; // the browser studio: keys and the Claude connection live on the studio server
   const mediaNarrow = useNarrow();
   const narrow = forcedNarrow ?? mediaNarrow;
@@ -232,6 +233,7 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
     sources: () => <SourcesSection {...common} semrush={semrush} />,
     ai: () => <AiConnections state={state} meta={meta} api={setupApi} busy={busy} onSaveKey={onSaveKey} onClearKey={onClearKey} onOpenRouting={setupApi?.previewAiRouting ? () => go('models', { viaKeyboard: false }) : undefined} />,
     models: setupApi?.previewAiRouting ? () => <ModelRouting state={state} api={setupApi} busy={busy} role={role} layout={layout || state.settings?.uiMode} /> : null,
+    'brand-knowledge': renderBrandKnowledge || null,
     'brand-images': setupApi?.addBrandImage ? () => <BrandImages api={setupApi} workspace={activeWorkspace} busy={busy} imagesConfigured={imagesConfigured} /> : null,
     'google-drive': setupApi?.connectDriveSync ? () => <DriveSettings {...common} /> : null, // drive-settings.jsx (folder sync)
     'google-docs': () => <GoogleDocsSection {...common} />,
@@ -243,11 +245,13 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
     details: () => <DetailsSection {...common} onOpenDataFolder={onOpenDataFolder} onOpenWorkspace={onOpenWorkspace} />,
     ...extraSections,
   };
-  const ctx = { state, web, has: { models: Boolean(renderers.models), brandImages: Boolean(renderers['brand-images']), monday: Boolean(renderers.monday), setupShare: Boolean(renderers.share) } };
-  const sections = visibleSections(ctx).filter((section) => typeof renderers[section.id] === 'function');
+  const ctx = { state, web, has: { models: Boolean(renderers.models), brandKnowledge: Boolean(renderers['brand-knowledge']), brandImages: Boolean(renderers['brand-images']), monday: Boolean(renderers.monday), setupShare: Boolean(renderers.share) } };
+  // Someone who isn't an admin but may edit brand knowledge gets that one section; anyone else a note (below).
+  const brandOnly = role !== 'admin' && Boolean(renderers['brand-knowledge']);
+  const sections = visibleSections(ctx).filter((section) => typeof renderers[section.id] === 'function' && (!brandOnly || section.id === 'brand-knowledge'));
   const ids = sections.map((section) => section.id);
   const statuses = useMemo(() => Object.fromEntries(ids.map((id) => [id, sectionStatus(id, ctx)]).filter(([, status]) => status)), [ids.join('|'), state.keys, state.keyProblems, state.settings, state.contentStudio, state.monday, state.driveSync, state.sheetRuns, state.storeRecovery]); // eslint-disable-line react-hooks/exhaustive-deps
-  const spy = useSectionSpy({ ids, enabled: role === 'admin' });
+  const spy = useSectionSpy({ ids, enabled: role === 'admin' || brandOnly });
   const element = (id) => (typeof document === 'undefined' ? null : document.getElementById(`settings-${id}`));
   function go(id, { viaKeyboard = false, smooth = true } = {}) {
     const el = element(id); if (!el) return;
@@ -266,25 +270,47 @@ export function SettingsView({ role = 'admin', setupApi, onOpenPrograms, state, 
     return () => { if (frame) window.cancelAnimationFrame(frame); };
   }, [request?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (role !== 'admin') {
-    const admins = (Array.isArray(state.team?.admins) ? state.team.admins : []).map((admin) => admin?.name).filter(Boolean).slice(0, 3);
-    const who = admins.length > 1 ? `${admins.slice(0, -1).join(', ')} or ${admins[admins.length - 1]}` : admins[0] || 'an admin';
+  const admins = (Array.isArray(state.team?.admins) ? state.team.admins : []).map((admin) => admin?.name).filter(Boolean).slice(0, 3);
+  const who = admins.length > 1 ? `${admins.slice(0, -1).join(', ')} or ${admins[admins.length - 1]}` : admins[0] || 'an admin';
+  if (role !== 'admin' && !brandOnly) {
     return <section className="panel full settings-view settings-locked" aria-labelledby="settings-locked-title"><div className="panel-head"><div><h3 id="settings-locked-title">Settings are for admins</h3><p>Connections, keys and pictures are set up once for the whole studio. Ask {who} if something needs changing.</p></div></div></section>;
+  }
+  const head = brandOnly ? <div className="panel-head">
+    <div><h3>What you can change here</h3><p>Connections, keys and pictures are set up by admins. Ask {who} if one of those needs changing.</p></div>
+  </div> : <div className="panel-head">
+    <div><h3>Connect your tools</h3><p>Connect source collection, writing, and image generation in one place.</p></div>
+    <div className="button-row">
+      <Badge tone={state.keys?.APIFY_API_TOKEN ? 'ready' : 'warning'}>{state.keys?.APIFY_API_TOKEN ? 'Apify saved' : 'Apify missing'}</Badge>
+      <Badge tone={state.keys?.GOOGLE_SHEETS_WEBHOOK_URL ? 'ready' : 'neutral'}>{state.keys?.GOOGLE_SHEETS_WEBHOOK_URL ? 'Sheets saved' : 'Sheets optional'}</Badge>
+    </div>
+  </div>;
+  const anchors = (rows) => <div className="settings-sections">
+    {rows.map((section) => <div key={section.id} id={`settings-${section.id}`} className="settings-anchor" data-settings-section={section.id}>{renderers[section.id]()}</div>)}
+  </div>;
+  const nav = <SettingsNav sections={sections} statuses={statuses} active={spy.active} narrow={narrow} onGo={(id, options) => go(id, options)} />;
+  // Brand knowledge is a whole page with its own look, so it sits between two Settings panels rather than inside one
+  // (the panel's button and field styles would restyle it).
+  const knowledgeAt = ids.indexOf('brand-knowledge');
+  if (knowledgeAt >= 0) {
+    const before = sections.slice(0, knowledgeAt);
+    const after = sections.slice(knowledgeAt + 1);
+    return (
+      <div className="settings-shell" data-narrow={narrow || undefined}>
+        {nav}
+        <div className="settings-column">
+          <section className="panel full settings-view">{head}{before.length > 0 && anchors(before)}</section>
+          <div id="settings-brand-knowledge" className="settings-anchor settings-knowledge" data-settings-section="brand-knowledge">{renderers['brand-knowledge']()}</div>
+          {after.length > 0 && <section className="panel full settings-view">{anchors(after)}</section>}
+        </div>
+      </div>
+    );
   }
   return (
     <div className="settings-shell" data-narrow={narrow || undefined}>
-      <SettingsNav sections={sections} statuses={statuses} active={spy.active} narrow={narrow} onGo={(id, options) => go(id, options)} />
+      {nav}
       <section className="panel full settings-view">
-        <div className="panel-head">
-          <div><h3>Connect your tools</h3><p>Connect source collection, writing, and image generation in one place.</p></div>
-          <div className="button-row">
-            <Badge tone={state.keys?.APIFY_API_TOKEN ? 'ready' : 'warning'}>{state.keys?.APIFY_API_TOKEN ? 'Apify saved' : 'Apify missing'}</Badge>
-            <Badge tone={state.keys?.GOOGLE_SHEETS_WEBHOOK_URL ? 'ready' : 'neutral'}>{state.keys?.GOOGLE_SHEETS_WEBHOOK_URL ? 'Sheets saved' : 'Sheets optional'}</Badge>
-          </div>
-        </div>
-        <div className="settings-sections">
-          {sections.map((section) => <div key={section.id} id={`settings-${section.id}`} className="settings-anchor" data-settings-section={section.id}>{renderers[section.id]()}</div>)}
-        </div>
+        {head}
+        {anchors(sections)}
       </section>
     </div>
   );

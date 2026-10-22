@@ -30,10 +30,10 @@ const labels = (nav) => within(nav).getAllByRole('button').map((button) => butto
 const mainNav = () => screen.getByRole('navigation', { name: 'Main' });
 
 // A tiny studio server: who is signed in, their View as and layout, and the state the gate would project for them.
-function openStudio(who, { viewAs = null, uiMode = 'simple', api: extra = {} } = {}) {
+function openStudio(who, { viewAs = null, uiMode = 'simple', access = null, api: extra = {} } = {}) {
   const server = { who, viewAs, prefs: { uiMode, welcomedAt: '' }, base: fixture.baseState() };
   const project = () => {
-    const viewer = roles.buildViewer({ identity: identities[server.who], session: { viewAs: server.viewAs }, prefs: server.prefs, editionId: 'semrush', web: false, admins });
+    const viewer = roles.buildViewer({ identity: identities[server.who], session: { viewAs: server.viewAs }, prefs: server.prefs, editionId: 'semrush', web: false, admins, access });
     return roles.projectState(server.base, viewer, { adoptions: fixture.adoptions(), admins, memberCount: 5, editionId: 'semrush' });
   };
   const listeners = [];
@@ -92,6 +92,72 @@ describe('One frame for every role', () => {
     // An old link to Settings says why instead of opening it.
     fireEvent.keyDown(window, { key: ',', metaKey: true });
     expect(screen.queryByRole('heading', { name: 'Connect your tools' })).not.toBeInTheDocument();
+  });
+
+  it('puts the whole Brand knowledge page in Simple’s Settings, where the palette and #/settings/knowledge links land', async () => {
+    const scrolled = [];
+    Element.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.id); };
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { callback(0); return 1; });
+    try {
+      openStudio('admin');
+      await screen.findByRole('heading', GREETING);
+      fireEvent.click(within(mainNav()).getByRole('button', { name: /^Settings/ }));
+      const sections = await screen.findByRole('navigation', { name: 'Settings sections' });
+      expect(within(sections).getByRole('link', { name: /^Brand knowledge/ })).toHaveAttribute('href', '#/settings/brand-knowledge');
+      const section = document.querySelector('[data-settings-section="brand-knowledge"]');
+      expect(within(section).getByRole('heading', { name: 'Brand knowledge' })).toBeInTheDocument();
+      expect(within(section).getByRole('tab', { name: 'Research brand profiles' })).toBeInTheDocument();
+      expect(await within(section).findByRole('button', { name: /Save brand knowledge/ })).toBeInTheDocument();
+      expect(within(section).queryByRole('navigation', { name: 'Content studio' })).not.toBeInTheDocument();
+      // ⌘K's Brand knowledge says Settings and opens there, not on an Advanced peek.
+      fireEvent.click(within(mainNav()).getByRole('button', { name: /^Home/ }));
+      await screen.findByRole('heading', GREETING);
+      fireEvent.keyDown(window, { key: 'k', metaKey: true });
+      const palette = await screen.findByRole('dialog', { name: 'Command palette' });
+      fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'Brand knowledge' } });
+      const open = await within(palette).findByRole('button', { name: /Open Brand knowledge/ });
+      expect(open).toHaveTextContent('Settings');
+      fireEvent.click(open);
+      expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Back to Simple/ })).not.toBeInTheDocument();
+      await waitFor(() => expect(scrolled).toContain('settings-brand-knowledge'));
+      // An old link by its Advanced name lands on the same section.
+      fireEvent.click(within(mainNav()).getByRole('button', { name: /^Home/ }));
+      await screen.findByRole('heading', GREETING);
+      scrolled.length = 0;
+      act(() => { window.location.hash = '#/settings/knowledge'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+      expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
+      await waitFor(() => expect(scrolled).toContain('settings-brand-knowledge'));
+    } finally { delete Element.prototype.scrollIntoView; window.history.replaceState(null, '', '/'); }
+  });
+
+  it('keeps Brand knowledge under Content in Advanced, with no Brand knowledge in Advanced’s Settings', async () => {
+    openStudio('admin', { uiMode: 'classic' });
+    const primary = await screen.findByRole('navigation', { name: 'Main' });
+    await within(primary).findByRole('group', { name: 'Content' });
+    expect(labels(within(primary).getByRole('group', { name: 'Content' }))).toContain('Brand knowledge');
+    fireEvent.click(within(primary).getByRole('button', { name: /^Settings/ }));
+    const sections = await screen.findByRole('navigation', { name: 'Settings sections' });
+    expect(within(sections).queryByRole('link', { name: /^Brand knowledge/ })).not.toBeInTheDocument();
+  });
+
+  it('gives an editor who may edit brand knowledge a Simple Settings with only Brand knowledge', async () => {
+    openStudio('editor', { access: { grants: ['editBrand'] } });
+    await screen.findByRole('heading', GREETING);
+    fireEvent.click(within(mainNav()).getByRole('button', { name: /^Settings/ }));
+    expect(await screen.findByRole('heading', { name: 'What you can change here' })).toBeInTheDocument();
+    const sections = screen.getByRole('navigation', { name: 'Settings sections' });
+    expect(within(sections).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['#/settings/brand-knowledge']);
+    expect(document.querySelector('[data-settings-section="sources"]')).not.toBeInTheDocument();
+    expect(within(document.querySelector('[data-settings-section="brand-knowledge"]')).getByRole('heading', { name: 'Brand knowledge' })).toBeInTheDocument();
+  });
+
+  it('keeps Advanced as it was for that editor: Brand knowledge under Content, and no Settings', async () => {
+    openStudio('editor', { uiMode: 'classic', access: { grants: ['editBrand'] } });
+    const primary = await screen.findByRole('navigation', { name: 'Main' });
+    await within(primary).findByRole('group', { name: 'Content' });
+    expect(labels(within(primary).getByRole('group', { name: 'Content' }))).toContain('Brand knowledge');
+    expect(within(primary).queryByRole('button', { name: /^Settings/ })).not.toBeInTheDocument();
   });
 
   it('shows an admin the same program controls, and Analytics, People and Settings in the Studio group', async () => {

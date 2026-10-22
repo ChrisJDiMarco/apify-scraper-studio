@@ -10,7 +10,7 @@ import { SETTINGS_SECTION_IDS } from '../src/renderer/src/settings-sections.js';
 // that move between links, a Jump to menu on narrow screens, and #/settings/<section> requests.
 const base = (extra = {}) => ({ keys: {}, settings: { maxItems: 1000, sheets: {} }, sheetRuns: [], ...extra });
 // Every section present: a Monday.com stand-in through extraSections, so this doesn't depend on that build's component.
-const props = (extra = {}) => ({ state: base(), meta: {}, onSaveKey: vi.fn(async () => true), onClearKey: vi.fn(), onSaveSettings: vi.fn(), setupApi: { previewAiRouting: vi.fn(() => new Promise(() => {})), getAiConnections: vi.fn(() => new Promise(() => {})), addBrandImage: vi.fn(), openSetupFile: vi.fn(), connectDriveSync: vi.fn() }, extraSections: { monday: () => <section className="settings-block"><h3>Monday.com</h3></section> }, ...extra });
+const props = (extra = {}) => ({ state: base(), meta: {}, onSaveKey: vi.fn(async () => true), onClearKey: vi.fn(), onSaveSettings: vi.fn(), setupApi: { previewAiRouting: vi.fn(() => new Promise(() => {})), getAiConnections: vi.fn(() => new Promise(() => {})), addBrandImage: vi.fn(), openSetupFile: vi.fn(), connectDriveSync: vi.fn() }, renderBrandKnowledge: () => <h2>Brand knowledge page</h2>, extraSections: { monday: () => <section className="settings-block"><h3>Monday.com</h3></section> }, ...extra });
 let scrolled;
 beforeEach(() => {
   scrolled = [];
@@ -95,8 +95,23 @@ describe('Settings section nav', () => {
   });
 
   it('shows no nav to someone who isn’t an admin', () => {
-    render(<SettingsView {...props({ role: 'editor' })} />);
+    render(<SettingsView {...props({ role: 'editor', renderBrandKnowledge: undefined })} />);
     expect(screen.queryByRole('navigation', { name: 'Settings sections' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Settings are for admins' })).toBeInTheDocument();
+  });
+
+  it('gives someone who may edit brand knowledge, but isn’t an admin, that one section', () => {
+    render(<SettingsView {...props({ role: 'editor' })} />);
+    expect(within(nav()).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['#/settings/brand-knowledge']);
+    expect(screen.getByRole('heading', { name: 'Brand knowledge page' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'What you can change here' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Connect your tools' })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-settings-section="sources"]')).not.toBeInTheDocument();
+  });
+
+  it('leaves Brand knowledge out where no renderer is given (the Advanced layout)', () => {
+    render(<SettingsView {...props({ renderBrandKnowledge: undefined })} />);
+    expect(within(nav()).queryByRole('link', { name: /Brand knowledge/ })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-settings-section="brand-knowledge"]')).not.toBeInTheDocument();
   });
 });
