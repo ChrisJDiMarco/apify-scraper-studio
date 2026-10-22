@@ -9,7 +9,8 @@ import studio from './helpers/roles-studio.js';
 // Email on the real main process (src/main/index.js) under the browser studio's runtime, as roles-gate.test.js loads it:
 // EMAIL_PROVIDER=resend with a fake fetch that records each email, and fails any to fail@semrush.com. Invites email
 // each person their link, a first sign-in (link or company sign-in) emails the other admins once, a failed email never
-// fails the invite, and no sign-in link or address reaches the log.
+// fails the invite, a run the restart found stopped emails the admins and its starter, and no sign-in link or address
+// reaches the log.
 const mainPath = path.resolve('src/main/index.js');
 const mainRequire = createRequire(mainPath);
 const { MEMBERS, identity, seedStudio } = studio;
@@ -17,9 +18,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const roots = [];
 afterAll(() => { for (const root of roots) fs.rmSync(root, { recursive: true, force: true }); });
 
-function loadStudio({ env, emailSecrets, fetch }) {
+function loadStudio({ env, emailSecrets, fetch, seed = () => {} }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'email-hooks-')); roots.push(root);
-  const dataDir = path.join(root, 'data'); seedStudio(dataDir);
+  const dataDir = path.join(root, 'data'); seedStudio(dataDir); seed(dataDir);
   const runtime = mainRequire('./web-runtime');
   runtime.configure({ dataDir, secretKey: 'email-hooks-test-secret-0123456789abcdef', emailSecrets });
   vm.runInNewContext(fs.readFileSync(mainPath, 'utf8'), {
@@ -44,7 +45,14 @@ describe('email from the browser studio', () => {
       const body = JSON.parse(init.body); sent.push({ url, auth: init.headers.Authorization, ...body });
       return body.to[0] === 'fail@semrush.com' ? new Response(JSON.stringify({ name: 'internal_server_error', message: 'Down' }), { status: 500 }) : new Response(JSON.stringify({ id: `email-${sent.length}` }), { status: 200 });
     };
-    ({ runtime, dataDir } = loadStudio({ env: { EMAIL_PROVIDER: 'resend', EMAIL_FROM: 'Golden Thread <studio@searchengineland.com>', STUDIO_PUBLIC_ORIGIN: 'https://studio.example.com' }, emailSecrets: { RESEND_API_KEY: 're_test_hooks_key' }, fetch }));
+    // A research run Riley started was still going when the server stopped.
+    const seed = (dir) => {
+      const file = path.join(dir, 'content-studio', 'state.json'); const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+      state.researchRuns.push({ ...state.researchRuns[0], id: 'research-stopped', title: 'Weekly <SEO> listening', status: 'running', stage: 'classifying', message: 'Tagging posts · batch 64 of 65', costUsd: 39.5 });
+      fs.writeFileSync(file, JSON.stringify(state));
+    };
+    ({ runtime, dataDir } = loadStudio({ env: { EMAIL_PROVIDER: 'resend', EMAIL_FROM: 'Golden Thread <studio@searchengineland.com>', STUDIO_PUBLIC_ORIGIN: 'https://studio.example.com' }, emailSecrets: { RESEND_API_KEY: 're_test_hooks_key' }, fetch, seed }));
+    await until(() => sent.some((email) => email.tags[0].value === 'run-stopped'));
     await sleep(50);
   });
   afterAll(() => { vi.restoreAllMocks(); runtime?.shutdown(); });
@@ -109,6 +117,17 @@ describe('email from the browser studio', () => {
     await sleep(50);
     expect(sent.length).toBe(before + 1);
     expect(JSON.parse(fs.readFileSync(teamFile, 'utf8')).members.find((member) => member.id === MEMBERS.riley.id).firstSignInAt).toEqual(expect.any(String));
+  });
+
+  it('emails the admins and whoever started it when a restart finds a run stopped', () => {
+    const stopped = sent.filter((email) => email.tags[0].value === 'run-stopped');
+    expect(stopped.map((email) => email.to[0])).toEqual(['chris@semrush.com', 'riley@semrush.com']);
+    expect(stopped[0].subject).toBe('Research run failed: Weekly <SEO> listening');
+    expect(stopped[0].text).toContain('It got as far as: Tagging posts · batch 64 of 65');
+    expect(stopped[0].text).toContain('What went wrong: The app stopped during this run.');
+    expect(stopped[0].text).toContain('Cost so far: $39.50');
+    expect(stopped[0].html).toContain('Weekly &lt;SEO&gt; listening');
+    expect(stopped[0].text).toContain('https://studio.example.com');
   });
 
   it('keeps sign-in links, addresses and the key out of the log', () => {

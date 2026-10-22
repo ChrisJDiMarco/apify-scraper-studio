@@ -1,7 +1,7 @@
 'use strict';
 // The studio's emails, each as { subject, text, html }: the invite (with the person's own one-time sign-in link, or how to
-// sign in with Google or their company account), a sign-in link someone asked for, and the notice admins get when
-// someone signs in for the first time. Everything a person typed is escaped in the HTML. CommonJS, Electron-free.
+// sign in with Google or their company account), a sign-in link someone asked for, the notice admins get when
+// someone signs in for the first time, and the one they get when a run stops failed or partway. Everything a person typed is escaped in the HTML. CommonJS, Electron-free.
 const STUDIO = 'Golden Thread';
 const GOLD = '#b8860b';
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -78,4 +78,40 @@ function firstSignInEmail({ name = '', email = '', roleLabel = '', at = '', orig
   return { subject, text, html };
 }
 
-module.exports = { inviteEmail, signInLinkEmail, firstSignInEmail, escape, STUDIO };
+// A run's error as an email may show it: no file paths, link queries, keys or tokens, on one line, at most 400 characters.
+function scrubError(value) {
+  return line(value)
+    .replace(/\b(https?:\/\/[^/\s?#'"<>]+)[^\s'"<>]*/gi, '$1')
+    .replace(/(?<![\w:/.])(?:~|[A-Za-z]:)?(?:[\\/][\w.@~+-]+){2,}[\\/]?/g, '[file]')
+    .replace(/\b(Bearer|Basic)\s+[\w.~+/=-]+/gi, '$1 [redacted]')
+    .replace(/\b((?:api[_-]?key|access[_-]?token|token|secret|password|authorization)\s*[:=]\s*)["']?[^\s"',;]+/gi, '$1[redacted]')
+    .replace(/\b(?:sk|re|key|ghp|gho|xox[abp]|apify_api|AKIA)[_-][\w-]{8,}/g, '[redacted]')
+    .replace(/[\w-]{32,}/g, '[redacted]')
+    .slice(0, 400);
+}
+const dollars = (value) => `$${(Number(value) || 0).toFixed(2)}`;
+// What kind of run it was, as the studio names it.
+function runKind({ type = '', quickScan = false, scanReport = false } = {}) {
+  if (type === 'research') return quickScan ? 'quick scan' : 'research run';
+  return scanReport ? 'quick scan’s trends report' : 'content run';
+}
+
+// runStoppedEmail({ title, type, quickScan, scanReport, status, reached, error, costUsd, startedBy, origin, studioName }):
+// to admins and whoever started it, when a run ends failed or partial. reached is the last step it showed
+// ("Tagging posts · batch 64 of 65"); error is scrubbed here.
+function runStoppedEmail({ title = '', type = '', quickScan = false, scanReport = false, status = 'failed', reached = '', error = '', costUsd = 0, startedBy = '', origin = '', studioName = STUDIO } = {}) {
+  const studio = line(studioName) || STUDIO; const name = line(title) || 'Untitled run'; const kind = runKind({ type, quickScan, scanReport });
+  const partial = status === 'partial'; const who = line(startedBy); const step = line(reached).slice(0, 200); const problem = scrubError(error);
+  const Kind = kind.charAt(0).toUpperCase() + kind.slice(1);
+  const subject = partial ? `${Kind} partly finished: ${name}` : `${Kind} failed: ${name}`;
+  const lead = `The ${kind} “${name}”${who ? `, started by ${who},` : ''} ${partial ? 'finished, but some of its outputs didn’t.' : 'stopped before it finished.'}`;
+  const facts = [step ? `It got as far as: ${step}` : '', problem ? `What went wrong: ${problem}` : '', `Cost so far: ${dollars(costUsd)}`].filter(Boolean);
+  const retry = 'Open the run and choose “Retry unfinished outputs”: work that already finished is kept and isn’t paid for again.';
+  const where = line(origin);
+  const footnote = `You’re getting this because you’re an admin of ${studio} or you started this run.`;
+  const text = [lead, '', ...facts, '', retry, ...(where ? ['', `Open ${studio}: ${where}`] : []), '', footnote].join('\n');
+  const html = layout({ studioName: studio, heading: subject, paragraphs: [escape(lead), facts.map(escape).join('<br>'), escape(retry)], button: where ? { url: where, label: `Open ${studio}` } : null, footnote: escape(footnote) });
+  return { subject, text, html };
+}
+
+module.exports = { inviteEmail, signInLinkEmail, firstSignInEmail, runStoppedEmail, scrubError, escape, STUDIO };

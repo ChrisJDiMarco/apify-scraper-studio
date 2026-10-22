@@ -135,6 +135,27 @@ describe('persistent content workspace orchestration', () => {
     expect(h.api.publicState().assets).toHaveLength(2); expect(h.api.publicState().assets.some(a => a.id === before[0].id)).toBe(true);
     expect(h.calls.filter(c => c.schema.properties.quotes)).toHaveLength(1);
   });
+  it('tells hooks.onRunEnded when a run fails, with the step it reached and the error, but not when it is cancelled', async () => {
+    const ended = [];
+    const h = harness({ count: 405, runAI: async (request, calls, output) => { if (stageOf(request) === 'discovery' && calls.filter(c => stageOf(c) === 'discovery').length === 2) throw new Error('Provider down for /app/data/x.json'); return output(request); } });
+    const api = createContentWorkspace({ ...h.deps, hooks: { onRunEnded: event => { ended.push(event); throw new Error('an alert never changes the run'); } } });
+    api.saveResearchProgram(program()); const run = api.startResearchRun({ programId: 'program-a', datasetIds: ['dataset-a'] }); await api.waitForIdle();
+    expect(api.readStudioRun({ runId: run.id }).status).toBe('failed');
+    expect(ended).toHaveLength(1);
+    expect(ended[0]).toMatchObject({ run: { id: run.id, status: 'failed', type: 'research', costUsd: expect.any(Number) }, error: 'Provider down for /app/data/x.json' });
+    expect(ended[0].reached).toEqual(expect.any(String)); expect(ended[0].reached).not.toBe(ended[0].error);
+    // A restart that finds a run still going marks it failed and says so too.
+    const persisted = JSON.parse(fs.readFileSync(path.join(h.root, 'state.json'), 'utf8')); persisted.researchRuns[0].status = 'running'; persisted.researchRuns[0].message = 'Tagging posts · batch 64 of 65'; fs.writeFileSync(path.join(h.root, 'state.json'), JSON.stringify(persisted));
+    createContentWorkspace({ ...h.deps, hooks: { onRunEnded: event => ended.push(event) } }).recoverInterrupted();
+    expect(ended[1]).toMatchObject({ run: { id: run.id, status: 'failed' }, reached: 'Tagging posts · batch 64 of 65', error: expect.stringMatching(/app stopped/) });
+    // Cancelled mid-call: no alert.
+    let release; let started; const ready = new Promise(resolve => { started = resolve; }); const gate = new Promise(resolve => { release = resolve; });
+    const c = harness({ runAI: async (request, calls, output) => { started(); await gate; return output(request); } }); const quiet = [];
+    const cancelling = createContentWorkspace({ ...c.deps, hooks: { onRunEnded: event => quiet.push(event) } });
+    cancelling.saveResearchProgram(program()); const stopping = cancelling.startResearchRun({ programId: 'program-a', datasetIds: ['dataset-a'] });
+    await ready; await cancelling.cancelStudioRun({ runId: stopping.id }); release(); await cancelling.waitForIdle();
+    expect(cancelling.readStudioRun({ runId: stopping.id }).status).toBe('cancelled'); expect(quiet).toEqual([]);
+  });
   it('cancels while awaiting theme review without discarding discovered evidence', async () => {
     const h = harness(); const run = await discover(h); const callsBefore = h.calls.length;
     expect(run.status).toBe('awaiting-review');

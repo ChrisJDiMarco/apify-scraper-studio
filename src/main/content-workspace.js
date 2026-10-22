@@ -283,7 +283,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     }
   }
   function recoverInterrupted() {
+    const ended = [];
     for (const run of [...state.contentRuns, ...state.researchRuns]) if (['queued', 'running'].includes(run.status)) {
+      ended.push([run, run.message || '']);
       run.status = (run.jobs || []).some(job => job.status === 'succeeded' || job.assetIds?.length) ? 'partial' : 'failed';
       run.message = 'The app stopped during this run. Retry resumes saved stages and keeps completed assets.';
       for (const job of run.jobs || []) if (job.status === 'running') { job.status = job.assetIds?.length ? 'partial' : 'failed'; job.error = 'Interrupted before completion.'; }
@@ -295,12 +297,21 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       run.scanReport = { ...run.scanReport, status: child?.status === 'succeeded' ? 'succeeded' : 'failed', error: child?.status === 'succeeded' ? '' : 'The app stopped while the trends report was being written.' };
     }
     save();
+    for (const [run, reached] of ended) runEnded(run, reached, run.message);
+  }
+  // A run that ended failed or partial (hooks.onRunEnded: the admins' email, run-alerts.js), with the step it showed last
+  // and what stopped it: the thrown error, else the first output's.
+  function runEnded(run, reached = '', error = '') {
+    if (typeof hooks.onRunEnded !== 'function' || !['failed', 'partial'].includes(run.status)) return;
+    const jobs = [...(run.jobs || []), ...(run.reportRunIds || []).flatMap(entry => state.contentRuns.find(child => child.id === entry.runId)?.jobs || [])];
+    try { hooks.onRunEnded({ run: publicRun(run), reached, error: error || jobs.find(job => job.error)?.error || '' }); } catch (_) { /* an alert never changes the run */ }
   }
   function check(run) { if (stopped.has(run.id)) throw new Error('Run cancelled.'); }
   function launch(run, task) {
     if (active.has(run.id)) return copy(run);
     stopped.delete(run.id); run.status = 'queued'; run.updatedAt = stamp(); save();
-    const work = Promise.resolve().then(async () => { check(run); run.status = 'running'; updateScheduledRun(run); save(); await task(); }).catch(error => { run.status = stopped.has(run.id) ? 'cancelled' : (run.jobs || []).some(j => j.status === 'succeeded' || j.assetIds?.length) ? 'partial' : 'failed'; run.message = safeError(error); if (run.status !== 'cancelled' && askOf(run)) { const ask = askOf(run); ask.stops = (Number(ask.stops) || 0) + 1; runEvent(run, 'run-stopped', { attempt: ask.stops }); } }).finally(() => { active.delete(run.id); run.updatedAt = stamp(); updateScheduledRun(run); save(); });
+    let reached = ''; let thrown = '';
+    const work = Promise.resolve().then(async () => { check(run); run.status = 'running'; updateScheduledRun(run); save(); await task(); }).catch(error => { reached = run.message || ''; thrown = safeError(error); run.status = stopped.has(run.id) ? 'cancelled' : (run.jobs || []).some(j => j.status === 'succeeded' || j.assetIds?.length) ? 'partial' : 'failed'; run.message = safeError(error); if (run.status !== 'cancelled' && askOf(run)) { const ask = askOf(run); ask.stops = (Number(ask.stops) || 0) + 1; runEvent(run, 'run-stopped', { attempt: ask.stops }); } }).finally(() => { active.delete(run.id); run.updatedAt = stamp(); updateScheduledRun(run); save(); runEnded(run, reached, thrown); });
     active.set(run.id, work); return copy(run);
   }
   // One Claude call. Research stages size the per-call spending cap from the call's own estimate

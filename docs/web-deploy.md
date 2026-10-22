@@ -566,7 +566,7 @@ Roles decide who can see and change what, but a few things are still one setting
 
 ## Email
 
-The studio can email two things, and nothing else:
+The studio can email these things, and nothing else:
 
 - **Invites.** Inviting people in **People & access** emails each new person their own one-time sign-in link
   (password mode), or how to sign in with Google or their company account. The invite screen then says *Invite emailed
@@ -574,9 +574,16 @@ The studio can email two things, and nothing else:
 - **Sign-in links.** A new link from a person's **Sign-in** tab, and the link someone asks for on the sign-in page.
 - **First sign-ins.** When someone signs in for the first time, every other enabled admin gets
   *&lt;Name&gt; just signed in for the first time*. Set `STUDIO_PUBLIC_ORIGIN` so that email can link to the studio.
+- **Stopped runs.** When a research run, quick scan, quick scan trends report or content run ends **Failed** or
+  **Partial**, every enabled admin and the member who started it get *Research run failed: &lt;title&gt;* (or *partly
+  finished*): the step it reached, the error with file paths, link queries, keys and tokens removed, the recorded cost,
+  a button to the studio (`STUDIO_PUBLIC_ORIGIN`) and a reminder that **Retry unfinished outputs** keeps finished work.
+  A run the server finds still going at start (it stopped mid-run) counts too. Never for a cancel; a report run inside
+  a research run is left to that run's email; one email per run per 30 minutes, so a retry that fails again is quiet
+  (`run-email-skipped` in the log).
 
 It is **off** until `EMAIL_PROVIDER` is set, and then the studio works exactly as before. A failed email is logged
-(`email-failed`, with the person's id and a reason, never their address or link) and never stops the invite or the
+(`email-failed`, with the person's or run's id and a reason, never their address or link) and never stops the invite or the
 sign-in. A provider that's set but missing a setting logs `email-not-ready` with what to set, at start.
 
 | `EMAIL_PROVIDER` | What happens | Also set |
