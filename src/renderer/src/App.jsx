@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, CalendarDays, CheckCheck, ChevronRight, ClipboardCopy, Command, Globe2, Inbox, ListChecks, LoaderCircle, RefreshCw, Repeat2, ScrollText, Sparkles, UserRound, Workflow, X } from 'lucide-react';
+import { CalendarDays, CheckCheck, ChevronRight, ClipboardCopy, Command, Globe2, Inbox, ListChecks, LoaderCircle, RefreshCw, ScrollText, Sparkles, UserRound, Workflow, X } from 'lucide-react';
 import { AutomationView } from './automation-view.jsx';
 import { DatasetsView, ReportsView } from './dataset-report-views.jsx';
 import { CommandPalette } from './command-palette.jsx';
@@ -35,7 +35,7 @@ import { useConfirm } from './confirm-dialog.jsx';
 import { SheetsView } from './sheets-view.jsx';
 import { SimpleMode } from './simple-mode.jsx';
 import { ChannelBottomNav, NAV_ICONS, StudioSidebar, StudioTopBar } from './studio-sidebar.jsx';
-import { DATA_TOOLS, DATA_TOOL_IDS, PAGE_LABELS, STUDIO_PAGES, buildNav, generalStudioTabs, isChannelViewer, isRealAdmin, navPages } from './nav-model.js';
+import { DATA_TOOL_IDS, PAGE_LABELS, STUDIO_PAGES, WORKBENCH, buildNav, generalStudioTabs, isChannelViewer, isRealAdmin, navPages } from './nav-model.js';
 import { InboxView, inboxUnread, markInboxRead } from './inbox-view.jsx';
 import { CalendarView } from './calendar-view.jsx';
 import { PromptLibrary } from './prompt-library.jsx';
@@ -72,7 +72,7 @@ const CANCEL_JOB = { title: 'Cancel this job?', lines: ['Anything it already fin
 const STUDIO_VIEWS = new Set(['overview', 'research', 'board', 'create', 'library', 'knowledge']);
 const APP_PAGES = new Set(['content-studio', 'dashboard', 'sheets', 'settings', 'inbox', 'calendar', 'playbooks', 'workflows', ...DATA_TOOL_IDS]);
 const ADMIN_PAGES = Object.fromEntries(STUDIO_PAGES.map((page) => [page.id, page]));
-const DATA_TOOL_SPOTS = new Set(['nav.data-tools', ...DATA_TOOLS.flatMap((set) => set.items.map((item) => item.spot))]);
+const DATA_TOOL_SPOTS = new Set(['nav.data-tools', ...WORKBENCH.flatMap((set) => set.items.map((item) => item.spot || `nav.${item.id}`))]);
 // Whether Data tools is open, per person on this device. Storage can be missing or blocked (private windows, previews).
 const DATA_TOOLS_KEY = 'studio.nav.dataTools';
 function savedDataToolsOpen() {
@@ -274,9 +274,9 @@ function StudioApp({ api }) {
   // asset). Each carries a fresh key; a page acts on a key once.
   const [shellRequest, setShellRequest] = useState(null); // { key, kind: 'report', assetId } | { key, kind: 'ask', text }
   const [libraryRequest, setLibraryRequest] = useState(null); // { key, assetId } (a report) | { key, folderKey } (a channel-asset folder)
-  // Simple is the default layout. "peek" opens one Advanced page from Simple for this session, without saving a preference.
+  // One sidebar for everyone (nav-model.js's unified layout): Simple's pages are the base, and "peek" is an Advanced page
+  // (a stage's tool, the Workbench, the palette) open in their place until a Simple page is opened again.
   const [peek, setPeek] = useState(false);
-  const [modeChoice, setModeChoice] = useState(''); // the layout just chosen, shown before the saved preference comes back
   const [simpleTab, setSimpleTab] = useState('home');
   const [channelTab, setChannelTab] = useState('trends');
   const [channelFocus, setChannelFocus] = useState('');
@@ -346,11 +346,12 @@ function StudioApp({ api }) {
   // Share links point at the browser studio: this page's address there, the saved Studio web address on the Mac.
   const linkOrigin = shareOrigin({ web, settings: state.settings });
 
-  // The layout: channel owners have their own; otherwise this person's saved choice, or Advanced while peeking.
+  // The layout: channel owners have their own; otherwise Simple's pages, with Advanced ones while one is open (peek).
+  // The old saved Simple | Advanced choice (prefs.uiMode) only opens the sidebar's tools (usedAdvanced).
   const modes = list(viewer.modes).length ? viewer.modes : ['simple', 'classic'];
-  const savedMode = viewer.prefs?.uiMode || state.settings?.uiMode || 'simple';
-  const wantedMode = modeChoice || (peek ? 'classic' : savedMode);
-  const mode = channelBase ? 'channel' : modes.includes(wantedMode) ? wantedMode : 'simple';
+  const mode = channelBase ? 'channel' : peek && modes.includes('classic') ? 'classic' : 'simple';
+  // Someone who chose Advanced before keeps every tool a click away: the sidebar's stages start with their tools open.
+  const usedAdvanced = (viewer.prefs?.uiMode || state.settings?.uiMode) === 'classic' && modes.includes('classic');
   const prefRail = typeof viewer.prefs?.navRail === 'boolean' ? viewer.prefs.navRail : null;
   const rail = !narrow && Boolean(sessionRail ?? prefRail ?? localRail ?? midWidth);
 
@@ -545,8 +546,8 @@ function StudioApp({ api }) {
     });
   }
 
-  // From Simple: open one Advanced page (See why, research setup, Ask AI links, the palette, the Trend tracker) without
-  // saving a layout. A "Back to Simple" bar stays above the page until the person goes back or keeps Advanced. `args`
+  // From Simple: open one Advanced page (a stage's tool, the Workbench, See why, Ask AI links, the palette) in place,
+  // until a Simple page is opened from the sidebar again. `args`
   // go with it (Sheets takes { workbookId }; Research programs and Create content take { runId }, the run to show).
   function openClassicPage(view, args = {}, { confirmed = false } = {}) {
     if (!pageAllowed(view)) { setNotice(pageOffNotice(view)); return; }
@@ -577,12 +578,13 @@ function StudioApp({ api }) {
     if (mode === 'simple') openClassicPage(view, {}, { confirmed: true });
     else navigateStudio(view, { confirmed: true });
   }
-  // Simple's pages, the sidebar and ⌘1–9 all come here, so unsaved report edits are asked about once.
+  // Simple's pages, the sidebar and ⌘1–9 all come here, so unsaved report edits are asked about once. From an Advanced
+  // page it closes that page too.
   const simpleTabRef = useRef(simpleTab); simpleTabRef.current = simpleTab;
   function goSimple(next) {
     if (!simpleAllowed(next)) return;
-    if (next !== simpleTabRef.current && !guard.confirmLeave()) return;
-    withViewTransition(() => setSimpleTab(next));
+    if ((peek || next !== simpleTabRef.current) && !guard.confirmLeave()) return;
+    withViewTransition(() => { setPeek(false); setSimpleTab(next); });
   }
   // `focus` is a trend to jump to in My assets, once: any other way there (the nav, ⌘2) starts at the top.
   // 'ask' is the channel owner's Ask AI page (the sidebar's Ask AI, ⌘J), which remembers the page it was opened from.
@@ -604,25 +606,6 @@ function StudioApp({ api }) {
     if (mode === 'simple') goSimple(id);
     else navigate(id);
   }
-  // Simple | Advanced. Saved per person (setViewPrefs), or in the shared settings by an older main process. `confirmed`:
-  // the caller already asked about unsaved edits.
-  async function chooseMode(next, { confirmed = false } = {}) {
-    if (!['simple', 'classic'].includes(next) || next === mode) return;
-    if (!confirmed && !guard.confirmLeave()) return;
-    setDrawerOpen(false);
-    if (peek) { withViewTransition(() => setPeek(false)); if (next === savedMode) return; }
-    if (next === savedMode) return;
-    withViewTransition(() => setModeChoice(next));
-    await runAction(() => (api.setViewPrefs ? api.setViewPrefs({ uiMode: next }) : api.saveSettings({ uiMode: next })));
-    setModeChoice('');
-  }
-  // From the peek bar: make Advanced the saved layout, as choosing it in the sidebar would.
-  async function keepAdvanced() {
-    if (!peek) return;
-    withViewTransition(() => { setModeChoice('classic'); setPeek(false); });
-    await runAction(() => (api.setViewPrefs ? api.setViewPrefs({ uiMode: 'classic' }) : api.saveSettings({ uiMode: 'classic' })));
-    setModeChoice('');
-  }
   function toggleDataTools() {
     const next = !dataToolsOpen;
     setDataToolsChoice(next); saveDataToolsOpen(next);
@@ -635,12 +618,12 @@ function StudioApp({ api }) {
     setSessionRail(next); saveRail(next);
     if (typeof api.setViewPrefs === 'function') Promise.resolve().then(() => api.setViewPrefs({ navRail: next })).catch(() => {});
   }
-  // A page from the nav model (the sidebar, ⌘1–9, the palette), in whichever layout it belongs to. From Simple, an
-  // Advanced page opens as a peek with the Back to Simple bar.
+  // A page from the nav model (the sidebar, ⌘1–9, the palette), in whichever layout it belongs to: a Simple page closes
+  // any open Advanced page, and an Advanced one opens in place.
   function openNavItem(row) {
     if (!row) return;
     if (row.kind === 'channel') { goChannel(row.target); return; }
-    if (row.kind === 'simple') { if (mode === 'simple') goSimple(row.target); return; }
+    if (row.kind === 'simple') { goSimple(row.target); return; }
     if (row.kind === 'admin') { openAdminPage(row.target); return; }
     if (row.kind === 'settings') { openSettings(); return; }
     if (mode === 'simple') { openClassicPage(row.target); return; }
@@ -996,16 +979,22 @@ function StudioApp({ api }) {
     const spot = spotFor(step?.target); if (!spot) return;
     const inSidebar = spot.id.startsWith('nav.') || String(spot.selector || '').includes('"nav.');
     if (narrow) setDrawerOpen(inSidebar);
-    if (DATA_TOOL_SPOTS.has(spot.id) && !dataToolsOpen) { setDataToolsChoice(true); saveDataToolsOpen(true); }
+    if (inSidebar) revealNavSpot(spot.id);
     setHelpOpen(spot.tab === 'ask');
     if (spot.tab === 'settings' && settingsAllowed && active !== 'settings') navigate('settings');
     if (SHARED_SPOT_PAGES.has(spot.tab) && active !== spot.tab && pageAllowed(spot.tab)) navigate(spot.tab);
     if (spot.page === 'sheets') { if (pageAllowed('sheets')) navigate('sheets', spot.workbook ? { workbookId: spot.workbook } : {}); }
     else if (spot.page && STUDIO_VIEWS.has(spot.page) && !(active === 'content-studio' && studioView === spot.page)) navigateStudio(spot.page);
   }
+  // A "Show me" step on a sidebar control that's folded away: the Workbench opens (and stays open, as a click would), and
+  // a stage's tool asks the sidebar to show that stage's tools (studio-sidebar.jsx listens for studio-nav-reveal).
+  function revealNavSpot(spotId) {
+    if (DATA_TOOL_SPOTS.has(spotId) && !dataToolsOpen) { setDataToolsChoice(true); saveDataToolsOpen(true); }
+    window.dispatchEvent(new CustomEvent('studio-nav-reveal', { detail: spotId }));
+  }
   // Steps on Simple's tabs (home.*, reports.*, trends.*, assets.* …) don't exist here, so they are left out; with
   // nothing left, a note says where they are.
-  const classicSpot = (spot) => Boolean(spot) && spot.layout !== 'simple' && (!spot.tab || spot.tab === 'ask' || (spot.tab === 'settings' && settingsAllowed) || (SHARED_SPOT_PAGES.has(spot.tab) && pageAllowed(spot.tab)));
+  const classicSpot = (spot) => Boolean(spot) && (spot.layout !== 'simple' || spot.id.startsWith('nav.')) && (!spot.tab || spot.tab === 'ask' || (spot.tab === 'settings' && settingsAllowed) || (SHARED_SPOT_PAGES.has(spot.tab) && pageAllowed(spot.tab)));
   function showClassicTour(steps) {
     const shown = list(steps).filter((step) => classicSpot(spotFor(step?.target)));
     if (!shown.length) { setNotice('Those steps are in the Simple layout. Switch to Simple in the sidebar to see them.'); return; }
@@ -1023,12 +1012,13 @@ function StudioApp({ api }) {
     if (mode !== 'channel' && !guard.confirmLeave()) return false;
     // Only the first preview remembers the page, so switching from one preview to another still comes back to it.
     const startsPreview = !viewer.preview && payload?.role !== 'admin';
-    if (startsPreview) previewReturn.current = { active, studioView, simpleTab };
+    if (startsPreview) previewReturn.current = { active, studioView, simpleTab, peek };
     // A preview of one person (People's Preview as) lands on whatever that person's role is, so any role is expected.
     // Roles are compared by id (a custom role's base can be the same as a built-in one's).
     const realId = viewer.realRoleId || viewer.realRole || '';
     expectedRole.current = payload?.memberId ? '*' : `${realId}|${payload?.role === 'admin' ? realId : payload?.role || ''}|${payload?.channelId || ''}`;
-    setDrawerOpen(false); setPeek(false);
+    // The open page stays (an Advanced one too) when the previewed role has it; a page it lacks falls back below.
+    setDrawerOpen(false);
     const done = runAction(() => api.setViewAs(payload), '', wait);
     if (!wait) return true;
     return done.then(() => true, (failure) => { expectedRole.current = null; if (startsPreview) previewReturn.current = null; throw failure; });
@@ -1051,7 +1041,7 @@ function StudioApp({ api }) {
       if (back && state.viewer?.preview) {
         const kept = mode === 'simple' ? simpleAllowed(back.simpleTab) : mode === 'classic' && pageAllowed(back.active) && (back.active !== 'content-studio' || studioAllowed(back.studioView));
         if (kept) previewReturn.current = null;
-      } else if (back) { previewReturn.current = null; setActive(back.active); setStudioView(back.studioView); setSimpleTab(back.simpleTab); }
+      } else if (back) { previewReturn.current = null; setActive(back.active); setStudioView(back.studioView); setSimpleTab(back.simpleTab); setPeek(back.peek); }
       return;
     }
     expectedRole.current = null; previewReturn.current = null;
@@ -1063,7 +1053,7 @@ function StudioApp({ api }) {
   // A page this role no longer has (Settings after a preview starts, Analytics after a demotion) falls back to its home.
   useEffect(() => {
     if (mode === 'simple' && !simpleAllowed(simpleTab)) setSimpleTab(simpleTabs[0] || 'home');
-    if (mode === 'classic' && !pageAllowed(active)) setActive(api.contentCatalog ? 'content-studio' : 'dashboard');
+    if (mode === 'classic' && !pageAllowed(active)) setPeek(false); // back to the Simple page this person was on
     if (active === 'content-studio' && !studioAllowed(studioView)) setStudioView('overview');
     if (mode === 'channel' && !channelIds.includes(channelTab) && !(channelTab === 'ask' && channelAsk)) setChannelTab(channelIds[0] || 'trends');
   }, [roleKey, mode, adminPages.join('|'), simpleSettings, simpleTabs.join('|'), channelIds.join('|'), channelAsk]);
@@ -1149,7 +1139,6 @@ function StudioApp({ api }) {
     if (item.action === 'simple') { goSimple(args.tab); return; }
     if (item.action === 'settings') { openSettings(); return; }
     if (item.action === 'admin') { openAdminPage(args.view); return; }
-    if (item.action === 'mode') { chooseMode(args.mode); return; }
     if (item.action === 'ask') { openAskAi(args.text); return; }
     if (item.action === 'read-report') { openReport(args.assetId); return; }
     if (item.action === 'review-trend') { reviewTrend(args); return; }
@@ -1306,23 +1295,21 @@ function StudioApp({ api }) {
       keywords: [groupOf(model, row), row.kind === 'admin' && 'studio admin', row.id === 'settings' && 'connections keys apify claude codex images google monday preferences'].filter(Boolean).join(' '), action: 'nav', args: { row }, ...extra });
     const pages = navPages(nav).map((row) => entry(nav, row));
     const listed = new Set(pages.map((row) => row.label));
-    // From Simple, an Advanced page opens as a peek; it says so, and turns up when the person types its name. The
-    // General edition's content-studio tabs aren't in its sidebar, but the palette finds them.
-    const tabs = !semrushShell ? generalStudioTabs({ viewer, hasStudio: Boolean(api.contentCatalog) }).map((row) => entry(classicShape, row, { id: `studio-${row.id}`, hint: mode === 'simple' ? (row.id === 'knowledge' && knowledgeInSimple ? 'Studio' : 'Advanced layout · Content studio') : 'Content studio', keywords: `${mode === 'simple' ? 'advanced ' : ''}content studio` })) : [];
-    // Brand knowledge opens in Simple's Settings (openClassicPage), so it says so instead of "Advanced layout".
-    const peeks = mode === 'simple' ? navPages(classicShape).filter((row) => !['admin', 'settings'].includes(row.kind) && !listed.has(`Open ${row.label}`)).map((row) => (row.id === 'knowledge' && knowledgeInSimple ? entry(classicShape, row, { hint: 'Studio', keywords: 'brand voice products' }) : entry(classicShape, row, { hint: 'Advanced layout', keywords: `advanced ${groupOf(classicShape, row)}`.trim() }))) : [];
+    // Advanced pages the unified sidebar doesn't list (the Advanced Home, the General edition's Overview and content
+    // studio) still turn up when the person types their name; each opens in place, as the sidebar's tools do.
+    const listedIds = new Set(navPages(nav).map((row) => row.target));
+    const extra = (row) => !['admin', 'settings'].includes(row.kind) && !listedIds.has(row.target) && !listed.has(`Open ${row.label}`);
+    const tabs = !semrushShell ? generalStudioTabs({ viewer, hasStudio: Boolean(api.contentCatalog) }).filter(extra).map((row) => entry(classicShape, row, { id: `studio-${row.id}`, hint: 'Content studio', keywords: 'content studio' })) : [];
+    const peeks = mode !== 'channel' ? navPages(classicShape).filter(extra).map((row) => entry(classicShape, row, { hint: groupOf(classicShape, row), keywords: `advanced ${groupOf(classicShape, row)}`.trim() })) : [];
     const create = nav.actions.create.filter((row) => !row.disabled && !(row.id === 'research' && (row.programId || row.choices.length))).map((row) => ({ id: `create-${row.id}`, label: row.label, hint: row.hint, icon: iconOf(row.icon), group: PALETTE_GROUPS.create, keywords: 'new create make start', action: 'create', args: { kind: row.id, programId: row.programId || '' } }));
     const content = api.contentCatalog && state.contentStudio ? paletteContent({ studio: state.contentStudio, board: classicActions.board, canStartResearch: Boolean(api.startResearchRun) && can('startResearchRun'), canDecide: can('decideResearchTheme'), folders: mode !== 'channel' && (mode === 'simple' ? simpleAllowed('assets') : studioAllowed('library')) }) : [];
     // Next up: the same rows as Home's rail, first when nothing is typed.
     const next = api.contentCatalog && state.contentStudio ? nextSteps({ state, viewer, can, board: classicActions.board, askAdmin, origin: linkOrigin }).slice(0, 4).map((step) => ({ id: `next-${step.id}`, label: step.title, hint: step.action?.label || '', icon: ListChecks, group: PALETTE_GROUPS.next, keywords: `next up to do ${step.kind} ${step.detail || ''}`, action: 'next-step', args: { step } })) : [];
     const prompts = adminPages.includes('prompts') ? list(paletteData.prompts).map((row) => ({ id: `prompt-${row.id}`, label: `Open prompt: ${row.name || row.id}`, hint: row.version ? `Version ${row.version}` : '', icon: ScrollText, group: PALETTE_GROUPS.prompts, keywords: `prompt instructions ${row.id} ${row.stage || ''} ${row.description || ''}`, action: 'prompt', args: { promptId: row.id } })) : [];
     const people = adminPages.includes('people') ? list(paletteData.people).filter((row) => row?.id && row.name).map((row) => ({ id: `person-${row.id}`, label: `People: ${row.name}`, hint: [row.roleLabel || roleLabel(row.role), row.channelName].filter(Boolean).join(' · ') || 'People & access', icon: UserRound, group: PALETTE_GROUPS.people, keywords: `person member access role ${row.email || ''}`, action: 'person', args: { memberId: row.id } })) : [];
-    const canSwitch = nav.footer.layouts.length > 1;
     const actions = [
       ...(mode === 'classic' && can('saveRecipe') ? [{ id: 'create-scraper', label: 'Create a new scraper', icon: Globe2, group: PALETTE_GROUPS.actions, keywords: 'new scraper apify actor collect', action: 'navigate', args: { view: 'automation', create: true } }] : []),
       ...(nav.actions.ask ? [{ id: 'open-ask-ai', label: 'Open Ask AI', icon: Sparkles, group: PALETTE_GROUPS.actions, shortcut: '⌘J', keywords: 'chat help question assistant', action: 'ask', args: { text: '' } }] : []),
-      ...(canSwitch ? [mode === 'simple' ? { id: 'mode-classic', label: 'Switch to the Advanced layout', icon: Repeat2, group: PALETTE_GROUPS.actions, keywords: 'advanced layout mode every tool', action: 'mode', args: { mode: 'classic' } }
-        : { id: 'mode-simple', label: peek ? 'Back to Simple' : 'Switch to the Simple layout', icon: Repeat2, group: PALETTE_GROUPS.actions, keywords: 'simple layout mode', action: 'mode', args: { mode: 'simple' } }] : []),
       ...(can('estimateWorkflow') && pageAllowed('workflows') ? list(state.contentStudio?.workflows).flatMap((row) => [
         ...(can('runWorkflow') && !viewer.preview ? [{ id: `run-workflow-${row.id}`, label: `Run ${row.name}…`, hint: 'Shows the cost first', icon: Workflow, group: PALETTE_GROUPS.actions, keywords: 'workflow automation run now', action: 'workflow', args: { workflowId: row.id, run: true } }] : []),
         { id: `open-workflow-${row.id}`, label: `Workflows: ${row.name}`, icon: Workflow, group: PALETTE_GROUPS.actions, keywords: 'workflow automation schedule', action: 'workflow', args: { workflowId: row.id } },
@@ -1370,8 +1357,9 @@ function StudioApp({ api }) {
   const newWorkspace = switchWorkspace && can('saveContentWorkspace') ? () => openStudioWith('knowledge', () => setCreateWorkspaceKey((value) => value + 1)) : undefined;
   // The sidebar's model for this layout, with what waits on this person: trends that need their OK (the board knows
   // decisions made a moment ago) and unread Inbox rows. ⌘1–9 walk its order.
-  const nav = buildNav({ ...navBase, layout: mode, counts: { waiting: can('decideResearchTheme') ? classicActions.waiting.length : 0 }, inboxUnread: inboxCount });
-  const activeNavId = mode === 'channel' ? channelTab : mode === 'simple' ? simpleTab : active === 'content-studio' ? (semrushShell ? studioView : 'content-studio') : active === 'marketing-template' ? 'templates' : active;
+  const nav = buildNav({ ...navBase, layout: mode === 'channel' ? 'channel' : 'unified', askMode: mode === 'classic' ? 'drawer' : 'page', counts: { waiting: can('decideResearchTheme') ? classicActions.waiting.length : 0 }, inboxUnread: inboxCount });
+  // Advanced pages by their unified ids: a studio view (either edition), Dataset reports ('reports' is Simple's Reports).
+  const activeNavId = mode === 'channel' ? channelTab : mode === 'simple' ? simpleTab : active === 'content-studio' ? studioView : active === 'marketing-template' ? 'templates' : active === 'reports' ? 'dataset-reports' : active;
   keysRef.current = { mode, order: nav.order, openNavItem, settingsAllowed, openSettings, canAsk: Boolean(nav.actions.ask), toggleAsk, canRail: !narrow, toggleRail, canCreate: nav.actions.create.length > 0, openNew: openNewMenu };
   // Share links (#/report/…, #/trend/…, #/assets/…, #/prompt/…), opened once the studio has loaded and this person has a
   // role (a link opened while signed out was kept through sign-in by web/main.jsx). Someone without a role keeps the link
@@ -1424,7 +1412,7 @@ function StudioApp({ api }) {
   // The playbook setup sheet, over whatever page is open in either layout; saving lands on Workflows with it selected.
   const playbookHost = mode !== 'channel' && playbookRequest && <PlaybookSetup key={playbookRequest.key} playbookId={playbookRequest.playbookId} api={api} state={state} viewer={viewer} can={can} action={runAction} confirm={confirm} edition={semrushShell ? 'semrush' : 'general'} desktop={!web} settingsAllowed={settingsAllowed} onClose={() => setPlaybookRequest(null)} onDone={(workflowId) => openWorkflow(workflowId)} onOpenPrompts={adminPages.includes('prompts') ? () => { setPlaybookRequest(null); openAdminPage('prompts'); } : undefined} />;
   // From a Simple "Show me" step: below 860px the sidebar is a drawer, so open it for nav.* spots and close it after.
-  const revealNav = (open) => { if (narrow && mode !== 'channel') setDrawerOpen(Boolean(open)); };
+  const revealNav = (open, spotId) => { if (narrow && mode !== 'channel') setDrawerOpen(Boolean(open)); if (open && spotId) revealNavSpot(spotId); };
 
   const main = mode === 'channel'
     ? <main className="channel-main" key={`channel-${roleEpoch}`} data-tab={channelTab}>
@@ -1454,12 +1442,11 @@ function StudioApp({ api }) {
       <StudioSidebar edition={semrushShell ? 'semrush' : 'general'} meta={meta} web={web} viewer={viewer} nav={nav} activeId={activeNavId} mode={mode} busy={busy} workspaces={contentWorkspaces} activeWorkspaceId={contentWorkspace?.id || ''}
         rail={rail} onToggleRail={toggleRail} drawerOpen={drawerOpen} onCloseDrawer={() => setDrawerOpen(false)}
         onNavigate={openNavItem} onCreate={createFromNav} onSearch={() => setPaletteOpen(true)} onAsk={toggleAsk} askCurrent={(mode === 'simple' && simpleTab === 'ask') || (mode === 'channel' && channelTab === 'ask')} askExpanded={mode === 'classic' && helpOpen} onToggleDataTools={toggleDataTools}
-        onSelectWorkspace={switchWorkspace} onNewWorkspace={newWorkspace} singleWorkspace={singleWorkspace} onViewAs={api.setViewAs && realAdmin ? viewAs : undefined} onMode={chooseMode} onSignOut={signOut}
-        working={working} onSaveFocusChannels={typeof api.setViewPrefs === 'function' ? saveFocusChannels : undefined} newMenuKey={newMenuKey} />
+        onSelectWorkspace={switchWorkspace} onNewWorkspace={newWorkspace} singleWorkspace={singleWorkspace} onViewAs={api.setViewAs && realAdmin ? viewAs : undefined} onSignOut={signOut}
+        working={working} onSaveFocusChannels={typeof api.setViewPrefs === 'function' ? saveFocusChannels : undefined} newMenuKey={newMenuKey} toolsOpen={usedAdvanced} />
       <div className="studio-main">
         <StudioTopBar title={pageTitle} working={working} mode={mode} drawerOpen={drawerOpen} onMenu={() => setDrawerOpen((open) => !open)} channelName={viewer.channelName || ''} web={web} onSignOut={signOut} />
         <PreviewBanner viewer={viewer} busy={busy} onBack={api.setViewAs ? () => viewAs({ role: 'admin' }) : undefined} />
-        {peek && mode === 'classic' && <div className="studio-peek-bar" role="region" aria-label="Advanced page"><p>You’re looking at an Advanced page. Your layout is still Simple.</p><button type="button" className="studio-peek-keep" disabled={busy} onClick={keepAdvanced}>Keep Advanced</button><button type="button" className="studio-peek-back" data-spot="top.back-to-simple" onClick={() => chooseMode('simple')}><ArrowLeft size={14} aria-hidden="true" />Back to Simple</button></div>}
         {main}
         {mode !== 'channel' && <CommandPalette open={paletteOpen} items={paletteOpen ? paletteEntries() : []} fallback={paletteFallback} limit={{ idle: 6, search: 8 }} onClose={() => setPaletteOpen(false)} onRun={runPaletteItem} />}
         {mode === 'classic' && classicTour && !loading && <Spotlight key={classicTour.key} steps={classicTour.steps} onPrepare={prepareClassicSpot} onClose={() => { setClassicTour(null); if (narrow) setDrawerOpen(false); }} onBackToChat={() => { setClassicTour(null); if (narrow) setDrawerOpen(false); setHelpOpen(true); }} />}

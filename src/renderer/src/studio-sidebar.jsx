@@ -117,7 +117,11 @@ function useIndicator(navRef, key) {
     const measure = () => {
       const button = nav.querySelector('.sb-item[aria-current="page"]');
       const shown = button && button.offsetWidth > 0; // a page inside a closed group has no box to slide to
-      setPill((current) => (shown ? { left: button.offsetLeft, top: button.offsetTop, width: button.offsetWidth, height: button.offsetHeight, settled: Boolean(current) } : null));
+      if (!shown) { setPill(null); return; }
+      // Offsets up to the nav: a stage's tool sits inside a positioned stage, and its rise-in transform must not count.
+      let left = 0; let top = 0;
+      for (let node = button; node && node !== nav && nav.contains(node); node = node.offsetParent) { left += node.offsetLeft; top += node.offsetTop; }
+      setPill((current) => ({ left, top, width: button.offsetWidth, height: button.offsetHeight, settled: Boolean(current) }));
     };
     measure();
     // Keep the current page clear of the nav's edges when it scrolls.
@@ -134,21 +138,70 @@ function useIndicator(navRef, key) {
   return pill;
 }
 
-function NavItem({ row, current, rail, onNavigate }) {
+function NavItem({ row, current, rail, onNavigate, className = '' }) {
   const Icon = iconOf(row.icon);
   const name = itemName(row);
   const shortcut = keyLabel(row.shortcut); // nav-model keeps ⌘1; Windows shows Ctrl+1
-  return <button type="button" className="sb-item" data-spot={row.spot} aria-current={current ? 'page' : undefined} aria-label={name !== row.label ? name : undefined}
+  const icon = <Icon size={row.stage ? 15 : row.parent ? 16 : 18} strokeWidth={1.75} aria-hidden="true" />;
+  return <button type="button" className={`sb-item${className ? ` ${className}` : ''}`} data-spot={row.spot} aria-current={current ? 'page' : undefined} aria-label={name !== row.label ? name : undefined}
     aria-keyshortcuts={row.shortcut ? ariaKeys(row.shortcut) : undefined} title={!rail && shortcut ? `${row.label} (${shortcut})` : undefined} data-tip={rail ? [name, shortcut].filter(Boolean).join(' · ') : undefined} onClick={() => onNavigate?.(row)}>
-    <Icon size={18} strokeWidth={1.75} aria-hidden="true" /><span className="sb-text">{row.label}</span>
+    {row.stage ? <span className={`sb-node${row.live ? ' is-live' : ''}`} aria-hidden="true">{icon}</span> : icon}<span className="sb-text">{row.label}</span>
     {row.badge > 0 ? <span className="sb-badge" aria-hidden="true">{row.badge > 99 ? '99+' : row.badge}</span> : row.warn ? <span className="sb-warn" aria-hidden="true" /> : row.live ? <span className="sb-live" aria-hidden="true" /> : null}
   </button>;
 }
 
-function NavGroups({ groups, activeId, rail, onNavigate, onToggleDataTools }) {
+// The unified pipeline: Find, Write and Ship on one spine. A stage shows its tools while it or one of them is open, or
+// when its chevron opens them; the rail shows the spine's nodes only (the tools are a ⌘K away).
+function PipelineGroup({ group, labelId, activeId, rail, onNavigate, shown, onShow }) {
+  return <div className="sb-group sb-group-pipeline" role="group" aria-labelledby={labelId}>
+    <span className="sb-group-label" id={labelId}>{group.label}</span>
+    <div className="sb-spine">
+      {group.items.map((row) => {
+        if (!row.stage) return <NavItem key={row.id} row={row} current={row.id === activeId} rail={rail} onNavigate={onNavigate} className="sb-tool" />;
+        const tools = Array.isArray(row.children) ? row.children : [];
+        const here = row.id === activeId || tools.some((tool) => tool.id === activeId);
+        const open = !rail && tools.length > 0 && (here || shown.has(row.id));
+        const toolsId = `${labelId}-${row.id}-tools`;
+        // Each stage is a group named for its page, so its chevron can say "Show tools" without repeating the name.
+        return <div key={row.id} className={`sb-stage${here ? ' is-here' : ''}${open ? ' is-open' : ''}`} role="group" aria-label={row.label}>
+          <NavItem row={row} current={row.id === activeId} rail={rail} onNavigate={onNavigate} className="sb-stage-item" />
+          {!rail && tools.length > 0 && !here && <button type="button" className="sb-stage-toggle" aria-expanded={open} aria-controls={open ? toolsId : undefined} aria-label={open ? 'Hide tools' : 'Show tools'} onClick={() => onShow(row.id)}>
+            <ChevronDown className={`sb-chevron${open ? ' is-open' : ''}`} size={14} aria-hidden="true" />
+          </button>}
+          {open && <div id={toolsId} className="sb-tools" role="group" aria-label="Tools">
+            {tools.map((tool, index) => <span key={tool.id} className="sb-rise" style={{ '--i': index }}><NavItem row={tool} current={tool.id === activeId} rail={rail} onNavigate={onNavigate} className="sb-tool" /></span>)}
+          </div>}
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+// Stages whose tools a chevron opened or closed on this device ({ trends: true, … }); a missing or blocked store means
+// none, and the default applies.
+const STAGE_TOOLS_KEY = 'studio.nav.stageTools';
+function readStageTools() { try { const saved = JSON.parse(window.localStorage?.getItem(STAGE_TOOLS_KEY) || '{}'); return saved && typeof saved === 'object' ? saved : {}; } catch { return {}; } }
+function saveStageTools(choices) { try { window.localStorage?.setItem(STAGE_TOOLS_KEY, JSON.stringify(choices)); } catch { /* the choice still holds for this window */ } }
+
+// `toolsOpen`: every stage shows its tools unless a chevron closed them (people who used the Advanced layout).
+function NavGroups({ groups, activeId, rail, toolsOpen = false, onNavigate, onToggleDataTools }) {
   const navRef = useRef(null);
   const baseId = useId();
-  const key = `${activeId}|${rail}|${groups.map((group) => `${group.id}:${group.open}:${group.items.map((row) => row.id).join(',')}`).join('|')}`;
+  const [choices, setChoices] = useState(readStageTools);
+  const stageIds = groups.filter((group) => group.pipeline).flatMap((group) => group.items.map((row) => row.id));
+  const shown = new Set(stageIds.filter((id) => choices[id] ?? toolsOpen));
+  const showTools = (id) => setChoices((current) => { const next = { ...current, [id]: !shown.has(id) }; saveStageTools(next); return next; });
+  // Ask AI's "Show me" on a stage's tool (App sends studio-nav-reveal with the spot): open that stage's tools first.
+  const groupsRef = useRef(groups); groupsRef.current = groups;
+  useEffect(() => {
+    const reveal = (event) => {
+      const stage = groupsRef.current.flatMap((group) => group.items).find((row) => Array.isArray(row.children) && row.children.some((tool) => tool.spot === event.detail));
+      if (stage) setChoices((current) => (current[stage.id] === true ? current : { ...current, [stage.id]: true }));
+    };
+    window.addEventListener('studio-nav-reveal', reveal);
+    return () => window.removeEventListener('studio-nav-reveal', reveal);
+  }, []);
+  const key = `${activeId}|${rail}|${[...shown].join(',')}|${groups.map((group) => `${group.id}:${group.open}:${group.items.map((row) => row.id).join(',')}`).join('|')}`;
   const pill = useIndicator(navRef, key);
   return <nav ref={navRef} className="sb-nav" aria-label="Main">
     {pill && <span className={`sb-indicator${pill.settled ? ' settled' : ''}`} aria-hidden="true" style={{ transform: `translate(${pill.left}px, ${pill.top}px)`, width: pill.width, height: pill.height }} />}
@@ -169,6 +222,7 @@ function NavGroups({ groups, activeId, rail, onNavigate, onToggleDataTools }) {
           </div>)}</div>}
         </div>;
       }
+      if (group.pipeline) return <PipelineGroup key={group.id} group={group} labelId={labelId} activeId={activeId} rail={rail} onNavigate={onNavigate} shown={shown} onShow={showTools} />;
       return <div key={group.id} className={`sb-group sb-group-${group.id}`} role="group" aria-labelledby={group.label ? labelId : undefined} aria-label={group.label ? undefined : 'Pages'}>
         {group.label && <span className="sb-group-label" id={labelId}>{group.label}</span>}
         {group.items.map((row) => <NavItem key={row.id} row={row} current={row.id === activeId} rail={rail} onNavigate={onNavigate} />)}
@@ -224,7 +278,7 @@ function MyChannelsDialog({ channels, selected, onSave, onClose }) {
   </Dialog>;
 }
 
-function WorkspaceSwitcher({ viewer, edition, workspaces, activeWorkspaceId, mode, web, busy, rail, single = false, onSelectWorkspace, onNewWorkspace, onDone }) {
+function WorkspaceSwitcher({ viewer, edition, workspaces, activeWorkspaceId, mode, unified = false, web, busy, rail, single = false, onSelectWorkspace, onNewWorkspace, onDone }) {
   const workspace = workspaces.find((row) => row.id === activeWorkspaceId) || null;
   const workspaceName = workspace?.name || (web ? 'Shared studio' : 'My workspace');
   const preview = Boolean(viewer.preview);
@@ -236,7 +290,7 @@ function WorkspaceSwitcher({ viewer, edition, workspaces, activeWorkspaceId, mod
       <span className="sb-switcher-copy"><strong>{viewer.channelName || 'Your channel'}</strong><small>{line}</small></span>
     </div>;
   }
-  const line = `${preview ? `Viewing as ${label}` : label} · ${mode === 'classic' ? 'Advanced' : 'Simple'}`;
+  const line = unified ? (preview ? `Viewing as ${label}` : label) : `${preview ? `Viewing as ${label}` : label} · ${mode === 'classic' ? 'Advanced' : 'Simple'}`;
   const tile = <span className={`sb-tile${edition === 'general' ? ' is-general' : ''}`} aria-hidden="true">{(workspaceName.trim()[0] || 'W').toUpperCase()}</span>;
   const copy = <span className="sb-switcher-copy"><strong>{workspaceName}</strong><small>{line}</small></span>;
   // A one-workspace build (single) only shows the name: no menu, no New workspace.
@@ -265,11 +319,12 @@ function WorkspaceSwitcher({ viewer, edition, workspaces, activeWorkspaceId, mod
  * onNavigate(item) · onCreate(kind, { programId }) · onSearch() · onAsk() · onToggleDataTools() · onToggleRail() ·
  * onSelectWorkspace(id) · onNewWorkspace() · singleWorkspace (a one-workspace build: the name only) · onViewAs(payload) → false when declined · onMode(layout) · onSignOut() ·
  * onSaveFocusChannels(ids) → Promise. `working` = { label, runs } (working-popover.jsx). `newMenuKey` opens New when
- * it changes (⌥⌘N). `askCurrent`: Simple's Ask AI page is open; `askExpanded`: Advanced's drawer is open.
+ * it changes (⌥⌘N). `askCurrent`: Simple's Ask AI page is open; `askExpanded`: Advanced's drawer is open. `toolsOpen`:
+ * the pipeline's stages start with their tools showing.
  */
 export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: given, nav, activeId = '', mode = 'simple', busy = false, workspaces = [], activeWorkspaceId, rail = false, onToggleRail,
   drawerOpen = false, onCloseDrawer, onNavigate, onCreate, onSearch, onAsk, askCurrent = false, askExpanded = false, onToggleDataTools, onSelectWorkspace, onNewWorkspace, singleWorkspace = false, onViewAs, onMode, onSignOut,
-  working, onSaveFocusChannels, newMenuKey = 0 }) {
+  working, onSaveFocusChannels, newMenuKey = 0, toolsOpen = false }) {
   const viewer = given || LOCAL_ADMIN_FALLBACK;
   const aside = useRef(null); const account = useRef(null);
   const narrow = useNarrow();
@@ -356,7 +411,7 @@ export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: 
         {drawer ? <button type="button" className="studio-icon-button sb-drawer-close" aria-label="Close menu" onClick={close}><X size={18} aria-hidden="true" /></button>
           : onToggleRail && !narrow && <button type="button" className="sb-collapse" data-spot="nav.collapse" aria-label={railed ? 'Expand sidebar' : 'Collapse sidebar'} aria-keyshortcuts={ariaKeys('⌘\\', mac)} title={railed ? undefined : `Collapse sidebar (${keys('⌘\\')})`} data-tip={railed ? `Expand sidebar · ${keys('⌘\\')}` : undefined} onClick={onToggleRail}>{railed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>}
       </header>
-      <WorkspaceSwitcher viewer={viewer} edition={edition} workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} mode={mode} web={web} busy={busy} rail={railed} single={singleWorkspace} onSelectWorkspace={onSelectWorkspace} onNewWorkspace={onNewWorkspace} onDone={close} />
+      <WorkspaceSwitcher viewer={viewer} edition={edition} workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} mode={mode} unified={nav?.layout === 'unified'} web={web} busy={busy} rail={railed} single={singleWorkspace} onSelectWorkspace={onSelectWorkspace} onNewWorkspace={onNewWorkspace} onDone={close} />
       {(create.length > 0 || search || ask) && <div className="sb-actions">
         {create.length > 0 && <MenuButton label="New" rows={newRows} placement={railed ? 'right' : 'bottom'} openKey={newMenuKey} menuClass="sb-new-menu"
           buttonClass="sb-create" buttonProps={{ 'data-spot': 'nav.new', 'aria-keyshortcuts': ariaKeys('⌥⌘N', mac), title: railed ? undefined : `New (${keys('⌥⌘N')})`, 'data-tip': railed ? `New · ${keys('⌥⌘N')}` : undefined }}
@@ -369,7 +424,7 @@ export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: 
           <Sparkles size={17} strokeWidth={1.9} aria-hidden="true" /><span className="sb-text">{ask.label}</span>{askItem.dot && !askCurrent && !askExpanded && <span className="sb-ask-dot" role="img" aria-label="A new answer is ready" />}<kbd className="sb-kbd" aria-hidden="true">{keys('⌘J')}</kbd>
         </button>}
       </div>}
-      <NavGroups groups={groups} activeId={activeId} rail={railed} onNavigate={go} onToggleDataTools={onToggleDataTools} />
+      <NavGroups groups={groups} activeId={activeId} rail={railed} toolsOpen={toolsOpen} onNavigate={go} onToggleDataTools={onToggleDataTools} />
       <footer className="sb-foot">
         <WorkingPopover working={working && typeof working === 'object' ? working : { label: workingText(working), runs: [] }} rail={railed} placement={railed ? 'right-up' : 'top'} />
         {layouts.length > 1 && <div className="sb-layout" role="radiogroup" aria-label="Layout" data-spot="nav.mode">

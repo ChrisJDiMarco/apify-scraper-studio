@@ -242,7 +242,7 @@ describe('Ask AI page links use Ask AI’s page names', () => {
   }
   const expectPeek = async (title) => {
     await waitFor(() => expect(document.querySelector('.app-shell')?.dataset.mode).toBe('classic')); // an Advanced peek
-    expect(screen.getByRole('region', { name: 'Advanced page' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Advanced page' })).not.toBeInTheDocument(); // it opens in place, with no Back to Simple bar
     expect(await screen.findByRole('heading', { level: 1, name: title })).toBeInTheDocument();
   };
 

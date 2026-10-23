@@ -116,6 +116,8 @@ describe('Opening a run shows that run', () => {
   it('the Working popover’s Open selects the live run, not the newest program’s run', async () => {
     const live = { id: 'r3', workspaceId: 'general', programId: 'p2', title: 'Live run of older', status: 'running', stage: 'collecting', createdAt: '2026-10-01T00:00:00Z' };
     await boot({ programs: [newest, older], researchRuns: [runOfNewest, live] }, { uiMode: 'classic' });
+    side('board'); // from an Advanced page, Open shows the run where its progress is (from Simple it opens Home)
+    await h1('Trend board');
     fireEvent.click(document.querySelector('[data-spot="top.working"]'));
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'Working now' })).getByRole('button', { name: 'Open Live run of older' }));
     await h1('Research programs');
@@ -150,6 +152,8 @@ describe('Advanced navigation asks about unsaved edits once', () => {
   async function editReport() {
     openStudio('admin', { uiMode: 'classic', api: { editStudioAsset: vi.fn(async () => { throw new Error('The studio is offline.'); }) } });
     await h1(GREETING.name);
+    side('library'); // the Library's editor (Simple's Reports has its own, in simple-assets and app-roles)
+    await h1('Your asset library');
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     const palette = await screen.findByRole('dialog', { name: 'Command palette' });
     fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'Read: AI Overviews eat clicks' } });
@@ -228,6 +232,7 @@ describe('Requests are spent once their page is left', () => {
     await h1('Your asset library');
     // A research run started meanwhile: a plain visit to Sheets opens it, as Sheets does for new runs.
     listWorkbooks.mockResolvedValue([listing('r1', '2026-10-11T00:00:00Z'), listing('r9', '2026-10-13T00:00:00Z')]);
+    side('data-tools'); // Sheets is in the Workbench
     side('sheets');
     await waitFor(() => expect(readWorkbook).toHaveBeenCalledWith({ workbookId: 'r9' }));
   });
@@ -259,6 +264,8 @@ describe('Links and openers land on what they name', () => {
   it('the Working popover’s Open on a live channel-asset set opens its folder in the Library', async () => {
     openStudio('admin', { uiMode: 'classic' });
     await h1(GREETING.name);
+    side('board'); // from an Advanced page the folder opens in the Library (from Simple, in Assets)
+    await h1('Trend board');
     fireEvent.click(document.querySelector('[data-spot="top.working"]'));
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'Working now' })).getByRole('button', { name: 'Open Local packs shrink' }));
     await h1('Your asset library');

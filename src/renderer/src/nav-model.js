@@ -8,6 +8,7 @@
 //   Item = { id, label, icon, shortcut, badge, badgeLabel, live, liveLabel, warn, warnLabel, spot, kind, target }
 //   kind: 'simple' (a Simple tab) · 'studio' (an Advanced studio view) · 'app' (an Advanced app page) · 'admin' (a Studio
 //   page in either layout) · 'settings' · 'channel' (a channel owner's tab). `target` is the id that kind opens.
+//   The unified layout's pipeline stages carry `stage: true` and `children` (their tools, Items with `parent`).
 import KIT from '../../shared/kit-folders.json';
 import { ariaKey, isMac } from './platform.js';
 
@@ -54,6 +55,33 @@ const GENERAL_STUDIO_TABS = Object.freeze([
   { id: 'create', label: 'Create content', icon: 'SquarePen' },
   { id: 'library', label: 'Library', icon: 'Library' },
   { id: 'knowledge', label: 'Brand knowledge', icon: 'BookOpen' },
+]);
+// Unified: one sidebar for the whole team, no Simple | Advanced switch. The pipeline stages open Simple's everyday pages;
+// each stage's specialist tools sit under it and open the Advanced page in place. `data` tools hide with Data tools.
+// Stages keep their pages' names (the page headings say Trends, Reports, Assets); the spine shows the order.
+export const PIPELINE = Object.freeze([
+  { id: 'trends', label: 'Trends', icon: 'TrendingUp', tools: [
+    { id: 'board', label: 'Trend board', icon: 'SquareKanban', kind: 'studio' },
+    { id: 'research', label: 'Research programs', icon: 'Radar', kind: 'studio' },
+    { id: 'search', label: 'Search platforms', icon: 'ScanSearch', kind: 'app', data: true, spot: 'nav.search' },
+    { id: 'automation', label: 'Scrapers', icon: 'Globe', kind: 'app', data: true, spot: 'nav.scrapers' },
+    { id: 'imports', label: 'Import research', icon: 'FileUp', kind: 'app', data: true, spot: 'nav.imports' },
+  ] },
+  { id: 'reports', label: 'Reports', icon: 'FileText', tools: [
+    { id: 'create', label: 'Create content', icon: 'SquarePen', kind: 'studio' },
+    { id: 'templates', label: 'Brief starters', icon: 'FileStack', kind: 'app', data: true, spot: 'nav.brief-starters' },
+  ] },
+  { id: 'assets', label: 'Assets', icon: 'Images', tools: [
+    { id: 'library', label: 'Library', icon: 'Library', kind: 'studio' },
+  ] },
+]);
+// The unified Workbench (collapsed by default, remembered as Data tools was): data work, automation, then Activity.
+// Dataset reports opens the 'reports' page under its own id, since 'reports' is Simple's Reports. The General edition's
+// collection Overview leads the data set (`general`).
+export const WORKBENCH = Object.freeze([
+  { id: 'analyze', label: 'Data', items: [{ id: 'dashboard', label: 'Overview', icon: 'Gauge', general: true }, { id: 'sheets', label: 'Sheets', icon: 'Sheet' }, { id: 'datasets', label: 'Datasets', icon: 'Database', data: true, spot: 'nav.datasets' }, { id: 'dataset-reports', target: 'reports', label: 'Dataset reports', icon: 'FileChartColumn', data: true, spot: 'nav.dataset-reports' }, { id: 'compare', label: 'Compare snapshots', icon: 'GitCompareArrows', data: true, spot: 'nav.compare' }, { id: 'chat', label: 'Ask your datasets', icon: 'MessagesSquare', data: true, spot: 'nav.ask-datasets' }] },
+  { id: 'automate', label: 'Automate', items: [{ id: 'playbooks', label: 'Playbooks', icon: 'LayoutGrid', spot: 'nav.playbooks', method: 'estimateWorkflow' }, { id: 'workflows', label: 'Workflows', icon: 'Workflow', spot: 'nav.workflows', method: 'estimateWorkflow' }] },
+  { id: 'activity', label: '', items: [{ id: 'runs', label: 'Activity', icon: 'Activity', data: true, spot: 'nav.activity' }] },
 ]);
 // Data tools: three labelled sets, then Activity on its own. Ids are App's page ids; spots keep their old names.
 export const DATA_TOOLS = Object.freeze([
@@ -166,9 +194,10 @@ function item(page, extra) {
  * @param {(method: string) => boolean} [options.can]  Whether this person may call a method AND the studio offers it.
  *   Defaults to the viewer's own list.
  * @param {boolean} [options.hasStudio]  The content studio is available (api.contentCatalog).
- * @param {boolean} [options.dataToolsOpen]
+ * @param {boolean} [options.dataToolsOpen]  The collapsible group (Data tools, or the unified Workbench) is open.
+ * @param {'page'|'drawer'} [options.askMode]  Unified only: Ask AI is the drawer while an Advanced page is open.
  */
-export function buildNav({ viewer: given, layout = 'simple', state = {}, counts = {}, edition = 'general', inboxUnread = 0, can: canIn, hasStudio = true, dataToolsOpen = false } = {}) {
+export function buildNav({ viewer: given, layout = 'simple', state = {}, counts = {}, edition = 'general', inboxUnread = 0, can: canIn, hasStudio = true, dataToolsOpen = false, askMode = 'page' } = {}) {
   const viewer = given || {};
   const can = typeof canIn === 'function' ? canIn : viewerCan(viewer);
   const hidden = new Set(list(viewer.hiddenPages));
@@ -182,12 +211,13 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   const workspaceId = studio.activeWorkspaceId || '';
   const mine = (row) => !workspaceId || !row?.workspaceId || row.workspaceId === workspaceId;
   const channelShell = layout === 'channel';
+  const unified = layout === 'unified';
   const semrush = edition === 'semrush';
   const modes = list(viewer.modes).length ? list(viewer.modes) : ['simple', 'classic'];
   const settingsAllowed = !channelShell && can('saveSettings') && !hidden.has('settings');
   const settingsShown = settingsAllowed;
   // Simple lists Brand knowledge in its Studio group, before Settings (Advanced keeps it under Content).
-  const brandInSimple = layout === 'simple' && hasStudio && !hidden.has('knowledge');
+  const brandInSimple = (layout === 'simple' || unified) && hasStudio && !hidden.has('knowledge');
   // Ask AI: Advanced's drawer for anyone who may ask; Simple's page and the channel layout's page when the role lists it
   // (viewer.nav, from Use Ask AI) too. A channel owner's Ask AI answers from their channel only (the server's side).
   const askAllowed = can('askHelp') && (layout === 'classic' || ((!listedMain || listedMain.has('ask')) && !hidden.has('ask')));
@@ -214,6 +244,34 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
     groups.push({ id: 'channel', label: '', collapsible: false, open: true, items: CHANNEL_PAGES.filter((page) => channelAllowed(page.id)).map((page) => item(page, {
       kind: 'channel', ...(page.id === 'trends' && channelNew ? { badge: channelNew, badgeLabel: `${channelNew} new` } : {}), ...(page.id === 'inbox' ? inboxBadge : {}),
     })) });
+  } else if (unified) {
+    // Home and Inbox, the pipeline (each stage with its tools), Calendar, then the Workbench. Advanced tools need the
+    // Advanced pages (viewer.modes) and, for the data tools, the Data tools group.
+    const advanced = modes.includes('classic');
+    const toolsOff = hidden.has('data-tools') || (caps && !caps.has('dataTools'));
+    const toolAllowed = (tool) => advanced && !hidden.has(tool.id) && (!tool.general || !semrush) && (!tool.data || !toolsOff) && (tool.kind !== 'studio' || hasStudio) && (!tool.method || (hasStudio && can(tool.method)));
+    const live = { trends: researching, reports: writing, assets: kitsRunning, research: researching, create: writing, library: kitsRunning };
+    const liveLabels = { trends: 'research running', reports: 'reports being written', assets: 'channel assets being made', research: 'research running', create: 'content being written', library: 'channel assets being made' };
+    const marks = (id) => ({
+      ...(live[id] ? { live: true, liveLabel: liveLabels[id] } : {}),
+      ...(id === 'trends' || id === 'board' ? needsOk() : {}),
+      ...(id === 'inbox' ? inboxBadge : {}),
+    });
+    const top = SIMPLE_PAGES.filter((page) => ['home', 'inbox'].includes(page.id) && simpleAllowed(page.id)).map((page) => item(page, { kind: 'simple', ...marks(page.id) }));
+    if (top.length) groups.push({ id: 'top', label: '', collapsible: false, open: true, items: top });
+    // A role without a stage's page (a Viewer has no Assets) still gets that stage's tools, on the spine without a node.
+    const stages = PIPELINE.flatMap((stage) => {
+      const children = stage.tools.filter(toolAllowed).map((tool) => item(tool, { kind: tool.kind, parent: stage.id, ...marks(tool.id) }));
+      if (!simpleAllowed(stage.id)) return children.map((tool) => ({ ...tool, parent: '' }));
+      return [item(stage, { kind: 'simple', stage: true, children, ...marks(stage.id) })];
+    });
+    if (stages.length) groups.push({ id: 'pipeline', label: 'Pipeline', collapsible: false, open: true, pipeline: true, items: stages });
+    const plan = SIMPLE_PAGES.filter((page) => page.id === 'calendar' && simpleAllowed(page.id)).map((page) => item(page, { kind: 'simple' }));
+    if (plan.length) groups.push({ id: 'plan', label: '', collapsible: false, open: true, items: plan });
+    const subgroups = WORKBENCH.map((set) => ({ id: set.id, label: set.label, items: set.items.filter(toolAllowed).map((page) => item(page, {
+      kind: 'app', target: page.target || page.id, ...(page.id === 'workflows' ? { ...(workflowsWaiting ? { badge: workflowsWaiting, badgeLabel: `${workflowsWaiting} waiting on you` } : {}), live: workflowRunning, liveLabel: 'a workflow is running' } : {}),
+    })) })).filter((set) => set.items.length);
+    if (subgroups.length) groups.push({ id: 'data', label: 'Workbench', collapsible: true, open: Boolean(dataToolsOpen), spot: 'nav.data-tools', items: subgroups.flatMap((set) => set.items), subgroups });
   } else if (layout === 'simple') {
     groups.push({ id: 'work', label: '', collapsible: false, open: true, items: SIMPLE_PAGES.filter((page) => simpleAllowed(page.id)).map((page) => item(page, {
       kind: 'simple',
@@ -249,11 +307,12 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   if (!channelShell) {
     const adminListed = (id) => !listedAdmin || listedAdmin.has(id);
     const studioItems = STUDIO_PAGES.filter((page) => adminListed(page.id) && !hidden.has(page.id) && can(page.method)).map((page) => item(page, { kind: 'admin' }));
-    if (brandInSimple) studioItems.push(item({ id: 'knowledge', label: 'Brand knowledge', icon: 'BookOpen' }, { kind: 'simple', target: 'knowledge', spot: 'nav.knowledge' }));
+    // Unified lists Brand knowledge first: editors use it more than the admin pages.
+    if (brandInSimple) studioItems[unified ? 'unshift' : 'push'](item({ id: 'knowledge', label: 'Brand knowledge', icon: 'BookOpen' }, { kind: 'simple', target: 'knowledge', spot: 'nav.knowledge' }));
     if (settingsShown) studioItems.push(item({ id: 'settings', label: 'Settings', icon: 'Settings2' }, { kind: 'settings', target: 'settings', shortcut: '⌘,', ...(settingsAllowed && apifyMissing ? { warn: true, warnLabel: 'Apify isn’t connected' } : {}) }));
     if (studioItems.length) groups.push({ id: 'studio', label: 'Studio', collapsible: false, open: true, items: studioItems });
   }
-  groups.forEach((group) => group.items.forEach((row) => { row.group = group.id; }));
+  groups.forEach((group) => group.items.forEach((row) => { row.group = group.id; list(row.children).forEach((child) => { child.group = group.id; }); }));
 
   // ⌘1–9 follow the visible order. Collapsible groups and Settings (⌘,) don't take a number.
   const order = groups.filter((group) => !group.collapsible).flatMap((group) => group.items).filter((row) => row.kind !== 'settings').slice(0, 9);
@@ -269,7 +328,7 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
     hasStudio && can('startResearchRun') && { id: 'research', label: 'Find new trends', icon: 'Radar', hint: programs.length ? 'Runs a research program. You’ll see the cost first.' : 'Set up a research program first.', section: 'main', choices: programs.length > 1 ? programs.map((program) => ({ id: program.id, label: program.name || 'Untitled program' })) : [], programId: programs.length === 1 ? programs[0].id : '' },
     askAllowed && can('startQuickScan') && { id: 'quick-scan', label: 'Quick scan', icon: 'ScanSearch', hint: 'A small, recent scan, sized and priced by Ask AI.', section: 'main' },
     assetsPossible && can('planAssetKit') && can('createAssetKit') && { id: 'assets', label: 'Channel assets', icon: 'Images', hint: 'From a report, a Google Doc or pasted text.', section: 'main' },
-    hasStudio && modes.includes('classic') && !hidden.has('create') && can('createContentRun') && { id: 'content', label: 'Content from a report', icon: 'SquarePen', hint: 'Opens Create content in the Advanced layout.', section: 'main' },
+    hasStudio && modes.includes('classic') && !hidden.has('create') && can('createContentRun') && { id: 'content', label: 'Content from a report', icon: 'SquarePen', hint: unified ? 'Opens Create content, under Reports.' : 'Opens Create content in the Advanced layout.', section: 'main' },
     askAllowed && can('createHelpImage') && (imagesReady
       ? { id: 'picture', label: 'Picture', icon: 'ImagePlus', hint: 'Ask AI drafts it with you. You see the cost first.', section: 'main' }
       : settingsAllowed ? { id: 'picture', label: 'Picture', icon: 'ImagePlus', hint: 'Pictures are off. Turn them on in Settings.', section: 'main' }
@@ -284,10 +343,10 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   const actions = {
     create,
     search: channelShell ? null : { label: 'Search…', shortcut: '⌘K', spot: 'nav.find' },
-    ask: askAllowed ? { id: 'ask', label: 'Ask AI', icon: 'Sparkles', shortcut: '⌘J', spot: 'nav.ask', mode: layout === 'classic' ? 'drawer' : 'page' } : null,
+    ask: askAllowed ? { id: 'ask', label: 'Ask AI', icon: 'Sparkles', shortcut: '⌘J', spot: 'nav.ask', mode: layout === 'classic' || (unified && askMode === 'drawer') ? 'drawer' : 'page' } : null,
   };
   const footer = {
-    layouts: !channelShell && !isChannelViewer(viewer) && modes.includes('simple') && modes.includes('classic') ? LAYOUTS.map((row) => ({ ...row })) : [],
+    layouts: !channelShell && !unified && !isChannelViewer(viewer) && modes.includes('simple') && modes.includes('classic') ? LAYOUTS.map((row) => ({ ...row })) : [],
     viewAs: viewAsOptions(viewer),
     channels: channelShell || isChannelViewer(viewer) ? [] : focusChannelOptions(viewer, edition),
   };
@@ -299,8 +358,8 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   return { layout, groups, actions, footer, order, shortcuts };
 }
 
-// Every page a layout has, flat (Data tools included even while closed), for the palette and the breadcrumb.
-export const navPages = (model) => list(model?.groups).flatMap((group) => group.items);
+// Every page a layout has, flat (Data tools and each stage's tools included), for the palette and the breadcrumb.
+export const navPages = (model) => list(model?.groups).flatMap((group) => group.items.flatMap((row) => [row, ...list(row.children)]));
 // The General edition's content-studio tabs, which its sidebar doesn't list but the palette does.
 export function generalStudioTabs({ viewer, hasStudio = true } = {}) {
   if (!hasStudio) return [];

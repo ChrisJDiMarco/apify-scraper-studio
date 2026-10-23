@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DATA_TOOL_IDS, PAGE_LABELS, ariaKeys, buildNav, findNavItem, focusChannelOptions, generalStudioTabs, isChannelViewer, isRealAdmin, itemName, navPages, viewAsChoice, viewAsOptions } from '../src/renderer/src/nav-model.js';
+import { DATA_TOOL_IDS, PAGE_LABELS, PIPELINE, WORKBENCH, ariaKeys, buildNav, findNavItem, focusChannelOptions, generalStudioTabs, isChannelViewer, isRealAdmin, itemName, navPages, viewAsChoice, viewAsOptions } from '../src/renderer/src/nav-model.js';
 
 const channels = [{ id: 'blog', name: 'Semrush Blog', short: 'Blog' }, { id: 'social', name: 'Semrush Social Team', short: 'Social' }];
 const admin = (over = {}) => ({ id: 'local', name: 'Alex Rivera', role: 'admin', realRole: 'admin', preview: false, modes: ['simple', 'classic'], channels, prefs: {}, allowed: null, ...over });
@@ -234,5 +234,71 @@ describe('buildNav: Automate', () => {
   it('offers New › Playbook only to someone who can set one up', () => {
     expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).toContain('playbook');
     expect(ids(buildNav({ viewer: editor(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).not.toContain('playbook');
+  });
+});
+
+describe('buildNav: unified', () => {
+  const unified = (viewer, over = {}) => buildNav({ viewer, layout: 'unified', state: state(), edition: 'semrush', ...over });
+  const stage = (nav, id) => findNavItem(nav, id);
+
+  it('lists Home and Inbox, the pipeline with each stage’s tools, Calendar, the Workbench and Studio, with no layout switch', () => {
+    const nav = unified(admin(), { dataToolsOpen: true });
+    expect(labels(nav)).toEqual([
+      ['top', ['Home', 'Inbox']], ['pipeline', ['Trends', 'Reports', 'Assets']], ['plan', ['Calendar']],
+      ['data', ['Sheets', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Playbooks', 'Workflows', 'Activity']],
+      ['studio', ['Brand knowledge', 'Prompts', 'Analytics', 'People & access', 'Settings']],
+    ]);
+    expect(nav.groups.find((group) => group.id === 'pipeline')).toMatchObject({ label: 'Pipeline', pipeline: true });
+    expect(nav.groups.find((group) => group.id === 'data')).toMatchObject({ label: 'Workbench', collapsible: true, open: true, spot: 'nav.data-tools' });
+    expect(ids(stage(nav, 'trends').children)).toEqual(['board', 'research', 'search', 'automation', 'imports']);
+    expect(ids(stage(nav, 'reports').children)).toEqual(['create', 'templates']);
+    expect(ids(stage(nav, 'assets').children)).toEqual(['library']);
+    expect(stage(nav, 'trends')).toMatchObject({ kind: 'simple', stage: true, target: 'trends' });
+    expect(stage(nav, 'board')).toMatchObject({ kind: 'studio', parent: 'trends', group: 'pipeline' });
+    expect(nav.footer.layouts).toEqual([]);
+  });
+
+  it('numbers ⌘1–9 down the top-level pages, never a stage’s tools or the Workbench', () => {
+    expect(unified(admin()).order.map((row) => `${row.id} ${row.shortcut}`)).toEqual(['home ⌘1', 'inbox ⌘2', 'trends ⌘3', 'reports ⌘4', 'assets ⌘5', 'calendar ⌘6', 'knowledge ⌘7', 'prompts ⌘8', 'analytics ⌘9']);
+  });
+
+  it('opens Dataset reports under its own id, so Reports and Dataset reports are never both current', () => {
+    const nav = unified(admin());
+    expect(findNavItem(nav, 'dataset-reports')).toMatchObject({ target: 'reports', kind: 'app', spot: 'nav.dataset-reports' });
+    expect(navPages(nav).filter((row) => row.id === 'reports')).toHaveLength(1);
+  });
+
+  it('marks live work and what waits on the person on the stage and on its tool', () => {
+    const nav = buildNav({ viewer: admin(), layout: 'unified', edition: 'semrush', counts: { waiting: 2 }, state: state({ researchRuns: [{ id: 'r', workspaceId: 'w1', status: 'running' }] }) });
+    expect(stage(nav, 'trends')).toMatchObject({ live: true, liveLabel: 'research running', badge: 2, badgeLabel: '2 need your OK' });
+    expect(stage(nav, 'research')).toMatchObject({ live: true });
+    expect(stage(nav, 'board')).toMatchObject({ badge: 2 });
+    expect(stage(nav, 'reports').live).toBe(false);
+  });
+
+  it('follows the role: hidden pages and Data tools take their tools away, and a stage without its page keeps its tools', () => {
+    const noData = unified(editor({ hiddenPages: ['data-tools', 'create'] }));
+    expect(ids(stage(noData, 'trends').children)).toEqual(['board', 'research']);
+    expect(ids(stage(noData, 'reports').children)).toEqual([]);
+    expect(findNavItem(noData, 'datasets')).toBeNull();
+    const viewer = unified(editor({ nav: { main: ['home', 'reports', 'trends'], admin: [], bottom: [] } }));
+    expect(findNavItem(viewer, 'assets')).toBeNull();
+    expect(findNavItem(viewer, 'library')).toMatchObject({ group: 'pipeline', parent: '' });
+    // Without the Advanced pages, the stages carry no tools and there is no Workbench.
+    const simpleOnly = unified(admin({ modes: ['simple'] }));
+    expect(PIPELINE.every((row) => stage(simpleOnly, row.id).children.length === 0)).toBe(true);
+    expect(simpleOnly.groups.some((group) => group.id === 'data')).toBe(false);
+  });
+
+  it('leads the General edition’s Workbench with its collection Overview', () => {
+    const general = buildNav({ viewer: admin(), layout: 'unified', state: state(), edition: 'general' });
+    expect(general.groups.find((group) => group.id === 'data').items[0]).toMatchObject({ id: 'dashboard', label: 'Overview' });
+    expect(findNavItem(unified(admin()), 'dashboard')).toBeNull();
+    expect(WORKBENCH.flatMap((set) => set.items).find((row) => row.id === 'dashboard').general).toBe(true);
+  });
+
+  it('makes Ask AI the drawer while an Advanced page is open, and the page otherwise', () => {
+    expect(unified(admin()).actions.ask.mode).toBe('page');
+    expect(unified(admin(), { askMode: 'drawer' }).actions.ask.mode).toBe('drawer');
   });
 });

@@ -217,7 +217,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   async function prepareSpot(step) {
     const spot = spotFor(step.target); if (!spot) return;
     const inSidebar = spot.id.startsWith('nav.') || String(spot.selector || '').includes('"nav.');
-    onNavSpot?.(inSidebar);
+    onNavSpot?.(inSidebar, spot.id);
     if (inSidebar) return;
     if (spot.item === 'report') { const report = findReport(step.item) || reports.find((row) => row.id === reportId) || reports[0]; if (report) setReportId(report.id); go('reports'); }
     else if (spot.tab === 'reports') { setReportId(''); go('reports'); }
@@ -229,9 +229,10 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     else if (spot.tab === 'settings' && !settingsAllowed) return;
     else if (spot.tab) go(spot.tab);
   }
-  // Show me here covers Simple's tabs, the sidebar, Settings and Ask AI; steps on Advanced pages are left out.
+  // Show me here covers Simple's tabs, the sidebar (the same in every layout), Settings and Ask AI; steps on Advanced
+  // pages are left out.
   function showTour(steps) {
-    const shown = list(steps).filter((step) => { const spot = spotFor(step?.target); return spot && spot.layout !== 'classic'; });
+    const shown = list(steps).filter((step) => { const spot = spotFor(step?.target); return spot && (spot.layout !== 'classic' || spot.id.startsWith('nav.')); });
     if (shown.length) setTour({ steps: shown, key: Date.now() });
     else onNotice?.('That’s on an Advanced page. Use the page button under the answer to open it.');
   }

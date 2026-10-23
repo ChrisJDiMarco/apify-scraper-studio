@@ -17,7 +17,7 @@ const plan = { title: TREND, sourceKey: 'theme:theme-1', sourceKind: 'trend', ch
   estimate: { totalUsd: 9.4, capUsd: 25, calls: 1, pictures: 0, modelLabel: 'Claude Fable 5.1' },
   folders: [{ id: 'blog', name: 'Semrush Blog', items: [{ id: 'blogshort', label: 'Blog — Short News Update', kind: 'text', selected: true, available: true }] }] };
 
-// The Advanced layout (settings.uiMode), as the local admin.
+// An Advanced page (the Trend board, from the sidebar's Trends tools: settings.uiMode shows them), as the local admin.
 async function openAdvanced(extra = {}) {
   const workspaces = [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush', knowledge: {}, products: [] }];
   const state = { projects: [], recipes: [], datasets: [{ id: 'd1', name: 'Saved posts', itemCount: 3, createdAt: '2026-10-01T00:00:00Z' }], cards: [], assets: [], runs: [], analyses: [], jobs: [], keys: { APIFY_API_TOKEN: true, OPENAI_API_KEY: true }, settings: { maxItems: 1000, sheets: {}, uiMode: 'classic' }, v5: { missions: [], jobs: [], recipeVersions: {}, commandPalette: [], evidenceSummary: { sample: [] } },
@@ -31,6 +31,8 @@ async function openAdvanced(extra = {}) {
   window.apifyStudio = api;
   render(<App />);
   await screen.findByRole('heading', { level: 1, name: /^This week in/ });
+  fireEvent.click(document.querySelector('[data-spot="nav.board"]'));
+  await waitFor(() => expect(document.querySelector('.app-shell')).toHaveAttribute('data-mode', 'classic'));
   return api;
 }
 const mode = () => document.querySelector('.app-shell')?.dataset.mode;

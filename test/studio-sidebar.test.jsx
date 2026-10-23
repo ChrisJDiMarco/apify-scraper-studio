@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ChannelBottomNav, StudioSidebar, StudioTopBar } from '../src/renderer/src/studio-sidebar.jsx';
@@ -417,5 +417,61 @@ describe('sidebar CSS', () => {
       const css = fs.readFileSync(path.resolve(`src/renderer/src/${file}`), 'utf8');
       expect(css).not.toMatch(/(^|\n)nav button[ ,{:.]/); // page navs (.simple-pager, .cs-view-nav) style themselves
     }
+  });
+});
+
+describe('StudioSidebar: the unified pipeline', () => {
+  // This device's storage, in memory (the test environment has none); every test starts from a fresh device.
+  let stored = {};
+  beforeEach(() => { stored = {}; Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: (key) => stored[key] ?? null, setItem: (key, value) => { stored[key] = String(value); }, removeItem: (key) => { delete stored[key]; }, clear: () => { stored = {}; } } }); });
+  afterEach(() => { delete window.localStorage; });
+  const unifiedNav = (extra = {}) => buildNav({ viewer: admin(), layout: 'unified', state: studioState(), edition: 'semrush', counts: { waiting: 3 }, ...extra });
+
+  it('draws the stages on one spine, each a group named for its page, with no layout switch', () => {
+    sidebar({ nav: unifiedNav() });
+    const pipeline = main().getByRole('group', { name: 'Pipeline' });
+    expect(within(pipeline).getAllByRole('group').filter((node) => node.classList.contains('sb-stage')).map((node) => node.getAttribute('aria-label'))).toEqual(['Trends', 'Reports', 'Assets']);
+    expect(pipeline.querySelectorAll('.sb-node')).toHaveLength(3);
+    expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Workspace: Semrush workspace\. Admin$/ })).toBeInTheDocument();
+    expect(main().getByRole('button', { name: 'Trends, 3 need your OK' })).toBeInTheDocument();
+  });
+
+  it('shows a stage’s tools while it or one of them is open, and otherwise behind its chevron, remembered on this device', () => {
+    const { onNavigate, unmount } = sidebar({ nav: unifiedNav() });
+    expect(main().queryByRole('button', { name: /^Trend board/ })).not.toBeInTheDocument();
+    const trends = within(main().getByRole('group', { name: 'Trends' }));
+    fireEvent.click(trends.getByRole('button', { name: 'Show tools' }));
+    expect(trends.getByRole('button', { name: 'Hide tools' })).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(main().getByRole('button', { name: /^Research programs/ }));
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: 'research', kind: 'studio' }));
+    unmount();
+    sidebar({ nav: unifiedNav() });
+    expect(main().getByRole('button', { name: /^Trend board/ })).toBeInTheDocument(); // the chevron's choice stayed
+    cleanup();
+    sidebar({ nav: unifiedNav(), activeId: 'library' });
+    const assets = within(main().getByRole('group', { name: 'Assets' }));
+    expect(assets.getByRole('button', { name: /^Library/ })).toHaveAttribute('aria-current', 'page');
+    expect(assets.queryByRole('button', { name: /tools$/ })).not.toBeInTheDocument(); // no chevron while it can’t fold
+  });
+
+  it('starts every stage open for someone who used Advanced, until a chevron closes one', () => {
+    sidebar({ nav: unifiedNav(), toolsOpen: true });
+    for (const name of ['Trend board', 'Create content', 'Library']) expect(main().getByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+    fireEvent.click(within(main().getByRole('group', { name: 'Reports' })).getByRole('button', { name: 'Hide tools' }));
+    expect(main().queryByRole('button', { name: /^Create content/ })).not.toBeInTheDocument();
+    expect(main().getByRole('button', { name: /^Trend board/ })).toBeInTheDocument();
+  });
+
+  it('opens a stage when Ask AI’s Show me points at one of its tools', async () => {
+    sidebar({ nav: unifiedNav() });
+    window.dispatchEvent(new CustomEvent('studio-nav-reveal', { detail: 'nav.scrapers' }));
+    expect(await main().findByRole('button', { name: /^Scrapers/ })).toBeInTheDocument();
+  });
+
+  it('keeps the spine’s nodes in the rail, without the tools', () => {
+    sidebar({ nav: unifiedNav(), rail: true, toolsOpen: true });
+    expect(document.querySelectorAll('.sb-node')).toHaveLength(3);
+    expect(main().queryByRole('button', { name: /^Trend board/ })).not.toBeInTheDocument();
   });
 });

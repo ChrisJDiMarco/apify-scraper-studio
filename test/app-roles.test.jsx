@@ -26,7 +26,7 @@ const GREETING = { level: 1, name: /^This week in/ };
 const REPORT = 'AI Overviews eat clicks — Comprehensive Trends Report';
 // Simple's Reports lists one row per trend, named after the trend; the row opens its Trends report.
 const ROW = (trend) => new RegExp(`^${trend}`);
-const labels = (nav) => within(nav).getAllByRole('button').map((button) => button.textContent.replace(/\d+$/, ''));
+const labels = (nav) => within(nav).getAllByRole('button').filter((button) => !button.classList.contains('sb-stage-toggle')).map((button) => button.textContent.replace(/\d+$/, ''));
 const mainNav = () => screen.getByRole('navigation', { name: 'Main' });
 
 // A tiny studio server: who is signed in, their View as and layout, and the state the gate would project for them.
@@ -60,14 +60,14 @@ describe('One frame for every role', () => {
   it('gives an editor the Simple pages and Ask AI, but no Settings, Studio pages, View as or ⌘,', async () => {
     openStudio('editor');
     await screen.findByRole('heading', GREETING);
-    expect(labels(mainNav())).toEqual(['Home', 'Trends', 'Reports', 'Assets', 'Inbox', 'Calendar']);
+    expect(labels(mainNav())).toEqual(['Home', 'Inbox', 'Trends', 'Reports', 'Assets', 'Calendar', 'Workbench']);
     expect(within(mainNav()).queryByRole('group', { name: 'Studio' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^Account:/ }));
     expect(screen.queryByRole('group', { name: 'View as' })).not.toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('menu', { name: 'Account' }), { key: 'Escape' });
     expect(document.querySelector('[data-spot="nav.workspace"]')).toHaveTextContent('Editor');
-    expect(screen.getByRole('radiogroup', { name: 'Layout' })).toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument(); // one sidebar, no layout switch
     fireEvent.keyDown(window, { key: ',', metaKey: true });
     expect(screen.queryByRole('heading', { level: 1, name: 'Settings' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', GREETING)).toBeInTheDocument();
@@ -76,12 +76,12 @@ describe('One frame for every role', () => {
     expect(screen.queryByRole('button', { name: /Show me where to turn on pictures/ })).not.toBeInTheDocument();
   });
 
-  it('keeps Brand knowledge, Settings and program setup out of an editor’s Advanced layout', async () => {
+  it('keeps Brand knowledge, Settings and program setup out of the tools of an editor who used Advanced', async () => {
     openStudio('editor', { uiMode: 'classic' });
     const primary = await screen.findByRole('navigation', { name: 'Main' });
-    await within(primary).findByRole('group', { name: 'Research' });
-    expect(labels(primary)).toEqual(['Home', 'Inbox', 'Research programs', 'Trend board', 'Sheets', 'Create content', 'Library', 'Calendar', 'Data tools']);
-    fireEvent.click(within(primary).getByRole('button', { name: 'Data tools' }));
+    await within(primary).findByRole('group', { name: 'Pipeline' });
+    expect(labels(primary)).toEqual(['Home', 'Inbox', 'Trends', 'Trend board', 'Research programs', 'Search platforms', 'Scrapers', 'Import research', 'Reports', 'Create content', 'Brief starters', 'Assets', 'Library', 'Calendar', 'Workbench']);
+    fireEvent.click(within(primary).getByRole('button', { name: 'Workbench' }));
     expect(within(primary).queryByRole('button', { name: /^Settings/ })).not.toBeInTheDocument();
     fireEvent.click(within(primary).getByRole('button', { name: /^Research programs/ }));
     expect((await screen.findAllByRole('heading', { name: 'AI search pulse' })).length).toBeGreaterThan(0);
@@ -99,7 +99,7 @@ describe('One frame for every role', () => {
       openStudio('admin');
       await screen.findByRole('heading', GREETING);
       const studio = within(mainNav()).getByRole('group', { name: 'Studio' });
-      expect(labels(studio)).toEqual(['Analytics', 'People & access', 'Brand knowledge', 'Settings']); // this studio's api has no Prompts
+      expect(labels(studio)).toEqual(['Brand knowledge', 'Analytics', 'People & access', 'Settings']); // this studio's api has no Prompts
       fireEvent.click(within(studio).getByRole('button', { name: /^Brand knowledge/ }));
       expect(await screen.findByRole('tab', { name: 'Research brand profiles' })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: 'Brand knowledge' })).toBeInTheDocument();
@@ -128,11 +128,11 @@ describe('One frame for every role', () => {
     } finally { window.history.replaceState(null, '', '/'); }
   });
 
-  it('keeps Brand knowledge under Content in Advanced, with no Brand knowledge in Advanced’s Settings', async () => {
+  it('keeps Brand knowledge in Studio for an admin who used Advanced, with no Brand knowledge in Settings', async () => {
     openStudio('admin', { uiMode: 'classic' });
     const primary = await screen.findByRole('navigation', { name: 'Main' });
-    await within(primary).findByRole('group', { name: 'Content' });
-    expect(labels(within(primary).getByRole('group', { name: 'Content' }))).toContain('Brand knowledge');
+    await within(primary).findByRole('group', { name: 'Studio' });
+    expect(labels(within(primary).getByRole('group', { name: 'Studio' }))).toContain('Brand knowledge');
     fireEvent.click(within(primary).getByRole('button', { name: /^Settings/ }));
     const sections = await screen.findByRole('navigation', { name: 'Settings sections' });
     expect(within(sections).queryByRole('link', { name: /^Brand knowledge/ })).not.toBeInTheDocument();
@@ -147,23 +147,23 @@ describe('One frame for every role', () => {
     expect(screen.getByRole('heading', { name: 'Brand knowledge' })).toBeInTheDocument();
   });
 
-  it('keeps Advanced as it was for that editor: Brand knowledge under Content, and no Settings', async () => {
+  it('gives that editor the same Studio group after using Advanced: Brand knowledge, and no Settings', async () => {
     openStudio('editor', { uiMode: 'classic', access: { grants: ['editBrand'] } });
     const primary = await screen.findByRole('navigation', { name: 'Main' });
-    await within(primary).findByRole('group', { name: 'Content' });
-    expect(labels(within(primary).getByRole('group', { name: 'Content' }))).toContain('Brand knowledge');
+    await within(primary).findByRole('group', { name: 'Studio' });
+    expect(labels(within(primary).getByRole('group', { name: 'Studio' }))).toEqual(['Brand knowledge']);
     expect(within(primary).queryByRole('button', { name: /^Settings/ })).not.toBeInTheDocument();
   });
 
   it('shows an admin the same program controls, and Analytics, People and Settings in the Studio group', async () => {
     openStudio('admin', { uiMode: 'classic' });
     const primary = await screen.findByRole('navigation', { name: 'Main' });
-    await within(primary).findByRole('group', { name: 'Research' });
+    await within(primary).findByRole('group', { name: 'Pipeline' });
     expect(labels(primary)).toContain('Brand knowledge');
     fireEvent.click(within(primary).getByRole('button', { name: /^Research programs/ }));
     expect(await screen.findByRole('button', { name: 'Edit program' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pause schedule' })).toBeInTheDocument();
-    expect(labels(within(primary).getByRole('group', { name: 'Studio' }))).toEqual(['Analytics', 'People & access', 'Settings']);
+    expect(labels(within(primary).getByRole('group', { name: 'Studio' }))).toEqual(['Brand knowledge', 'Analytics', 'People & access', 'Settings']);
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
   });
 
@@ -280,24 +280,25 @@ describe('View as an editor shows what an editor sees', () => {
   });
 });
 
-describe('The layout switch', () => {
-  it('keeps focus on the radio just pressed, because the frame never remounts', async () => {
+describe('One sidebar, no layout switch', () => {
+  it('keeps focus on the tool just pressed, because the frame never remounts when an Advanced page opens', async () => {
     const { api } = openStudio('admin');
     await screen.findByRole('heading', GREETING);
     const frame = document.querySelector('.studio-frame'); const sidebar = document.querySelector('.studio-sidebar');
-    const advanced = within(screen.getByRole('radiogroup', { name: 'Layout' })).getByRole('radio', { name: 'Advanced' });
-    advanced.focus();
-    fireEvent.click(advanced);
-    expect(await within(mainNav()).findByRole('group', { name: 'Research' })).toBeInTheDocument();
-    await waitFor(() => expect(api.setViewPrefs).toHaveBeenCalledWith({ uiMode: 'classic' }));
-    expect(document.activeElement).toBe(advanced);
-    expect(advanced).toBeChecked();
+    expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Trends' })).getByRole('button', { name: 'Show tools' }));
+    const board = within(mainNav()).getByRole('button', { name: /^Trend board/ });
+    board.focus();
+    fireEvent.click(board);
+    await waitFor(() => expect(frame).toHaveAttribute('data-mode', 'classic'));
+    expect(board).toHaveAttribute('aria-current', 'page');
+    expect(document.activeElement).toBe(board);
     expect(document.querySelector('.studio-frame')).toBe(frame);
     expect(document.querySelector('.studio-sidebar')).toBe(sidebar);
-    expect(frame).toHaveAttribute('data-mode', 'classic');
+    expect(api.setViewPrefs).not.toHaveBeenCalled();
   });
 
-  it('peeks at an Advanced page from Simple without saving a layout, and Simple returns to the same tab', async () => {
+  it('opens an Advanced page from ⌘K in place, and a Simple page from the sidebar closes it, saving nothing', async () => {
     const { api } = openStudio('admin');
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Trends/ }));
@@ -307,13 +308,12 @@ describe('The layout switch', () => {
     fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'Trend board' } });
     fireEvent.click(within(palette).getByRole('button', { name: /Open Trend board/ }));
     const primary = mainNav();
+    // The board's stage shows its tools while one of them is open, so the current page is always in view.
     expect(await within(primary).findByRole('button', { name: /^Trend board/ })).toHaveAttribute('aria-current', 'page');
-    const layout = within(screen.getByRole('radiogroup', { name: 'Layout' }));
-    expect(layout.getByRole('radio', { name: 'Advanced' })).toBeChecked();
-    expect(screen.getByRole('region', { name: 'Advanced page' })).toHaveTextContent('Your layout is still Simple.');
-    fireEvent.click(layout.getByRole('radio', { name: 'Simple' }));
-    const main = await screen.findByRole('navigation', { name: 'Main' });
-    expect(within(main).getByRole('button', { name: /Trends/ })).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByRole('region', { name: 'Advanced page' })).not.toBeInTheDocument();
+    fireEvent.click(within(primary).getByRole('button', { name: /Trends/ }));
+    await waitFor(() => expect(within(mainNav()).getByRole('button', { name: /Trends/ })).toHaveAttribute('aria-current', 'page'));
+    expect(document.querySelector('.studio-frame')).toHaveAttribute('data-mode', 'simple');
     expect(api.setViewPrefs).not.toHaveBeenCalled();
     expect(api.saveSettings).not.toHaveBeenCalled();
   });

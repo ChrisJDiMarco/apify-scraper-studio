@@ -40,6 +40,11 @@ async function openStudio(uiMode) {
   window.apifyStudio = api;
   render(<App />);
   await screen.findByRole('heading', { level: 1, name: /^This week in/ });
+  // Someone who used Advanced has the stages' tools showing; from an Advanced page, Ask AI is the drawer beside it.
+  if (uiMode === 'classic') {
+    fireEvent.click(document.querySelector('[data-spot="nav.board"]'));
+    await waitFor(() => expect(document.querySelector('.app-shell')).toHaveAttribute('data-mode', 'classic'));
+  }
   return api;
 }
 const mainNav = () => within(screen.getByRole('navigation', { name: 'Main' }));

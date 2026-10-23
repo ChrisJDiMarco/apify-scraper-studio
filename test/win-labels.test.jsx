@@ -107,7 +107,7 @@ describe('the frame and keys on Windows', () => {
       // Ask AI gives the sidebar a New menu (Quick scan), which Ctrl+Alt+N opens.
       askHelp: vi.fn(async () => ({ answer: '' })), startQuickScan: vi.fn(), listHelpImages: vi.fn(async () => []) };
     render(<App />);
-    await screen.findByRole('heading', { name: /Research your market/ });
+    await screen.findByRole('navigation', { name: 'Main' }); // every layout opens on the same sidebar now
     return document.querySelector('.studio-frame');
   }
   const newMenu = () => screen.queryByRole('menu', { name: 'New' });
