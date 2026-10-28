@@ -46,7 +46,7 @@
     "@anthropic-ai/sdk": "^0.132.1",
     "apify-client": "^2.23.4",
     "electron-updater": "^6.8.9",
-    "lucide-react": "^1.22.0",
+    "lucide-react": "^1.61.0",
     "nodemailer": "10.0.16",
     "papaparse": "^5.7.0",
     "react-markdown": "^10.1.0",
@@ -57,8 +57,8 @@
     "yjs": "^13.6.33"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@tiptap/core": "3.31.4",
     "@tiptap/extension-bubble-menu": "3.31.4",
     "@tiptap/extension-collaboration": "3.31.4",
@@ -79,8 +79,8 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.13.0",
     "jsdom": "^29.1.1",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "vite": "^7.3.6",
     "vitest": "^4.1.11"
   },
