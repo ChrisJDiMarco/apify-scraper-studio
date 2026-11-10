@@ -38,7 +38,7 @@ describe('Ask AI reads its own saved prompt', () => {
   it('describes the redesigned sidebar, with the Studio group this person has', () => {
     const admin = parts({ context: { layout: 'simple', role: 'admin' }, role: 'admin', promptAccess: { ...EDITOR, admin: true } });
     expect(admin).toContain('the Studio group (Prompts, Analytics, People & access and Settings) for admins');
-    expect(admin).toContain('Home, Trends, Reports, Assets, Inbox and Calendar, with New, Search and Ask AI at the top and Prompts, Analytics, People & access and Settings under Studio');
+    expect(admin).toContain('Home, Inbox, Research programs, Trends, Assets and Calendar, with New, Search and Ask AI at the top, the Workbench group below the Pipeline, and Prompts, Analytics, People & access and Settings under Studio');
     const editor = parts({ context: { layout: 'simple', role: 'editor' }, role: 'editor', promptAccess: VIEWER });
     expect(editor).toContain('the pages, with Prompts in the Studio group');
     expect(parts({ context: { layout: 'simple', role: 'editor' }, role: 'editor' })).not.toContain('Studio group');
@@ -46,17 +46,17 @@ describe('Ask AI reads its own saved prompt', () => {
   it('says a one-workspace build has no switcher, and is unchanged otherwise', () => {
     const context = { layout: 'simple', role: 'admin' };
     expect(parts({ context, role: 'admin', singleWorkspace: null })).toBe(parts({ context, role: 'admin' }));
-    expect(parts({ context, role: 'admin' })).toContain('left sidebar for both layouts: the workspace switcher;');
+    expect(parts({ context, role: 'admin' })).toContain('left sidebar for everyone: the workspace switcher;');
     const single = parts({ context, role: 'admin', singleWorkspace: { name: 'Main' } });
-    expect(single).toContain('left sidebar for both layouts: the workspace name (this studio has one workspace, Main; there is no switcher);');
+    expect(single).toContain('left sidebar for everyone: the workspace name (this studio has one workspace, Main; there is no switcher);');
     expect(single).not.toContain('the workspace switcher;');
   });
-  it('names the Show me spots on pages both layouts share in Advanced, and keeps People & access from editors', () => {
+  it('names the Show me spots on Inbox, Calendar, Prompts and People from a Workbench page, and keeps People & access from editors', () => {
     const admin = parts({ context: { layout: 'classic', role: 'admin' }, role: 'admin', promptAccess: { ...EDITOR, admin: true } });
-    expect(admin).toContain('the spots on pages both layouts share (inbox.*, calendar.*, prompts.*, people.*)');
+    expect(admin).toContain('the spots on Inbox, Calendar, Prompts and People & access (inbox.*, calendar.*, prompts.*, people.*)');
     expect(admin).toContain('people.invite: People & access, top right');
     const editor = parts({ context: { layout: 'classic', role: 'editor' }, role: 'editor' });
-    expect(editor).toContain('the spots on pages both layouts share (inbox.*, calendar.*)');
+    expect(editor).toContain('the spots on Inbox and Calendar (inbox.*, calendar.*)');
     expect(editor).not.toContain('people.invite');
     const reply = help.cleanReply({ answer: 'Here.', pages: [], actions: [], show: { autoStart: false, steps: [{ target: 'people.invite', item: '', say: 'Invite here.' }, { target: 'inbox.list', item: '', say: 'Your inbox.' }] } }, { role: 'editor' });
     expect(reply.show.steps.map((step) => step.target)).toEqual(['inbox.list']);

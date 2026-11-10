@@ -10,6 +10,7 @@ const norm = (value) => String(value || '').trim().toLowerCase();
 export const spotFor = (id) => SPOTS.get(id) || null;
 function locate(step) {
   const spot = SPOTS.get(step.target); if (!spot) return null;
+  if (typeof document === 'undefined') return null; // a Show me step still polling after its window is gone
   // Visible matches first; hidden ones only when nothing has a box yet (a closed section, or no layout at all).
   const all = [...document.querySelectorAll(spot.selector || `[data-spot="${spot.id}"]`)];
   // A closed sidebar drawer keeps its layout but is visibility: hidden, so it doesn't count as shown.

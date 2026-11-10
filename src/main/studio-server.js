@@ -533,6 +533,9 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
       if (!found) { log({ event: 'sign-in-failed', kind: 'link' }); return send(res, 401, { error: COPY.linkInvalid, signIn: 'link-invalid' }); }
       return startSession(req, res, { kind: 'member', memberId: found.memberId, epoch: found.epoch, via: 'link' }, MEMBER_SESSION_MS);
     }
+    // With company sign-in on, the admin password is refused even when one is set (it skips the 16-character rule
+    // there); STUDIO_ADMIN_EMAILS is the way back in.
+    if (trustedHeader) return send(res, 400, { error: 'This studio signs in through your company login.' });
     // The admin password: ten tries a minute per client address.
     const key = clientKey(req); const entry = attempts.get(key) || { count: 0, until: Date.now() + 60000 };
     if (entry.until < Date.now()) { entry.count = 0; entry.until = Date.now() + 60000; }

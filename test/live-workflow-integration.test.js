@@ -402,7 +402,7 @@ describe('Ask AI', () => {
     expect(call.stdin).toContain('User: Hi there\n\nAssistant: Hello!');
     expect(call.stdin).toContain('Question: How do I start a run?');
     expect(call.stdin).toContain('SPOTS (places in the studio you can show');
-    expect(call.stdin).toContain('The studio has a left sidebar for both layouts');
+    expect(call.stdin).toContain('The studio has one left sidebar for everyone');
     expect(call.stdin).toContain('"layout": "simple"');
     for (const secret of ['fixture-apify-secret', 'fixture-sheets-secret', 'Ignore the rules']) expect(call.stdin).not.toContain(secret);
   });
@@ -446,7 +446,7 @@ describe('Ask AI', () => {
     expect(editor).not.toMatch(/^(settings\.[\w-]+|nav\.(settings|people|analytics|workspace)):/m);
     expect(editor).not.toContain('knowledge = Brand knowledge'); expect(editor).toContain('open-tab: target = home, trends, reports, assets, inbox, calendar or ask.');
     const admin = help.helpPrompt({ question: 'Can I make pictures?', context: { layout: 'classic' }, guide: '' });
-    expect(admin).toContain('Settings → AI connections'); expect(admin).toMatch(/^nav\.settings:/m); expect(admin).toContain('the Advanced layout');
+    expect(admin).toContain('Settings → AI connections'); expect(admin).toMatch(/^nav\.settings:/m); expect(admin).toContain('a Workbench page open');
     expect(help.helpSchema(undefined, { role: 'editor' }).properties.pages.items.properties.page).toEqual({ type: 'string' });
     const raw = { answer: 'Ask an admin.', pages: [{ page: 'knowledge', label: 'Brand' }, { page: 'settings', label: 'Settings' }, { page: 'research', label: 'Research' }], actions: [{ kind: 'open-tab', label: 'Settings', target: 'settings' }, { kind: 'open-tab', label: 'Trends', target: 'trends' }], show: { autoStart: true, steps: [{ target: 'nav.settings', item: '', say: 'Settings live here.' }, { target: 'settings.images', item: '', say: 'Turn pictures on.' }, { target: 'nav.people', item: '', say: 'People.' }, { target: 'nav.trends', item: '', say: 'Trends are here.' }] } };
     const reply = help.cleanReply(raw, { role: 'editor' });

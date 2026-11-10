@@ -139,7 +139,7 @@ describe('What changed opens the trend’s newest card', () => {
     const onOpenTarget = vi.fn();
     const state = { keys: { APIFY_API_TOKEN: true }, contentStudio: { activeWorkspaceId: 'semrush', workspaces: [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush' }], programs: [], researchRuns: skippedThenBack, contentRuns: [], assets: [] } };
     render(<WeeklyBriefing state={state} viewer={{ id: 'member-chris', role: 'admin', allowed: null }} api={{ readTrendHistory: vi.fn(async () => history) }} now={new Date('2026-10-14T12:00:00Z')} onOpenTarget={onOpenTarget} onDecide={vi.fn()} />);
-    fireEvent.click(within(await screen.findByRole('article', { name: 'What changed' })).getByRole('button', { name: /Zero click/ }));
+    fireEvent.click(await within(await screen.findByRole('article', { name: 'What changed' })).findByRole('button', { name: /Zero click/ })); // the rows arrive after the card
     expect(onOpenTarget).toHaveBeenCalledWith({ kind: 'trend', id: 't-z2', runId: 'r2', page: 'trends' });
   });
 
@@ -147,7 +147,7 @@ describe('What changed opens the trend’s newest card', () => {
     const history = historyOf(researchRuns);
     await boot({ programs: [{ id: 'p1', workspaceId: 'semrush', name: 'Weekly', sourceGroups: [], budgets: {} }], researchRuns }, { api: { readTrendHistory: vi.fn(async () => history) } });
     const changed = await screen.findByRole('article', { name: 'What changed' });
-    fireEvent.click(within(changed).getByRole('button', { name: /Zero click/ }));
+    fireEvent.click(await within(changed).findByRole('button', { name: /Zero click/ })); // the rows arrive after the card
     await waitFor(() => expect(simpleTab()).toBe('trends'));
     await new Promise((resolve) => setTimeout(resolve, 50));
   }

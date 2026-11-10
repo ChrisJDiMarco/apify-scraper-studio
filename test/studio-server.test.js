@@ -142,6 +142,15 @@ describe('browser studio server', () => {
     expect((await h.request('/api/login', { method: 'POST', body: { password: PASSWORD } })).status).toBe(400);
   });
 
+  // Company sign-in with a password also configured (review SEC-8): the password is refused, short or not.
+  it('refuses the admin password while company sign-in is on, even when one is set', async () => {
+    for (const password of [PASSWORD, 'short']) {
+      const h = await fixture({ password, trustedEmailHeader: 'X-Auth-Request-Email', trustedProxies: '127.0.0.1, ::1', allowedEmailDomains: 'semrush.com' });
+      const response = await h.request('/api/login', { method: 'POST', body: { password } });
+      expect(response.status).toBe(400); expect(response.headers.get('set-cookie')).toBeNull();
+    }
+  });
+
   it('serves only webRoot files with CSP, no frame embedding, and an empty HEAD body', async () => {
     const h = await fixture();
     const page = await h.request('/'); expect(page.status).toBe(200);
