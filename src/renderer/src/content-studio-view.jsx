@@ -250,7 +250,7 @@ export function ContentStudioView({ state = {}, api = {}, busy = false, onNotice
     try { cost = await researchCostLines(api, program, { datasetIds, codex: capabilities.aiProvider === 'codex' }); } finally { pendingRef.current = false; setPending(''); }
     const ok = await confirm(again
       ? { title: `“${program.name}” is already searching`, lines: [againLine, ...cost], confirmLabel: 'Start another' }
-      : { title: `Look for new trends with “${program.name}”?`, lines: [...cost, 'New trends will show up on the Trend board for your OK.'], confirmLabel: 'Start research' });
+      : { title: `Look for new trends with “${program.name}”?`, lines: [...cost, 'New trends will show up on Trends for your OK.'], confirmLabel: 'Start research' });
     if (!ok) return;
     rememberProgram(viewer, program.id);
     const result = await action('Starting research', () => api.startResearchRun({ programId: program.id, datasetIds, ...(again ? { again: true } : {}) }));

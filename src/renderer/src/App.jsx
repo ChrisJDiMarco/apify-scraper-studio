@@ -1064,7 +1064,7 @@ function StudioApp({ api }) {
   const classicSpot = (spot) => Boolean(spot) && (spot.layout !== 'simple' || spot.id.startsWith('nav.')) && (!spot.tab || spot.tab === 'ask' || (spot.tab === 'settings' && settingsAllowed) || (SHARED_SPOT_PAGES.has(spot.tab) && pageAllowed(spot.tab)));
   function showClassicTour(steps) {
     const shown = list(steps).filter((step) => classicSpot(spotFor(step?.target)));
-    if (!shown.length) { setNotice('Those steps are in the Simple layout. Switch to Simple in the sidebar to see them.'); return; }
+    if (!shown.length) { setNotice('Those steps are on one of the main pages. Open Home, Trends or Assets from the sidebar, then ask again.'); return; }
     setHelpOpen(false); setClassicTour({ steps: shown, key: Date.now() });
   }
 

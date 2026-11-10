@@ -259,7 +259,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   function showTour(steps) {
     const shown = list(steps).filter((step) => { const spot = spotFor(step?.target); return spot && (spot.layout !== 'classic' || spot.id.startsWith('nav.')); });
     if (shown.length) setTour({ steps: shown, key: Date.now() });
-    else onNotice?.('That’s on an Advanced page. Use the page button under the answer to open it.');
+    else onNotice?.('That’s on a Workbench page. Use the page button under the answer to open it.');
   }
   // A request from the shell, acted on once: open a report, ask Ask AI (a question with its background, or words left in
   // the box to finish: New › Quick scan, New › Picture), or open Assets (a folder, or the asset dialog: New › Channel
