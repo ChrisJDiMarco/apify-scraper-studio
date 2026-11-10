@@ -102,14 +102,25 @@ describe('durable research scheduling', () => {
     h.setTime('2026-10-27T14:00:00Z'); expect(h.api.checkDueResearchSchedules()).toEqual([]);
     expect(h.collect).toHaveBeenCalledOnce(); expect(h.runAI).not.toHaveBeenCalled();
   });
-  it('pauses interrupted claims on restart without dispatching the same occurrence', async () => {
+  // A deploy or restart under a scheduled run says nothing about the program: its schedule stays on and moves to the
+  // next occurrence from now, so nothing is bought the moment the server is back. A second interruption in a row pauses it.
+  it('keeps the schedule on after a restart interrupts a scheduled run, without dispatching again at once', async () => {
     const h = harness(); const saved = h.api.saveResearchProgram(program()); const state = h.readState();
     state.programs[0].schedule = { ...saved.schedule, lastRunId: 'interrupted-run', lastStatus: 'queued', nextRunAt: '2026-09-28T13:00:00.000Z' };
     state.researchRuns.push({ id: 'interrupted-run', programId: 'program-a', workspaceId: 'general', type: 'research', status: 'queued', scheduledFor: saved.schedule.nextRunAt });
     fs.writeFileSync(path.join(h.root, 'state.json'), JSON.stringify(state));
     h.setTime('2026-09-29T14:00:00Z'); const restart = createContentWorkspace(h.deps); restart.recoverInterrupted();
-    expect(restart.publicState().programs[0].schedule).toMatchObject({ enabled: false, lastStatus: 'failed', nextRunAt: '' });
+    expect(restart.publicState().researchRuns.find(run => run.id === 'interrupted-run').status).toBe('failed');
+    expect(restart.publicState().programs[0].schedule).toMatchObject({ enabled: true, lastStatus: 'failed', nextRunAt: '2026-09-30T13:00:00.000Z', lastError: expect.stringMatching(/restarted during the last scheduled run/) });
     expect(restart.checkDueResearchSchedules()).toEqual([]); expect(h.collect).not.toHaveBeenCalled();
+    // The next scheduled run is interrupted too: now the schedule pauses, as it does after a failed run.
+    const again = h.readState();
+    again.programs[0].schedule = { ...again.programs[0].schedule, lastRunId: 'interrupted-again', lastStatus: 'queued' };
+    again.researchRuns.push({ id: 'interrupted-again', programId: 'program-a', workspaceId: 'general', type: 'research', status: 'queued', scheduledFor: '2026-09-30T13:00:00.000Z' });
+    fs.writeFileSync(path.join(h.root, 'state.json'), JSON.stringify(again));
+    h.setTime('2026-09-30T13:30:00Z'); const second = createContentWorkspace(h.deps); second.recoverInterrupted();
+    expect(second.publicState().programs[0].schedule).toMatchObject({ enabled: false, lastStatus: 'failed', nextRunAt: '' });
+    expect(second.checkDueResearchSchedules()).toEqual([]); expect(h.collect).not.toHaveBeenCalled();
   });
   it('uses rolling dates on a manual start of a paused recurrence and restores fixed dates in one-time mode', async () => {
     const h = harness();

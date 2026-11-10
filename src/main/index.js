@@ -1642,6 +1642,7 @@ async function searchSources(payload) {
 // Claude routes (the Claude app or an API key) and model checks before spending; see ai-routes.js.
 const aiRoutes = createAiRoutes({
   platform: process.platform, // PowerShell or Terminal in the sign-in hints; index.js's own value, so test harnesses can set it
+  shared: WEB_RUNTIME, // the browser studio: "auto" is the API key; the Claude app only when an admin chooses it
   spawn: async (command, args, { cwd, stdin, timeoutMs } = {}) => { await loginShellPathReady; return spawnCodex(command, args, cwd || app.getPath('userData'), { stdin, timeoutMs, providerLabel: 'Claude' }); },
   getKey, getSettings: () => loadData().settings, dataDir: () => dataRoot(), describeError: safeServiceError,
   // New API keys sit on low rate limits; large discovery batches can draw a 429, so retry a little more.

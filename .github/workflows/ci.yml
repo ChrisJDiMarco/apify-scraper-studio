@@ -157,7 +157,8 @@ jobs:
             Start-Sleep -Seconds 2; $app.Refresh()
             # An error box (showErrorBox, uncaught exception) keeps the process alive under another title, so require
             # the real window title plus the data-folder lock the main process takes at startup.
-            $ready = ($app.MainWindowTitle -eq 'Golden Thread') -and (Test-Path $lock)
+            # The window is named after the page on screen ("This week in Main · Golden Thread").
+            $ready = ($app.MainWindowTitle -like '*Golden Thread') -and (Test-Path $lock)
           } until ($ready -or $app.HasExited -or (Get-Date) -gt $deadline)
           Start-Sleep -Seconds 3
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing

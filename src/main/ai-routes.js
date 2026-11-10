@@ -1,6 +1,9 @@
 // Which way the app reaches Claude, and whether that way can run the models a job needs.
 // "auto" (the default for new installs) uses the Claude app (Claude Code CLI) when it is installed,
 // signed in and new enough for every flag the app passes; otherwise the Anthropic API key from Settings.
+// On a shared server (`shared`, the browser studio) "auto" is the Anthropic API key only: scraped posts go into prompts,
+// and an agent CLI is something an admin chooses there (Settings → Model routing → the Claude app), never what the
+// server falls into because one happens to be installed and signed in.
 // Electron-free: the main process injects process spawning, key lookup and settings.
 const fs = require('fs');
 const path = require('path');
@@ -13,7 +16,7 @@ const PING_SCHEMA = { type: 'object', properties: { ok: { type: 'boolean' } }, r
 
 // `platform` is index.js's process.platform (tests pass their own); Windows is told to use Command Prompt (PowerShell
 // runs npm's .ps1 shim, which a stock PC's execution policy refuses), the Mac Terminal.
-function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, describeError = (error) => error?.message || String(error), now = Date.now, platform = process.platform }) {
+function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, describeError = (error) => error?.message || String(error), now = Date.now, platform = process.platform, shared = false }) {
   const shellName = platform === 'win32' ? 'Command Prompt' : 'Terminal';
   // provider → a working route, reused for ten minutes. Kept per provider: 'auto' (a connection check) and 'claude' (the
   // Claude Code runner asking whether the CLI streams) alternate on every Ask AI call and must not re-detect each time.
@@ -51,6 +54,7 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
     let resolved;
     if (provider === 'codex') resolved = { provider, route: 'codex', problem: '' };
     else if (provider === 'claude-api') resolved = { provider, route: 'claude-api', keySaved, problem: keySaved ? '' : ADD_KEY };
+    else if (shared && provider !== 'claude') resolved = { provider, route: keySaved ? 'claude-api' : '', keySaved, problem: keySaved ? '' : ADD_KEY };
     else {
       const cli = await detectClaudeCli(); const issue = cliProblem(cli);
       if (provider === 'claude') resolved = { provider, route: 'claude', cli, keySaved, problem: issue };

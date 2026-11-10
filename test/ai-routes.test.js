@@ -22,12 +22,12 @@ function cli({ installed = true, version = '2.1.281 (Claude Code)', helpText = h
     throw new Error(`unexpected ${args.join(' ')}`);
   });
 }
-function routes({ spawn = cli(), key = '', provider = 'auto', runner, clock } = {}) {
+function routes({ spawn = cli(), key = '', provider = 'auto', runner, clock, shared = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-routes-')); dirs.push(dir);
   const settings = { aiProvider: provider };
   const fakeRunner = runner || { checkModels: vi.fn(async ({ models }) => ({ ok: true, models: models.map((id) => ({ id, available: true })) })), run: vi.fn() };
   const createRunner = vi.fn(() => fakeRunner);
-  const api = createAiRoutes({ spawn, getKey: (name) => (name === 'ANTHROPIC_API_KEY' ? key : ''), getSettings: () => settings, dataDir: () => dir, createRunner, now: clock || Date.now, platform: 'darwin' }); // the Mac wording, on every OS
+  const api = createAiRoutes({ spawn, getKey: (name) => (name === 'ANTHROPIC_API_KEY' ? key : ''), getSettings: () => settings, dataDir: () => dir, createRunner, now: clock || Date.now, platform: 'darwin', shared }); // the Mac wording, on every OS
   return { api, spawn, settings, createRunner, runner: fakeRunner };
 }
 
@@ -35,6 +35,16 @@ describe('Claude routes', () => {
   it('uses the Claude app when it is installed, signed in and current', async () => {
     const { api } = routes({ key: 'sk-ant-api03-key' });
     await expect(api.resolve()).resolves.toMatchObject({ provider: 'auto', route: 'claude', problem: '', cli: { installed: true, loggedIn: true, missingFlags: [] } });
+  });
+  // The browser studio (a shared server): scraped posts go into prompts, so an agent CLI is an admin's choice there.
+  it('on a shared server, auto is the API key and never the Claude app; choosing the Claude app still works', async () => {
+    const withKey = routes({ key: 'sk-ant-api03-key', shared: true });
+    await expect(withKey.api.resolve()).resolves.toMatchObject({ provider: 'auto', route: 'claude-api', problem: '' });
+    expect(withKey.spawn).not.toHaveBeenCalled(); // the installed, signed-in CLI isn't even looked for
+    const noKey = routes({ shared: true });
+    await expect(noKey.api.resolve()).resolves.toMatchObject({ route: '', problem: expect.stringMatching(/Add an Anthropic API key/) });
+    expect(noKey.spawn).not.toHaveBeenCalled();
+    await expect(routes({ shared: true }).api.resolve('claude')).resolves.toMatchObject({ provider: 'claude', route: 'claude', problem: '' });
   });
   it('falls back to the API key when the Claude app is missing, too old or signed out', async () => {
     for (const spawn of [cli({ installed: false }), cli({ helpText: help().replace('--effort', '') }), cli({ loggedIn: false })]) {

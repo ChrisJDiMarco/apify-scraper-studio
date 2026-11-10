@@ -307,11 +307,23 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const activeView = w => ({ ...w, referenceDocs: (w.referenceDocs || []).map(({ text, ...doc }) => ({ ...doc, characters: String(text || '').length })), brandImageSets: brandImages().brandImageFamilies(w.editionId).map(family => ({ ...family, images: (w.brandImages || []).filter(image => image.family === family.id) })) });
     return { activeWorkspaceId: state.activeWorkspaceId, workspaces: copy(state.workspaces.filter(w => !w.archived).map(w => w.id === state.activeWorkspaceId ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), workspacePolicy: workspacePolicyView(), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit', 'scan-report'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() }, promptChanges: recentPromptChanges() };
   }
-  function updateScheduledRun(run) {
+  // `interrupted`: the process stopped under the run (a deploy, a restart), which says nothing about the program. Its
+  // schedule stays on and moves to the next occurrence from now, so nothing is bought again the moment the server is
+  // back; the run itself shows Retry. A second interruption in a row pauses the schedule, as a failed run does: a run
+  // that takes the server down must not be started again on every restart.
+  function updateScheduledRun(run, { interrupted = false } = {}) {
     if (!run.scheduledFor) return;
     const program = state.programs.find(row => row.id === run.programId && row.workspaceId === run.workspaceId);
     if (!program || program.schedule?.lastRunId !== run.id) return;
     program.schedule.lastStatus = run.status;
+    if (run.status === 'succeeded') program.schedule.interruptions = 0;
+    if (interrupted && !(Number(program.schedule.interruptions) >= 1)) {
+      let next = ''; try { next = nextResearchScheduleAt(research.validateResearchProgram(program).schedule, { from: stamp() }); } catch (_) { next = ''; }
+      if (next) {
+        Object.assign(program.schedule, { interruptions: 1, nextRunAt: next, lastError: 'The studio restarted during the last scheduled run. The schedule is still on; Retry on that run resumes it.' });
+        return;
+      }
+    }
     if (['failed', 'partial', 'cancelled'].includes(run.status)) {
       program.schedule.enabled = false; program.schedule.nextRunAt = '';
       program.schedule.lastError = run.message || 'The scheduled run needs attention. Review it before resuming.';
@@ -324,7 +336,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       run.status = (run.jobs || []).some(job => job.status === 'succeeded' || job.assetIds?.length) ? 'partial' : 'failed';
       run.message = 'The app stopped during this run. Retry resumes saved stages and keeps completed assets.';
       for (const job of run.jobs || []) if (job.status === 'running') { job.status = job.assetIds?.length ? 'partial' : 'failed'; job.error = 'Interrupted before completion.'; }
-      updateScheduledRun(run);
+      updateScheduledRun(run, { interrupted: true });
     }
     // A quick scan whose trends report was being written (or retried) when the app stopped: Retry report finishes it.
     for (const run of state.researchRuns) if (run.scanReport && ['queued', 'running'].includes(run.scanReport.status)) {
@@ -1798,7 +1810,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // or carried in a setup file. Editing program copy alone preserves the cadence.
   function scheduleState(schedule, previous) {
     const changed = JSON.stringify(validateResearchSchedule(previous)) !== JSON.stringify(schedule);
-    const metadata = Object.fromEntries(['lastRunAt', 'lastRunId', 'lastStatus', 'lastError', 'lastScheduledFor', 'skippedAt', 'skippedReason'].map(key => [key, previous?.[key] || '']));
+    const metadata = Object.fromEntries(['lastRunAt', 'lastRunId', 'lastStatus', 'lastError', 'lastScheduledFor', 'skippedAt', 'skippedReason', 'interruptions'].map(key => [key, previous?.[key] || '']));
     const result = { ...schedule, ...metadata, nextRunAt: !schedule.enabled ? '' : changed || !previous?.nextRunAt ? nextResearchScheduleAt(schedule, { from: stamp() }) : previous.nextRunAt };
     if (changed) { result.lastError = ''; result.skippedAt = ''; result.skippedReason = ''; }
     return result;

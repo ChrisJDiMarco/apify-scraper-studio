@@ -265,7 +265,7 @@ describe('roles', () => {
     expect(screen.queryByRole('textbox', { name: `Text of ${asset.title}` })).not.toBeInTheDocument();
     expect(screen.getByRole('document', { name: asset.title })).toHaveAttribute('contenteditable', 'false');
     expect(editor.isEditable).toBe(false);
-    expect(screen.getByRole('button', { name: 'Notes, 1 open' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Notes, 1 open' })).toBeInTheDocument(); // the notes load after the page opens
     select(editor, 'grew fast');
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(screen.queryByRole('toolbar', { name: 'Selected text' })).not.toBeInTheDocument(); // no edit, no notes: no menu

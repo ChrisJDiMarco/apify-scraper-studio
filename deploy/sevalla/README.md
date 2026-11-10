@@ -1,28 +1,31 @@
 # Golden Thread on Sevalla
 
-Production URL: https://goldenthread.searchengineland.com
+> This repo is public, so the live address, resource ids and people's names are left out here. The filled-in copy is
+> `deploy/sevalla/README.private.md`, which git ignores (`.git/info/exclude`) and which stays on the deploying machine.
 
-- Application: `Golden Thread` (`718fb8c4-ca26-40ae-ac81-ba4c70616ceb`).
+Production URL: https://<production host>
+
+- Application: `Golden Thread` (`<id>`).
 - Region: Ashburn, USA.
 - Source: `ChrisJDiMarco/apify-scraper-studio`, branch `main`, root `Dockerfile`.
 - Process: one S1 web instance (0.5 vCPU, 1 GB RAM), port 4174; hibernation and automatic deployments off.
 - Disk: 10 GB mounted at `/data`. Keep exactly one instance attached to this disk.
 - Health checks: `/healthz` for liveness, `/readyz` for readiness.
-- Admin: `john.blanchard@semrush.com`. Password sign-in plus admin-provisioned personal links.
-- DNS: `goldenthread` CNAME to `to.sevalla.app`, DNS only, in Cloudflare's `searchengineland.com` zone.
-- TLS: Sevalla-managed certificate, active; its requested `_acme-challenge.goldenthread` TXT record is also in Cloudflare.
+- Admin: `<first admin's email>`. Password sign-in plus admin-provisioned personal links.
+- DNS: the studio's CNAME to `to.sevalla.app`, DNS only, in Cloudflare's zone for the domain.
+- TLS: Sevalla-managed certificate, active; its requested `_acme-challenge` TXT record is also in Cloudflare.
 - Base price approved: $10/month compute + $3/month disk; builds, bandwidth, tax and API usage extra.
 
 ## Verification on October 21, 2026
 
 - Deployed GitHub commit `562b085` (version 0.3.0). Initial deployment:
-  `2cc4828e-b2b0-4f40-af61-07308cd0e297`; restart verification:
-  `82d5555e-8702-441d-98c5-c4bdeb827517`. Both completed successfully.
+  `<id>`; restart verification:
+  `<id>`. Both completed successfully.
 - The custom domain is verified, has an active SSL certificate, and is the primary domain.
 - HTTPS `/readyz` returned 200 with `ready: true` and data, disk and lock checks all `ok`.
 - Unauthenticated API requests returned 401; a cross-origin login request returned 403.
 - Admin-password sign-in succeeded; its session cookie is Secure and HttpOnly.
-- Exactly one provisioned member: John Blanchard, `john.blanchard@semrush.com`, Admin.
+- Exactly one provisioned member: the first admin, `<first admin's email>`, Admin.
 - After restarting the existing build, the same password worked and the admin record persisted.
 - No Apify or AI runs were started, and no vendor API credentials were imported.
 - Observed idle startup memory was about 110 MB; research workload capacity is unverified.
@@ -56,9 +59,9 @@ People sign in with their Google account; the email must belong to someone in Pe
    everyone uses the company Google Workspace (otherwise **External**), app name *Golden Thread*, scopes `openid`,
    `email`, `profile`.
 2. **Credentials › Create credentials › OAuth client ID › Web application**, with the authorized redirect URI
-   `https://goldenthread.searchengineland.com/api/auth/google/callback`.
+   `https://<production host>/api/auth/google/callback`.
 3. In Sevalla, add `STUDIO_GOOGLE_CLIENT_ID` (the client ID) and `STUDIO_GOOGLE_CLIENT_SECRET` (encrypted, runtime
-   only, like `STUDIO_PASSWORD`). `STUDIO_PUBLIC_ORIGIN` must be `https://goldenthread.searchengineland.com`.
+   only, like `STUDIO_PASSWORD`). `STUDIO_PUBLIC_ORIGIN` must be `https://<production host>`.
    Optionally `STUDIO_GOOGLE_ALLOWED_DOMAINS=semrush.com,searchengineland.com`. Restart.
 
 The sign-in page then leads with **Sign in with Google**, keeps **Email me a sign-in link** for anyone without a
@@ -71,11 +74,11 @@ Sevalla blocks SMTP ports 25, 465 and 587 everywhere, and 2525 in Oracle Cloud r
 For the existing Mailgun account, set these encrypted runtime-only variables, then restart the existing build:
 
 - `EMAIL_PROVIDER=mailgun`
-- `EMAIL_FROM=Golden Thread <studio@searchengineland.com>`
+- `EMAIL_FROM=Golden Thread <studio@<your domain>>`
 - `MAILGUN_DOMAIN=searchengineland.com`
 - `MAILGUN_REGION=us` (`eu` for a domain in Mailgun’s EU region)
 - `MAILGUN_API_KEY`: a domain sending key, not an SMTP password
-- `STUDIO_PUBLIC_ORIGIN=https://goldenthread.searchengineland.com`
+- `STUDIO_PUBLIC_ORIGIN=https://<production host>`
 
 Mailgun uses HTTPS on port 443 with open/click tracking disabled for sign-in links. Keep the existing OnDMARC SPF/DMARC setup and Marketo records when verifying the sending domain. Never publish an extra SPF record. SMTP variables can remain unused when `EMAIL_PROVIDER=mailgun`.
 
@@ -88,11 +91,11 @@ like `STUDIO_PASSWORD`; the server removes it from its environment at start), th
 | Variable | Resend | Any SMTP service |
 | --- | --- | --- |
 | `EMAIL_PROVIDER` | `resend` | `smtp` |
-| `EMAIL_FROM` | e.g. `Golden Thread <studio@searchengineland.com>`, on a domain verified with the service | same |
+| `EMAIL_FROM` | e.g. `Golden Thread <studio@<your domain>>`, on a domain verified with the service | same |
 | `RESEND_API_KEY` | the API key (secret) | — |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` | — | from the service, e.g. `smtp.sendgrid.net`, `587`, `apikey` |
 | `SMTP_PASSWORD` | — | the SMTP password or API key (secret) |
-| `STUDIO_PUBLIC_ORIGIN` | `https://goldenthread.searchengineland.com`, if not already set (the first-sign-in email links to it) | same |
+| `STUDIO_PUBLIC_ORIGIN` | `https://<production host>`, if not already set (the first-sign-in email links to it) | same |
 
 Verifying the sender's domain means adding the service's DNS records (SPF/DKIM) to the `searchengineland.com` zone
 in Cloudflare. To check the emails first without an account, set `EMAIL_PROVIDER=preview`: each email is written to
@@ -117,7 +120,7 @@ the corresponding backup. Never delete the disk when replacing a container or de
 
 ## Encrypted off-host backups
 
-- Bucket: **Golden Thread Backups**, `golden-thread-backups-dvaai`, ID `6550e88e-7623-4c52-8a98-d9c0e1c6781a`.
+- Bucket: **Golden Thread Backups**, `<bucket name>`, ID `<id>`.
 - Private Sevalla object storage in Eastern North America; public access is off.
 - Nightly at **2 a.m. America/Los_Angeles**; on the spring DST day when 2 a.m. does not exist, it runs at 3 a.m.
 - Retains the newest **14 daily archives**, plus **3 pre-start/manual deployment archives**.
@@ -155,7 +158,7 @@ inside the restored data. Neither key should be put in the object-storage bucket
 
 ### Manual verification and maintenance
 
-Installed and verified on October 21, 2026. Deployment `c26b448b-bad5-4ad1-9e5d-23e731a5cae3`
+Installed and verified on October 21, 2026. Deployment `<id>`
 completed successfully. The production launcher's SHA-256 matches the local source:
 `ef463b4dcabe485e1d57d51cb78b8a96cdd4b55546e08dd3fee9208ec9789c36`.
 The initial daily-path backup and pre-start backups each uploaded, downloaded, decrypted and restored all

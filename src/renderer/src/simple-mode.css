@@ -500,8 +500,10 @@
 /* Trends as a board: five stage columns that scroll sideways on narrow screens. */
 .simple-page.simple-page-wide { max-width: none; }
 .simple-layout-switch { flex-wrap: nowrap; }
-.simple-kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(250px, 1fr); gap: 14px; align-items: start; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
-.simple-kanban-col { display: grid; gap: 10px; align-content: start; min-height: 220px; padding: 14px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 20px; scroll-snap-align: start; }
+/* Five columns share the row when it can give each 200px (a 1440px window with the sidebar open); narrower, they keep
+   200px and the board scrolls sideways. */
+.simple-kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(clamp(200px, calc((100% - 56px) / 5), 250px), 1fr); gap: 14px; align-items: start; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
+.simple-kanban-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; min-width: 0; min-height: 220px; padding: 12px 10px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 20px; scroll-snap-align: start; }
 .simple-kanban-col > header { display: grid; gap: 4px; padding: 2px 4px 6px; }
 .simple-kanban-col h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14.5px; font-weight: 700; letter-spacing: -.1px; }
 .simple-kanban-col > header > p { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--s-muted); }
@@ -510,9 +512,10 @@
 .simple-kanban-col.stage-ready .simple-kanban-count { background: var(--s-mint); border-color: transparent; }
 .simple-kanban-col.stage-passed { opacity: .82; }
 .simple-shell .simple-kanban-action { justify-self: start; min-height: 34px; margin-top: 6px; padding: 0 14px; font-size: 13px; }
-.simple-kanban-cards { display: grid; gap: 10px; }
+/* minmax(0, 1fr): a card is as wide as its column, whatever its longest unbreakable line (it used to overhang by 17px). */
+.simple-kanban-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
 .simple-kanban-empty { margin: 0; padding: 18px 10px; font-size: 13px; text-align: center; color: var(--s-muted); border: 1px dashed var(--s-line); border-radius: 14px; }
-.simple-kanban-card { display: grid; gap: 8px; padding: 14px 15px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 16px; box-shadow: var(--s-shadow); }
+.simple-kanban-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; padding: 14px 13px; overflow-wrap: anywhere; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 16px; box-shadow: var(--s-shadow); }
 .simple-kanban-card.attention { border-color: #f0c7b8; }
 .simple-kanban-card h3 { margin: 0; font-size: 15px; line-height: 1.35; letter-spacing: -.2px; }
 .simple-kanban-card > p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--s-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
