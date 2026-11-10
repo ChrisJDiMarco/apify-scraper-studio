@@ -1,4 +1,7 @@
 /* Home → Research programs (admins): one row per program inside a wb-card. Tokens only. */
+/* The card is its own container: in Home's narrow side column a program's buttons sit under its details instead of
+   squeezing its name; on the Research programs page (wide) they stay beside it. */
+.hp-card { container: hp-card / inline-size; }
 .hp-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
 .hp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--s-line, #e3e8e4); }
 .hp-row:first-child { border-top: 0; padding-top: 2px; }
@@ -13,6 +16,9 @@
 .hp-chip.tone-problem { color: var(--s-danger, #8a2f1c); background: var(--s-danger-soft, #fbe7df); }
 .hp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--s-muted, #62685e); }
 .hp-meta svg { flex: none; }
+.hp-when { flex-wrap: nowrap; align-items: flex-start; gap: 6px; }
+.hp-when svg { margin-top: 2px; }
+.hp-when span { min-width: 0; }
 .hp-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 0; padding: 0; list-style: none; }
 .hp-chips li { padding: 1px 8px; font-size: 12px; font-weight: 600; color: var(--s-muted, #62685e); background: var(--s-bg, #f4f6f5); border-radius: 999px; }
 .hp-chips li.is-empty { font-weight: 500; }
@@ -22,5 +28,9 @@
 .hp-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
 @media (max-width: 560px) {
   .hp-row { grid-template-columns: minmax(0, 1fr); }
+  .hp-actions { flex-wrap: wrap; }
+}
+@container hp-card (max-width: 560px) {
+  .hp-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .hp-actions { flex-wrap: wrap; }
 }

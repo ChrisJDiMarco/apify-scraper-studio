@@ -9,6 +9,7 @@ import { Spotlight, spotFor } from './spotlight.jsx';
 import { DecidedBy, MOMENTUM_COPY, MomentumBadge, WhyItMatters, decisionOf } from './trend-pulse.jsx';
 import { TrendYesButton, channelLabel, fitsFor, routingChannels } from './trend-decision-sheet.jsx';
 import { WeeklyBriefing } from './weekly-briefing.jsx';
+import { ProgramsPage } from './programs-page.jsx';
 import { MondayChip, MondayStatusLine } from './monday-ui.jsx';
 import { linkFor, shareOrigin } from './deep-links.js';
 import { copyText, useToast } from './role-screens.jsx';
@@ -23,14 +24,15 @@ import { buildLibraryTree } from '../../shared/library-tree.js';
 import './simple-mode.css';
 
 // Simple mode: the whole studio as a few plain pages, listed in the left sidebar (App renders it, owns which tab is open
-// and the ⌘1–9 shortcuts). Home is the weekly briefing (what needs you and what changed), Trends asks yes or no, Reports
-// reads (and edits) what was written, Assets holds channel assets and pictures, Inbox and Calendar follow the team's
-// work, and Ask AI answers anything, does the work after you confirm, and can take you to any control and spotlight it.
+// and the ⌘1–9 shortcuts). Home is the weekly briefing (what needs you and what changed), Research programs (admins) is
+// every program with Run now and Edit, Trends asks yes or no and reads (and edits) each trend's reports, Assets holds
+// every other report, channel assets and pictures, Inbox and Calendar follow the team's work, and Ask AI answers
+// anything, does the work after you confirm, and can take you to any control and spotlight it.
 // The Studio pages (Prompts, Analytics, People & access, Brand knowledge, Settings) and Inbox and Calendar render through `renderPage`.
 // Everything else is in the Advanced layout.
 // The Simple pages in sidebar order (nav-model.js SIMPLE_PAGES, which also holds their labels and icons), then Ask AI:
 // the tabs SimpleMode allows when it's drawn without App.
-export const SIMPLE_TABS = Object.freeze(['home', 'trends', 'reports', 'assets', 'inbox', 'calendar', 'ask']);
+export const SIMPLE_TABS = Object.freeze(['home', 'programs', 'trends', 'assets', 'inbox', 'calendar', 'ask']);
 const ASK_COPY = {
   subtitle: 'Answers, the work done for you, and “show me” tours of the app.',
   title: 'What can I help with?',
@@ -66,9 +68,12 @@ export function askIntro(can, { admin = false } = {}) {
 }
 // Ask AI page links (main/help-assistant.js HELP_PAGES ids) that have a home in Simple mode; anything else opens in the
 // Advanced layout. `reports` there is Dataset reports and `dashboard` the Collection overview, so neither maps to a tab.
-const SIMPLE_PAGE = { overview: 'home', library: 'reports', board: 'trends', settings: 'settings', assets: 'assets', inbox: 'inbox', calendar: 'calendar', prompts: 'prompts', analytics: 'analytics', people: 'people', knowledge: 'knowledge' };
+// The Library and the Trend board are Assets and Trends now.
+const SIMPLE_PAGE = { overview: 'home', programs: 'programs', library: 'assets', board: 'trends', settings: 'settings', assets: 'assets', inbox: 'inbox', calendar: 'calendar', prompts: 'prompts', analytics: 'analytics', people: 'people', knowledge: 'knowledge' };
+// A trend's two documents open inside Trends; every other report (a quick scan's, a Create content draft) inside Assets.
+const TREND_DOCS = new Set(['evidence-report', 'editorial-toolkit']);
 // Pages App draws (renderPage) inside the Simple column.
-const SHELL_PAGES = new Set(['analytics', 'people', 'prompts', 'knowledge', 'inbox', 'calendar']);
+const SHELL_PAGES = new Set(['analytics', 'people', 'prompts', 'channels', 'knowledge', 'inbox', 'calendar']);
 const ACTIVE = new Set(['queued', 'running']);
 const list = (value) => (Array.isArray(value) ? value : []);
 const plural = (count, word) => `${number(count)} ${word}${count === 1 ? '' : 's'}`;
@@ -96,7 +101,7 @@ function trendIndex(history) {
 // carries the shell's own ways (App): copyLink(kind, id), openInvite(preset), viewAs(payload), openProgramDraft(draft),
 // create(kind) (the New menu) and makeAssets(request) (the asset dialog over the current page), which Ask AI's nav, the
 // report reader and Home's Next up use.
-export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, error, onDismiss, action, background = [], renderPage, renderSettings, onOpenClassic, onOpenSheets, onOpenTarget, onOpenPrompt, linkOrigin: linkOriginIn, tab: shownTab, onTab, tabs = SIMPLE_TABS, settingsAllowed = true, onNotice, onNavSpot, spotRoot, shellRequest = null, shellNav = {} }) {
+export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, error, onDismiss, action, background = [], renderPage, renderSettings, onOpenClassic, onOpenSheets, onOpenTarget, onOpenPrompt, linkOrigin: linkOriginIn, tab: shownTab, onTab, tabs = SIMPLE_TABS, settingsAllowed = true, onNotice, onNavSpot, spotRoot, shellRequest = null, shellNav = {}, reopenKey = 0, onRouteDetail }) {
   // Ask AI announces each picture it makes, so Assets lists it even when it was drawn behind another tab.
   const api = useAnnouncingApi(apiIn);
   const viewer = useViewer();
@@ -105,9 +110,11 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const tab = shownTab ?? ownTab;
   const [seed, setSeed] = useState(null);
   const [reportId, setReportId] = useState('');
+  const [reportTab, setReportTab] = useState('trends'); // the page the open report is read on: 'trends' or 'assets'
   const [tour, setTour] = useState(null); // an Ask AI "Show me" in progress
   const [lastTab, setLastTab] = useState('home'); // where the person was before Ask AI, for its context
   const [assetFolder, setAssetFolder] = useState(''); // the Assets folder open, for Ask AI's context
+  const [assetFolderKey, setAssetFolderKey] = useState(''); // and its id, for the page's address
   const [programId, setProgramIdState] = useState(''); // the research program Trends starts (Home's briefing keeps its own pick)
   const setProgramId = (id) => { setProgramIdState(id); rememberProgram(viewer, id); };
   const [history, setHistory] = useState(undefined); // readTrendHistory(): undefined while it loads, null when unavailable
@@ -126,9 +133,12 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const channels = useMemo(() => routingChannels(workspace?.editionId || 'general'), [workspace?.editionId]);
 
   useEffect(() => { if (tab !== 'ask') setLastTab(tab); }, [tab]);
-  // Leaving Reports (other than for Ask AI, which keeps the report as its context) closes the reader, so every way back
-  // (the sidebar, Home's All reports, an Inbox or Next up page link) opens the list. Opening one report sets it again.
-  useEffect(() => { if (tab !== 'reports' && tab !== 'ask') setReportId(''); }, [tab]);
+  // Leaving the page a report is read on (other than for Ask AI, which keeps the report as its context) closes the reader,
+  // so every way back (the sidebar, an Inbox or Next up page link) opens the page itself. Opening a report sets it again.
+  useEffect(() => { if (tab !== reportTab && tab !== 'ask') setReportId(''); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The sidebar pressed for the page already open (`reopenKey`, from App): back to the page itself, out of a report or a
+  // folder, as pressing a page in any app does.
+  useEffect(() => { if (!reopenKey) return; setReportId(''); if (tab === 'assets') setAssetRequest({ key: Date.now(), open: 'home' }); }, [reopenKey]); // eslint-disable-line react-hooks/exhaustive-deps
   function ask(text, context = '', extra = {}) { setSeed({ text, context, ...(Array.isArray(extra?.attachments) ? { attachments: extra.attachments } : {}), key: Date.now() }); go('ask'); }
   function draftAsk(text) { setSeed({ draft: text, key: Date.now() }); go('ask'); }
   // Images load once and stay cached for the session, so returning to Assets is instant.
@@ -136,14 +146,20 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const [assetRequest, setAssetRequest] = useState(null); // open the asset dialog, a folder, or Assets itself
   // Make channel assets ({ kind: 'report', assetId, channels? }) inside Assets: the dialog on that report, its `channels`
   // pre-ticked (else the person's own); without a source it opens on its source step. After Make, Assets opens the folder.
-  function makeAssetsInAssets(request) { const { channels, ...source } = request || {}; setAssetRequest({ key: Date.now(), open: 'creator', ...(source.kind ? { source } : {}), ...(list(channels).length ? { channels: list(channels).map(String) } : {}) }); go('assets'); }
+  function makeAssetsInAssets(request) { setReportId(''); const { channels, ...source } = request || {}; setAssetRequest({ key: Date.now(), open: 'creator', ...(source.kind ? { source } : {}), ...(list(channels).length ? { channels: list(channels).map(String) } : {}) }); go('assets'); }
   // From anywhere else (a report, Home, Ask AI) the dialog opens over the page you're on (App's KitCreatorHost), so
   // Cancel leaves you there; after Make, a note offers Open folder.
-  function makeAssets(request) { if (shellNav.makeAssets && tab !== 'assets') shellNav.makeAssets(request); else makeAssetsInAssets(request); }
+  // With a report open in the reader (on Assets too), the dialog opens over the report, so Cancel leaves you reading it.
+  function makeAssets(request) { if (shellNav.makeAssets && (tab !== 'assets' || reportId)) shellNav.makeAssets(request); else makeAssetsInAssets(request); }
   // A folder in Assets by its kit sourceKey or Library node id (SimpleAssets resolves either); `runId` opens that set.
-  function openFolderKey(folderKey, runId = '') { setAssetRequest({ key: Date.now(), open: 'folder', folderKey, ...(runId ? { runId } : {}) }); go('assets'); }
+  function openFolderKey(folderKey, runId = '') { setReportId(''); setAssetRequest({ key: Date.now(), open: 'folder', folderKey, ...(runId ? { runId } : {}) }); go('assets'); }
   function openFolder(folder) { openFolderKey(folder.key); }
-  function openReport(id) { setReportId(id); go('reports'); }
+  // `home` is where to read it; without one, a trend's documents open on Trends and everything else on Assets.
+  function openReport(id, home = '') {
+    const asset = list(studio.assets).find((row) => row.id === id);
+    const where = home || (TREND_DOCS.has(asset?.deliverableId) && tabs.includes('trends') ? 'trends' : 'assets');
+    setReportTab(where); setReportId(id); go(where);
+  }
   function openPage(target) {
     const home = SIMPLE_PAGE[target];
     if (home === 'settings' && !settingsAllowed) { onNotice?.(`Settings are for admins. Ask ${askAdmin} if something needs changing.`); return; }
@@ -183,6 +199,16 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     return sent;
   };
   const stopped = board.scouting.filter((scout) => scout.status === 'failed');
+  // Trends shows one research program's trends, or all of them (remembered for this person on this device). Picking one
+  // also makes it the program Find new trends runs.
+  const [trendProgram, setTrendProgramState] = useState(() => readChoice(viewer, 'trends.program', ''));
+  const shownProgram = programs.some((row) => row.id === trendProgram) ? trendProgram : '';
+  const setTrendProgram = (id) => { setTrendProgramState(id); saveChoice(viewer, 'trends.program', id); if (id) setProgramId(id); };
+  const inProgram = (row) => !shownProgram || row.programId === shownProgram;
+  // What this page has open, for its address (App's useRoutes): the report being read, the Assets folder, Trends' program.
+  const readingId = reportId && tab === reportTab ? reportId : '';
+  useEffect(() => { onRouteDetail?.({ report: readingId, folder: tab === 'assets' && !readingId ? assetFolderKey : '', program: shownProgram }); }, [readingId, tab, assetFolderKey, shownProgram]); // eslint-disable-line react-hooks/exhaustive-deps
+  const programBoard = useMemo(() => (shownProgram ? { ...board, cards: board.cards.filter(inProgram), scouting: board.scouting.filter(inProgram), columns: Object.fromEntries(Object.entries(board.columns).map(([stage, cards]) => [stage, list(cards).filter(inProgram)])) } : board), [board, shownProgram]); // eslint-disable-line react-hooks/exhaustive-deps
   const retryRun = can('retryStudioRun') ? (runId) => Promise.resolve().then(() => runAiAction({ kind: 'retry-run', runId })).then((result) => { if (typeof result === 'string') onNotice?.(result); }, (failure) => onNotice?.(failure?.message || 'That run couldn’t be tried again.')) : undefined;
   // "Yes, with a note…": the sheet waits for the save and shows a refusal itself.
   const decideWithNote = (card, choice) => decideUndoable(card, 'approved', choice);
@@ -219,8 +245,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     const inSidebar = spot.id.startsWith('nav.') || String(spot.selector || '').includes('"nav.');
     onNavSpot?.(inSidebar, spot.id);
     if (inSidebar) return;
-    if (spot.item === 'report') { const report = findReport(step.item) || reports.find((row) => row.id === reportId) || reports[0]; if (report) setReportId(report.id); go('reports'); }
-    else if (spot.tab === 'reports') { setReportId(''); go('reports'); }
+    if (spot.item === 'report') { const report = findReport(step.item) || reports.find((row) => row.id === reportId) || reports[0]; if (report) openReport(report.id); }
     else if (spot.item === 'folder') { const folder = findFolder(step.item) || kitFolders[0]; if (folder) openFolder(folder); else go('assets'); }
     else if (spot.item === 'kit-source') { setAssetRequest({ key: Date.now(), open: 'creator', mode: { 'kit-dialog.link': 'link', 'kit-dialog.paste': 'paste' }[spot.id] || 'report' }); go('assets'); }
     else if (spot.item === 'kit-review') { const report = findReport(step.item) || reports[0]; if (report) makeAssetsInAssets({ kind: 'report', assetId: report.id }); else go('assets'); }
@@ -243,9 +268,10 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   useEffect(() => {
     if (!shellRequest?.key || handledRequest.current === shellRequest.key) return;
     handledRequest.current = shellRequest.key;
-    if (shellRequest.kind === 'report' && shellRequest.assetId) openReport(shellRequest.assetId);
+    if (shellRequest.kind === 'report' && shellRequest.assetId) openReport(shellRequest.assetId, shellRequest.tab || '');
     else if (shellRequest.kind === 'ask' && shellRequest.text) ask(shellRequest.text, shellRequest.context || '', { attachments: shellRequest.attachments });
     else if (shellRequest.kind === 'ask' && shellRequest.draft) draftAsk(shellRequest.draft);
+    else if (shellRequest.kind === 'trends') setTrendProgram(shellRequest.program || '');
     else if (shellRequest.kind === 'assets') { if (shellRequest.source || shellRequest.creator) makeAssetsInAssets(shellRequest.source); else if (shellRequest.folderKey) openFolderKey(shellRequest.folderKey, shellRequest.runId || ''); else go('assets'); }
   }, [shellRequest?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const studioImages = list(studio.assets).filter(mine).filter((asset) => asset.kind === 'image' || asset.kind === 'video');
@@ -267,6 +293,8 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   // Real posts on a trend card are free (readTrendPosts reads saved research), for roles that read research.
   const postsApi = typeof api.readTrendPosts === 'function' && can('readTrendPosts') ? api : null;
   const onAsk = can('askHelp') && api.askHelp ? ask : null;
+  // A report, read (and edited) on the page it belongs to: Back returns to that page.
+  const reader = (backLabel) => <SimpleReports api={api} web={web} reports={reports} selectedId={reportId} onSelect={setReportId} backLabel={backLabel} onCreateContent={shellNav.createFrom} action={action} busy={busy} onAsk={onAsk} onFindTrends={() => go('trends')} onMakeAssets={(report) => makeAssets({ kind: 'report', assetId: report.id })} usesOf={usesOf} tree={libraryTree} onOpenAssets={openFolderKey} studio={studio} linkOrigin={linkOrigin} onOpenPrompt={onOpenPrompt} drive={state.driveSync} onOpenDriveSettings={openDriveSettings} />;
   const spotlight = tour && !loading ? <Spotlight key={tour.key} steps={tour.steps} onPrepare={prepareSpot} onClose={() => { setTour(null); onNavSpot?.(false); }} onBackToChat={() => { setTour(null); onNavSpot?.(false); go('ask'); }} /> : null;
   // The spotlight sits on the frame, not in this column, so it stays usable while the sidebar drawer is open.
   const spotHost = spotlight && typeof spotRoot === 'function' ? spotRoot() : null;
@@ -275,14 +303,15 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     <main className="simple-main" data-tab={tab}>
       {loading ? <div className="simple-loading" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><p>Opening your studio…</p></div>
         : tab === 'home' ? <WeeklyBriefing state={state} viewer={viewer} api={api} layout="simple" busy={busy} board={board} onNotice={onNotice} onOpenProgramPage={onOpenClassic ? (programId) => onOpenClassic('research', { programId }) : undefined} onOpenTarget={openTarget} onDecide={decideUndoable} onDecideWithNote={decideWithNote} onAsk={onAsk || undefined} onOpenTracker={can('readWorkbook') ? () => nav.openSheets('trend-tracker') : undefined} onStartResearch={startAndRemember} linkOrigin={linkOrigin} postsApi={postsApi} onWriteReports={canWriteReports(can) ? writeReports : undefined} onRetryRun={retryRun} onMakeAssets={can('planAssetKit') && can('createAssetKit') ? makeAssets : undefined} onCreate={shellNav.create} web={web} />
-        : tab === 'reports' ? <SimpleReports api={api} web={web} reports={reports} selectedId={reportId} onSelect={setReportId} action={action} busy={busy} onAsk={onAsk} onFindTrends={() => go('trends')} onMakeAssets={(report) => makeAssets({ kind: 'report', assetId: report.id })} usesOf={usesOf} tree={libraryTree} onOpenAssets={openFolderKey} studio={studio} linkOrigin={linkOrigin} onOpenPrompt={onOpenPrompt} drive={state.driveSync} onOpenDriveSettings={openDriveSettings} />
-        : tab === 'trends' ? <SimpleTrends board={board} waiting={waiting} approved={approved} programs={programs} program={program} onProgram={setProgramId} trendOf={trendOf} researchRuns={list(studio.researchRuns).filter(mine)} channels={channels} focusChannels={list(viewer.prefs?.focusChannels)} busy={busy} needsSetup={needsSetup} askAdmin={askAdmin} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk || undefined} onWriteReports={writeReports} onStartResearch={startAndRemember} onOpenReport={openReport} onOpenClassic={onOpenClassic} onSettings={openSettings} stopped={stopped} onRetry={retryRun} postsApi={postsApi} monday={state.monday} mondayApi={api} />
-        : tab === 'assets' ? <SimpleAssets api={api} web={web} tree={libraryTree} editionId={workspace?.editionId || 'general'} contentRuns={list(studio.contentRuns).filter(mine)} kitRuns={kitRuns} assets={list(studio.assets).filter(mine)} studioImages={studioImages} sources={kitSourcesFrom(reports, list(studio.contentRuns).filter(mine))} request={assetRequest} onRequestDone={() => setAssetRequest(null)} cache={imageCache} onCache={(id, url) => setImageCache((current) => ({ ...current, [id]: url }))} action={action} busy={busy} imagesReady={imagesReady} googleReady={Boolean(studio.capabilities?.googlePublishConfigured)} askAdmin={askAdmin} onDraft={draftAsk} onAsk={ask} onSettings={openSettings} onOpenReport={openReport} onOpenTrends={() => go('trends')} onViewChange={setAssetFolder} workspace={workspace} promptChanges={list(studio.promptChanges)} />
+        : tab === 'programs' ? <ProgramsPage state={state} api={api} busy={busy} needsSetup={needsSetup} onStartResearch={startAndRemember} onOpenTarget={openTarget} onNotice={onNotice} onEditProgram={shellNav.editProgram} onAddProgram={shellNav.newProgram} />
+        : reportId && tab === reportTab ? reader(tab === 'trends' ? 'Trends' : 'Assets')
+        : tab === 'trends' ? <SimpleTrends board={programBoard} waiting={waiting.filter(inProgram)} approved={approved.filter(inProgram)} programs={programs} program={shownProgram ? programs.find((row) => row.id === shownProgram) : program} programFilter={shownProgram} onProgramFilter={setTrendProgram} trendOf={trendOf} researchRuns={list(studio.researchRuns).filter(mine)} channels={channels} focusChannels={list(viewer.prefs?.focusChannels)} busy={busy} needsSetup={needsSetup} askAdmin={askAdmin} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk || undefined} onWriteReports={writeReports} onStartResearch={startAndRemember} onOpenReport={openReport} onOpenClassic={onOpenClassic} onSettings={openSettings} stopped={stopped.filter(inProgram)} onRetry={retryRun} postsApi={postsApi} monday={state.monday} mondayApi={api} />
+        : tab === 'assets' ? <SimpleAssets api={api} web={web} tree={libraryTree} programs={programs} editionId={workspace?.editionId || 'general'} contentRuns={list(studio.contentRuns).filter(mine)} kitRuns={kitRuns} assets={list(studio.assets).filter(mine)} studioImages={studioImages} sources={kitSourcesFrom(reports, list(studio.contentRuns).filter(mine))} request={assetRequest} onRequestDone={() => setAssetRequest(null)} cache={imageCache} onCache={(id, url) => setImageCache((current) => ({ ...current, [id]: url }))} action={action} busy={busy} imagesReady={imagesReady} googleReady={Boolean(studio.capabilities?.googlePublishConfigured)} askAdmin={askAdmin} onDraft={draftAsk} onAsk={ask} onSettings={openSettings} onOpenReport={(id) => openReport(id, 'assets')} onOpenTrends={() => go('trends')} onViewChange={(title, key = '') => { setAssetFolder(title); setAssetFolderKey(key); }} workspace={workspace} promptChanges={list(studio.promptChanges)} />
         : tab === 'settings' ? <div className="simple-page simple-settings"><div className="simple-page-head"><div><h1>Settings</h1><p>{settingsAllowed ? 'Connections, AI, pictures and brand knowledge for the whole studio.' : 'Brand knowledge for the whole studio.'}</p></div></div>{page('settings')}</div>
         : SHELL_PAGES.has(tab) ? page(tab)
         : null}
       <div className="simple-ask-wrap" hidden={tab !== 'ask' || loading}>
-        <HelpAssistant api={api} variant="page" open={tab === 'ask'} seed={seed} starters={starters} copy={askCopy} imagesReady={imagesReady} page={{ id: 'simple-mode', label: 'Simple mode', layout: 'simple', tab: lastTab, ...(lastTab === 'reports' && reportId ? { report: reports.find((row) => row.id === reportId)?.title || '' } : {}), ...(lastTab === 'assets' && assetFolder ? { folder: assetFolder } : {}) }} onOpenPage={openPage} onOpenSettings={openSettings} onAction={runAiAction} onShow={showTour} state={state} nav={nav} onOpenAssets={() => go('assets')} onClose={() => go('home')} />
+        <HelpAssistant api={api} variant="page" open={tab === 'ask'} seed={seed} starters={starters} copy={askCopy} imagesReady={imagesReady} page={{ id: 'simple-mode', label: 'Simple mode', layout: 'simple', tab: lastTab, ...(lastTab === reportTab && reportId ? { report: reports.find((row) => row.id === reportId)?.title || '' } : {}), ...(lastTab === 'assets' && assetFolder ? { folder: assetFolder } : {}) }} onOpenPage={openPage} onOpenSettings={openSettings} onAction={runAiAction} onShow={showTour} state={state} nav={nav} onOpenAssets={() => go('assets')} onClose={() => go('home')} />
       </div>
     </main>
     {spotHost ? createPortal(spotlight, spotHost) : spotlight}
@@ -290,14 +319,15 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   </div>;
 }
 
-// `program` and `onProgram` are the research program Find new trends starts; `trendOf(card)` is the trend history's
+// `program` is the research program Find new trends starts; `programFilter` ('' for all) and `onProgramFilter(id)` are the
+// program whose trends the page shows (picking one also makes Find new trends run it). `trendOf(card)` is the trend history's
 // record for a card (momentum across runs), or null. `researchRuns` say who decided each trend (run.decisionsBy), with
 // their note and the channels they routed it to; `channels` are this edition's channels (routing and "Fits Social"
 // against the person's `focusChannels`). `onDecideWithNote(card, { note, channels })` is Yes, with a note… (its sheet
 // waits for the save); `onAsk(text)` adds "What people are saying" to a card that needs an OK, and `postsApi` (an api with
 // readTrendPosts) shows two real posts in place. `stopped` are research runs that failed before finding trends, each
 // with Try again (`onRetry(runId)`, behind its cost confirmation) and See why.
-function SimpleTrends({ board, waiting, approved, programs, program, onProgram, trendOf = () => null, researchRuns = [], channels = [], focusChannels = [], busy, needsSetup, askAdmin, onDecide, onDecideWithNote, onAsk, onWriteReports, onStartResearch, onOpenReport, onOpenClassic, onSettings, stopped = [], onRetry, postsApi = null, monday = null, mondayApi = null }) {
+function SimpleTrends({ board, waiting, approved, programs, program, programFilter = '', onProgramFilter, trendOf = () => null, researchRuns = [], channels = [], focusChannels = [], busy, needsSetup, askAdmin, onDecide, onDecideWithNote, onAsk, onWriteReports, onStartResearch, onOpenReport, onOpenClassic, onSettings, stopped = [], onRetry, postsApi = null, monday = null, mondayApi = null }) {
   const can = useCan();
   const viewer = useViewer();
   const production = board.columns.production || [];
@@ -311,6 +341,8 @@ function SimpleTrends({ board, waiting, approved, programs, program, onProgram, 
   const [layout, setLayout] = useState(() => { const saved = readChoice(viewer, 'trends.layout', ''); if (saved) return saved === 'board' ? 'board' : 'list'; try { return localStorage.getItem('simple.trends.layout') === 'board' ? 'board' : 'list'; } catch { return 'list'; } });
   const chooseLayout = (next) => { setLayout(next); saveChoice(viewer, 'trends.layout', next); };
   const skipped = (board.columns.passed || []).filter((card) => card.canDecide);
+  // Which research program a trend came from, on every card, unless the page shows one program only.
+  const showProgram = !programFilter;
   // Why research can't start yet, in words (the same reasons as Home's Find new trends).
   const blocked = Boolean(program) && needsSetup;
   const setupHint = onSettings ? 'Connect Apify in Settings first' : `Ask ${askAdmin} to connect Apify first`;
@@ -321,7 +353,7 @@ function SimpleTrends({ board, waiting, approved, programs, program, onProgram, 
     : <button type="button" className="simple-primary" {...writeProps(viewer, busy)} onClick={() => onStartResearch(program)}><Radar size={15} aria-hidden="true" />Start research with “{program.name}”</button>;
   // A card waiting for an OK says why it matters (novelty, momentum, runs seen, and which of the person's channels it
   // fits), so its momentum badge lives there; every other card keeps the badge here and says who decided it.
-  const meta = (card) => { const trend = trendOf(card); return <div className="simple-trend-meta">{card.priorityTier && <span className={`simple-tier tier-${card.priorityTier.toLowerCase().replace(/[^a-z]+/g, '-')}`}>{readable(card.priorityTier.toLowerCase())}</span>}{trend?.momentum && card.stage !== 'potential' && <MomentumBadge momentum={trend.momentum} />}<span>{plural(card.evidenceCount, 'source')}</span>{card.platforms.length > 0 && <span>{card.platforms.map((platform) => ({ x: 'X', linkedin: 'LinkedIn', reddit: 'Reddit' }[platform] || platform)).join(' · ')}</span>}{mondayChip(card)}</div>; };
+  const meta = (card) => { const trend = trendOf(card); return <div className="simple-trend-meta">{showProgram && card.programName && <span className="simple-trend-program" title={`From the research program “${card.programName}”`}>{card.programName}</span>}{card.priorityTier && <span className={`simple-tier tier-${card.priorityTier.toLowerCase().replace(/[^a-z]+/g, '-')}`}>{readable(card.priorityTier.toLowerCase())}</span>}{trend?.momentum && card.stage !== 'potential' && <MomentumBadge momentum={trend.momentum} />}<span>{plural(card.evidenceCount, 'source')}</span>{card.platforms.length > 0 && <span>{card.platforms.map((platform) => ({ x: 'X', linkedin: 'LinkedIn', reddit: 'Reddit' }[platform] || platform)).join(' · ')}</span>}{mondayChip(card)}</div>; };
   // Monday.com (monday-ui.jsx): where the trend is on the team's board, compact. interactive false inside a button.
   function mondayChip(card, interactive = true) { return monday?.items?.[card.key] ? <MondayChip monday={monday} card={card} compact api={mondayApi} disabled={busy} interactive={interactive} /> : null; }
   const byOf = (card) => decisionOf(researchRuns, card);
@@ -333,7 +365,7 @@ function SimpleTrends({ board, waiting, approved, programs, program, onProgram, 
   return <div className={`simple-page${layout === 'board' ? ' simple-page-wide' : ''}`}>
     <div className="simple-page-head"><div><h1>Trends</h1><p>Research finds them. {canDecide ? 'You decide which ones become reports.' : 'Editors decide which ones become reports.'}</p></div>
       <div className="simple-head-actions"><div className="simple-segment simple-layout-switch" role="tablist" aria-label="Show trends as">{[['list', 'List', LayoutList], ['board', 'Board', SquareKanban]].map(([id, label, Icon]) => <button type="button" role="tab" key={id} data-spot={`trends.layout-${id}`} aria-selected={layout === id} onClick={() => chooseLayout(id)}><Icon size={15} aria-hidden="true" />{label}</button>)}</div>
-        {canResearch && programs.length > 1 && <select className="simple-program-pick" aria-label="Research program" value={program?.id || ''} onChange={(event) => onProgram(event.target.value)}>{programs.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select>}
+        {programs.length > 1 && <select className="simple-program-pick" data-spot="trends.program" aria-label="Research program" title={canResearch && !programFilter && program ? `Find new trends runs “${program.name}”` : undefined} value={programFilter} onChange={(event) => onProgramFilter(event.target.value)}><option value="">All programs</option>{programs.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select>}
         <MondayStatusLine monday={monday} api={mondayApi} compact canSetup={Boolean(onSettings)} disabled={busy} />
         {canResearch && <button type="button" data-spot="trends.find" className="simple-primary" title={blocked ? setupHint : undefined} {...writeProps(viewer, busy || blocked)} onClick={() => onStartResearch(program)}><Radar size={15} aria-hidden="true" />Find new trends</button>}</div></div>
 
@@ -367,12 +399,15 @@ function SimpleTrends({ board, waiting, approved, programs, program, onProgram, 
 
     {layout === 'list' && production.length > 0 && <section className="simple-section" aria-labelledby="simple-writing" data-spot="trends.writing">
       <h2 id="simple-writing">Being written</h2>
-      <ul className="simple-live">{production.map((card) => <li key={card.key} className={card.needsAttention ? 'attention' : ''} data-spot="trends.ready-card" data-spot-item={card.name}>{card.needsAttention ? <X size={16} aria-hidden="true" /> : <LoaderCircle className="spin" size={16} aria-hidden="true" />}<span><strong>{card.name}</strong><small>{card.activity || 'Writing'}</small></span>{card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research', card.runId ? { runId: card.runId } : {})}>See why<ArrowRight size={14} aria-hidden="true" /></button>}</li>)}</ul>
+      <ul className="simple-live">{production.map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; return <li key={card.key} className={card.needsAttention ? 'attention' : ''} data-spot="trends.ready-card" data-spot-item={card.name}>{card.needsAttention ? <X size={16} aria-hidden="true" /> : <LoaderCircle className="spin" size={16} aria-hidden="true" />}<span><strong>{card.name}</strong><small>{[showProgram ? card.programName : '', card.activity || 'Writing'].filter(Boolean).join(' · ')}</small></span>
+        {/* Reports already written (channel assets are what's being made) open here, as Ready's do. */}
+        {report && <button type="button" className="simple-link" aria-label={`${card.name}: read the report`} onClick={() => onOpenReport(report.id)}>Read<ArrowRight size={14} aria-hidden="true" /></button>}
+        {card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research', card.runId ? { runId: card.runId } : {})}>See why<ArrowRight size={14} aria-hidden="true" /></button>}</li>; })}</ul>
     </section>}
 
     {layout === 'list' && ready.length > 0 && <section className="simple-section" aria-labelledby="simple-done" data-spot="trends.ready">
       <h2 id="simple-done">Ready</h2>
-      <div className="simple-report-cards">{ready.map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; const trend = trendOf(card); return <button type="button" key={card.key} data-spot="trends.ready-card" data-spot-item={card.name} disabled={!report} onClick={() => report && onOpenReport(report.id)}><span className="simple-doc-icon done"><Check size={18} aria-hidden="true" /></span><strong>{card.name}</strong><small>{[MOMENTUM_COPY[trend?.momentum]?.label, card.reportAssets?.length === 2 ? 'Trends report + editorial toolkit' : plural(card.reportAssets?.length || 0, 'report')].filter(Boolean).join(' · ')}</small>{mondayChip(card, false)}<span className="simple-read">Read<ArrowRight size={14} aria-hidden="true" /></span></button>; })}</div>
+      <div className="simple-report-cards">{ready.map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; const trend = trendOf(card); return <button type="button" key={card.key} data-spot="trends.ready-card" data-spot-item={card.name} disabled={!report} onClick={() => report && onOpenReport(report.id)}><span className="simple-doc-icon done"><Check size={18} aria-hidden="true" /></span><strong>{card.name}</strong><small>{[showProgram ? card.programName : '', MOMENTUM_COPY[trend?.momentum]?.label, card.reportAssets?.length === 2 ? 'Trends report + editorial toolkit' : plural(card.reportAssets?.length || 0, 'report')].filter(Boolean).join(' · ')}</small>{mondayChip(card, false)}<span className="simple-read">Read<ArrowRight size={14} aria-hidden="true" /></span></button>; })}</div>
     </section>}
   </div>;
 }

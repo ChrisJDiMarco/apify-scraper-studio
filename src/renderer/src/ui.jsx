@@ -6,8 +6,11 @@ import { flushSync } from 'react-dom';
 export function withViewTransition(update, types = []) {
   const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   if (!document.startViewTransition || reduce || document.hidden) return update();
-  try { document.startViewTransition({ update: () => flushSync(update), types }); }
-  catch { document.startViewTransition(() => flushSync(update)); }
+  // A transition that a newer one replaces rejects its promises ("Transition was skipped"); the update itself still
+  // ran, so there is nothing to report.
+  const quiet = (transition) => { for (const name of ['ready', 'finished', 'updateCallbackDone']) transition?.[name]?.catch?.(() => {}); };
+  try { quiet(document.startViewTransition({ update: () => flushSync(update), types })); }
+  catch { quiet(document.startViewTransition(() => flushSync(update))); }
 }
 
 export function label(value) {

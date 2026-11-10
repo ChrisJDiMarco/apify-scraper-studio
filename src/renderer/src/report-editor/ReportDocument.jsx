@@ -331,7 +331,7 @@ export const ReportDocument = forwardRef(function ReportDocument({ api = {}, ass
   // The notes panel beside the page when there is room, else a sheet over it.
   useEffect(() => {
     const node = rootRef.current; if (!node || typeof ResizeObserver !== 'function') return undefined;
-    const observer = new ResizeObserver(([entry]) => setWide((entry?.contentRect?.width || 0) >= 1040));
+    const observer = new ResizeObserver(([entry]) => setWide((entry?.contentRect?.width || 0) >= 980));
     observer.observe(node);
     return () => observer.disconnect();
   }, [session]);

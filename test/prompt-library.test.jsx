@@ -8,6 +8,9 @@ import { PromptLibrary, PromptDiff, checkBlock, matchPrompt, promptParts, runsOn
 import { ChatCards, PromptChangeCard, cardActionIndexes } from '../src/renderer/src/chat-cards.jsx';
 import { useStudioActions } from '../src/renderer/src/studio-actions.js';
 import { ViewerContext } from '../src/renderer/src/viewer.js';
+import { pinClock } from './helpers/pin-clock.js';
+
+pinClock();
 
 // The Prompts page against an api that keeps prompts in memory with the real registry, defaults and checks
 // (src/shared/prompt-template.js), so what the page shows is what the server would say.

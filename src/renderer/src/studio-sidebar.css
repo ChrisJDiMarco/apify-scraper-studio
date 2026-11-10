@@ -36,11 +36,14 @@
 
 /* ── Head: wordmark, collapse, workspace switcher ────────────────────────── */
 .studio-frame .sb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; padding: 0 0 0 8px; }
-.studio-frame .sb-wordmark { display: block; width: 112px; max-width: 100%; height: auto; }
-.studio-frame .sb-brand { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.studio-frame .sb-mark { display: grid; place-items: center; flex: none; width: 30px; height: 30px; color: var(--s-mint-ink); background: var(--s-mint); border-radius: 8px; }
-.studio-frame .sb-brand-text { font-size: 16px; font-weight: 700; letter-spacing: -.5px; line-height: 1.1; color: var(--s-ink); white-space: nowrap; }
-.studio-frame .sb-brand-text span { font-weight: 400; color: var(--s-muted); }
+.studio-frame .sb-brand { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+.studio-frame .sb-mark { display: block; flex: none; width: 30px; height: 30px; border-radius: 8px; object-fit: cover; box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
+.studio-frame .sb-brand-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.studio-frame .sb-brand-text { font-size: 16px; font-weight: 700; letter-spacing: -.4px; line-height: 1.1; color: var(--s-ink); white-space: nowrap; }
+.studio-frame .sb-brand-for { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; line-height: 1; color: var(--s-muted); white-space: nowrap; }
+.studio-frame .sb-wordmark { display: block; width: 58px; height: auto; }
+/* The Semrush wordmark is one dark ink; on the dark sidebar it reads in the muted text colour's lightness. */
+:root[data-theme="dark"] .studio-frame .sb-wordmark, .studio-frame[data-theme="dark"] .sb-wordmark { filter: brightness(0) invert(.72); }
 .studio-frame .studio-sidebar .sb-collapse { justify-content: center; flex: none; width: 32px; height: 32px; color: var(--s-muted); border-radius: 8px; }
 .studio-frame .studio-sidebar .sb-collapse:hover:not(:disabled) { color: var(--s-ink); background: var(--sb-hover); }
 .studio-frame .sb-drawer-close { flex: none; }
@@ -217,7 +220,7 @@
 /* 64px less the 1px border leaves 63: 12px and 11px either side of the 40px buttons. */
 .app-shell.studio-frame .studio-sidebar.is-rail { gap: 10px; padding-left: 12px; padding-right: 11px; }
 .studio-frame .is-rail .sb-head { flex-direction: column; justify-content: center; padding: 0; }
-.studio-frame .is-rail :is(.sb-wordmark, .sb-brand, .sb-switcher-copy, .sb-switcher-chevron, .sb-kbd, .sb-group-label, .sb-sublabel, .sb-account-copy, .sb-account-more, .sb-current, .sb-chevron) { display: none; }
+.studio-frame .is-rail :is(.sb-brand-copy, .sb-switcher-copy, .sb-switcher-chevron, .sb-kbd, .sb-group-label, .sb-sublabel, .sb-account-copy, .sb-account-more, .sb-current, .sb-chevron) { display: none; }
 .studio-frame .is-rail .sb-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .studio-frame .studio-sidebar.is-rail :is(.sb-item, .sb-ask, .sb-search, .sb-create, .sb-group-toggle, .sb-collapse) { justify-content: center; width: 40px; height: 40px; min-height: 40px; padding: 0; }
 .studio-frame .studio-sidebar.is-rail .sb-create { border-radius: 12px; }

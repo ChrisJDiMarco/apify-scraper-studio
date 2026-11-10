@@ -75,7 +75,7 @@ describe('a channel owner’s Ask AI on the browser studio', () => {
 
   it('lists Ask AI in a channel owner’s layout by default, with no cost estimate in their state', async () => {
     const state = await alex('state');
-    expect(state.viewer).toMatchObject({ role: 'channel', channelId: 'blog', capabilities: expect.arrayContaining(['askAi']), nav: { main: ['trends', 'assets', 'plan', 'inbox', 'ask'] } });
+    expect(state.viewer).toMatchObject({ role: 'channel', channelId: 'blog', capabilities: expect.arrayContaining(['askAi']), nav: { main: ['trends', 'assets', 'plan', 'inbox', 'mychannel', 'ask'] } });
     expect(state.viewer.allowed).toEqual(expect.arrayContaining(['askHelp', 'listAskConversations', 'createHelpImage']));
     expect(JSON.stringify(state)).not.toMatch(/"estimate"|followUpUsd|firstUsd/);
   });

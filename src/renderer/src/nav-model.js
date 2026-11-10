@@ -16,15 +16,20 @@ const list = (value) => (Array.isArray(value) ? value : []);
 const ACTIVE = new Set(['queued', 'running']);
 const PREVIEW_TITLE = 'Buttons that change things are off in a preview.'; // viewer.js says the same; kept here so this stays pure
 
-// Simple: the work, in the order it happens (find, decide, read, make), then the person's own feed and plan.
+// Simple: the work, in the order it happens (what research follows, decide and read, make, plan), then the person's own
+// feed. A trend's reports open inside Trends, and every other report inside Assets, so there's no Reports page.
+// Research programs is admin-only (Manage research programs); viewer.nav decides who lists it.
 export const SIMPLE_PAGES = Object.freeze([
   { id: 'home', label: 'Home', icon: 'House' },
+  { id: 'programs', label: 'Research programs', icon: 'Radar' },
   { id: 'trends', label: 'Trends', icon: 'TrendingUp' },
-  { id: 'reports', label: 'Reports', icon: 'FileText' },
   { id: 'assets', label: 'Assets', icon: 'Images' },
   { id: 'inbox', label: 'Inbox', icon: 'Inbox' },
   { id: 'calendar', label: 'Calendar', icon: 'CalendarDays' },
 ]);
+// The research program form's sections (program-editor.jsx renders one titled section per entry), which Workbench → Edit
+// research program lists one by one. Pure data here so the sidebar model stays free of React.
+export const PROGRAM_SECTIONS = Object.freeze([['basics', 'Name & focus'], ['sources', 'Sources'], ['when', 'Schedule & dates'], ['budgets', 'Budgets & estimate'], ['ai', 'AI models'], ['automation', 'Automation'], ['advanced', 'Advanced']]);
 // Advanced, Semrush edition: Research and Content. Studio views open inside the content studio; Sheets, Inbox and
 // Calendar are app pages.
 export const RESEARCH_PAGES = Object.freeze([
@@ -56,29 +61,27 @@ const GENERAL_STUDIO_TABS = Object.freeze([
   { id: 'library', label: 'Library', icon: 'Library' },
   { id: 'knowledge', label: 'Brand knowledge', icon: 'BookOpen' },
 ]);
-// Unified: one sidebar for the whole team, no Simple | Advanced switch. The pipeline stages open Simple's everyday pages;
-// each stage's specialist tools sit under it and open the Advanced page in place. `data` tools hide with Data tools.
-// Stages keep their pages' names (the page headings say Trends, Reports, Assets); the spine shows the order.
+// Unified: one sidebar for the whole team, no Simple | Advanced switch. The pipeline is the work in order: what research
+// follows (admins), the trends it finds (with their reports), what's made from them, and when it goes out. Each stage is
+// one of Simple's pages; Trends shows its list or its board, and Assets holds every file, so stages have no tools of their
+// own. Specialist tools live in the Workbench. Stages keep their pages' names; the spine shows the order.
 export const PIPELINE = Object.freeze([
-  { id: 'trends', label: 'Trends', icon: 'TrendingUp', tools: [
-    { id: 'board', label: 'Trend board', icon: 'SquareKanban', kind: 'studio' },
-    { id: 'research', label: 'Research programs', icon: 'Radar', kind: 'studio' },
-    { id: 'search', label: 'Search platforms', icon: 'ScanSearch', kind: 'app', data: true, spot: 'nav.search' },
-    { id: 'automation', label: 'Scrapers', icon: 'Globe', kind: 'app', data: true, spot: 'nav.scrapers' },
-    { id: 'imports', label: 'Import research', icon: 'FileUp', kind: 'app', data: true, spot: 'nav.imports' },
-  ] },
-  { id: 'reports', label: 'Reports', icon: 'FileText', tools: [
-    { id: 'create', label: 'Create content', icon: 'SquarePen', kind: 'studio' },
-    { id: 'templates', label: 'Brief starters', icon: 'FileStack', kind: 'app', data: true, spot: 'nav.brief-starters' },
-  ] },
-  { id: 'assets', label: 'Assets', icon: 'Images', tools: [
-    { id: 'library', label: 'Library', icon: 'Library', kind: 'studio' },
-  ] },
+  { id: 'programs', label: 'Research programs', icon: 'Radar', tools: [] },
+  { id: 'trends', label: 'Trends', icon: 'TrendingUp', tools: [] },
+  { id: 'assets', label: 'Assets', icon: 'Images', tools: [] },
+  { id: 'calendar', label: 'Calendar', icon: 'CalendarDays', tools: [] },
 ]);
-// The unified Workbench (collapsed by default, remembered as Data tools was): data work, automation, then Activity.
-// Dataset reports opens the 'reports' page under its own id, since 'reports' is Simple's Reports. The General edition's
-// collection Overview leads the data set (`general`).
+// The unified Workbench (collapsed by default, remembered as Data tools was): editing a research program (admins, with
+// Manage research programs: one item per section of the form, then the research and report prompts), collecting,
+// creating, data work, automation, then Activity. Dataset reports opens the Advanced 'reports' page under its own id.
+// The General edition's collection Overview leads the data set (`general`).
 export const WORKBENCH = Object.freeze([
+  { id: 'program', label: 'Edit research program', manage: true, items: [
+    ...PROGRAM_SECTIONS.map(([section, label]) => ({ id: `program-${section}`, label, icon: { basics: 'Radar', sources: 'Globe', when: 'CalendarDays', budgets: 'Gauge', ai: 'Sparkles', automation: 'Workflow', advanced: 'Wrench' }[section], kind: 'program', target: 'research', section, spot: `nav.program-${section}` })),
+    { id: 'program-prompts', label: 'Research & report prompts', icon: 'ScrollText', kind: 'program', target: 'prompts', section: 'prompts', method: 'listPrompts', spot: 'nav.program-prompts' },
+  ] },
+  { id: 'collect', label: 'Collect', items: [{ id: 'search', label: 'Search platforms', icon: 'ScanSearch', data: true, spot: 'nav.search' }, { id: 'automation', label: 'Scrapers', icon: 'Globe', data: true, spot: 'nav.scrapers' }, { id: 'imports', label: 'Import research', icon: 'FileUp', data: true, spot: 'nav.imports' }] },
+  { id: 'create', label: 'Create', items: [{ id: 'create', label: 'Create content', icon: 'SquarePen', kind: 'studio', spot: 'nav.create' }, { id: 'templates', label: 'Brief starters', icon: 'FileStack', data: true, spot: 'nav.brief-starters' }] },
   { id: 'analyze', label: 'Data', items: [{ id: 'dashboard', label: 'Overview', icon: 'Gauge', general: true }, { id: 'sheets', label: 'Sheets', icon: 'Sheet' }, { id: 'datasets', label: 'Datasets', icon: 'Database', data: true, spot: 'nav.datasets' }, { id: 'dataset-reports', target: 'reports', label: 'Dataset reports', icon: 'FileChartColumn', data: true, spot: 'nav.dataset-reports' }, { id: 'compare', label: 'Compare snapshots', icon: 'GitCompareArrows', data: true, spot: 'nav.compare' }, { id: 'chat', label: 'Ask your datasets', icon: 'MessagesSquare', data: true, spot: 'nav.ask-datasets' }] },
   { id: 'automate', label: 'Automate', items: [{ id: 'playbooks', label: 'Playbooks', icon: 'LayoutGrid', spot: 'nav.playbooks', method: 'estimateWorkflow' }, { id: 'workflows', label: 'Workflows', icon: 'Workflow', spot: 'nav.workflows', method: 'estimateWorkflow' }] },
   { id: 'activity', label: '', items: [{ id: 'runs', label: 'Activity', icon: 'Activity', data: true, spot: 'nav.activity' }] },
@@ -99,19 +102,23 @@ export const AUTOMATE_PAGES = Object.freeze([
 // The Studio group, in both layouts. Each page shows when the person may call its method.
 export const STUDIO_PAGES = Object.freeze([
   { id: 'prompts', label: 'Prompts', icon: 'ScrollText', method: 'listPrompts' },
+  { id: 'channels', label: 'Channels', icon: 'Megaphone', method: 'readChannelSettings' },
   { id: 'analytics', label: 'Analytics', icon: 'ChartColumn', method: 'getTrendAnalytics' },
   { id: 'people', label: 'People & access', icon: 'Users', method: 'getTeam' },
 ]);
+// A channel owner's sidebar, the same shape as everyone's: Inbox, a pipeline of their channel's Trends, Assets and
+// Calendar (My plan), and Studio › My channel (their channel's knowledge and asset instructions).
 export const CHANNEL_PAGES = Object.freeze([
-  { id: 'trends', label: 'Trends', icon: 'TrendingUp' },
-  { id: 'assets', label: 'My assets', icon: 'FolderOpen' },
-  { id: 'plan', label: 'My plan', icon: 'CalendarDays' },
-  { id: 'inbox', label: 'Inbox', icon: 'Inbox' },
+  { id: 'trends', label: 'Trends', icon: 'TrendingUp', group: 'pipeline' },
+  { id: 'assets', label: 'Assets', icon: 'FolderOpen', group: 'pipeline' },
+  { id: 'plan', label: 'Calendar', icon: 'CalendarDays', group: 'pipeline' },
+  { id: 'inbox', label: 'Inbox', icon: 'Inbox', group: 'top' },
+  { id: 'mychannel', label: 'My channel', icon: 'Megaphone', group: 'studio' },
 ]);
 // Page titles by id, for the Advanced breadcrumb and the small-screen top bar.
 export const PAGE_LABELS = Object.freeze(Object.fromEntries([
   ...WORKSPACE_PAGES, ...RESEARCH_PAGES, ...CONTENT_PAGES, ...DATA_TOOLS.flatMap((set) => set.items), ...AUTOMATE_PAGES, ...STUDIO_PAGES,
-  { id: 'settings', label: 'Settings' }, { id: 'ask', label: 'Ask AI' }, { id: 'marketing-template', label: 'Brief starters' },
+  { id: 'settings', label: 'Settings' }, { id: 'ask', label: 'Ask AI' }, { id: 'marketing-template', label: 'Brief starters' }, { id: 'programs', label: 'Research programs' },
 ].map((page) => [page.id, page.label])));
 
 // Every keyboard shortcut outside the page numbers, for the Keyboard shortcuts dialog. `when` names what it needs.
@@ -128,7 +135,7 @@ const KEY_NAMES = { '⌥': 'Alt', '⇧': 'Shift', '⌃': 'Control' };
 export const ariaKeys = (shortcut, mac = isMac()) => [...String(shortcut || '')].map((key) => (key === '⌘' ? ariaKey(mac) : KEY_NAMES[key] || key)).join('+').replace(/\+{2,}/g, '+');
 
 const LAYOUTS = Object.freeze([
-  { id: 'simple', label: 'Simple', hint: 'The essentials: Home, Trends, Reports, Assets and Ask AI.' },
+  { id: 'simple', label: 'Simple', hint: 'The essentials: Home, Trends, Assets and Ask AI.' },
   { id: 'classic', label: 'Advanced', hint: 'Every tool, including research programs, sheets and scrapers.' },
 ]);
 const BUILT_IN = new Set(['admin', 'editor', 'channel']);
@@ -221,7 +228,8 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   // Ask AI: Advanced's drawer for anyone who may ask; Simple's page and the channel layout's page when the role lists it
   // (viewer.nav, from Use Ask AI) too. A channel owner's Ask AI answers from their channel only (the server's side).
   const askAllowed = can('askHelp') && (layout === 'classic' || ((!listedMain || listedMain.has('ask')) && !hidden.has('ask')));
-  const simpleAllowed = (id) => (!listedMain || listedMain.has(id)) && !hidden.has(id);
+  // Research programs needs the content studio and Manage research programs (the server's nav says the same for roles).
+  const simpleAllowed = (id) => (!listedMain || listedMain.has(id)) && !hidden.has(id) && (id !== 'programs' || (hasStudio && can('saveResearchProgram')));
 
   // Live work and warnings, from state; counts of work waiting on this person, from the caller.
   const researchRuns = list(studio.researchRuns).filter(mine);
@@ -240,21 +248,26 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
 
   const groups = [];
   if (channelShell) {
-    const channelAllowed = (id) => (id === 'plan' ? !listedMain || listedMain.has('plan') || listedMain.has('calendar') : id === 'inbox' ? Boolean(listedMain?.has('inbox')) : !listedMain || listedMain.has(id));
-    groups.push({ id: 'channel', label: '', collapsible: false, open: true, items: CHANNEL_PAGES.filter((page) => channelAllowed(page.id)).map((page) => item(page, {
-      kind: 'channel', ...(page.id === 'trends' && channelNew ? { badge: channelNew, badgeLabel: `${channelNew} new` } : {}), ...(page.id === 'inbox' ? inboxBadge : {}),
-    })) });
+    const channelAllowed = (id) => (id === 'plan' ? !listedMain || listedMain.has('plan') || listedMain.has('calendar') : id === 'inbox' || id === 'mychannel' ? Boolean(listedMain?.has(id)) : !listedMain || listedMain.has(id));
+    const rows = (group) => CHANNEL_PAGES.filter((page) => page.group === group && channelAllowed(page.id)).map((page) => item(page, {
+      kind: 'channel', ...(group === 'pipeline' ? { stage: true, children: [] } : {}), ...(page.id === 'trends' && channelNew ? { badge: channelNew, badgeLabel: `${channelNew} new` } : {}), ...(page.id === 'inbox' ? inboxBadge : {}),
+    }));
+    const top = rows('top'); const stages = rows('pipeline'); const own = rows('studio');
+    if (top.length) groups.push({ id: 'top', label: '', collapsible: false, open: true, items: top });
+    if (stages.length) groups.push({ id: 'pipeline', label: 'Pipeline', collapsible: false, open: true, pipeline: true, items: stages });
+    if (own.length) groups.push({ id: 'studio', label: 'Studio', collapsible: false, open: true, items: own });
   } else if (unified) {
-    // Home and Inbox, the pipeline (each stage with its tools), Calendar, then the Workbench. Advanced tools need the
-    // Advanced pages (viewer.modes) and, for the data tools, the Data tools group.
+    // Home and Inbox, the pipeline (Research programs for admins, Trends, Assets, Calendar), then the Workbench. Workbench
+    // tools need the Advanced pages (viewer.modes) and, for the data tools, the Data tools group; Edit research program
+    // needs Manage research programs.
     const advanced = modes.includes('classic');
     const toolsOff = hidden.has('data-tools') || (caps && !caps.has('dataTools'));
-    const toolAllowed = (tool) => advanced && !hidden.has(tool.id) && (!tool.general || !semrush) && (!tool.data || !toolsOff) && (tool.kind !== 'studio' || hasStudio) && (!tool.method || (hasStudio && can(tool.method)));
-    const live = { trends: researching, reports: writing, assets: kitsRunning, research: researching, create: writing, library: kitsRunning };
-    const liveLabels = { trends: 'research running', reports: 'reports being written', assets: 'channel assets being made', research: 'research running', create: 'content being written', library: 'channel assets being made' };
+    const toolAllowed = (tool) => advanced && !hidden.has(tool.id) && (!tool.general || !semrush) && (!tool.data || !toolsOff) && (tool.kind !== 'studio' || hasStudio) && (!tool.method || (hasStudio && can(tool.method))) && (!tool.section || !hidden.has(tool.target));
+    const live = { programs: researching, trends: writing, assets: kitsRunning, create: writing };
+    const liveLabels = { programs: 'research running', trends: 'reports being written', assets: 'channel assets being made', create: 'content being written' };
     const marks = (id) => ({
       ...(live[id] ? { live: true, liveLabel: liveLabels[id] } : {}),
-      ...(id === 'trends' || id === 'board' ? needsOk() : {}),
+      ...(id === 'trends' ? needsOk() : {}),
       ...(id === 'inbox' ? inboxBadge : {}),
     });
     const top = SIMPLE_PAGES.filter((page) => ['home', 'inbox'].includes(page.id) && simpleAllowed(page.id)).map((page) => item(page, { kind: 'simple', ...marks(page.id) }));
@@ -266,10 +279,10 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
       return [item(stage, { kind: 'simple', stage: true, children, ...marks(stage.id) })];
     });
     if (stages.length) groups.push({ id: 'pipeline', label: 'Pipeline', collapsible: false, open: true, pipeline: true, items: stages });
-    const plan = SIMPLE_PAGES.filter((page) => page.id === 'calendar' && simpleAllowed(page.id)).map((page) => item(page, { kind: 'simple' }));
-    if (plan.length) groups.push({ id: 'plan', label: '', collapsible: false, open: true, items: plan });
-    const subgroups = WORKBENCH.map((set) => ({ id: set.id, label: set.label, items: set.items.filter(toolAllowed).map((page) => item(page, {
-      kind: 'app', target: page.target || page.id, ...(page.id === 'workflows' ? { ...(workflowsWaiting ? { badge: workflowsWaiting, badgeLabel: `${workflowsWaiting} waiting on you` } : {}), live: workflowRunning, liveLabel: 'a workflow is running' } : {}),
+    const manages = hasStudio && can('saveResearchProgram') && !hidden.has('research');
+    const subgroups = WORKBENCH.filter((set) => !set.manage || manages).map((set) => ({ id: set.id, label: set.label, items: set.items.filter(toolAllowed).map((page) => item(page, {
+      kind: page.kind || 'app', target: page.target || page.id, ...(page.section ? { section: page.section } : {}), ...marks(page.id),
+      ...(page.id === 'workflows' ? { ...(workflowsWaiting ? { badge: workflowsWaiting, badgeLabel: `${workflowsWaiting} waiting on you` } : {}), live: workflowRunning, liveLabel: 'a workflow is running' } : {}),
     })) })).filter((set) => set.items.length);
     if (subgroups.length) groups.push({ id: 'data', label: 'Workbench', collapsible: true, open: Boolean(dataToolsOpen), spot: 'nav.data-tools', items: subgroups.flatMap((set) => set.items), subgroups });
   } else if (layout === 'simple') {
@@ -328,7 +341,7 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
     hasStudio && can('startResearchRun') && { id: 'research', label: 'Find new trends', icon: 'Radar', hint: programs.length ? 'Runs a research program. You’ll see the cost first.' : 'Set up a research program first.', section: 'main', choices: programs.length > 1 ? programs.map((program) => ({ id: program.id, label: program.name || 'Untitled program' })) : [], programId: programs.length === 1 ? programs[0].id : '' },
     askAllowed && can('startQuickScan') && { id: 'quick-scan', label: 'Quick scan', icon: 'ScanSearch', hint: 'A small, recent scan, sized and priced by Ask AI.', section: 'main' },
     assetsPossible && can('planAssetKit') && can('createAssetKit') && { id: 'assets', label: 'Channel assets', icon: 'Images', hint: 'From a report, a Google Doc or pasted text.', section: 'main' },
-    hasStudio && modes.includes('classic') && !hidden.has('create') && can('createContentRun') && { id: 'content', label: 'Content from a report', icon: 'SquarePen', hint: unified ? 'Opens Create content, under Reports.' : 'Opens Create content in the Advanced layout.', section: 'main' },
+    hasStudio && modes.includes('classic') && !hidden.has('create') && can('createContentRun') && { id: 'content', label: 'Content from a report', icon: 'SquarePen', hint: unified ? 'Opens Create content, in the Workbench.' : 'Opens Create content in the Advanced layout.', section: 'main' },
     askAllowed && can('createHelpImage') && (imagesReady
       ? { id: 'picture', label: 'Picture', icon: 'ImagePlus', hint: 'Ask AI drafts it with you. You see the cost first.', section: 'main' }
       : settingsAllowed ? { id: 'picture', label: 'Picture', icon: 'ImagePlus', hint: 'Pictures are off. Turn them on in Settings.', section: 'main' }

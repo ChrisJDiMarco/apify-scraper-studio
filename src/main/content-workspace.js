@@ -24,6 +24,23 @@ const { snapshotBlocks, REGISTRY: PROMPT_REGISTRY } = require('../shared/prompt-
 const promptLabModule = () => require('./prompt-lab');
 // The written channel assets that have their own task in Model routing (src/shared/ai-tasks.json).
 const KIT_TEXT_TASKS = new Set(require('../shared/ai-tasks.json').tasks.filter(task => task.group === 'assets').map(task => task.id));
+// Channel knowledge (shared/channel-knowledge.json): each channel team's own notes on writing for it, per workspace.
+const CHANNEL_FIELDS = require('../shared/channel-knowledge.json').fields;
+function cleanChannelKnowledge(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Send the channel knowledge as text per field.');
+  const out = {};
+  for (const field of CHANNEL_FIELDS) {
+    const value = input[field.id]; if (value == null || value === '') continue;
+    if (typeof value !== 'string') throw new Error(`${field.label} needs to be text.`);
+    const text = value.replace(/\r\n?/g, '\n').trim(); if (text.length > field.limit) throw new Error(`Keep “${field.label}” under ${field.limit.toLocaleString('en-US')} characters.`);
+    if (text) out[field.id] = text;
+  }
+  return out;
+}
+// The channel knowledge a deliverable's prompt carries: its channel's notes, as labelled lines ('' with none).
+function channelNotesText(knowledge = {}) {
+  return CHANNEL_FIELDS.filter((field) => knowledge[field.id]).map((field) => `${field.label}: ${knowledge[field.id]}`).join('\n');
+}
 // Refusals people read (copy lives in the roles policy data so every screen and doc says the same thing).
 const { copy: COPY } = require('../shared/roles.json');
 const say = (key, vars = {}) => COPY[key].replace(/\{(\w+)\}/g, (_, name) => (vars[name] == null ? '' : String(vars[name])));
@@ -62,7 +79,7 @@ const LEGACY_SEMRUSH_BRAND_FIELDS = Object.freeze({
 // onRunEvent (optional) hears when a run started from an Ask AI conversation reaches a point worth posting there (a quick
 // scan's trends report, trends waiting for an OK, reports written, a stop): { type, key, identityId, conversationId, run,
 // report?, error?, attempt? } → { messageId } | null (src/main/ask-followups.js). It never fails a run.
-function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, trackJob, onRunEvent, routing: routingHost = null, generateVideo = null, hooks = {}, isWorkflowCall = () => false, workspacePolicy = null } = {}) {
+function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, getCallerPrograms, trackJob, onRunEvent, routing: routingHost = null, generateVideo = null, hooks = {}, isWorkflowCall = () => false, workspacePolicy = null } = {}) {
   if (!root || typeof runAI !== 'function') throw new Error('Studio storage and AI host are required.');
   // One workspace or several (src/main/workspace-policy.js). Single mode keeps one workspace of the package's edition,
   // shown as policy.name (Main); the others are hidden (archived), never deleted. See migrateWorkspacePolicy below.
@@ -102,6 +119,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // ---------- Prompt Library: saved versions (prompts/<workspaceId>/), and the copy each run starts with ----------
   const prompts = createPromptStore({ root: path.join(root, 'prompts'), now: clock });
   const callerRole = () => { if (typeof getCallerRole !== 'function') return 'admin'; try { return String(getCallerRole() || ''); } catch (_) { return ''; } };
+  // getCallerPrograms (optional): the research programs the caller was invited to, as a Set, or null for every program
+  // (program-scope.js scopeOf). The trend reads below (history, the Trend tracker's source, Ask AI's trend memory and its
+  // trend and post lookups) are built from those programs' runs only; the pipeline's own reads stay whole.
+  const callerPrograms = () => { if (typeof getCallerPrograms !== 'function') return null; try { const scope = getCallerPrograms(); return scope instanceof Set ? scope : null; } catch (_) { return new Set(); } };
   const callerCaps = () => { if (typeof getCallerCapabilities !== 'function') return new Set(['*']); try { const caps = getCallerCapabilities(); return new Set(Array.isArray(caps) ? caps : []); } catch (_) { return new Set(); } };
   const PROMPT_IDS = new Set(PROMPT_REGISTRY.prompts.map(entry => entry.id));
   const RESEARCH_PROMPTS = ['research.discovery', 'research.synthesis', 'research.matching', 'research.tagging', 'reports.trends-report', 'reports.editorial-toolkit', 'system.repair'];
@@ -116,6 +137,20 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   }
   const promptSnapshot = (w, ids) => prompts.snapshot(w.id, w.editionId, ids);
   const pickPrompts = (snapshot, ids) => Object.fromEntries(Object.entries(snapshot || {}).filter(([promptId]) => ids.includes(promptId)));
+  // A run's channel knowledge, { channelKnowledge: { [deliverableId]: text } }, for the deliverables whose channel has notes.
+  function channelKnowledgeInput(w, deliverableIds = []) {
+    const saved = w?.channelKnowledge && typeof w.channelKnowledge === 'object' ? w.channelKnowledge : {}; const out = {};
+    for (const deliverableId of Array.isArray(deliverableIds) ? deliverableIds : []) { const notes = channelNotesText(saved[kit().kitFolderFor(deliverableId, w.editionId).id]); if (notes) out[deliverableId] = notes; }
+    return Object.keys(out).length ? { channelKnowledge: out } : {};
+  }
+  // One channel of this workspace's edition, or a refusal ('other' isn't a channel).
+  function channelOf(w, channelId) {
+    const folder = kit().kitFolders(w.editionId).find((row) => row.id === channelId);
+    if (!folder) throw Object.assign(new Error('Choose one of this workspace’s channels.'), { status: 400 });
+    return folder;
+  }
+  // The Prompt Library prompts that write a channel's assets (assets.<deliverable>), in the channel's own order.
+  const channelPromptIds = (folder) => folder.deliverableIds.map((deliverableId) => `assets.${deliverableId}`).filter((promptId) => PROMPT_REGISTRY.prompts.some((row) => row.id === promptId));
   // run.prompts: the version of each prompt a run started with, for receipts ("Custom prompts: Find candidate trends v3").
   const promptRecord = snapshot => Object.fromEntries(Object.entries(snapshot || {}).map(([promptId, entry]) => [promptId, { version: entry.version, custom: Boolean(entry.custom) }]));
   function migrateSemrushBrandDefaults() {
@@ -419,7 +454,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       // Report runs write with the prompts their research run started with (its input.prompts); older runs have none.
       let parentPrompts = null; if (payload.researchRunId) { try { parentPrompts = read(file(payload.researchRunId, 'input.json')).prompts || null; } catch (_) { parentPrompts = null; } }
       const reportPrompts = pickPrompts(parentPrompts, REPORT_PROMPTS); const hasPrompts = Object.keys(reportPrompts).length > 0;
-      const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), referenceDocs: copy(docs), enterpriseProducts: copy(w.enterpriseProducts || (w.editionId === 'semrush' ? SEMRUSH_ENTERPRISE_PRODUCTS : [])), deliverableIds: deliverables.map(d => d.id), research: true, ...(hasPrompts ? { prompts: reportPrompts } : {}) };
+      const brand = brandFor(w, payload.researchRunId ? programOfRun(payload.researchRunId) : '');
+      const input = { editionId: w.editionId, source, brandKnowledge: brand.brandKnowledge, productRegistry: brand.productRegistry, referenceDocs: brand.referenceDocs, enterpriseProducts: brand.enterpriseProducts, deliverableIds: deliverables.map(d => d.id), research: true, ...(hasPrompts ? { prompts: reportPrompts } : {}) };
       const warnings = [...(!w.products?.length ? ['No product registry is loaded, so the toolkit’s Enterprise and self-serve angles will state the gap instead of naming products.'] : []), ...(!docs.some(doc => doc.kind === 'registry') && w.products?.length ? ['The toolkit uses the structured registry; add the registry document for the model’s full tool descriptions.'] : [])];
       const run = { id: id('content'), workspaceId: w.id, type: 'content', title: source.title || 'Research report', sourceAssetId: undefined, researchRunId: payload.researchRunId, themeId: payload.themeId, ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings, ai: payload.ai || null, ...(hasPrompts ? { prompts: promptRecord(reportPrompts) } : {}), jobs: deliverables.map(d => ({ id: d.id, label: w.editionId === 'semrush' && d.id === 'evidence-report' ? 'Comprehensive trends report' : d.id === 'editorial-toolkit' ? 'Editorial toolkit brief' : d.label, kind: 'text', status: 'queued' })) };
       delete run.sourceAssetId;
@@ -434,7 +470,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     let references = { summary: {}, roles: {} };
     try {
       if (pictures.length) references = snapshotRunReferences({ id: runId }, w, pictures);
-      const input = { editionId: w.editionId, source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds: payload.deliverableIds, imageVariants: payload.imageVariants, prompts: snapshot, ...(Object.keys(references.roles).length ? { references: references.roles } : {}) };
+      const brand = brandFor(w, source.kind === 'report' && source.id ? programOfAsset(source.id) : '');
+      const input = { editionId: w.editionId, source, brandKnowledge: brand.brandKnowledge, productRegistry: brand.productRegistry, deliverableIds: payload.deliverableIds, imageVariants: payload.imageVariants, prompts: snapshot, ...channelKnowledgeInput(w, payload.deliverableIds), ...(Object.keys(references.roles).length ? { references: references.roles } : {}) };
       const plan = content.buildContentPlan(input); const run = { id: runId, workspaceId: w.id, type: 'content', title: source.title || 'Content campaign', ...(source.kind === 'report' && source.id ? { sourceAssetId: source.id } : {}), ...createdBy, status: 'queued', stage: 'content', createdAt: stamp(), maxBudgetUsd: budget(payload.maxBudgetUsd ?? 5), reservedUsd: 0, costUsd: 0, receipts: [], warnings: plan.warnings, prompts: promptRecord(snapshot), ai: { version: 2, routing: routing.snapshot(['create.drafts', ...(pictures.length ? ['pictures.content-image'] : [])]) }, ...(Object.keys(references.summary).length ? { references: references.summary } : {}), jobs: plan.deliverables.map(d => ({ id: d.id, label: d.label, kind: d.kind, status: 'queued' })) };
       write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save(); return run;
     } catch (error) { if (pictures.length) { try { fs.rmSync(path.join(root, 'runs', runId), { recursive: true, force: true }); } catch (_) { /* the error that stopped the run is the one to report */ } } throw error; }
@@ -512,7 +549,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const promptsAll = promptSnapshot(w, assetPromptIds(offered, { kit: true }));
     // Notes a workflow's assets step adds for the writers (only when there are some, so other kits keep their exact input).
     const teamNotes = payload.teamNotes === undefined || payload.teamNotes === '' ? '' : require('../shared/workflow-core').notesText(payload.teamNotes, 'teamNotes');
-    const input = { editionId: w.editionId, source: picked.source, brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), deliverableIds, imageVariants: 3, prompts: pickPrompts(promptsAll, assetPromptIds(deliverableIds, { kit: true })), ...(teamNotes ? { teamNotes } : {}) };
+    const brand = brandFor(w, picked.source?.kind === 'report' && picked.source.id ? programOfAsset(picked.source.id) : '');
+    const input = { editionId: w.editionId, source: picked.source, brandKnowledge: brand.brandKnowledge, productRegistry: brand.productRegistry, deliverableIds, imageVariants: 3, prompts: pickPrompts(promptsAll, assetPromptIds(deliverableIds, { kit: true })), ...(teamNotes ? { teamNotes } : {}), ...channelKnowledgeInput(w, deliverableIds) };
     const plan = content.buildContentPlan(input);
     const ai = kitAiNow(w);
     const references = kitReferenceCounts(w);
@@ -939,7 +977,25 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   const estimateCall = ({ model, effort, task }, prompt, outputTokens) => research.callCost(model, effort, research.estimateTokens(prompt.length), outputTokens, priceOptions(task));
   function editionFor(run) {
     const w = state.workspaces.find(row => row.id === run.workspaceId) || {};
-    return { editionId: w.editionId || 'general', brandName: w.knowledge?.name || w.name || '', workspace: w };
+    // A program with its own brand (D3) researches for that brand, without the workspace's taxonomy.
+    const own = ownBrandOf(run.programId);
+    return { editionId: w.editionId || 'general', brandName: own ? own.name : w.knowledge?.name || w.name || '', workspace: w, taxonomy: own ? null : w.taxonomy || null };
+  }
+  // A program's own brand (research-program.js programBrand), or null when it uses the workspace's.
+  function ownBrandOf(programId) {
+    const program = programId ? state.programs.find(row => row.id === programId) : null;
+    return program?.brand?.mode === 'own' ? program.brand : null;
+  }
+  // The program a run or a report belongs to (program-scope.js), for the brand its writing follows.
+  const programOfRun = (runId) => require('./program-scope').indexStudio({ researchRuns: state.researchRuns, contentRuns: state.contentRuns, assets: state.assets }).ofRun(runId);
+  const programOfAsset = (assetId) => require('./program-scope').indexStudio({ researchRuns: state.researchRuns, contentRuns: state.contentRuns, assets: state.assets }).ofAsset(assetId);
+  // What a report or channel asset is written with: the workspace's brand knowledge, products, reference documents and
+  // Enterprise products, or, for a program with its own brand, that brand alone (no registry, documents or products).
+  function brandFor(w, programId) {
+    const own = ownBrandOf(programId);
+    if (!own) return { brandKnowledge: copy(w.knowledge), productRegistry: copy(w.products), referenceDocs: copy(w.referenceDocs || []), enterpriseProducts: copy(w.enterpriseProducts || (w.editionId === 'semrush' ? SEMRUSH_ENTERPRISE_PRODUCTS : [])) };
+    const knowledge = { editionId: w.editionId, name: own.name, audience: own.audience || '', positioning: own.positioning || '', voice: own.voice || '', forbiddenClaims: own.forbiddenClaims || '', editorialRules: own.editorialRules || '', version: 'program' };
+    return { brandKnowledge: knowledge, productRegistry: [], referenceDocs: [], enterpriseProducts: [], ownBrand: own };
   }
   function activeRepository(workspaceId) {
     return state.themes.filter(theme => theme.workspaceId === workspaceId && theme.status !== 'archived').sort((a, b) => String(b.lastDetectedAt || b.updatedAt || '').localeCompare(String(a.lastDetectedAt || a.updatedAt || ''))).slice(0, 150);
@@ -998,7 +1054,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     run.candidateCount = { raw: candidates.length, merged: merged.length };
     if (!merged.length && quick) return scanDone(`The scan read ${evidence.items.length} posts from ${scanWindow} but found no specific, evidence-backed trends.`);
     if (!merged.length) { run.themes = []; run.discoveredThemes = []; run.stage = 'theme-review'; run.status = 'succeeded'; run.message = 'Discovery found no specific, evidence-backed trends in this window.'; save(); runEvent(run, 'no-trends'); return; }
-    const w = edition.workspace; const taxonomy = w.taxonomy || null;
+    const taxonomy = edition.taxonomy;
     const synthesisCache = file(run.id, 'theme-synthesis.validated.json'); let synthesized;
     if (fs.existsSync(synthesisCache)) synthesized = read(synthesisCache);
     else {
@@ -1158,7 +1214,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       if (existingReport) { const child = state.contentRuns.find(row => row.id === existingReport.runId); if (child && child.status !== 'succeeded') { const unused = Math.max(0, run.maxBudgetUsd - run.reservedUsd); const remainingChildren = run.reportRunIds.filter(entry => state.contentRuns.find(r => r.id === entry.runId)?.status !== 'succeeded').length; const extra = Math.floor(unused / Math.max(1, remainingChildren) * 100) / 100; child.maxBudgetUsd += extra; run.reservedUsd += extra; save(); await launchAndWait(child, () => performContent(child)); } check(run); continue; }
       const selection = reports().selectThemeEvidence({ theme, items: evidence.items, assignments, maxPosts: 500 });
       if (!selection.coverage.matchedCount) { run.warnings = [...new Set([...(run.warnings || []), `No posts were tagged to “${theme.name}”, so its reports were skipped.`])]; continue; }
-      const payload = { theme: { id: theme.id, name: theme.name, description: theme.description, matchingKeywords: theme.matchingKeywords, matchingCriteria: theme.matchingCriteria, negativeCriteria: theme.negativeCriteria, novelty: theme.novelty, taxonomyCategory: theme.taxonomyCategory }, selection, brandName: w.editionId === 'semrush' ? 'Semrush' : (w.knowledge?.name || w.name), analysisFocus: w.editionId === 'semrush' ? 'SEO Trends' : (program.query || w.knowledge?.audience || ''), targetAudience: w.editionId === 'semrush' ? 'SEO Professionals' : (w.knowledge?.audience || ''), ...(program.notes?.reports ? { notes: program.notes.reports } : {}) };
+      const payload = { theme: { id: theme.id, name: theme.name, description: theme.description, matchingKeywords: theme.matchingKeywords, matchingCriteria: theme.matchingCriteria, negativeCriteria: theme.negativeCriteria, novelty: theme.novelty, taxonomyCategory: theme.taxonomyCategory }, selection, brandName: ownBrandOf(program.id) ? ownBrandOf(program.id).name : w.editionId === 'semrush' ? 'Semrush' : (w.knowledge?.name || w.name), analysisFocus: ownBrandOf(program.id) ? (program.query || ownBrandOf(program.id).audience || '') : w.editionId === 'semrush' ? 'SEO Trends' : (program.query || w.knowledge?.audience || ''), targetAudience: ownBrandOf(program.id) ? (ownBrandOf(program.id).audience || '') : w.editionId === 'semrush' ? 'SEO Professionals' : (w.knowledge?.audience || ''), ...(program.notes?.reports ? { notes: program.notes.reports } : {}) };
       const source = { kind: 'research-theme', id: `${run.id}-${theme.id}`, title: theme.name, text: `${theme.name}: ${theme.description}`, evidence: selection.posts.map(post => ({ id: post.id, text: post.text, url: post.url, platform: post.platform, author: post.author, publishedAt: post.date || post.publishedAt || '' })), research: payload };
       const remainingThemes = run.themes.length - run.reportRunIds.length;
       const estimate = reportEstimate(reportSettings, selection);
@@ -1730,7 +1786,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     stopResearchScheduler();
     const tick = () => {
       try { return checkDueResearchSchedules(); }
-      catch (error) { stopResearchScheduler(); console.error('Research scheduler stopped:', safeError(error)); return [{ status: 'stopped', error: safeError(error) }]; }
+      // One failed tick (a save that threw on a full disk, say) must not end scheduled research until the next restart:
+      // the timer stays, and the next tick tries again.
+      catch (error) { console.error('Research scheduler tick failed; it will try again:', safeError(error)); return [{ status: 'failed', error: safeError(error) }]; }
     };
     researchScheduleTimer = setInterval(tick, 30000);
     researchScheduleTimer.unref?.();
@@ -1804,6 +1862,33 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const existing = doc.id ? docs.find(entry => entry.id === safeId(doc.id)) : null;
       const saved = { id: existing?.id || id('doc'), kind: doc.kind, title, text, source: doc.source && typeof doc.source === 'object' ? { kind: String(doc.source.kind || '').slice(0, 40), name: String(doc.source.name || '').slice(0, 300) } : null, updatedAt: stamp() };
       w.referenceDocs = [saved, ...docs.filter(entry => entry.id !== saved.id)].slice(0, 20); w.updatedAt = stamp(); save(); return { doc: { ...saved, text: undefined, characters: text.length }, state: publicState() };
+    },
+    // ---------- Channel settings (Studio › My channel for a channel owner, Studio › Channels for admins and editors) ----------
+    // Channel knowledge and the channel's asset instructions (its asset prompts' editable text, with versions, through the
+    // Prompt Library's own save and revert). The access gate pins a channel owner to their own channel.
+    async readChannelSettings({ channelId } = {}) {
+      const w = workspace(); const folder = channelOf(w, String(channelId || ''));
+      const saved = (w.channelKnowledge || {})[folder.id] || {};
+      const prompts = [];
+      for (const promptId of channelPromptIds(folder)) { try { prompts.push(await promptLab().readPrompt({ id: promptId })); } catch (_) { /* a prompt this edition doesn't have */ } }
+      return { channelId: folder.id, channelName: folder.name, fields: CHANNEL_FIELDS, knowledge: Object.fromEntries(CHANNEL_FIELDS.map((field) => [field.id, saved[field.id] || ''])), updatedAt: saved.updatedAt || '', updatedBy: saved.updatedBy || null, prompts };
+    },
+    saveChannelKnowledge({ channelId, knowledge } = {}) {
+      const w = workspace(); const folder = channelOf(w, String(channelId || ''));
+      const clean = cleanChannelKnowledge(knowledge);
+      w.channelKnowledge = { ...(w.channelKnowledge || {}), [folder.id]: { ...clean, updatedAt: stamp(), updatedBy: who() } };
+      w.updatedAt = stamp(); save();
+      return { channelId: folder.id, knowledge: Object.fromEntries(CHANNEL_FIELDS.map((field) => [field.id, clean[field.id] || ''])), updatedAt: w.channelKnowledge[folder.id].updatedAt };
+    },
+    saveChannelInstructions({ channelId, promptId, blocks, expectedVersion, note } = {}) {
+      const w = workspace(); const folder = channelOf(w, String(channelId || ''));
+      if (!channelPromptIds(folder).includes(String(promptId || ''))) throw Object.assign(new Error('That prompt doesn’t write this channel’s assets.'), { status: 403, code: 'outOfScope' });
+      return promptLab().savePromptVersion({ id: promptId, blocks, expectedVersion, note });
+    },
+    revertChannelInstructions({ channelId, promptId, toVersion, expectedVersion, note } = {}) {
+      const w = workspace(); const folder = channelOf(w, String(channelId || ''));
+      if (!channelPromptIds(folder).includes(String(promptId || ''))) throw Object.assign(new Error('That prompt doesn’t write this channel’s assets.'), { status: 403, code: 'outOfScope' });
+      return promptLab().revertPrompt({ id: promptId, toVersion, expectedVersion, note });
     },
     readReferenceDoc({ workspaceId, docId } = {}) { const w = workspace(workspaceId); const doc = (w.referenceDocs || []).find(entry => entry.id === safeId(docId)); if (!doc) throw new Error('Reference document not found.'); return copy(doc); },
     deleteReferenceDoc({ workspaceId, docId } = {}) { const w = workspace(workspaceId); w.referenceDocs = (w.referenceDocs || []).filter(entry => entry.id !== safeId(docId)); w.updatedAt = stamp(); save(); return publicState(); },
@@ -2331,25 +2416,25 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // Trend tracking over time: the Trend tracker workbook, Home's "What changed", Ask AI's trend memory and its `trend`
     // and `posts` lookups. Every read is scoped to the active workspace and rebuilt only when its runs change.
     listTrendHistorySources() {
-      const observed = trendRunList().filter(trendObserved);
+      const scope = callerPrograms(); const observed = trendRunList(scope).filter(trendObserved);
       const blank = { rising: 0, new: 0, steady: 0, fading: 0 };
-      if (!observed.length) return { version: trendVersion(), runCount: 0, runsWithThemes: 0, quickScanCount: 0, trendCount: 0, counts: blank, sinceRun: null, createdAt: '', updatedAt: '', runs: [] };
-      const { version, history, changes } = trendHistory();
+      if (!observed.length) return { version: trendVersion(scope), runCount: 0, runsWithThemes: 0, quickScanCount: 0, trendCount: 0, counts: blank, sinceRun: null, createdAt: '', updatedAt: '', runs: [] };
+      const { version, history, changes } = trendHistory(scope);
       const research = history.trends.filter(trend => trend.origin === 'research'); const counts = { ...blank }; for (const trend of research) counts[trend.momentum]++;
       return { version, runCount: history.runCount, runsWithThemes: history.runsWithThemes, quickScanCount: history.quickScanCount, trendCount: history.trends.length, counts, sinceRun: changes.sinceRun,
         createdAt: observed.map(run => String(run.createdAt || '')).sort()[0] || '', updatedAt: observed.map(run => String(run.updatedAt || run.createdAt || '')).sort().at(-1) || '',
         runs: observed.map(run => ({ runId: run.id, programId: run.programId || '', title: run.title, origin: run.origin === 'quick-scan' ? 'quick-scan' : 'research', status: run.status, stage: run.stage, createdAt: run.createdAt, updatedAt: run.updatedAt || run.createdAt, themeCount: trendModule().runThemes(run).length })) };
     },
-    readTrendHistorySource() { return trendHistorySource(trendVersion()); },
+    readTrendHistorySource() { const scope = callerPrograms(); return trendHistorySource(trendVersion(scope), scope); },
     // Ask AI's live context: what is rising, new and fading across every run, in at most 3,000 characters.
-    trendMemory() { try { return copy(trendHistory().digest); } catch (_) { return null; } },
+    trendMemory() { try { return copy(trendHistory(callerPrograms()).digest); } catch (_) { return null; } },
     readTrendHistory(payload = {}) {
-      const { history, changes, digest } = trendHistory(); const limit = Math.round(Number(payload?.limit));
+      const { history, changes, digest } = trendHistory(callerPrograms()); const limit = Math.round(Number(payload?.limit));
       const trends = history.trends.slice(0, Math.min(500, Math.max(1, Number.isFinite(limit) && limit > 0 ? limit : 200))).map(trendModule().compactTrend);
       return copy({ asOf: history.asOf, runCount: history.runCount, runsWithThemes: history.runsWithThemes, quickScanCount: history.quickScanCount, span: history.span, trends, categories: history.categories.map(({ weekly: _weekly, ...entry }) => entry), changes, digest });
     },
     readTrendRecord(payload = {}) {
-      const record = trendModule().findTrend(trendHistory().history, { trendId: String(payload?.trendId || '').slice(0, 200), name: String(payload?.name || '').slice(0, 300) });
+      const record = trendModule().findTrend(trendHistory(callerPrograms()).history, { trendId: String(payload?.trendId || '').slice(0, 200), name: String(payload?.name || '').slice(0, 300) });
       return record ? copy(record) : null;
     },
     // Real posts behind "what are people saying about X": this workspace's research runs and quick scans from the last
@@ -2358,7 +2443,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const query = String(payload?.query || '').slice(0, 300); if (!query.trim()) return [];
       const limit = Math.min(50, Math.max(1, Math.round(Number(payload?.limit)) || 12)); const days = Math.min(365, Math.max(1, Number(payload?.days) || 30));
       const since = new Date(clock()).getTime() - days * 86400000;
-      const runs = trendRunList().filter(run => Date.parse(run.createdAt || '') >= since).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, 20);
+      const runs = trendRunList(callerPrograms()).filter(run => Date.parse(run.createdAt || '') >= since).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, 20);
       return copy(trendModule().rankPosts(runs.flatMap(runPosts), query, { limit }));
     },
     // "What people are saying" on a trend card: up to `limit` (1-10, default 2) real posts behind one trend, free (no AI)
@@ -2369,10 +2454,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const limit = Math.min(10, Math.max(1, Math.round(Number(payload?.limit)) || 2));
       const themeId = String(payload?.themeId || '').slice(0, 200); const trendId = String(payload?.trendId || '').slice(0, 200); const name = String(payload?.name || '').slice(0, 300);
       if (!themeId && !trendId && !name.trim()) return [];
-      const runs = trendRunList(); const byId = new Map(runs.map(run => [run.id, run]));
+      const scope = callerPrograms(); const runs = trendRunList(scope); const byId = new Map(runs.map(run => [run.id, run]));
       let pairs = themeId ? runs.filter(run => trendModule().runThemes(run).some(theme => theme.id === themeId)).map(run => ({ run, themeId })) : [];
       if (!pairs.length) {
-        let record = null; try { record = trendModule().findTrend(trendHistory().history, { trendId: trendId || themeId, name }); } catch (_) { record = null; }
+        let record = null; try { record = trendModule().findTrend(trendHistory(scope).history, { trendId: trendId || themeId, name }); } catch (_) { record = null; }
         pairs = (record?.appearances || []).map(entry => ({ run: byId.get(entry.runId), themeId: entry.themeId })).filter(entry => entry.run);
       }
       pairs.sort((a, b) => String(b.run.createdAt || '').localeCompare(String(a.run.createdAt || '')));
@@ -2503,17 +2588,18 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // Existence checks and stats never go through file(), which creates the run folder.
   const runPath = (runId, name) => path.join(root, 'runs', runId, name);
   const mtime = target => { try { return fs.statSync(target).mtimeMs; } catch (_) { return 0; } };
-  const trendRunList = () => state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId);
+  const trendRunList = (scope = null) => state.researchRuns.filter(run => run.workspaceId === state.activeWorkspaceId && (!scope || !run.programId || scope.has(run.programId)));
   const trendObserved = run => Array.isArray(run.discoveredThemes) || (run.themes || []).length > 0;
-  const themeStatsCache = new Map(); const postCache = new Map(); let trendCache = null;
+  const themeStatsCache = new Map(); const postCache = new Map(); const trendCaches = new Map(); // scope key → { version, history, changes, digest }
   function trendRunVersion(run) {
     return [run.id, run.updatedAt || run.createdAt, run.status, run.stage, (run.discoveredThemes || []).length, (run.themes || []).map(theme => theme?.name || '').join('|').length, JSON.stringify(run.decisions || {}).length, (run.reportRunIds || []).length, (run.googleDelivery?.assets || []).length, mtime(runPath(run.id, 'assignments.json'))].join(':');
   }
-  function trendVersion() {
-    const runs = trendRunList(); const w = state.workspaces.find(row => row.id === state.activeWorkspaceId);
+  const scopeKey = scope => (scope ? `only:${[...scope].sort().join(',')}` : 'all');
+  function trendVersion(scope = null) {
+    const runs = trendRunList(scope); const w = state.workspaces.find(row => row.id === state.activeWorkspaceId);
     const children = new Set(runs.flatMap(run => (run.reportRunIds || []).map(entry => entry.runId)));
     const reports = state.assets.filter(asset => children.has(asset.runId) && REPORT_DELIVERABLES.includes(asset.deliverableId));
-    const parts = [state.activeWorkspaceId, (w?.taxonomy?.categories || []).length, reports.length, reports.map(asset => String(asset.createdAt || '')).sort().at(-1) || '', state.history.filter(row => row.workspaceId === state.activeWorkspaceId).length, ...runs.map(trendRunVersion)];
+    const parts = [state.activeWorkspaceId, scopeKey(scope), (w?.taxonomy?.categories || []).length, reports.length, reports.map(asset => String(asset.createdAt || '')).sort().at(-1) || '', state.history.filter(row => row.workspaceId === state.activeWorkspaceId).length, ...runs.map(trendRunVersion)];
     return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 32);
   }
   // Per-run theme numbers, cached as runs/<id>/theme-stats.json: written when classification finishes, counted here for
@@ -2536,8 +2622,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     return stats;
   }
   function writeThemeStats(run, evidence, assignments) { try { themeStatsFor(run, { evidence, assignments }); } catch (_) { /* Counted again on the first read instead. */ } }
-  function trendHistorySource(version) {
-    const workspaceId = state.activeWorkspaceId; const runs = trendRunList(); const themeStats = {};
+  function trendHistorySource(version, scope = null) {
+    const workspaceId = state.activeWorkspaceId; const runs = trendRunList(scope); const themeStats = {};
+    // Under a scope, the theme repository (used to link a trend's appearances) is the kept runs' themes only.
+    const keptThemes = scope ? new Set(runs.flatMap(run => [...(run.discoveredThemes || []), ...(run.themes || [])].map(theme => theme?.id).filter(Boolean))) : null;
     for (const run of runs) {
       if (!trendObserved(run)) continue;
       let stats = null; try { stats = themeStatsFor(run); } catch (_) { stats = null; } // a damaged file leaves this run on discovery counts
@@ -2548,14 +2636,16 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     for (const run of runs) for (const entry of run.reportRunIds || []) for (const asset of reportAssets.get(entry.runId) || []) reports.push({ researchRunId: run.id, themeId: entry.themeId, contentRunId: entry.runId, assetId: asset.id, deliverableId: asset.deliverableId, title: asset.title || '', createdAt: asset.createdAt || '', url: run.googleDelivery ? deliveredDoc(run.googleDelivery, asset) : '' });
     const w = state.workspaces.find(row => row.id === workspaceId) || {};
     return { workspaceId, runs: runs.map(run => ({ id: run.id, programId: run.programId || '', title: run.title || '', origin: run.origin === 'quick-scan' ? 'quick-scan' : 'research', status: run.status, stage: run.stage, createdAt: run.createdAt, updatedAt: run.updatedAt || run.createdAt, window: run.window || null, counts: run.counts || null, approvedAt: run.approvedAt || '', decisions: run.decisions || {}, discoveredThemes: run.discoveredThemes, themes: run.themes || [], quickScan: run.quickScan || null })),
-      repository: state.themes.filter(theme => theme.workspaceId === workspaceId), history: state.history.filter(row => row.workspaceId === workspaceId), reports, themeStats, taxonomy: w.taxonomy || null, version };
+      repository: state.themes.filter(theme => theme.workspaceId === workspaceId && (!keptThemes || keptThemes.has(theme.id))), history: state.history.filter(row => row.workspaceId === workspaceId), reports, themeStats, taxonomy: w.taxonomy || null, version };
   }
-  function trendHistory() {
-    const version = trendVersion();
-    if (trendCache?.version === version) return trendCache;
-    const trends = trendModule(); const history = trends.buildTrendHistory(trendHistorySource(version), { now: clock() });
-    trendCache = { version, history, changes: trends.trendChanges(history), digest: trends.trendMemoryDigest(history, { limit: 12, maxChars: 3000 }) };
-    return trendCache;
+  function trendHistory(scope = null) {
+    const version = trendVersion(scope); const key = scopeKey(scope);
+    const cached = trendCaches.get(key); if (cached?.version === version) return cached;
+    const trends = trendModule(); const history = trends.buildTrendHistory(trendHistorySource(version, scope), { now: clock() });
+    const built = { version, history, changes: trends.trendChanges(history), digest: trends.trendMemoryDigest(history, { limit: 12, maxChars: 3000 }) };
+    if (!trendCaches.has(key) && trendCaches.size >= 12) trendCaches.delete(trendCaches.keys().next().value);
+    trendCaches.set(key, built);
+    return built;
   }
   // Trend Velocity extras: runs-seen and momentum per theme id (every id a linked trend has used), how many runs have
   // found trends, and each trend's newest channel-asset hero picture.

@@ -5,6 +5,7 @@ import {
   PanelLeftClose, PanelLeftOpen, Plus, Radar, ScanSearch, ScrollText, Search, Settings2, Sheet, Sparkles, SquareKanban, SquarePen, TrendingUp, UserPlus, Users, Workflow, Wrench, X,
 } from 'lucide-react';
 import semrushWordmark from './assets/semrush-2026-logo.svg';
+import goldenThreadMark from './assets/golden-thread-mark.png';
 import { LOCAL_ADMIN_FALLBACK, PREVIEW_TITLE, initials, roleLabel } from './viewer.js';
 import { Dialog, DialogClose, MoreMenu, focusables, trapTab, useNarrow } from './role-screens.jsx';
 import { MAX_FOCUS_CHANNELS, ariaKeys, isChannelViewer, isRealAdmin, itemName, viewAsChoice } from './nav-model.js';
@@ -23,7 +24,7 @@ import './studio-sidebar.css';
 // Lucide icons by the names nav-model.js uses. App's palette draws the same icons.
 export const NAV_ICONS = {
   Activity, Bell, BookOpen, Building2, CalendarDays, ChartColumn, CircleCheck, Database, FileStack, FileChartColumn, FileText, FileUp, FolderOpen, Gauge, GitCompareArrows, Globe, House, ImagePlus, Images, Inbox,
-  Layers, LayoutGrid, Library, MessagesSquare, Radar, ScanSearch, ScrollText, Search, Settings2, Sheet, Sparkles, SquareKanban, SquarePen, TrendingUp, UserPlus, Users, Workflow, Wrench,
+  Layers, LayoutGrid, Library, Megaphone, MessagesSquare, Radar, ScanSearch, ScrollText, Search, Settings2, Sheet, Sparkles, SquareKanban, SquarePen, TrendingUp, UserPlus, Users, Workflow, Wrench,
 };
 const iconOf = (name) => (typeof name === 'function' || (name && typeof name === 'object') ? name : NAV_ICONS[name] || Circle);
 const LAYOUT_ICON = { simple: LayoutList, classic: LayoutDashboard };
@@ -406,8 +407,12 @@ export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: 
       role={drawer ? 'dialog' : undefined} aria-modal={drawer ? 'true' : undefined} aria-label={drawer ? 'Menu' : 'Sidebar'} tabIndex={drawer ? -1 : undefined}
       onKeyDown={drawer ? (event) => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); event.stopPropagation(); close(); } else trapTab(event, aside.current); } : undefined} {...handlers}>
       <header className="sb-head">
-        {semrush ? <img src={semrushWordmark} alt="Semrush" className="sb-wordmark" />
-          : <span className="sb-brand"><span className="sb-mark" aria-hidden="true"><Layers size={19} strokeWidth={1.8} /></span><strong className="sb-brand-text">scraper<span>studio</span></strong></span>}
+        {/* The product is Golden Thread in both editions; the Semrush edition says whose it is under the name. */}
+        <span className="sb-brand" title={railed ? 'Golden Thread' : undefined}>
+          <img src={goldenThreadMark} alt="" className="sb-mark" width="30" height="30" />
+          <span className="sb-brand-copy"><strong className="sb-brand-text">Golden Thread</strong>
+            {semrush && <span className="sb-brand-for">for <img src={semrushWordmark} alt="Semrush" className="sb-wordmark" /></span>}</span>
+        </span>
         {drawer ? <button type="button" className="studio-icon-button sb-drawer-close" aria-label="Close menu" onClick={close}><X size={18} aria-hidden="true" /></button>
           : onToggleRail && !narrow && <button type="button" className="sb-collapse" data-spot="nav.collapse" aria-label={railed ? 'Expand sidebar' : 'Collapse sidebar'} aria-keyshortcuts={ariaKeys('⌘\\', mac)} title={railed ? undefined : `Collapse sidebar (${keys('⌘\\')})`} data-tip={railed ? `Expand sidebar · ${keys('⌘\\')}` : undefined} onClick={onToggleRail}>{railed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>}
       </header>

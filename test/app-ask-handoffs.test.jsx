@@ -40,9 +40,10 @@ async function openStudio(uiMode) {
   window.apifyStudio = api;
   render(<App />);
   await screen.findByRole('heading', { level: 1, name: /^This week in/ });
-  // Someone who used Advanced has the stages' tools showing; from an Advanced page, Ask AI is the drawer beside it.
+  // From an Advanced page (Create content, in the Workbench), Ask AI is the drawer beside it.
   if (uiMode === 'classic') {
-    fireEvent.click(document.querySelector('[data-spot="nav.board"]'));
+    if (document.querySelector('[data-spot="nav.data-tools"]')?.getAttribute('aria-expanded') !== 'true') fireEvent.click(document.querySelector('[data-spot="nav.data-tools"]'));
+    fireEvent.click(document.querySelector('[data-spot="nav.create"]'));
     await waitFor(() => expect(document.querySelector('.app-shell')).toHaveAttribute('data-mode', 'classic'));
   }
   return api;
@@ -88,10 +89,11 @@ describe('Ask AI opens the research program it is about', () => {
 
     // A request is taken once: choosing another program, leaving and coming back keeps that choice.
     pickProgram('Newer program');
-    fireEvent.click(mainNav().getByRole('button', { name: /^Library/ }));
+    fireEvent.click(mainNav().getByRole('button', { name: /^Create content/ }));
     await waitFor(() => expect(document.querySelector('.cs-program-choice')).not.toBeInTheDocument());
-    fireEvent.click(mainNav().getByRole('button', { name: /^Research programs/ }));
-    await waitFor(() => expect(selectedProgram()).toBe('Newer program'));
+    // Coming back through Workbench › Edit research program opens the program chosen last, not the earlier request's.
+    fireEvent.click(mainNav().getByRole('button', { name: /^Sources/ }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Program to edit' })).toHaveDisplayValue('Newer program'));
   });
 
   it('in the Simple layout: See the program opens Research programs on that program', async () => {

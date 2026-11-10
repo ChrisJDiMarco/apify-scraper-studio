@@ -5,6 +5,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChannelAssets, ChannelGenerateSheet, ChannelTrends, channelPlan, linkLabel, normalizeLink } from '../src/renderer/src/channel-owner.jsx';
 import { PREVIEW_TITLE } from '../src/renderer/src/viewer.js';
+import { pinClock } from './helpers/pin-clock.js';
+
+pinClock();
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 

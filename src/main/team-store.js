@@ -147,6 +147,13 @@ function nameFromEmail(email) {
   return words.length ? words.map((word) => word[0].toUpperCase() + word.slice(1)).join(' ').slice(0, 120) : 'Someone';
 }
 // "Weekly SEO reviewers" → "weekly-seo-reviewers" for a custom role id.
+// A member's research programs (program-scope.js): null or left out means every program; a list means only those.
+const PROGRAM_ID = /^[A-Za-z0-9][A-Za-z0-9_.:~-]{0,179}$/;
+function cleanProgramIds(value) {
+  if (value === null || value === undefined) return null;
+  if (!Array.isArray(value) || value.length > 200 || value.some((id) => typeof id !== 'string' || !PROGRAM_ID.test(id))) throw fail('Choose research programs from the list.');
+  return sortedIds(value);
+}
 const slug = (text) => cleanName(text).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'role';
 
 // Each step runs once: the file keeps the version it reached at its next write, so a later admin change (Ask AI turned
@@ -173,6 +180,9 @@ function auditForMember(before, after, roleLabel = (id) => id) {
   for (const field of ['name', 'email']) if ((before[field] || '') !== (after[field] || '')) changes.push({ field, from: before[field] || '', to: after[field] || '' });
   if (before.role !== after.role) changes.push({ field: 'role', from: before.role, to: after.role, fromLabel: roleLabel(before.role), toLabel: roleLabel(after.role) });
   if ((before.channelId || null) !== (after.channelId || null)) changes.push({ field: 'channelId', from: before.channelId || '', to: after.channelId || '' });
+  // Research programs: "all" (none chosen) or the chosen ids, as a comma list, so the access log can say what changed.
+  const programsOf = (member) => (Array.isArray(member.programIds) ? member.programIds.join(', ') : 'all');
+  if (programsOf(before) !== programsOf(after)) changes.push({ field: 'programIds', from: programsOf(before), to: programsOf(after) });
   for (const field of ['grants', 'denies']) {
     const was = new Set(list(before[field])); const now = new Set(list(after[field]));
     for (const id of [...was].filter((cap) => !now.has(cap))) changes.push({ field: field === 'grants' ? 'grant' : 'deny', capability: id, from: true, to: false });
@@ -234,7 +244,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
   }
   const roleDef = (id) => accessPolicy().roles.get(id) || null;
   const roleLabel = (id) => roleDef(id)?.label || (id ? 'a removed role' : '');
-  const accessFor = (id) => { const member = record(id); return { grants: [...list(member?.grants)], denies: [...list(member?.denies)] }; };
+  const accessFor = (id) => { const member = record(id); return { grants: [...list(member?.grants)], denies: [...list(member?.denies)], ...(Array.isArray(member?.programIds) ? { programIds: [...member.programIds] } : {}) }; };
   const membersWith = (roleId) => data.members.filter((member) => member.role === roleId);
   const enabledWith = (roleIds) => data.members.filter((member) => roleIds.has(member.role) && !member.disabled);
   // Two admins with the role matrix open: the second save is refused, naming who saved first.
@@ -462,6 +472,8 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     const channelId = def.base === 'channel' ? pick('channelId') ?? null : null;
     if (def.base === 'channel' && !roles.isChannelId(channelId)) throw fail('Choose the channel this person owns.');
     const disabled = input.disabled !== undefined ? input.disabled === true : Boolean(existing?.disabled);
+    // Admins see every program; anyone else keeps theirs unless the save names new ones.
+    const programIds = def.base === 'admin' ? null : input.programIds !== undefined ? cleanProgramIds(input.programIds) : Array.isArray(existing?.programIds) ? [...existing.programIds] : null;
     if (existing) {
       const wasDisabled = Boolean(existing.disabled);
       if (isServerAdmin(existing.email) && (role !== existing.role || disabled !== wasDisabled || email !== normEmail(existing.email))) throw roles.refusal('serverAdmin');
@@ -476,11 +488,12 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
         // Their own access changes belonged to the old kind of role; an admin has none.
         const baseChanged = (roleDef(existing.role)?.base || null) !== def.base;
         Object.assign(existing, { name, email, role, channelId, disabled, updatedAt: at });
+        if (programIds) existing.programIds = programIds; else delete existing.programIds;
         if (baseChanged || def.base === 'admin') Object.assign(existing, { grants: [], denies: [] });
         if (pausing) { existing.link = null; existing.sessionEpoch = (Number(existing.sessionEpoch) || 0) + 1; delete data.prefs[existing.id]; }
         return publicMember(existing);
       }
-      const member = { id: `member-${crypto.randomUUID()}`, name, email, role, channelId, disabled, grants: [], denies: [], createdAt: at, updatedAt: at, createdBy: actorOf(by), lastSeenAt: '', link: null };
+      const member = { id: `member-${crypto.randomUUID()}`, name, email, role, channelId, disabled, grants: [], denies: [], ...(programIds ? { programIds } : {}), createdAt: at, updatedAt: at, createdBy: actorOf(by), lastSeenAt: '', link: null };
       data.members.push(member);
       return publicMember(member);
     });
@@ -525,6 +538,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     const channelId = def.base === 'channel' ? payload.channelId ?? null : null;
     if (def.base === 'channel' && !roles.isChannelId(channelId)) throw fail('Choose the channel they own.');
     const access = cleanAccess(def.id, { grants: payload.grants, denies: payload.denies });
+    const programIds = def.base === 'admin' ? null : cleanProgramIds(payload.programIds);
     const skipped = []; const adding = []; const seen = new Set();
     for (const person of people) {
       const raw = typeof person === 'string' ? person : person?.email;
@@ -543,7 +557,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     const members = change(() => {
       const at = stamp();
       return adding.map(({ email, name }) => {
-        const member = { id: `member-${crypto.randomUUID()}`, name, email, role: def.id, channelId, disabled: false, grants: [...access.grants], denies: [...access.denies], createdAt: at, updatedAt: at, createdBy: actorOf(by), lastSeenAt: '', link: null };
+        const member = { id: `member-${crypto.randomUUID()}`, name, email, role: def.id, channelId, disabled: false, grants: [...access.grants], denies: [...access.denies], ...(programIds ? { programIds: [...programIds] } : {}), createdAt: at, updatedAt: at, createdBy: actorOf(by), lastSeenAt: '', link: null };
         if (payload.makeLinks === true) {
           const token = crypto.randomBytes(32).toString('hex');
           member.link = newLink(token, 'invite', lifetime, at);
@@ -551,7 +565,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
         }
         data.members.push(member);
         const added = auditForMember(null, member, roleLabel);
-        audit.push({ ...added, changes: [...added.changes, ...accessChanges({}, access)] });
+        audit.push({ ...added, changes: [...added.changes, ...accessChanges({}, access), ...(programIds ? [{ field: 'programIds', from: '', to: programIds.join(', ') }] : [])] });
         if (member.link) audit.push({ kind: 'link-issued', target: { type: 'member', id: member.id, name }, changes: [], affected: 1 });
         return publicMember(member);
       });

@@ -40,6 +40,7 @@ const { acquireStudioOwnerLock } = require('./studio-owner-lock');
 // Roles and access (docs/roles-and-access.md): the team store, the policy and the gate every handler passes.
 const { createTeamStore } = require('./team-store');
 const roles = require('./roles');
+const programScope = require('./program-scope');
 const { createAccess } = require('./access');
 const API_METHODS = require('../shared/studio-api-channels.json').methods;
 const { createStudioHost, studioCliEnv, loadLoginShellPath } = require('./studio-host');
@@ -1893,6 +1894,9 @@ const contentWorkspace = createContentWorkspace({
   // Prompt Library: saves are credited with the caller's role, and only admins change or lock a locked prompt (read at
   // each prompt method's entry, like actor). Test runs show in the job tray as cancellable 'prompt-test' jobs.
   getCallerRole: () => access.currentViewer()?.role || '',
+  // Research programs the caller was invited to (null: every program), so trend history, the Trend tracker and Ask AI's
+  // trend and post lookups are built from those programs' runs only.
+  getCallerPrograms: () => { const viewer = access.currentViewer(); return viewer?.base === 'admin' ? null : programScope.scopeOf(viewer); },
   // A preview or test on a recent run's posts, reports or dataset rows only for someone whose role may read them.
   getCallerCapabilities: () => { const viewer = access.currentViewer(); return viewer?.base === 'admin' ? ['*'] : viewer?.capabilities || []; },
   // A run started from an Ask AI conversation posts what it found there (a quick scan's trends report, trends waiting for
@@ -2023,7 +2027,7 @@ function gated(channel, fn) {
 }
 const handle = (channel, fn) => ipcMain.handle(channel, gated(channel, fn));
 
-const studioMethods = ['contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit', 'readBrandImage', 'setBrandImageRole', 'removeBrandImage', 'editStudioAsset', 'restoreStudioAsset', 'estimateQuickScan', 'startQuickScan', 'readTrendHistory', 'readTrendPosts', 'listPrompts', 'readPrompt', 'previewPrompt', 'diffPromptVersions', 'estimatePromptTest', 'savePromptVersion', 'revertPrompt', 'testPrompt', 'setPromptLock', 'setAssetStatus'];
+const studioMethods = ['readChannelSettings', 'saveChannelKnowledge', 'saveChannelInstructions', 'revertChannelInstructions', 'contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit', 'readBrandImage', 'setBrandImageRole', 'removeBrandImage', 'editStudioAsset', 'restoreStudioAsset', 'estimateQuickScan', 'startQuickScan', 'readTrendHistory', 'readTrendPosts', 'listPrompts', 'readPrompt', 'previewPrompt', 'diffPromptVersions', 'estimatePromptTest', 'savePromptVersion', 'revertPrompt', 'testPrompt', 'setPromptLock', 'setAssetStatus'];
 // Work that spends checks first that every connection and model it will use is ready (ai-connections.js preflight): the
 // tasks it resolves now (a run's own snapshot for continue and retry), each checked on its own connection.
 const programFor = (payload) => contentWorkspace.publicState().programs.find((program) => program.id === payload?.programId) || null;
@@ -2340,6 +2344,32 @@ const helpThemes = (run) => (run.discoveredThemes?.length ? run.discoveredThemes
 const isQuickScan = (run) => run?.origin === 'quick-scan';
 // Trend history and post search come from content-workspace when this build has them; a failure reads as "nothing".
 const helpSafe = (read, fallback = null) => { try { return read() ?? fallback; } catch (_) { return fallback; } };
+
+// ---------- Guided setup (program-setup.js) ----------
+// One AI call on Settings → Model routing's task assistant.program-setup (every route: Claude app, Claude API, Codex,
+// OpenRouter): sources to follow for a company and vertical, each checked with the program form's rules, and a brand
+// knowledge draft. Nothing is saved; the person keeps what they want in the setup sheet. The estimate comes first.
+const programSetup = require('../shared/program-setup');
+function programSetupPrompt(payload) {
+  const request = programSetup.setupRequest(payload);
+  const editionId = contentWorkspace.activeWorkspace()?.editionId || 'general';
+  const blocks = helpSafe(() => contentWorkspace.promptEffective('assistant.program-setup').blocks);
+  return programSetup.setupPrompt(request, { editionId, blocks });
+}
+function estimateProgramSetup(payload = {}) {
+  const prompt = programSetupPrompt(payload);
+  const task = aiRouting.resolve('assistant.program-setup');
+  const estimate = require('./ask-estimate').askEstimate({ route: task.route, price: task.price || null, fallback: task.model ? modelPrice(task.model) : null, prefixChars: 0, bodyChars: prompt.length, outputTokens: 4000 });
+  return { route: task.route, routeLabel: aiRouting.routeLabel(task.route), model: task.model || '', modelLabel: task.modelLabel || task.model || '', metered: estimate?.metered !== false, estimateUsd: estimate?.firstUsd ?? null, problem: task.problem || '' };
+}
+async function suggestProgramSetup(payload = {}) {
+  const prompt = programSetupPrompt(payload);
+  const jobId = `setup-${randomUUID()}`; const dir = dataPath('help', 'calls', jobId); fs.mkdirSync(dir, { recursive: true });
+  try {
+    const result = await generateStructuredOutputNow({ taskId: 'assistant.program-setup', schema: programSetup.SETUP_SCHEMA, prompt, workspaceDir: dir, outputPath: path.join(dir, 'answer.json'), jobId, maxBudgetUsd: 2, timeoutMs: 180000 });
+    return { ...programSetup.cleanSetup(result.output), costUsd: Number.isFinite(Number(result.receipt?.costUsd)) ? Number(result.receipt.costUsd) : null };
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
 const helpNorm = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const helpSources = (program) => Object.fromEntries(['x', 'linkedin', 'reddit'].map((platform) => [platform, (program.sourceGroups || []).filter((group) => group.enabled && group.platform.startsWith(platform)).reduce((sum, group) => sum + (group.targets || []).length, 0)]));
 const helpWindow = (program) => (program.window?.startDate ? `${program.window.startDate} to ${program.window.endDate || 'now'}` : `last ${program.lookbackDays || 7} days`);
@@ -2484,8 +2514,14 @@ function helpAttention(studio, scope = {}, ready = helpReadyTrends(), adoptions 
 // `role` is the asker's effective role; `layout` comes from the page they asked from (Simple unless it says classic).
 // `promptAccess` (helpPromptAccess) adds the prompt list for people who can read prompts. `scope` ({ admin }) adds the
 // team for admins and the admin-only attention items.
+// Ask AI reads the studio as the asker may see it: someone invited to some research programs only reads theirs
+// (program-scope.js; `programIds` null for every program).
+function helpStudio(programIds) {
+  const studio = contentWorkspace.publicState();
+  return Array.isArray(programIds) ? programScope.scopeStudio(studio, new Set(programIds)) : studio;
+}
 function helpContext(page, role = 'admin', promptAccess = null, scope = {}) {
-  const data = loadData(); const studio = contentWorkspace.publicState();
+  const data = loadData(); const studio = helpStudio(scope.programs);
   const workspace = (studio.workspaces || []).find((row) => row.id === studio.activeWorkspaceId) || {};
   const researchRuns = studio.researchRuns || []; const contentRuns = studio.contentRuns || []; const programs = studio.programs || [];
   const fullRuns = researchRuns.filter((run) => !isQuickScan(run));
@@ -2667,7 +2703,7 @@ function helpFind(items, words, limit = 8) {
 // says so in `unresolved`, so the next answer can ask. [[Exact title]] links in the answer become studio: links.
 // Returns { actions: [action | null], answer, unresolved }. `scope` ({ promptAccess, admin, role }).
 function helpResolveActions({ actions = [], answer = '' } = {}, scope = {}) {
-  const studio = contentWorkspace.publicState();
+  const studio = helpStudio(scope.programs);
   const items = helpItems(studio, { prompts: Boolean(scope.promptAccess?.view), role: scope.role });
   const programs = studio.programs || []; const researchRuns = studio.researchRuns || []; const contentRuns = studio.contentRuns || [];
   const runLabel = (run) => helpRunLabel(run, programs);
@@ -2776,7 +2812,7 @@ function helpResolveActions({ actions = [], answer = '' } = {}, scope = {}) {
 // (spend, only for people who see costs), earlier conversations or older memories. `scope` is who is asking and where
 // ({ identityId, workspaceId, conversationId, recalled, promptAccess, role, costs }).
 function helpLookup({ kind, target }, scope = {}) {
-  const studio = contentWorkspace.publicState();
+  const studio = helpStudio(scope.programs);
   const kitRuns = (studio.contentRuns || []).filter((run) => run.kit);
   if (kind === 'report') {
     const kitIds = new Set(kitRuns.map((run) => run.id));
@@ -2935,8 +2971,8 @@ function helpExcerpt(asset) {
 // card, and a button whose target matched two things a choice card. `actions` are the reply's resolved actions (card
 // buttons point into them); `lookups` what Ask AI read for this answer; `promptAccess` (helpPromptAccess) whether this
 // person may save prompts.
-function hydrateCards(cards, { actions = [], lookups = [], promptAccess = null } = {}) {
-  const studio = contentWorkspace.publicState();
+function hydrateCards(cards, { actions = [], lookups = [], promptAccess = null, programs: programIds = null } = {}) {
+  const studio = helpStudio(programIds);
   const researchRuns = studio.researchRuns || []; const contentRuns = studio.contentRuns || []; const assets = studio.assets || []; const programs = studio.programs || [];
   const kitRuns = contentRuns.filter((run) => run.kit); const kitIds = new Set(kitRuns.map((run) => run.id));
   let history; const trends = () => (history === undefined ? (history = helpTrendHistory()) : history);
@@ -3322,13 +3358,13 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
       };
     } else {
       sources = {
-        role, guide: appGuide(), programs: (contentWorkspace.publicState().programs || []).map(({ id, name, updatedAt, createdAt }) => ({ id, name, updatedAt: updatedAt || createdAt || '' })), promptAccess, imagesOn: mediaRouter.ready('pictures.ask-ai'), imageFamilies: brandSets.map((set) => set.id),
-        context: (view) => plain(helpContext(view, role, promptAccess, { admin })),
+        role, guide: appGuide(), programs: (helpStudio(reach?.programs).programs || []).map(({ id, name, updatedAt, createdAt }) => ({ id, name, updatedAt: updatedAt || createdAt || '' })), promptAccess, imagesOn: mediaRouter.ready('pictures.ask-ai'), imageFamilies: brandSets.map((set) => set.id),
+        context: (view) => plain(helpContext(view, role, promptAccess, { admin, programs: reach?.programs })),
         // What action params are checked against: this workspace's channels, the studio's roles (admins), and today.
         params: { channels: helpChannels(), roles: admin ? helpRoleOptions() : [], today: new Date() },
-        readLookup: (lookup) => Promise.resolve(helpLookup(lookup, { identityId, workspaceId, conversationId, recalled: memory.map((item) => item.id), promptAccess, role, costs })).then(plain),
-        resolve: ({ actions, answer }) => helpResolveActions({ actions, answer }, { promptAccess, admin, role }),
-        hydrate: ({ cards, actions, lookups }) => hydrateCards(cards, { actions, lookups, promptAccess }),
+        readLookup: (lookup) => Promise.resolve(helpLookup(lookup, { identityId, workspaceId, conversationId, recalled: memory.map((item) => item.id), promptAccess, role, costs, programs: reach?.programs })).then(plain),
+        resolve: ({ actions, answer }) => helpResolveActions({ actions, answer }, { promptAccess, admin, role, programs: reach?.programs }),
+        hydrate: ({ cards, actions, lookups }) => hydrateCards(cards, { actions, lookups, promptAccess, programs: reach?.programs }),
       };
     }
     const reply = await helpAssistant.askHelp({ question, history, page }, {
@@ -3441,7 +3477,7 @@ handle('help:ask', async (_, payload = {}) => {
   // costs: whether they may see costs (the spend lookup); drive: whether Google Drive publishing is connected; admin:
   // the team in LIVE CONTEXT and the admin-only buttons (View as, invites) resolve.
   const admin = viewer.base === 'admin';
-  const reach = { allowed: admin ? null : viewer.preview ? viewer.roleAllowed || viewer.allowed : viewer.allowed, hiddenPages: admin ? [] : viewer.hiddenPages, costs: !channel && (admin || (Array.isArray(viewer.capabilities) && viewer.capabilities.includes('seeCosts'))), drive: !channel && Boolean(helpSafe(() => contentWorkspace.publicState().capabilities?.googlePublishConfigured)), admin };
+  const reach = { allowed: admin ? null : viewer.preview ? viewer.roleAllowed || viewer.allowed : viewer.allowed, hiddenPages: admin ? [] : viewer.hiddenPages, costs: !channel && (admin || (Array.isArray(viewer.capabilities) && viewer.capabilities.includes('seeCosts'))), drive: !channel && Boolean(helpSafe(() => contentWorkspace.publicState().capabilities?.googlePublishConfigured)), admin, programs: !admin && Array.isArray(viewer.programIds) ? [...viewer.programIds] : null };
   const input = askInput(payload);
   if (input.requestId == null && input.conversationId == null) {
     const question = askQuestion(input.question);
@@ -3474,6 +3510,9 @@ handle('help:ask', async (_, payload = {}) => {
 });
 // Stop for an answer still being written: only the person who asked can stop it. Named cancel*, so a server draining for
 // a restart still lets it through. { requestId } → { stopped }.
+// Guided setup: the estimate (free) and the suggestions (one paid AI call), for New research program and first-run setup.
+handle('setup:estimate', (_, payload = {}) => estimateProgramSetup(payload && typeof payload === 'object' ? payload : {}));
+handle('setup:suggest', (_, payload = {}) => suggestProgramSetup(payload && typeof payload === 'object' ? payload : {}));
 handle('help:cancel', (_, payload = {}) => {
   const identityId = askIdentityId(); const requestId = String(askInput(payload).requestId ?? '');
   if (!ASK_REQUEST_ID.test(requestId)) throw askFail('Invalid question request ID.');
@@ -3570,9 +3609,11 @@ function sendEmail(kind, to, message, fields = {}) {
     (error) => { teamStore.logEvent({ event: 'email-failed', kind, provider: mailer.status().provider, code: error?.code || '', error: redactEmailError(error?.message), ...fields }); return false; },
   );
 }
-// The page's address for an email: the request's (already checked by studio-server), else STUDIO_PUBLIC_ORIGIN.
+// The page's address for an email: STUDIO_PUBLIC_ORIGIN when the server has one, so a link in a genuine studio email
+// never takes its host from a request (a proxy that forwards any Host would otherwise let a caller choose it). With no
+// public origin set (a local server), the request's own address.
 function emailOrigin(given = '') {
-  for (const value of [given, WEB_RUNTIME ? require('./web-runtime').currentCall()?.origin : '', process.env.STUDIO_PUBLIC_ORIGIN]) {
+  for (const value of [process.env.STUDIO_PUBLIC_ORIGIN, given, WEB_RUNTIME ? require('./web-runtime').currentCall()?.origin : '']) {
     const origin = String(value || '').trim().replace(/\/+$/, '');
     if (/^https?:\/\/[^/\s?#]+$/i.test(origin)) return origin;
   }
@@ -3614,7 +3655,7 @@ function memberView(member) {
   const policy = teamStore.accessPolicy(); const def = policy.roles.get(member.role) || null;
   return {
     id: member.id, name: member.name, email: member.email || '', role: member.role, roleLabel: def?.label || 'Removed role', base: def?.base || null,
-    grants: [...(member.grants || [])], denies: [...(member.denies || [])], capabilities: roles.capabilitiesFor({ roleId: member.role, grants: member.grants, denies: member.denies }, policy),
+    grants: [...(member.grants || [])], denies: [...(member.denies || [])], programIds: Array.isArray(member.programIds) ? [...member.programIds] : null, capabilities: roles.capabilitiesFor({ roleId: member.role, grants: member.grants, denies: member.denies }, policy),
     channelId: member.channelId ?? null, disabled: Boolean(member.disabled), createdAt: member.createdAt || '', lastSeenAt: member.lastSeenAt || '', serverAdmin: Boolean(member.serverAdmin),
     link: member.link ? { createdAt: member.link.createdAt || '', expiresAt: member.link.expiresAt ?? null, lastUsedAt: member.link.lastUsedAt || '' } : null,
   };
@@ -3638,12 +3679,13 @@ function memberActivity(member, action) {
   return { memberId: member.id, name: member.name, action, role: view.base, roleId: member.role, roleLabel: view.roleLabel, channelId: member.channelId ?? null };
 }
 const roleLabelOf = (id) => teamStore.roleLabel(id);
-handle('team:list', () => ({ members: teamStore.listMembers().map(memberView), channels: teamChannels(), signIn: signInSettings(), access: teamStore.accessSummary() }));
+// programs: this workspace's research programs, for choosing who sees which (program-scope.js).
+handle('team:list', () => ({ members: teamStore.listMembers().map(memberView), channels: teamChannels(), signIn: signInSettings(), access: teamStore.accessSummary(), programs: helpSafe(() => (contentWorkspace.publicState().programs || []).map(({ id, name }) => ({ id, name: name || '' })), []) }));
 // Handlers that change people report what changed under `activity` (analytics) and `audit` (the access log); the gate
 // writes both and removes them from the result.
 handle('team:save-member', (_, payload = {}) => {
   const input = objectPayload(payload);
-  const fields = Object.fromEntries(['id', 'name', 'email', 'role', 'channelId', 'disabled'].filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+  const fields = Object.fromEntries(['id', 'name', 'email', 'role', 'channelId', 'disabled', 'programIds'].filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
   const before = fields.id ? teamStore.memberById(fields.id) : null;
   const member = teamStore.saveMember(fields, access.identityForCall());
   emitState(); // their role, the admin list and channel coverage change for everyone at once
@@ -3703,7 +3745,7 @@ handle('team:invite', async (_, payload = {}) => {
   const makeLinks = input.makeLinks !== false && signIn.inviteLinks;
   const origin = makeLinks ? linkOrigin() : '';
   const by = access.identityForCall();
-  const result = teamStore.inviteMembers({ people: input.people, role: input.role, channelId: input.channelId, grants: input.grants, denies: input.denies, makeLinks, linkDays: linkDays() }, by);
+  const result = teamStore.inviteMembers({ people: input.people, role: input.role, channelId: input.channelId, grants: input.grants, denies: input.denies, ...(input.programIds !== undefined ? { programIds: input.programIds } : {}), makeLinks, linkDays: linkDays() }, by);
   if (result.members.length) emitState();
   const names = new Map(result.members.map((member) => [member.id, member.name]));
   const links = result.links.map((link) => ({ id: link.id, url: `${origin}/#signin=${link.token}`, expiresAt: link.expiresAt ?? null }));

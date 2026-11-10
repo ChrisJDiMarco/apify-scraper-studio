@@ -225,6 +225,26 @@ describe('workbook store', () => {
     expect(api.saveEdits({ workbookId: 'research-1', edits: { sheets: { x: { 'evidence-1': { Theme: 'GEO' } } } } })).toEqual(expect.objectContaining({ workbookId: 'research-1' }));
   });
 
+  // A request body is parsed JSON, where "__proto__" is an ordinary key; written into a plain object it would become
+  // a default on every object in the server (review FIX-1).
+  it('refuses __proto__, constructor and prototype as a sheet, row or column, and leaves Object.prototype alone', () => {
+    const { api } = store();
+    const names = ['__proto__', 'constructor', 'prototype'];
+    for (const name of names) {
+      for (const at of ['sheetId', 'rowKey', 'columnKey']) {
+        const change = { sheetId: 'x', rowKey: 'evidence-1', columnKey: 'polluted', value: 'yes', base: null, [at]: name };
+        expect(() => api.saveEdits({ workbookId: 'research-1', changes: [change] }), `${at} ${name}`).toThrow(/can’t hold an edit/);
+      }
+      expect(() => api.saveEdits({ workbookId: 'research-1', edits: JSON.parse(`{"sheets":{"${name}":{"polluted":{"polluted":"yes"}}}}`) })).toThrow(/can’t hold an edit/);
+      expect(() => api.saveEdits({ workbookId: 'research-1', edits: JSON.parse(`{"sheets":{"x":{"${name}":{"polluted":"yes"}}}}`) })).toThrow(/can’t hold an edit/);
+    }
+    // An inherited name that is not one of the three is an ordinary key: stored as the sheet's own, nothing shared is touched.
+    api.saveEdits({ workbookId: 'research-1', changes: [{ sheetId: 'toString', rowKey: 'valueOf', columnKey: 'polluted', value: 'yes', base: null }] });
+    expect({}.polluted).toBeUndefined();
+    expect(Object.prototype.toString.valueOf.polluted).toBeUndefined();
+    expect(Object.keys(Object.prototype)).toEqual([]);
+  });
+
   // Two editors on one shared sheet (fortify D4): each save writes only the cells that person changed.
   it('merges two people’s whole-sheet saves cell by cell instead of the last one replacing the file', async () => {
     let who = { id: 'member-sam', name: 'Sam' };

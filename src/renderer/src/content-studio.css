@@ -59,6 +59,11 @@
 .cs-panel .cs-section-heading h2 { font-size: 17px; font-weight: 600; letter-spacing: -.3px; }
 .cs-panel .cs-section-heading p { font-size: 11px; }
 .cs-panel-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
+.cs-editor-tools { display: flex; align-items: center; gap: 8px; flex: none; }
+.cs-program-pick select { min-height: 34px; max-width: 240px; padding: 0 30px 0 10px; font: inherit; font-size: 13px; color: var(--s-ink); background-color: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-control); }
+.cs-program-editor .pe-group { scroll-margin-top: 16px; }
+.cs-program-editor .pe-group > h3:focus { outline: none; }
+.cs-program-editor .pe-group > h3:focus-visible { outline: 2px solid var(--s-focus); outline-offset: 3px; border-radius: 4px; }
 .cs-panel-title p { font-size: 11px; margin-top: 6px; }
 .cs-panel-title .cs-eyebrow { margin-bottom: 7px; }
 .cs-panel-title > button { flex-shrink: 0; }

@@ -71,3 +71,16 @@ button.how-made-view:hover:not(:disabled) { color: var(--s-soft-ink, #5a2fa0); t
 .simple-kit-channel.is-mine { box-shadow: inset 3px 0 0 var(--s-accent); }
 .simple-kit-viewer-bar > .studio-status-wrap { flex: none; flex-direction: row; }
 @media (max-width: 560px) { .simple-kit-channel li.has-status { grid-template-columns: minmax(0, 1fr); } .simple-kit-channel li.has-status > .studio-status-wrap { justify-self: start; } }
+
+/* Assets' toolbar: search, when, program, channel, type, and how folders are grouped. Wraps on narrow screens. */
+.simple-shell .simple-asset-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 18px; }
+.simple-shell .simple-asset-tools .simple-search { flex: 1 1 240px; width: auto; min-height: 40px; }
+.simple-shell .simple-asset-tools select, .simple-shell .simple-asset-dates input { min-height: 40px; max-width: min(220px, 100%); padding: 0 34px 0 12px; font: inherit; font-size: 13px; font-weight: 600; color: var(--s-ink); background-color: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; }
+.simple-shell .simple-asset-tools select:hover { background-color: var(--s-bg); border-color: var(--s-line-strong); }
+.simple-shell .simple-asset-tools select:focus-visible, .simple-shell .simple-asset-dates input:focus-visible { outline: none; border-color: var(--s-accent-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 30%, transparent); }
+.simple-shell .simple-asset-dates input { padding-right: 12px; }
+.simple-shell .simple-asset-dates { display: inline-flex; align-items: center; gap: 6px; color: var(--s-muted); }
+.simple-shell .simple-asset-tools .simple-segment { padding: 3px; }
+.simple-shell .simple-asset-tools .simple-segment button { min-height: 32px; padding: 0 12px; font-size: 13px; }
+.simple-shell .simple-folder-found { color: var(--s-muted); }
+@media (max-width: 560px) { .simple-shell .simple-asset-tools select, .simple-shell .simple-asset-tools .simple-segment { flex: 1 1 100%; max-width: none; } }

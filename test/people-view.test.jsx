@@ -13,6 +13,9 @@ import { capabilityRules, setPersonState } from '../src/renderer/src/person-shee
 import { accessLogCsv } from '../src/renderer/src/access-log.jsx';
 import roles from '../src/main/roles.js';
 import teamStoreModule from '../src/main/team-store.js';
+import { FIXTURE_TODAY, pinClock } from './helpers/pin-clock.js';
+
+pinClock();
 
 // Node 25+ ships its own localStorage global, which is undefined without --localstorage-file and hides jsdom's, so the
 // remembered tab gets an in-memory store (as sheets-widths does).
@@ -28,7 +31,7 @@ const ACCESS = store.accessSummary();
 afterEach(() => { cleanup(); vi.restoreAllMocks(); try { window.localStorage.clear(); } catch { /* no storage */ } });
 
 const day = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-const later = new Date(Date.now() + 25 * 86400000).toISOString();
+const later = new Date(Date.parse(FIXTURE_TODAY) + 25 * 86400000).toISOString();
 const policy = store.accessPolicy();
 const person = (fields) => { const def = policy.roles.get(fields.role); return { email: '', channelId: null, disabled: false, createdAt: '2026-08-01T00:00:00.000Z', lastSeenAt: '', serverAdmin: false, link: null, grants: [], denies: [], ...fields, roleLabel: def.label, base: def.base, capabilities: roles.capabilitiesFor({ roleId: fields.role, grants: fields.grants || [], denies: fields.denies || [] }, policy) }; };
 const members = () => [

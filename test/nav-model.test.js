@@ -3,7 +3,7 @@ import { DATA_TOOL_IDS, PAGE_LABELS, PIPELINE, WORKBENCH, ariaKeys, buildNav, fi
 
 const channels = [{ id: 'blog', name: 'Semrush Blog', short: 'Blog' }, { id: 'social', name: 'Semrush Social Team', short: 'Social' }];
 const admin = (over = {}) => ({ id: 'local', name: 'Alex Rivera', role: 'admin', realRole: 'admin', preview: false, modes: ['simple', 'classic'], channels, prefs: {}, allowed: null, ...over });
-const editor = (over = {}) => ({ id: 'm-riley', name: 'Riley Jones', role: 'editor', realRole: 'editor', preview: false, modes: ['simple', 'classic'], hiddenPages: ['settings', 'knowledge', 'analytics', 'people'], nav: { main: ['home', 'reports', 'trends', 'assets', 'ask'], admin: ['prompts'], bottom: [] },
+const editor = (over = {}) => ({ id: 'm-riley', name: 'Riley Jones', role: 'editor', realRole: 'editor', preview: false, modes: ['simple', 'classic'], hiddenPages: ['settings', 'knowledge', 'analytics', 'people'], nav: { main: ['home', 'trends', 'assets', 'ask'], admin: ['prompts'], bottom: [] },
   allowed: ['askHelp', 'startResearchRun', 'startQuickScan', 'planAssetKit', 'createAssetKit', 'createContentRun', 'createHelpImage', 'listPrompts', 'decideResearchTheme', 'setViewPrefs'], ...over });
 const owner = { id: 'm-sam', name: 'Sam Lee', role: 'channel', realRole: 'channel', channelId: 'blog', channelName: 'Semrush Blog', modes: ['simple'], allowed: ['setViewPrefs', 'createAssetKit', 'planAssetKit'] };
 const studio = (over = {}) => ({
@@ -29,9 +29,9 @@ describe('buildNav: Simple', () => {
 
   it('lists the work in order, then the Studio group, and numbers ⌘1–9 in that order (Settings keeps ⌘,)', () => {
     const nav = buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' });
-    expect(labels(nav)).toEqual([['work', ['Home', 'Trends', 'Reports', 'Assets', 'Inbox', 'Calendar']], ['studio', ['Prompts', 'Analytics', 'People & access', 'Brand knowledge', 'Settings']]]);
+    expect(labels(nav)).toEqual([['work', ['Home', 'Research programs', 'Trends', 'Assets', 'Inbox', 'Calendar']], ['studio', ['Prompts', 'Channels', 'Analytics', 'People & access', 'Brand knowledge', 'Settings']]]);
     expect(nav.groups.map((group) => group.label)).toEqual(['', 'Studio']);
-    expect(nav.order.map((row) => `${row.id} ${row.shortcut}`)).toEqual(['home ⌘1', 'trends ⌘2', 'reports ⌘3', 'assets ⌘4', 'inbox ⌘5', 'calendar ⌘6', 'prompts ⌘7', 'analytics ⌘8', 'people ⌘9']);
+    expect(nav.order.map((row) => `${row.id} ${row.shortcut}`)).toEqual(['home ⌘1', 'programs ⌘2', 'trends ⌘3', 'assets ⌘4', 'inbox ⌘5', 'calendar ⌘6', 'prompts ⌘7', 'channels ⌘8', 'analytics ⌘9']);
     expect(findNavItem(nav, 'settings')).toMatchObject({ kind: 'settings', shortcut: '⌘,', spot: 'nav.settings' });
     expect(findNavItem(nav, 'trends')).toMatchObject({ kind: 'simple', target: 'trends', spot: 'nav.trends', icon: 'TrendingUp' });
     expect(nav.actions.ask).toMatchObject({ mode: 'page', shortcut: '⌘J', spot: 'nav.ask' });
@@ -53,13 +53,13 @@ describe('buildNav: Simple', () => {
 
   it('gives an editor the pages their nav lists, no admin pages, and Prompts when policy grants it', () => {
     const nav = buildNav({ viewer: editor(), layout: 'simple', state: state(), edition: 'semrush' });
-    expect(labels(nav)).toEqual([['work', ['Home', 'Trends', 'Reports', 'Assets']], ['studio', ['Prompts']]]);
-    expect(nav.order.map((row) => row.shortcut)).toEqual(['⌘1', '⌘2', '⌘3', '⌘4', '⌘5']);
+    expect(labels(nav)).toEqual([['work', ['Home', 'Trends', 'Assets']], ['studio', ['Prompts']]]);
+    expect(nav.order.map((row) => row.shortcut)).toEqual(['⌘1', '⌘2', '⌘3', '⌘4']);
     expect(ids(nav.actions.create)).toEqual(['research', 'quick-scan', 'assets', 'content', 'picture']);
     expect(nav.shortcuts.map((row) => row.keys)).not.toContain('⌘,');
     // Inbox and Calendar show once the role's nav lists them.
-    const listed = buildNav({ viewer: editor({ nav: { main: ['home', 'trends', 'reports', 'assets', 'inbox', 'calendar', 'ask'], admin: [] } }), layout: 'simple', state: state(), edition: 'semrush' });
-    expect(labels(listed)[0][1]).toEqual(['Home', 'Trends', 'Reports', 'Assets', 'Inbox', 'Calendar']);
+    const listed = buildNav({ viewer: editor({ nav: { main: ['home', 'trends', 'assets', 'inbox', 'calendar', 'ask'], admin: [] } }), layout: 'simple', state: state(), edition: 'semrush' });
+    expect(labels(listed)[0][1]).toEqual(['Home', 'Trends', 'Assets', 'Inbox', 'Calendar']);
     expect(listed.groups.some((group) => group.id === 'studio')).toBe(false);
   });
 
@@ -80,7 +80,7 @@ describe('buildNav: Advanced', () => {
       ['content', ['Create content', 'Library', 'Calendar', 'Brand knowledge']],
       ['automate', ['Playbooks', 'Workflows']],
       ['data', ['Search platforms', 'Scrapers', 'Import research', 'Brief starters', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Activity']],
-      ['studio', ['Prompts', 'Analytics', 'People & access', 'Settings']],
+      ['studio', ['Prompts', 'Channels', 'Analytics', 'People & access', 'Settings']],
     ]);
     const data = nav.groups.find((group) => group.id === 'data');
     expect(data).toMatchObject({ label: 'Data tools', collapsible: true, open: false, spot: 'nav.data-tools' });
@@ -115,16 +115,21 @@ describe('buildNav: Advanced', () => {
 });
 
 describe('buildNav: channel owners', () => {
-  it('shows Trends, My assets and My plan, with new trends counted, and nothing to create, search or ask', () => {
+  it('shows the pipeline of Trends, Assets and Calendar, with new trends counted, and nothing to create, search or ask', () => {
     const nav = buildNav({ viewer: owner, layout: 'channel', state: { contentStudio: { channelView: { counts: { newTrends: 4 } } } }, edition: 'semrush' });
-    expect(labels(nav)).toEqual([['channel', ['Trends', 'My assets', 'My plan']]]);
+    expect(labels(nav)).toEqual([['pipeline', ['Trends', 'Assets', 'Calendar']]]);
+    expect(nav.groups[0]).toMatchObject({ label: 'Pipeline', pipeline: true });
     expect(itemName(findNavItem(nav, 'trends'))).toBe('Trends, 4 new');
     expect(nav.order.map((row) => row.shortcut)).toEqual(['⌘1', '⌘2', '⌘3']);
     expect(nav.actions).toEqual({ create: [], search: null, ask: null });
     expect(nav.footer).toMatchObject({ layouts: [], viewAs: [], channels: [] });
     // A role whose nav lists only the two built-in tabs doesn't get My plan; one that lists Inbox gets it.
     const listed = buildNav({ viewer: { ...owner, nav: { main: ['trends', 'assets', 'inbox'] } }, layout: 'channel', state: {}, edition: 'semrush', inboxUnread: 1 });
-    expect(labels(listed)[0][1]).toEqual(['Trends', 'My assets', 'Inbox']);
+    expect(labels(listed)).toEqual([['top', ['Inbox']], ['pipeline', ['Trends', 'Assets']]]);
+    // My channel (their channel's knowledge and asset instructions) shows when the role lists it (Edit channel settings).
+    const own = buildNav({ viewer: { ...owner, nav: { main: ['trends', 'assets', 'plan', 'inbox', 'mychannel'] } }, layout: 'channel', state: {}, edition: 'semrush' });
+    expect(labels(own)).toEqual([['top', ['Inbox']], ['pipeline', ['Trends', 'Assets', 'Calendar']], ['studio', ['My channel']]]);
+    expect(findNavItem(own, 'mychannel')).toMatchObject({ kind: 'channel', target: 'mychannel', icon: 'Megaphone' });
     expect(isChannelViewer({ role: 'role-reviewer-1a2b', base: 'channel' })).toBe(true);
     expect(isChannelViewer(editor())).toBe(false);
   });
@@ -135,7 +140,7 @@ describe('buildNav: channel owners', () => {
     expect(nav.actions.ask).toEqual({ id: 'ask', label: 'Ask AI', icon: 'Sparkles', shortcut: '⌘J', spot: 'nav.ask', mode: 'page' });
     expect(nav.actions.create).toEqual([]);
     expect(nav.actions.search).toBeNull();
-    expect(labels(nav)).toEqual([['channel', ['Trends', 'My assets', 'My plan', 'Inbox']]]); // the pages; Ask AI sits with the actions, as in Simple
+    expect(labels(nav)).toEqual([['top', ['Inbox']], ['pipeline', ['Trends', 'Assets', 'Calendar']]]); // the pages; Ask AI sits with the actions, as in Simple
     expect(nav.shortcuts).toContainEqual({ keys: '⌘J', label: 'Ask AI' });
     // Off for the role: the server leaves 'ask' out of its nav and askHelp out of what it may call.
     expect(buildNav({ viewer: { ...asker, nav: { main: ['trends', 'assets', 'plan', 'inbox'] } }, layout: 'channel', state: {}, edition: 'semrush' }).actions.ask).toBeNull();
@@ -210,7 +215,7 @@ describe('labels and keys', () => {
     expect(ariaKeys('⌘1')).toBe('Meta+1');
     expect(ariaKeys('⌥⌘N')).toBe('Alt+Meta+N');
     const nav = buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' });
-    expect(nav.shortcuts.slice(0, 2)).toEqual([{ keys: '⌘1', label: 'Home' }, { keys: '⌘2', label: 'Trends' }]);
+    expect(nav.shortcuts.slice(0, 2)).toEqual([{ keys: '⌘1', label: 'Home' }, { keys: '⌘2', label: 'Research programs' }]);
     expect(nav.shortcuts.map((row) => row.keys).slice(-6)).toEqual(['⌘K', '⌘J', '⌥⌘N', '⌘,', '⌘\\', 'Esc']);
   });
 });
@@ -241,58 +246,68 @@ describe('buildNav: unified', () => {
   const unified = (viewer, over = {}) => buildNav({ viewer, layout: 'unified', state: state(), edition: 'semrush', ...over });
   const stage = (nav, id) => findNavItem(nav, id);
 
-  it('lists Home and Inbox, the pipeline with each stage’s tools, Calendar, the Workbench and Studio, with no layout switch', () => {
+  it('lists Home and Inbox, the pipeline (Research programs, Trends, Assets, Calendar), the Workbench and Studio, with no layout switch', () => {
     const nav = unified(admin(), { dataToolsOpen: true });
     expect(labels(nav)).toEqual([
-      ['top', ['Home', 'Inbox']], ['pipeline', ['Trends', 'Reports', 'Assets']], ['plan', ['Calendar']],
-      ['data', ['Sheets', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Playbooks', 'Workflows', 'Activity']],
-      ['studio', ['Brand knowledge', 'Prompts', 'Analytics', 'People & access', 'Settings']],
+      ['top', ['Home', 'Inbox']], ['pipeline', ['Research programs', 'Trends', 'Assets', 'Calendar']],
+      ['data', ['Name & focus', 'Sources', 'Schedule & dates', 'Budgets & estimate', 'AI models', 'Automation', 'Advanced', 'Research & report prompts', 'Search platforms', 'Scrapers', 'Import research', 'Create content', 'Brief starters', 'Sheets', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Playbooks', 'Workflows', 'Activity']],
+      ['studio', ['Brand knowledge', 'Prompts', 'Channels', 'Analytics', 'People & access', 'Settings']],
     ]);
     expect(nav.groups.find((group) => group.id === 'pipeline')).toMatchObject({ label: 'Pipeline', pipeline: true });
-    expect(nav.groups.find((group) => group.id === 'data')).toMatchObject({ label: 'Workbench', collapsible: true, open: true, spot: 'nav.data-tools' });
-    expect(ids(stage(nav, 'trends').children)).toEqual(['board', 'research', 'search', 'automation', 'imports']);
-    expect(ids(stage(nav, 'reports').children)).toEqual(['create', 'templates']);
-    expect(ids(stage(nav, 'assets').children)).toEqual(['library']);
-    expect(stage(nav, 'trends')).toMatchObject({ kind: 'simple', stage: true, target: 'trends' });
-    expect(stage(nav, 'board')).toMatchObject({ kind: 'studio', parent: 'trends', group: 'pipeline' });
+    const workbench = nav.groups.find((group) => group.id === 'data');
+    expect(workbench).toMatchObject({ label: 'Workbench', collapsible: true, open: true, spot: 'nav.data-tools' });
+    expect(workbench.subgroups.map((set) => set.label)).toEqual(['Edit research program', 'Collect', 'Create', 'Data', 'Automate', '']);
+    // No stage carries tools: Trends has its own List | Board, and Assets holds every file.
+    expect(PIPELINE.every((row) => stage(nav, row.id).children.length === 0)).toBe(true);
+    expect(stage(nav, 'programs')).toMatchObject({ kind: 'simple', stage: true, target: 'programs', icon: 'Radar' });
+    for (const gone of ['reports', 'board', 'research', 'library']) expect(findNavItem(nav, gone)).toBeNull();
+    // Each section of the program form opens the editor at that section; the prompts item opens Prompts.
+    expect(findNavItem(nav, 'program-sources')).toMatchObject({ kind: 'program', target: 'research', section: 'sources', spot: 'nav.program-sources' });
+    expect(findNavItem(nav, 'program-prompts')).toMatchObject({ kind: 'program', target: 'prompts', section: 'prompts' });
+    expect(findNavItem(nav, 'create')).toMatchObject({ kind: 'studio', group: 'data' });
     expect(nav.footer.layouts).toEqual([]);
   });
 
-  it('numbers ⌘1–9 down the top-level pages, never a stage’s tools or the Workbench', () => {
-    expect(unified(admin()).order.map((row) => `${row.id} ${row.shortcut}`)).toEqual(['home ⌘1', 'inbox ⌘2', 'trends ⌘3', 'reports ⌘4', 'assets ⌘5', 'calendar ⌘6', 'knowledge ⌘7', 'prompts ⌘8', 'analytics ⌘9']);
+  it('numbers ⌘1–9 down the top-level pages, never the Workbench', () => {
+    expect(unified(admin()).order.map((row) => `${row.id} ${row.shortcut}`)).toEqual(['home ⌘1', 'inbox ⌘2', 'programs ⌘3', 'trends ⌘4', 'assets ⌘5', 'calendar ⌘6', 'knowledge ⌘7', 'prompts ⌘8', 'channels ⌘9']);
   });
 
-  it('opens Dataset reports under its own id, so Reports and Dataset reports are never both current', () => {
+  it('opens Dataset reports under its own id', () => {
     const nav = unified(admin());
     expect(findNavItem(nav, 'dataset-reports')).toMatchObject({ target: 'reports', kind: 'app', spot: 'nav.dataset-reports' });
-    expect(navPages(nav).filter((row) => row.id === 'reports')).toHaveLength(1);
+    expect(navPages(nav).filter((row) => row.id === 'reports')).toHaveLength(0);
   });
 
-  it('marks live work and what waits on the person on the stage and on its tool', () => {
-    const nav = buildNav({ viewer: admin(), layout: 'unified', edition: 'semrush', counts: { waiting: 2 }, state: state({ researchRuns: [{ id: 'r', workspaceId: 'w1', status: 'running' }] }) });
-    expect(stage(nav, 'trends')).toMatchObject({ live: true, liveLabel: 'research running', badge: 2, badgeLabel: '2 need your OK' });
-    expect(stage(nav, 'research')).toMatchObject({ live: true });
-    expect(stage(nav, 'board')).toMatchObject({ badge: 2 });
-    expect(stage(nav, 'reports').live).toBe(false);
+  it('marks live work and what waits on the person on its stage', () => {
+    const nav = buildNav({ viewer: admin(), layout: 'unified', edition: 'semrush', counts: { waiting: 2 }, state: state({ researchRuns: [{ id: 'r', workspaceId: 'w1', status: 'running' }], contentRuns: [{ id: 'c', workspaceId: 'w1', status: 'running' }] }) });
+    expect(stage(nav, 'programs')).toMatchObject({ live: true, liveLabel: 'research running' });
+    expect(stage(nav, 'trends')).toMatchObject({ live: true, liveLabel: 'reports being written', badge: 2, badgeLabel: '2 need your OK' });
+    expect(stage(nav, 'create')).toMatchObject({ live: true });
+    expect(stage(nav, 'assets').live).toBe(false);
   });
 
-  it('follows the role: hidden pages and Data tools take their tools away, and a stage without its page keeps its tools', () => {
+  it('follows the role: Research programs and Edit research program are for program managers, and Data tools hide their tools', () => {
+    // An editor's nav (from the server) has no Research programs, and without Manage research programs there's no editor.
+    const ed = unified(editor({ nav: { main: ['home', 'trends', 'assets', 'calendar', 'ask'], admin: ['prompts'], bottom: [] } }));
+    expect(labels(ed).find(([id]) => id === 'pipeline')[1]).toEqual(['Trends', 'Assets', 'Calendar']);
+    expect(findNavItem(ed, 'program-basics')).toBeNull();
+    expect(ed.groups.find((group) => group.id === 'data').subgroups.map((set) => set.id)).not.toContain('program');
     const noData = unified(editor({ hiddenPages: ['data-tools', 'create'] }));
-    expect(ids(stage(noData, 'trends').children)).toEqual(['board', 'research']);
-    expect(ids(stage(noData, 'reports').children)).toEqual([]);
     expect(findNavItem(noData, 'datasets')).toBeNull();
-    const viewer = unified(editor({ nav: { main: ['home', 'reports', 'trends'], admin: [], bottom: [] } }));
-    expect(findNavItem(viewer, 'assets')).toBeNull();
-    expect(findNavItem(viewer, 'library')).toMatchObject({ group: 'pipeline', parent: '' });
-    // Without the Advanced pages, the stages carry no tools and there is no Workbench.
+    expect(findNavItem(noData, 'search')).toBeNull();
+    expect(findNavItem(noData, 'create')).toBeNull();
+    // An admin whose studio hides Prompts keeps the form's sections but not the prompts item.
+    const noPrompts = unified(admin({ hiddenPages: ['prompts'] }));
+    expect(findNavItem(noPrompts, 'program-basics')).not.toBeNull();
+    expect(findNavItem(noPrompts, 'program-prompts')).toBeNull();
+    // Without the Advanced pages there is no Workbench.
     const simpleOnly = unified(admin({ modes: ['simple'] }));
-    expect(PIPELINE.every((row) => stage(simpleOnly, row.id).children.length === 0)).toBe(true);
     expect(simpleOnly.groups.some((group) => group.id === 'data')).toBe(false);
   });
 
-  it('leads the General edition’s Workbench with its collection Overview', () => {
+  it('leads the General edition’s Data set with its collection Overview', () => {
     const general = buildNav({ viewer: admin(), layout: 'unified', state: state(), edition: 'general' });
-    expect(general.groups.find((group) => group.id === 'data').items[0]).toMatchObject({ id: 'dashboard', label: 'Overview' });
+    expect(general.groups.find((group) => group.id === 'data').subgroups.find((set) => set.id === 'analyze').items[0]).toMatchObject({ id: 'dashboard', label: 'Overview' });
     expect(findNavItem(unified(admin()), 'dashboard')).toBeNull();
     expect(WORKBENCH.flatMap((set) => set.items).find((row) => row.id === 'dashboard').general).toBe(true);
   });

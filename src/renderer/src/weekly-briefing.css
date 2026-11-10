@@ -40,8 +40,31 @@
 .wb-quiet-week h2 { margin: 0; font-size: 17px; }
 .wb-quiet-week p { margin: 4px 0 0; font-size: 14px; line-height: 1.5; color: var(--s-muted, #62685e); }
 
-/* Two stacked columns: the work that needs this person (wider) and context (narrower). One column below 1080px. */
-.wb-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: var(--wb-gap); align-items: start; }
+/* At a glance: four tiles, each a number and a line, opening the page that holds them. Two per row on a narrow window. */
+.wb-glance-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.wb-glance-list:has(> li:nth-child(3):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.wb-glance-list > li { display: grid; min-width: 0; }
+.wb-page button.wb-tile { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label icon" "value value" "hint hint"; align-content: start; justify-content: stretch; gap: 2px 10px; min-width: 0; min-height: 0; margin: 0; padding: 14px 16px 15px; font: inherit; text-align: left; color: var(--s-ink, #181e15); background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-row, 16px); box-shadow: var(--s-shadow); cursor: pointer; transition: border-color 140ms ease, background 140ms ease, transform 140ms ease; }
+.wb-page button.wb-tile:hover:not(:disabled) { color: var(--s-ink, #181e15); background: var(--s-card, #fff); border-color: var(--s-line-strong, #cfd6d0); transform: translateY(-1px); }
+.wb-page button.wb-tile.is-hot { background: color-mix(in srgb, var(--s-soft, #f1eaff) 70%, var(--s-card, #fff)); border-color: color-mix(in srgb, var(--s-accent, #c190ff) 55%, transparent); }
+.wb-page button.wb-tile.is-hot:hover:not(:disabled) { background: var(--s-soft, #f1eaff); border-color: var(--s-accent, #c190ff); }
+.wb-tile-label { grid-area: label; align-self: center; min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; color: var(--s-muted, #62685e); text-overflow: ellipsis; white-space: nowrap; }
+.wb-tile-icon { grid-area: icon; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; }
+.wb-tile-icon.tone-purple { color: var(--s-soft-ink, #5a2fa0); background: var(--s-soft, #f1eaff); }
+.wb-tile-icon.tone-mint { color: var(--s-mint-ink, #1f5a4c); background: var(--s-mint, #dceeeb); }
+.wb-tile-icon.tone-ink { color: var(--s-ink, #181e15); background: var(--s-bg, #f4f6f5); }
+.wb-tile.is-hot .wb-tile-icon { background: var(--s-card, #fff); }
+.wb-tile-value { grid-area: value; margin-top: 2px; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.wb-tile-hint { grid-area: hint; min-width: 0; overflow: hidden; font-size: 12.5px; line-height: 1.4; color: var(--s-muted, #62685e); text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 860px) { .wb-glance-list, .wb-glance-list:has(> li:nth-child(3):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .wb-page button.wb-tile { padding: 12px 14px 13px; } .wb-tile-label, .wb-tile-hint { overflow: visible; white-space: normal; } .wb-tile-value { font-size: 22px; } }
+@media (prefers-reduced-motion: reduce) { .wb-page button.wb-tile { transition: none; } .wb-page button.wb-tile:hover:not(:disabled) { transform: none; } }
+
+/* Two stacked columns: trends and briefs (wider), research and what went out (narrower). One column below 1080px, or
+   when the side column has nothing in it. */
+.wb-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr); gap: var(--wb-gap); align-items: start; }
+.wb-layout:not(:has(.wb-col-side > *)) { grid-template-columns: minmax(0, 1fr); }
+.wb-col-side:empty { display: none; }
 .wb-col { display: grid; gap: var(--wb-gap); align-content: start; min-width: 0; }
 @media (max-width: 1080px) { .wb-layout { grid-template-columns: minmax(0, 1fr); } }
 .wb-card, .wb-changes > .tp-card { min-width: 0; padding: 18px 20px; background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius, 20px); box-shadow: var(--s-shadow); }
@@ -54,7 +77,6 @@
 .wb-card.is-empty { padding-block: 14px; box-shadow: none; }
 .wb-card.is-empty .wb-card-head { margin-bottom: 4px; }
 .wb-card.is-empty .wb-empty { padding-left: 42px; font-size: 13.5px; }
-.wb-empty-lead { margin-bottom: 10px; font-size: 13.5px; }
 .wb-earlier-row { gap: 2px; }
 .wb-icon { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; }
 .wb-icon.tone-purple { color: var(--s-soft-ink, #5a2fa0); background: var(--s-soft, #f1eaff); }
@@ -140,5 +162,12 @@
 .wb-next-copy strong { font-size: 14px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
 .wb-next-copy small { font-size: 12.5px; line-height: 1.45; color: var(--s-muted, #62685e); overflow-wrap: anywhere; }
 .wb-next-card > button { grid-column: 2; justify-self: start; }
+.wb-next-list.is-single { grid-template-columns: minmax(0, 1fr); }
+.wb-next-list.is-single .wb-next-card { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto; align-items: center; gap: 12px 14px; }
+.wb-next-list.is-single .wb-next-card > button { grid-column: 3; justify-self: end; }
+@media (max-width: 640px) {
+  .wb-next-list.is-single .wb-next-card { grid-template-columns: auto minmax(0, 1fr); }
+  .wb-next-list.is-single .wb-next-card > button { grid-column: 2; justify-self: start; }
+}
 .wb-next > .wb-empty { font-size: 13.5px; }
 @media (max-width: 560px) { .wb-setup-list > li { grid-template-columns: auto minmax(0, 1fr); } .wb-setup-list > li > button { grid-column: 2; justify-self: start; } }

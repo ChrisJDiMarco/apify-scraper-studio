@@ -32,10 +32,10 @@ function nav(name) { return within(screen.getByRole('navigation', { name: 'Main'
 const navLabels = () => within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('button').filter((button) => !button.classList.contains('sb-stage-toggle')).map((button) => button.querySelector('.sb-text')?.textContent || button.textContent);
 
 describe('workspace navigation', () => {
-  it('lists Home and Inbox, the pipeline with its tools, Calendar, the Workbench (open where there is no content studio), then Settings', async () => {
+  it('lists Home and Inbox, the pipeline, the Workbench (open where there is no content studio), then Settings', async () => {
     await openApp();
-    // settings.uiMode is 'classic' here, so every stage starts with its tools showing.
-    expect(navLabels()).toEqual(['Home', 'Inbox', 'Trends', 'Search platforms', 'Scrapers', 'Import research', 'Reports', 'Brief starters', 'Assets', 'Calendar', 'Workbench', 'Overview', 'Sheets', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Activity', 'Settings']);
+    // No content studio here, so no Research programs and no program editor; the Workbench holds the collecting tools.
+    expect(navLabels()).toEqual(['Home', 'Inbox', 'Trends', 'Assets', 'Calendar', 'Workbench', 'Search platforms', 'Scrapers', 'Import research', 'Brief starters', 'Overview', 'Sheets', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Activity', 'Settings']);
     expect(nav('Workbench')).toHaveAttribute('aria-expanded', 'true');
     expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
     // Search and Ask AI moved from the top bar into the sidebar.
@@ -81,6 +81,7 @@ describe('Semrush studio shell', () => {
       appMeta: vi.fn(async () => ({ version: 'test' })), state: vi.fn(async () => current), onStateChanged: vi.fn(() => () => {}), readDataset: vi.fn(async () => ({ items: [] })),
       contentCatalog: vi.fn(async () => ({ editions: [{ id: 'general', label: 'General studio' }, { id: 'semrush', label: 'Semrush workspace' }], deliverables: [] })),
       selectContentWorkspace: vi.fn(async id => { current = { ...current, contentStudio: { ...current.contentStudio, activeWorkspaceId: id } }; return true; }),
+      saveResearchProgram: vi.fn(async (program) => program),
     };
     const result = render(<App />);
     await screen.findByRole('heading', { name: 'This week in Semrush workspace' });
@@ -91,22 +92,26 @@ describe('Semrush studio shell', () => {
     expect(container.querySelector('.app-shell')).toHaveAttribute('data-edition', 'semrush');
     expect(screen.getByRole('img', { name: 'Semrush' })).toHaveAttribute('src', expect.stringContaining('semrush-2026-logo.svg'));
     expect(container.querySelector('.cs-hero-art')).not.toBeInTheDocument();
-    expect(navLabels()).toEqual(['Home', 'Inbox', 'Trends', 'Trend board', 'Research programs', 'Search platforms', 'Scrapers', 'Import research', 'Reports', 'Create content', 'Brief starters', 'Assets', 'Library', 'Calendar', 'Workbench', 'Brand knowledge', 'Settings']);
+    expect(navLabels()).toEqual(['Home', 'Inbox', 'Research programs', 'Trends', 'Assets', 'Calendar', 'Workbench', 'Brand knowledge', 'Settings']);
     expect(screen.queryByRole('navigation', { name: 'Content studio' })).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Workspace:/ })).toHaveLength(1);
+    fireEvent.click(nav('Workbench'));
     fireEvent.click(nav('Create content'));
     expect(screen.getByLabelText('Source title')).toBeVisible();
     expect(nav('Create content')).toHaveAttribute('aria-current', 'page');
     expect(screen.queryByRole('heading', { name: 'This week in Semrush workspace' })).not.toBeInTheDocument();
     fireEvent.click(nav('Research programs'));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Research programs' })).toBeVisible();
     expect(nav('Research programs')).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('button', { name: 'New program' })).toBeVisible();
-    fireEvent.click(nav('Workbench'));
+    // Workbench → Edit research program opens the program editor at that section.
+    fireEvent.click(nav('Sources'));
+    expect(await screen.findByRole('button', { name: 'New program' })).toBeVisible();
+    expect(nav('Sources')).toHaveAttribute('aria-current', 'page');
     expect(nav('Sheets')).toBeVisible();
     fireEvent.click(nav('Search platforms'));
     expect(await screen.findByRole('tab', { name: 'Sources & filters' })).toBeVisible();
-    fireEvent.click(nav('Library'));
-    expect(await screen.findByText('Make something worth sharing')).toBeVisible();
+    fireEvent.click(nav('Assets'));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Assets' })).toBeVisible();
   });
   it('keeps the sidebar workspace switcher available when leaving Semrush and switching back from General search', async () => {
     const { container } = await openSemrush();
@@ -149,6 +154,7 @@ describe('Simple mode', () => {
       contentCatalog: vi.fn(async () => ({ editions: [], deliverables: [] })),
       readStudioAsset: vi.fn(async () => ({ markdown: '# Evidence report: AI search\n\nPeople want answers.' })),
       decideResearchTheme: vi.fn(async () => true),
+      saveResearchProgram: vi.fn(async (program) => program),
       saveSettings: vi.fn(async (settings) => { current = { ...current, settings: { ...current.settings, ...settings } }; return current; }),
       // The desktop main process mirrors the person's layout into settings.uiMode, as this mock does.
       setViewPrefs: vi.fn(async (prefs) => { current = { ...current, settings: { ...current.settings, ...prefs } }; return { viewer: null }; }),
@@ -163,7 +169,7 @@ describe('Simple mode', () => {
   it('opens in Simple mode by default with its pages, Settings, and Ask AI pinned above them', async () => {
     await openSimple();
     // No saved Advanced habit, so the stages start folded; the Workbench is closed where there is a content studio.
-    expect(navLabels()).toEqual(['Home', 'Inbox', 'Trends', 'Reports', 'Assets', 'Calendar', 'Workbench', 'Brand knowledge', 'Settings']);
+    expect(navLabels()).toEqual(['Home', 'Inbox', 'Research programs', 'Trends', 'Assets', 'Calendar', 'Workbench', 'Brand knowledge', 'Settings']);
     expect(screen.getByRole('button', { name: 'Ask AI' })).toHaveAttribute('data-spot', 'nav.ask');
     expect(nav('Trends')).toHaveAccessibleName('Trends, 1 needs your OK');
     expect(within(screen.getByRole('navigation', { name: 'Main' })).queryByRole('group', { name: 'Research' })).not.toBeInTheDocument();
@@ -181,27 +187,33 @@ describe('Simple mode', () => {
       await openSimple();
       expect(await screen.findByRole('navigation', { name: 'Settings sections' })).toBeInTheDocument();
       await waitFor(() => expect(scrolled).toContain('settings-web-address'));
-      expect(window.location.hash).toBe(''); // a reload doesn't reopen it
+      expect(window.location.hash).toBe('#/settings/web-address'); // the address names the section, so a reload reopens it
     } finally { frame.mockRestore(); delete Element.prototype.scrollIntoView; window.history.replaceState(null, '', '/'); }
   });
 
+  // A report that isn't a trend's (this one has no run) is in Assets: a search finds it and it opens in the reader there.
+  const findReport = async () => {
+    fireEvent.click(nav('Assets'));
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Search assets' }), { target: { value: 'Evidence' } });
+    fireEvent.click(await screen.findByRole('button', { name: /^Evidence report: AI search/ }));
+  };
+
   it('reads a report and decides a trend in one tap', async () => {
     const api = await openSimple();
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^Reports/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /^Evidence report: AI search/ }));
+    await findReport();
     expect(await screen.findByText('People want answers.')).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Trends/ }));
     fireEvent.click(await screen.findByRole('button', { name: /Yes, use it/ }));
     expect(api.decideResearchTheme).toHaveBeenCalledWith({ runId: 'run-1', themeId: 't1', decision: 'approved' });
   });
 
-  it('asks about the open report with its text, and Esc returns to the list', async () => {
+  it('asks about the open report with its text, and Esc returns to Assets', async () => {
     const api = await openSimple();
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^Reports/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /^Evidence report: AI search/ }));
+    await findReport();
     expect(await screen.findByText('People want answers.')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
-    fireEvent.click(await screen.findByRole('button', { name: /^Evidence report: AI search/ }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Assets' })).toBeInTheDocument();
+    await findReport();
     fireEvent.click(await screen.findByRole('button', { name: 'Ask AI about this' }));
     await waitFor(() => expect(api.askHelp).toHaveBeenCalled());
     const request = api.askHelp.mock.calls[0][0];
@@ -227,22 +239,21 @@ describe('Simple mode', () => {
     api.readHelpImage = vi.fn(async () => ({ id: 'help-image-1', dataUrl: 'data:image/png;base64,AAAA' }));
     api.readStudioAsset = vi.fn(async () => ({ imageDataUrl: 'data:image/png;base64,BBBB' }));
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /Assets/ }));
-    const cards = await screen.findAllByRole('button', { name: /^Open / });
+    const cards = await within(await screen.findByRole('region', { name: 'Pictures' })).findAllByRole('button', { name: /^Open / });
     expect(cards.map((card) => card.getAttribute('aria-label'))).toEqual(['Open Sky whales', 'Open Campaign hero']);
     expect(screen.getByRole('button', { name: /Made in Ask AI/ })).toBeInTheDocument();
     fireEvent.click(cards[0]);
     expect(await screen.findByText('Whales above a city')).toBeInTheDocument();
   });
 
-  it('opens a stage’s tools in place, with no layout to switch, and a Simple page closes them again', async () => {
+  it('opens a Workbench tool in place, with no layout to switch, and a Simple page closes it again', async () => {
     const api = await openSimple();
     expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
-    const trends = within(screen.getByRole('group', { name: 'Trends' }));
-    fireEvent.click(trends.getByRole('button', { name: 'Show tools' }));
-    fireEvent.click(nav('Research programs'));
+    fireEvent.click(nav('Workbench'));
+    fireEvent.click(nav('Name & focus'));
     expect(await screen.findByRole('button', { name: 'New program' })).toBeVisible();
     expect(document.querySelector('.studio-frame')).toHaveAttribute('data-mode', 'classic');
-    expect(nav('Research programs')).toHaveAttribute('aria-current', 'page');
+    expect(nav('Name & focus')).toHaveAttribute('aria-current', 'page');
     expect(screen.queryByRole('region', { name: 'Advanced page' })).not.toBeInTheDocument(); // no Back to Simple bar
     fireEvent.click(nav('Trends'));
     await waitFor(() => expect(document.querySelector('.studio-frame')).toHaveAttribute('data-mode', 'simple'));

@@ -117,7 +117,7 @@ describe('migration and presets', () => {
     expect(preview.changedCount).toBeGreaterThan(5);
     expect(preview.examples.researchRunUsd).toBeLessThan(routing.preview().examples.researchRunUsd);
     expect(preview.tasks.find((row) => row.taskId === 'video.social-clip')).toMatchObject({ unit: 'clip', typicalUsd: 1.21 });
-    expect(routing.preview().tasks).toHaveLength(36);
+    expect(routing.preview().tasks).toHaveLength(37);
   });
   it('says which tasks a piece of work uses before it spends', () => {
     const routing = routingFor({});

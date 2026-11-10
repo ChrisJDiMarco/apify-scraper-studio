@@ -29,6 +29,16 @@ const narrow = () => { window.matchMedia = vi.fn((query) => ({ matches: true, me
 const main = () => within(screen.getByRole('navigation', { name: 'Main' }));
 
 describe('StudioSidebar: head', () => {
+  it('names the product Golden Thread in both editions, with "for Semrush" only in the Semrush edition', () => {
+    const { container, rerender, frame } = sidebar();
+    const head = () => container.querySelector('.sb-head');
+    expect(within(head()).getByText('Golden Thread')).toBeInTheDocument();
+    expect(within(head()).getByRole('img', { name: 'Semrush' })).toBeInTheDocument();
+    rerender(frame({ edition: 'general' }));
+    expect(within(head()).getByText('Golden Thread')).toBeInTheDocument();
+    expect(within(head()).queryByRole('img', { name: 'Semrush' })).toBeNull();
+    expect(head().textContent).not.toMatch(/scraper/i);
+  });
   it('gives a real admin a workspace switcher with every workspace and New workspace', () => {
     const { onNewWorkspace, onSelectWorkspace } = sidebar();
     const switcher = screen.getByRole('button', { name: 'Workspace: Semrush workspace. Admin · Simple' });
@@ -105,9 +115,9 @@ describe('StudioSidebar: head', () => {
     expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument();
     const trends = main().getByRole('button', { name: 'Trends, 3 need your OK' });
     expect(trends).not.toHaveAttribute('title');
-    expect(trends).toHaveAttribute('data-tip', 'Trends, 3 need your OK · ⌘2');
+    expect(trends).toHaveAttribute('data-tip', 'Trends, 3 need your OK · ⌘3');
     fireEvent.mouseOver(trends);
-    expect(document.querySelector('.sb-tip')).toHaveTextContent('Trends, 3 need your OK · ⌘2');
+    expect(document.querySelector('.sb-tip')).toHaveTextContent('Trends, 3 need your OK · ⌘3');
     fireEvent.mouseLeave(aside);
     expect(document.querySelector('.sb-tip')).toBeNull();
   });
@@ -181,13 +191,13 @@ describe('StudioSidebar: pages', () => {
     expect(main().getByRole('group', { name: 'Pages' })).toBeInTheDocument();
     expect(main().getByRole('group', { name: 'Studio' })).toBeInTheDocument();
     const trends = main().getByRole('button', { name: 'Trends, 3 need your OK' }); // never "3Trends"
-    expect(trends).toHaveAttribute('title', 'Trends (⌘2)');
-    expect(trends).toHaveAttribute('aria-keyshortcuts', 'Meta+2');
+    expect(trends).toHaveAttribute('title', 'Trends (⌘3)');
+    expect(trends).toHaveAttribute('aria-keyshortcuts', 'Meta+3');
     expect(trends).toHaveAttribute('data-spot', 'nav.trends');
     expect(trends.querySelector('.sb-badge')).toHaveAttribute('aria-hidden', 'true');
     expect(main().getByRole('button', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     expect(main().getByRole('button', { name: 'Settings, Apify isn’t connected' })).toHaveAttribute('aria-keyshortcuts', 'Meta+,');
-    expect(within(main().getByRole('group', { name: 'Studio' })).getAllByRole('button').map((button) => button.querySelector('.sb-text').textContent)).toEqual(['Prompts', 'Analytics', 'People & access', 'Brand knowledge', 'Settings']);
+    expect(within(main().getByRole('group', { name: 'Studio' })).getAllByRole('button').map((button) => button.querySelector('.sb-text').textContent)).toEqual(['Prompts', 'Channels', 'Analytics', 'People & access', 'Brand knowledge', 'Settings']);
     fireEvent.click(main().getByRole('button', { name: 'People & access' }));
     expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: 'people', kind: 'admin', target: 'people' }));
   });
@@ -315,7 +325,7 @@ describe('StudioSidebar under 860px', () => {
     expect(within(drawer).queryByRole('button', { name: 'Collapse sidebar' })).not.toBeInTheDocument();
     fireEvent.keyDown(drawer, { key: 'Escape' });
     expect(onCloseDrawer).toHaveBeenCalledTimes(1);
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Reports' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Assets' }));
     expect(onCloseDrawer).toHaveBeenCalledTimes(2);
     rerender(frame({ drawerOpen: false }));
     expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
@@ -369,7 +379,7 @@ describe('StudioSidebar under 860px', () => {
     render(<ChannelBottomNav items={nav.groups[0].items} active="trends" onNavigate={onNavigate} />);
     const bottom = screen.getByRole('navigation', { name: 'Main' });
     expect(within(bottom).getByRole('button', { name: 'Trends, 2 new' })).toHaveAttribute('aria-current', 'page');
-    fireEvent.click(within(bottom).getByRole('button', { name: 'My assets' }));
+    fireEvent.click(within(bottom).getByRole('button', { name: 'Assets' }));
     expect(onNavigate).toHaveBeenCalledWith('assets');
   });
 
@@ -430,48 +440,37 @@ describe('StudioSidebar: the unified pipeline', () => {
   it('draws the stages on one spine, each a group named for its page, with no layout switch', () => {
     sidebar({ nav: unifiedNav() });
     const pipeline = main().getByRole('group', { name: 'Pipeline' });
-    expect(within(pipeline).getAllByRole('group').filter((node) => node.classList.contains('sb-stage')).map((node) => node.getAttribute('aria-label'))).toEqual(['Trends', 'Reports', 'Assets']);
-    expect(pipeline.querySelectorAll('.sb-node')).toHaveLength(3);
+    expect(within(pipeline).getAllByRole('group').filter((node) => node.classList.contains('sb-stage')).map((node) => node.getAttribute('aria-label'))).toEqual(['Research programs', 'Trends', 'Assets', 'Calendar']);
+    expect(pipeline.querySelectorAll('.sb-node')).toHaveLength(4);
+    expect(within(pipeline).queryByRole('button', { name: /tools$/ })).not.toBeInTheDocument(); // no stage has tools to fold
     expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Workspace: Semrush workspace\. Admin$/ })).toBeInTheDocument();
     expect(main().getByRole('button', { name: 'Trends, 3 need your OK' })).toBeInTheDocument();
   });
 
-  it('shows a stage’s tools while it or one of them is open, and otherwise behind its chevron, remembered on this device', () => {
-    const { onNavigate, unmount } = sidebar({ nav: unifiedNav() });
-    expect(main().queryByRole('button', { name: /^Trend board/ })).not.toBeInTheDocument();
-    const trends = within(main().getByRole('group', { name: 'Trends' }));
-    fireEvent.click(trends.getByRole('button', { name: 'Show tools' }));
-    expect(trends.getByRole('button', { name: 'Hide tools' })).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.click(main().getByRole('button', { name: /^Research programs/ }));
-    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: 'research', kind: 'studio' }));
-    unmount();
-    sidebar({ nav: unifiedNav() });
-    expect(main().getByRole('button', { name: /^Trend board/ })).toBeInTheDocument(); // the chevron's choice stayed
-    cleanup();
-    sidebar({ nav: unifiedNav(), activeId: 'library' });
-    const assets = within(main().getByRole('group', { name: 'Assets' }));
-    expect(assets.getByRole('button', { name: /^Library/ })).toHaveAttribute('aria-current', 'page');
-    expect(assets.queryByRole('button', { name: /tools$/ })).not.toBeInTheDocument(); // no chevron while it can’t fold
+  it('puts Edit research program first in the Workbench, one item per section of the form, and opens the one pressed', () => {
+    const { onNavigate } = sidebar({ nav: unifiedNav({ dataToolsOpen: true }) });
+    const sets = [...document.querySelectorAll('.sb-subgroup')].map((node) => node.getAttribute('aria-label'));
+    expect(sets).toEqual(['Edit research program', 'Collect', 'Create', 'Data', 'Automate', 'Activity']);
+    const program = within(main().getByRole('group', { name: 'Edit research program' }));
+    expect(program.getAllByRole('button').map((button) => button.querySelector('.sb-text').textContent)).toEqual(['Name & focus', 'Sources', 'Schedule & dates', 'Budgets & estimate', 'AI models', 'Automation', 'Advanced', 'Research & report prompts']);
+    fireEvent.click(program.getByRole('button', { name: 'Sources' }));
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: 'program-sources', kind: 'program', section: 'sources' }));
+    fireEvent.click(program.getByRole('button', { name: 'Research & report prompts' }));
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: 'program-prompts', kind: 'program', section: 'prompts' }));
+    expect(main().getByRole('button', { name: /^Scrapers/ })).toBeInTheDocument();
+    expect(main().getByRole('button', { name: /^Brief starters/ })).toBeInTheDocument();
   });
 
-  it('starts every stage open for someone who used Advanced, until a chevron closes one', () => {
-    sidebar({ nav: unifiedNav(), toolsOpen: true });
-    for (const name of ['Trend board', 'Create content', 'Library']) expect(main().getByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
-    fireEvent.click(within(main().getByRole('group', { name: 'Reports' })).getByRole('button', { name: 'Hide tools' }));
-    expect(main().queryByRole('button', { name: /^Create content/ })).not.toBeInTheDocument();
-    expect(main().getByRole('button', { name: /^Trend board/ })).toBeInTheDocument();
-  });
-
-  it('opens a stage when Ask AI’s Show me points at one of its tools', async () => {
-    sidebar({ nav: unifiedNav() });
-    window.dispatchEvent(new CustomEvent('studio-nav-reveal', { detail: 'nav.scrapers' }));
+  it('opens the Workbench when Ask AI’s Show me points at one of its tools', async () => {
+    const { rerender, frame } = sidebar({ nav: unifiedNav() });
+    expect(main().queryByRole('button', { name: /^Scrapers/ })).not.toBeInTheDocument();
+    rerender(frame({ nav: unifiedNav({ dataToolsOpen: true }) })); // App opens the group for a Workbench spot (revealNavSpot)
     expect(await main().findByRole('button', { name: /^Scrapers/ })).toBeInTheDocument();
   });
 
-  it('keeps the spine’s nodes in the rail, without the tools', () => {
+  it('keeps the spine’s nodes in the rail', () => {
     sidebar({ nav: unifiedNav(), rail: true, toolsOpen: true });
-    expect(document.querySelectorAll('.sb-node')).toHaveLength(3);
-    expect(main().queryByRole('button', { name: /^Trend board/ })).not.toBeInTheDocument();
+    expect(document.querySelectorAll('.sb-node')).toHaveLength(4);
   });
 });

@@ -222,6 +222,15 @@ export function ContentStudioView({ state = {}, api = {}, busy = false, onNotice
     });
     if (result && requestedWorkspace === liveWorkspace.current) { setSourceDraft({ workspaceId, value: result }); navigate('create'); }
   }
+  // A report handed over from elsewhere (a trend's report on Trends or Assets: "Create content from this"): Create content
+  // opens with it attached, once per request ({ key, assetId }).
+  const handedReport = useRef(null);
+  useEffect(() => {
+    if (!createRequest?.key || !createRequest.assetId || handedReport.current === createRequest.key) return;
+    handedReport.current = createRequest.key;
+    const asset = assets.find((row) => row.id === createRequest.assetId);
+    if (asset) fromAsset(asset); else onNotice?.('That report isn’t in this workspace. It may be in another workspace, or it was removed.');
+  }, [createRequest?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   async function fromAsset(asset) {
     if (asset.kind === 'image') { setSelectedAssetId(asset.id); navigate('library'); return; }
     await useReport({ ...asset, assetId: asset.id });
@@ -317,6 +326,23 @@ function ResearchPrograms({ workflows = [], workspace, capabilities = {}, gates 
   const [datasetIds, setDatasetIds] = useState([]);
   const [inputMode, setInputMode] = useState('collect');
   const [formError, setFormError] = useState('');
+  // The section of the form to bring into view once it's drawn ({ id, key }: Workbench → Edit research program).
+  const [focusSection, setFocusSection] = useState(null);
+  useEffect(() => {
+    if (!focusSection || !editing) return undefined;
+    const timer = setTimeout(() => {
+      const heading = document.getElementById(`cs-group-${focusSection.id}-title`);
+      heading?.closest('section')?.scrollIntoView?.({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    }, 40);
+    return () => clearTimeout(timer);
+  }, [focusSection?.key, editing]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Another program from the editor's picker: unsaved changes are asked about first.
+  async function switchProgram(id) {
+    const target = programs.find((program) => program.id === id);
+    if (!target || target.id === draft.id || !(await mayDiscard())) return;
+    setSelectedProgramId(target.id); onSelectRun(''); edit(target);
+  }
   // New › Research program (the sidebar, ⌥⌘N, the palette): a blank program form, once per request. Ask AI's program
   // draft ({ kind: 'draft', draft }) opens the same form filled in; nothing is saved until Save is pressed. Ask AI's
   // program card, Open button and [[Program]] links ({ kind: 'open', programId }) select that program, for any role
@@ -326,11 +352,15 @@ function ResearchPrograms({ workflows = [], workspace, capabilities = {}, gates 
     if (!['new', 'draft', 'open', 'edit'].includes(programRequest?.kind) || !programRequest.key || handledProgramRequest.current === programRequest.key) return;
     handledProgramRequest.current = programRequest.key;
     onProgramRequestHandled?.(programRequest.key);
-    // { kind: 'edit', programId }: Home's program drawer "Open full page" opens that program's editor here.
+    // { kind: 'edit', programId, section? }: Home's program drawer "Open full page", the Research programs page's Edit and
+    // Workbench → Edit research program open that program's editor here, at that section of the form. The same program
+    // already open in the editor just moves to the section, keeping what was typed.
     if (programRequest.kind === 'edit' && canEdit) {
       const target = programs.find((program) => program.id === programRequest.programId);
       if (!target) { onNotice?.('That research program isn’t in this workspace. It may be in another workspace, or it was removed.'); return; }
-      const open = () => { setSelectedProgramId(target.id); onSelectRun(''); edit(target); };
+      const section = String(programRequest.section || '');
+      if (editing && draft.id === target.id) { setFocusSection({ id: section || 'basics', key: programRequest.key }); return; }
+      const open = () => { setSelectedProgramId(target.id); onSelectRun(''); edit(target); setFocusSection({ id: section || 'basics', key: programRequest.key }); };
       if (!dirty) open(); else Promise.resolve(mayDiscard()).then((ok) => { if (ok) open(); });
       return;
     }
@@ -375,8 +405,8 @@ function ResearchPrograms({ workflows = [], workspace, capabilities = {}, gates 
       setEditing(false); setFormError('');
       onNotice?.(`Imported ${done?.fileName || 'the setup'}${done?.apifyTokenSaved ? ' and saved the Apify token' : ''}. Next: Settings → Writing & research → Check Claude, then start with a small run.`);
     }} />}
-    {editing && canEdit ? <form className="cs-panel cs-program-editor" onSubmit={save}><div className="cs-panel-title"><div><h3>{draft.id ? 'Edit research program' : 'Build your listening brief'}</h3><p>Save the sources and boundaries once. Each run keeps a separate evidence snapshot.</p></div>{programs.length > 0 && <Button type="button" className="cs-quiet" onClick={async () => { if (await mayDiscard()) setEditing(false); }}>Close</Button>}</div><fieldset disabled={disabled}>
-      <ProgramEditorFields idPrefix="cs" draft={draft} setDraft={setDraft} capabilities={capabilities} api={api} onEdit={() => setFormError('')} />
+    {editing && canEdit ? <form className="cs-panel cs-program-editor" onSubmit={save}><div className="cs-panel-title"><div><h3>{draft.id ? 'Edit research program' : 'Build your listening brief'}</h3><p>Save the sources and boundaries once. Each run keeps a separate evidence snapshot.</p></div><div className="cs-editor-tools">{draft.id && programs.length > 1 && <label className="cs-program-pick"><span className="sr-only">Program to edit</span><select aria-label="Program to edit" value={draft.id} disabled={disabled} onChange={(event) => switchProgram(event.target.value)}>{programs.map((program) => <option key={program.id} value={program.id}>{program.name || 'Untitled program'}</option>)}</select></label>}{programs.length > 0 && <Button type="button" className="cs-quiet" onClick={async () => { if (await mayDiscard()) setEditing(false); }}>Close</Button>}</div></div><fieldset disabled={disabled}>
+      <ProgramEditorFields idPrefix="cs" grouped draft={draft} setDraft={setDraft} capabilities={capabilities} api={api} onEdit={() => setFormError('')} />
       {formError && <div className="cs-alert" role="alert">{formError}</div>}<div className="cs-form-actions"><span>{draft.schedule.enabled && draft.schedule.frequency !== 'manual' ? 'Saving enables future runs with the limits above. No run starts immediately.' : 'Saving keeps automatic runs off. You can start research whenever you are ready.'}</span><Button type="submit">Save research program<Check size={15} /></Button></div>
     </fieldset></form> : selectedProgram ? <div className="cs-research-layout"><aside className="cs-panel cs-program-list"><div className="cs-panel-title"><h3>Saved programs</h3><Badge>{programs.length}</Badge></div>{programs.map((program) => <button type="button" key={program.id} className={`cs-program-choice ${selectedProgram.id === program.id ? 'selected' : ''}`} onClick={() => { setSelectedProgramId(program.id); onSelectRun(''); }}><strong>{program.name}</strong><small>{list(program.sourceGroups).filter((group) => group.enabled).reduce((sum, group) => sum + list(group.targets).length, 0)} targets · {program.query || 'Source-led research'}</small>{lastRunLine(program) && <small className="cs-program-cost">{lastRunLine(program)}</small>}</button>)}</aside><div className="cs-research-main"><section className="cs-panel"><div className="cs-panel-title"><div><h3>{selectedProgram.name}</h3><p>{selectedProgram.query || 'Follow the accounts and communities in this program.'}</p></div>{canEdit && <Button type="button" className="cs-quiet" disabled={disabled} onClick={() => edit(selectedProgram)}>Edit program</Button>}</div><div className="cs-program-scope">{list(selectedProgram.sourceGroups).filter((group) => group.enabled).map((group) => <SourcePill key={group.id}>{group.name} · {list(group.targets).length || 'topic'}</SourcePill>)}<SourcePill>{programWindowLabel(selectedProgram)}</SourcePill></div><ProgramSchedule program={selectedProgram} disabled={disabled} seeCosts={seeCosts} automatedBy={workflows.find((flow) => flow.status !== 'paused' && flow.steps?.[0]?.programId === selectedProgram.id && flow.trigger?.kind === 'schedule')?.name || ''} onToggle={canEdit && (() => action(selectedProgram.schedule?.enabled ? 'Pausing schedule' : 'Enabling schedule', () => api.saveResearchProgram({ ...selectedProgram, schedule: { ...selectedProgram.schedule, enabled: !selectedProgram.schedule?.enabled } }), selectedProgram.schedule?.enabled ? 'Schedule paused. A running research task is not cancelled.' : 'Schedule enabled for its next run time.'))} />{canStart && <fieldset className="cs-run-input" disabled={disabled}><legend>Evidence for this run</legend><div className="cs-choice-row"><label><input type="radio" name="cs-evidence-mode" value="collect" checked={inputMode === 'collect'} onChange={() => setInputMode('collect')} />Collect configured sources</label><label><input type="radio" name="cs-evidence-mode" value="reuse" checked={inputMode === 'reuse'} onChange={() => setInputMode('reuse')} />Use saved collections</label></div>{inputMode === 'reuse' && <div className="cs-dataset-picker">{datasets.length ? datasets.map((dataset) => <label className="cs-check" key={dataset.id}><input type="checkbox" checked={datasetIds.includes(dataset.id)} onChange={(event) => setDatasetIds((ids) => event.target.checked ? [...ids, dataset.id] : ids.filter((id) => id !== dataset.id))} /><span><strong>{dataset.name || dataset.title || 'Saved collection'}</strong><small>{number(dataset.itemCount)} items · {dataset.platform || 'import'}</small></span></label>) : <p>No collections are available in this workspace. <button className="cs-text-button" type="button" onClick={onCollect}>Collect evidence</button></p>}</div>}{inputMode === 'collect' && <ProgramEstimate draft={selectedProgram} api={api} />}<div className="cs-run-cost"><div>{seeCosts && <span>{inputMode === 'collect' ? `Collection cap ${money(selectedProgram.budgets?.collectionUsd)} · ` : 'Existing evidence · '}AI budget {money(selectedProgram.budgets?.aiUsd)}</span>}<small>{selectedProgram.autoApproveThemes ? 'Themes are approved automatically, so the run goes straight from discovery to tagging and reports.' : 'Discovery pauses for you to review themes before classification and reports.'}</small></div><Button type="button" disabled={!workspace || (inputMode === 'reuse' ? !datasetIds.length : !list(selectedProgram.sourceGroups).some((group) => group.enabled))} onClick={() => onStart(selectedProgram, inputMode === 'reuse' ? datasetIds : [])}>Start research<Search size={15} /></Button></div></fieldset>}</section>
       {activeRun && <RunDetail promptChanges={promptChanges} run={activeRun} program={programs.find((program) => program.id === activeRun.programId) || null} focus={focusRunId === activeRun.id} onFocused={onRunFocused} assets={assetsForRun(assets, activeRun)} capabilities={capabilities} gates={gates} api={api} action={action} disabled={disabled} onUseAsset={onUseAsset} onViewAsset={onViewAsset} onOpenSheets={onOpenSheets} />}

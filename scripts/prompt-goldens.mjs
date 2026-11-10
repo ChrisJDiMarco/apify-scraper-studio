@@ -107,6 +107,10 @@ export function goldenCases() {
   }
   add('pictures.kit-image.general-no-subtitle', () => kit.kitImageDeliverable(imagePlan('general', 'brand-image'), { headline: 'Rankings hold while clicks fall', subtitle: '', callouts: [], visualIdea: 'A quiet harbor.', symbols: [], avoid: [] }, { editionId: 'general', references: [] }).variantPrompts.join('\n---\n'));
 
+  // ── Guided setup (program-setup.js): suggested sources and a brand draft ──
+  const setup = load('src/shared/program-setup.js');
+  add('assistant.program-setup', () => setup.setupPrompt(setup.setupRequest({ company: 'Acme Analytics', website: 'https://www.example.com', vertical: 'B2B marketing analytics', focus: 'How marketers measure their visibility in AI search answers' }), { editionId: 'general' }));
+
   // ── Ask your datasets (findings-chat.js) ──
   const dataset = { ...input.dataset };
   add('assistant.ask-datasets.plain', () => findings.buildFindingsContext({ datasets: [{ dataset, items: input.datasetItems }], messages: input.messages, question: 'What are people saying about AI answers?' }).prompt);

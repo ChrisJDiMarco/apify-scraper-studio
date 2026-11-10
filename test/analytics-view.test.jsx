@@ -4,6 +4,9 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AnalyticsView, analyticsCsv, cellLabel, csvCell, csvFileName, reminderText } from '../src/renderer/src/analytics-view.jsx';
+import { pinClock } from './helpers/pin-clock.js';
+
+pinClock();
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const day = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });

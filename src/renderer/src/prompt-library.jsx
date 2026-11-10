@@ -18,7 +18,8 @@ import './prompt-library.css';
 // edits; the renderer only shows what it would say. Works in both layouts and down to 360px.
 //
 // <PromptLibrary api state viewer can request onAsk onNotice linkOrigin />
-//   request    { promptId, key, tab? }: open that prompt once per key (Ask AI's Open in Prompts, share links, the Inbox)
+//   request    { promptId, key, tab? }: open that prompt once per key (Ask AI's Open in Prompts, share links, the Inbox);
+//              { key, groups: ['research', 'reports'] } lists only those groups (Workbench → Edit research program), until Show all
 //   onAsk      (text, context) => void: Ask AI about the open prompt (absent: no button)
 //   onNotice   (text) => void: the layout's toast (absent: the page shows its own)
 //   linkOrigin the share-link origin (deep-links.js shareOrigin); defaults from the viewer and settings
@@ -148,6 +149,7 @@ export function PromptLibrary({ api, state, viewer: viewerIn, can: canIn, reques
 
   const [catalog, setCatalog] = useState({ status: 'loading', groups: [], prompts: [], error: '' });
   const [query, setQuery] = useState('');
+  const [onlyGroups, setOnlyGroups] = useState([]); // the groups a request narrowed the list to; [] lists every group
   const [selectedId, setSelectedId] = useState('');
   const [showDetail, setShowDetail] = useState(false); // narrow: the prompt instead of the list
   const [detail, setDetail] = useState({ status: 'idle', data: null, error: '' });
@@ -210,9 +212,10 @@ export function PromptLibrary({ api, state, viewer: viewerIn, can: canIn, reques
   useEffect(() => { if (savedElsewhere && !dirtyRef.current) loadDetail(data.prompt.id); }, [savedElsewhere?.version]); // eslint-disable-line react-hooks/exhaustive-deps
   // A prompt asked for from elsewhere, once per key.
   useEffect(() => {
-    if (!request?.key || handled.current === request.key || !request.promptId) return;
+    if (!request?.key || handled.current === request.key || (!request.promptId && !Array.isArray(request.groups))) return;
     handled.current = request.key;
-    choose(request.promptId, { tab: request.tab });
+    setOnlyGroups(Array.isArray(request.groups) ? request.groups.map(String) : []);
+    if (request.promptId) choose(request.promptId, { tab: request.tab });
   }, [request?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   // Unsaved edits live only on this page; in the browser studio a reload or a closed tab asks first. (Not on the Mac: an
   // Electron window would refuse to close without asking.)
@@ -260,8 +263,8 @@ export function PromptLibrary({ api, state, viewer: viewerIn, can: canIn, reques
   const groups = useMemo(() => {
     const shown = rows.filter((item) => matchPrompt(item, query));
     const known = catalog.groups.length ? catalog.groups : [...new Set(rows.map((item) => item.group))].map((id) => ({ id, label: id }));
-    return known.map((group) => ({ ...group, rows: shown.filter((item) => item.group === group.id) })).filter((group) => group.rows.length);
-  }, [rows, catalog.groups, query]);
+    return known.filter((group) => !onlyGroups.length || onlyGroups.includes(group.id)).map((group) => ({ ...group, rows: shown.filter((item) => item.group === group.id) })).filter((group) => group.rows.length);
+  }, [rows, catalog.groups, query, onlyGroups]);
   const shownCount = groups.reduce((sum, group) => sum + group.rows.length, 0);
   const listHidden = narrow && showDetail && Boolean(selectedId);
   const detailHidden = narrow && !listHidden;
@@ -282,6 +285,7 @@ export function PromptLibrary({ api, state, viewer: viewerIn, can: canIn, reques
       : <div className={`pl-panes${listHidden ? ' is-detail' : ''}`}>
         <nav ref={listRef} className="pl-list" aria-label="All prompts" data-spot="prompts.list" hidden={listHidden || undefined}>
           <label className="pl-search"><Search size={15} aria-hidden="true" /><span className="pl-sr">Search prompts</span><input type="search" value={query} placeholder="Search prompts" onChange={(event) => setQuery(event.target.value)} /></label>
+          {onlyGroups.length > 0 && <p className="pl-only" role="status"><span>Showing {onlyGroups.map((id) => catalog.groups.find((group) => group.id === id)?.label || id).join(' and ').toLowerCase()} prompts</span><button type="button" className="pl-link" onClick={() => setOnlyGroups([])}>Show all</button></p>}
           {catalog.status === 'loading' ? <div className="studio-skeleton" aria-label="Loading prompts" role="status"><span /><span /><span /><span /></div>
             : !rows.length ? <p className="pl-quiet">This workspace has no prompts to show.</p>
             : !shownCount ? <p className="pl-quiet" role="status">No prompt matches “{query.trim()}”.</p>

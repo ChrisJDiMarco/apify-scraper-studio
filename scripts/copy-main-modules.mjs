@@ -62,6 +62,7 @@ const copies = [
   // Roles and access: the policy (data + logic), the team store, the gate, the channel owner's view and analytics.
   ['src/shared/roles.json', 'out/shared/roles.json'],
   ['src/main/roles.js', 'out/main/roles.js'],
+  ['src/main/program-scope.js', 'out/main/program-scope.js'],
   ['src/main/team-store.js', 'out/main/team-store.js'],
   ['src/main/email.js', 'out/main/email.js'], // invites and first-sign-in notices (browser studio; off unless EMAIL_PROVIDER)
   ['src/main/email-templates.js', 'out/main/email-templates.js'],
@@ -98,8 +99,10 @@ const copies = [
   ['src/shared/content-studio.js', 'out/shared/content-studio.js'],
   ['src/shared/asset-kit.js', 'out/shared/asset-kit.js'],
   ['src/shared/kit-folders.json', 'out/shared/kit-folders.json'], // asset-kit.js reads its channel folders from it
+  ['src/shared/channel-knowledge.json', 'out/shared/channel-knowledge.json'], // content-workspace.js reads the channel knowledge fields
   ['src/shared/brand-images.js', 'out/shared/brand-images.js'],
   ['src/shared/research-program.js', 'out/shared/research-program.js'],
+  ['src/shared/program-setup.js', 'out/shared/program-setup.js'], // guided setup's suggestions (index.js suggestProgramSetup)
   ['src/shared/research-quick-scan.js', 'out/shared/research-quick-scan.js'], // quick scans sized from chat
   ['src/shared/research-scan-report.js', 'out/shared/research-scan-report.js'], // a quick scan's short trends report
   ['src/shared/quick-scan.json', 'out/shared/quick-scan.json'],

@@ -177,7 +177,7 @@ Semrush should set a retention policy for collected posts and conversations (see
   Fix: a `BRIDGE_SECRET` script property checked in `doPost`, sent by `callSheetsWebhook` as a new saved key, plus an
   allowlist for actions that change existing sheets. Interim: [docs/sheets-guide.md](docs/sheets-guide.md#deploy-the-bridge-and-what-it-can-reach).
 - **Codex reads.** Its read-only sandbox doesn't restrict reads; a future Codex tool under a new feature name would not
-  be switched off automatically. `web_search` stays on.
+  be switched off automatically. Web search is off (`web_search="disabled"`).
 - **No audit trail** for key, setting or AI-route changes (people and role changes are audited).
 - **Sessions in memory**; the admin password is a shared identity (`owner`), so its users share one Ask AI history.
 - **The Google Docs token** is pasted by hand and expires; there is no OAuth flow.

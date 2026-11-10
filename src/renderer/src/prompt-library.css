@@ -21,6 +21,7 @@
 .pl-list { position: sticky; top: 0; display: grid; align-content: start; gap: 4px; max-height: calc(100dvh - 120px); padding: 12px; overflow-y: auto; overscroll-behavior: contain; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius, 20px); }
 .pl-detail { display: grid; gap: 12px; min-width: 0; }
 .pl-search { position: relative; display: flex; align-items: center; margin-bottom: 4px; }
+.pl-only { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 2px 4px; font-size: 12.5px; color: var(--s-muted); }
 .pl-search > svg { position: absolute; left: 12px; color: var(--s-muted); pointer-events: none; }
 .prompt-library .pl-search input { width: 100%; min-height: 40px; padding: 8px 12px 8px 36px; font: inherit; font-size: 14px; color: var(--s-ink); background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 999px; box-shadow: none; }
 .prompt-library .pl-search input:focus { outline: none; border-color: var(--s-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 35%, transparent); }

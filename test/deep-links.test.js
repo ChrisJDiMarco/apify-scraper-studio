@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LINK_KINDS, deepLinkTarget, linkFor, normalizeOrigin, parseHash, restoreDeepLink, shareOrigin, stashDeepLink, takeStashedDeepLink } from '../src/renderer/src/deep-links.js';
+import { LINK_KINDS, PAGE_ROUTES, hashForRoute, parseRoute, routeLink, deepLinkTarget, linkFor, normalizeOrigin, parseHash, restoreDeepLink, shareOrigin, stashDeepLink, takeStashedDeepLink } from '../src/renderer/src/deep-links.js';
 
 // A Map-backed stand-in for localStorage.
 const memory = () => { const map = new Map(); return { getItem: (key) => (map.has(key) ? map.get(key) : null), setItem: (key, value) => map.set(key, String(value)), removeItem: (key) => map.delete(key), map }; };
@@ -33,7 +33,7 @@ describe('share links', () => {
   });
 
   it('turns a link into the place it opens', () => {
-    expect(deepLinkTarget({ kind: 'report', id: 'asset-1' })).toEqual({ kind: 'report', id: 'asset-1', page: 'reports' });
+    expect(deepLinkTarget({ kind: 'report', id: 'asset-1' })).toEqual({ kind: 'report', id: 'asset-1', page: 'trends' });
     expect(deepLinkTarget({ kind: 'trend', id: 'theme-1' })).toEqual({ kind: 'trend', id: 'theme-1', page: 'trends' });
     expect(deepLinkTarget({ kind: 'assets', id: 'theme:theme-1' })).toEqual({ kind: 'folder', id: 'theme:theme-1', page: 'assets' });
     expect(deepLinkTarget({ kind: 'prompt', id: 'trends-report' })).toEqual({ kind: 'prompt', id: 'trends-report', page: 'prompts' });
@@ -83,5 +83,42 @@ describe('share links', () => {
     stashDeepLink('#/report/asset-1', storage, Date.now());
     expect(restoreDeepLink(win('#/trend/theme-2'))).toBeNull();
     expect(storage.map.size).toBe(0);
+  });
+});
+
+describe('page addresses', () => {
+  it('gives every page an address and reads it back', () => {
+    const pages = [
+      ['#/home', { kind: 'page', page: 'home' }], ['#/programs', { kind: 'page', page: 'programs' }], ['#/trends', { kind: 'page', page: 'trends' }],
+      ['#/trends?program=p-1', { kind: 'page', page: 'trends', program: 'p-1' }], ['#/assets', { kind: 'page', page: 'assets' }],
+      ['#/calendar', { kind: 'page', page: 'calendar' }], ['#/inbox', { kind: 'page', page: 'inbox' }], ['#/ask', { kind: 'page', page: 'ask' }],
+      ['#/programs/p-1', { kind: 'page', page: 'program', id: 'p-1', section: '' }], ['#/programs/p-1/edit/sources', { kind: 'page', page: 'program', id: 'p-1', section: 'sources' }],
+      ['#/studio/prompts', { kind: 'page', page: 'prompts' }], ['#/studio/knowledge', { kind: 'page', page: 'knowledge' }],
+      ['#/workbench/automation', { kind: 'page', page: 'workbench', id: 'automation' }], ['#/workbench/dataset-reports', { kind: 'page', page: 'workbench', id: 'dataset-reports' }],
+    ];
+    for (const [hash, route] of pages) {
+      expect(parseRoute(hash), hash).toEqual(route);
+      expect(hashForRoute(route), hash).toBe(hash);
+    }
+    expect(PAGE_ROUTES).toContain('programs');
+    // The share links are routes too, and keep their shape.
+    expect(parseRoute('#/report/asset-1')).toEqual({ kind: 'report', id: 'asset-1' });
+    expect(hashForRoute({ kind: 'assets', id: 'theme:t-1' })).toBe('#/assets/theme%3At-1');
+    expect(parseRoute('#/programs/p-1/edit')).toEqual({ kind: 'page', page: 'program', id: 'p-1', section: 'basics' });
+    expect(routeLink({ kind: 'page', page: 'trends', program: 'p-1' }, { origin: 'https://studio.example.com' })).toBe('https://studio.example.com/#/trends?program=p-1');
+  });
+
+  it('refuses addresses that aren’t pages', () => {
+    for (const hash of ['', '#', '#signin=abc', '#/nowhere', '#/home/extra', '#/studio/settings', '#/workbench/Bad Id', '#/programs/p-1/delete', '#/programs/%E0%A4%A']) expect(parseRoute(hash), hash).toBeNull();
+    expect(hashForRoute({ kind: 'page', page: 'nowhere' })).toBe('');
+    expect(hashForRoute(null)).toBe('');
+  });
+
+  it('keeps any page’s address through sign-in, and still reads an older stash', () => {
+    const memory = new Map(); const storage = { getItem: (key) => memory.get(key) ?? null, setItem: (key, value) => memory.set(key, value), removeItem: (key) => memory.delete(key) };
+    expect(stashDeepLink('#/programs/p-1/edit/sources', storage, 1000)).toEqual({ kind: 'page', page: 'program', id: 'p-1', section: 'sources' });
+    expect(takeStashedDeepLink(storage, 2000)).toEqual({ kind: 'page', page: 'program', id: 'p-1', section: 'sources' });
+    memory.set('studio.deeplink', JSON.stringify({ kind: 'report', id: 'asset-1', at: 1000 }));
+    expect(takeStashedDeepLink(storage, 2000)).toEqual({ kind: 'report', id: 'asset-1' });
   });
 });

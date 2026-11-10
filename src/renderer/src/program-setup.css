@@ -1,0 +1,28 @@
+/* Guided setup (program-setup.jsx): New research program and the studio's first setup. */
+.program-setup .studio-dialog-body { display: grid; gap: 12px; }
+.program-setup-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px 4px; padding: 0; list-style: none; }
+.program-setup-steps button { min-height: 30px; padding: 0 12px; font: inherit; font-size: 13px; font-weight: 600; color: var(--s-muted); background: transparent; border: 1px solid var(--s-line); border-radius: 999px; cursor: pointer; }
+.program-setup-steps .is-current button { color: var(--s-ink); background: var(--s-soft); border-color: var(--s-accent); }
+.program-setup-steps .is-done button { color: var(--s-ink); }
+.program-setup textarea, .program-setup input:not([type="radio"]):not([type="checkbox"]), .program-setup select { width: 100%; min-height: 40px; padding: 8px 12px; font: inherit; font-size: 14px; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-control); }
+.program-setup textarea { resize: vertical; line-height: 1.5; }
+.program-setup-choice, .program-setup-platform { display: grid; gap: 8px; margin: 4px 0 0; padding: 0; border: 0; }
+.program-setup-choice legend, .program-setup-platform legend { margin-bottom: 6px; padding: 0; font-size: 13px; font-weight: 650; color: var(--s-ink); }
+.program-setup-choice > label { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 14px; cursor: pointer; }
+.program-setup-choice > label:has(input:checked) { background: var(--s-soft); border-color: var(--s-accent); }
+.program-setup-choice > label > span, .program-setup-platform li span { display: grid; gap: 2px; }
+.program-setup-choice small, .program-setup-platform small { font-size: 12.5px; color: var(--s-muted); }
+.program-setup-platform ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.program-setup-platform li label { display: flex; align-items: flex-start; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--s-line); cursor: pointer; }
+.program-setup-platform code { font-size: 12px; color: var(--s-muted); }
+.program-setup input[type="radio"], .program-setup input[type="checkbox"] { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--s-ink); }
+.program-setup-suggest { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--s-bg); border-radius: 14px; }
+.program-setup-suggest p { flex: 1 1 280px; margin: 0; font-size: 14px; color: var(--s-ink); }
+.program-setup-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.program-setup-review { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; }
+.program-setup-review dt { font-weight: 650; color: var(--s-ink); }
+.program-setup-review dd { margin: 0; color: var(--s-muted); }
+.program-setup-foot { display: flex; justify-content: space-between; gap: 10px; padding: 14px 24px 20px; border-top: 1px solid var(--s-line); }
+.program-setup-done { display: grid; gap: 14px; }
+.program-setup-done p { display: flex; align-items: center; gap: 8px; margin: 0; }
+.program-setup-actions { display: flex; flex-wrap: wrap; gap: 8px; }

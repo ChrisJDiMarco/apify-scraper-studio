@@ -60,7 +60,7 @@ describe('research and content studio workspace', () => {
     render(<ContentStudioView {...props({ state: { contentStudio: fresh({ activeWorkspaceId: 'semrush' }) } })} />);
     expect(screen.getByRole('heading', { name: 'Quiet week so far.' })).toBeVisible();
     expect(screen.getByText(/No reports yet\. Say yes to a trend on Trends, then press Write reports/)).toBeVisible();
-    expect(screen.getByRole('heading', { name: /Needs your OK/ })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: /Needs your OK/ })).not.toBeInTheDocument(); // an empty card isn't shown
   });
 
   it('shows only actual workspace records, on the briefing and in the Library', async () => {

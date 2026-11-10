@@ -17,7 +17,9 @@ const rpc = async (channel, payload, uploads) => {
 };
 beforeAll(async () => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'web-host-test-')); dataDir = path.join(root, 'data');
-  seedStudio(dataDir, { team: false }); // a trend, its brief and a Social Team set with costs; people are added below
+  // People are added below at the real time, so the studio is dated two days ago: within the 14-day "Earlier" rule, the trend
+  // stays new for a channel owner whatever day the suite runs.
+  seedStudio(dataDir, { team: false, at: new Date(Date.now() - 2 * 86400000).toISOString() }); // a trend, its brief and a Social Team set with costs
   // An older record keeps an absolute path inside the data folder, like Mac data copied to a server.
   reportFile = path.join(dataDir, 'workspaces', 'default', 'report-1', 'report.md'); fs.mkdirSync(path.dirname(reportFile), { recursive: true }); fs.writeFileSync(reportFile, '# Fixture report');
   fs.writeFileSync(path.join(dataDir, 'data.json'), JSON.stringify({ analyses: [{ id: 'report-1', kind: 'report', datasetId: 'dataset-missing', reportPath: reportFile, outputPath: reportFile, createdAt: '2026-10-01T00:00:00.000Z' }] }));
@@ -115,6 +117,41 @@ async function openStream(who) {
 }
 const HIDDEN_FROM_CHANNEL = ['costUsd', 'receipts', 'program-pulse', 'maxBudgetUsd', 'content-kit-social', 'asset-kit-social', 'Semrush Social Team'];
 
+describe('research program access in the browser studio', () => {
+  // The seeded studio has two programs: AI search pulse (a finished run, its trend's reports and a Social set) and Weekly
+  // listening (a run waiting for review). Jordan is invited to Weekly listening only.
+  let jordan;
+  beforeAll(async () => {
+    const member = (await rpc('team:save-member', { name: 'Jordan', email: 'jordan@semrush.com', role: 'editor', programIds: ['program-weekly'] })).result.member;
+    expect(member.programIds).toEqual(['program-weekly']);
+    jordan = (await login({ linkToken: tokenOf((await rpc('team:sign-in-link', { id: member.id })).result.url) })).headers.get('set-cookie').split(';')[0];
+  });
+
+  it('sends only Weekly listening’s work, over RPC', async () => {
+    const { body } = await rpcAs(jordan, 'state');
+    expect(body.result.viewer.programIds).toEqual(['program-weekly']);
+    expect(body.result.contentStudio.programs.map((row) => row.id)).toEqual(['program-weekly']);
+    expect(body.result.contentStudio.researchRuns.map((row) => row.id)).toEqual(['research-review']);
+    expect(JSON.stringify(body.result.contentStudio)).not.toContain('asset-report');
+  });
+
+  it('refuses Pulse’s report, run and program by any method', async () => {
+    expect(await rpcAs(jordan, 'studio:readStudioAsset', { assetId: 'asset-report' })).toMatchObject({ status: 403 });
+    expect(await rpcAs(jordan, 'studio:startResearchRun', { programId: 'program-pulse' })).toMatchObject({ status: 403 });
+  });
+
+  it('lets an admin narrow and widen someone’s programs, and the access log says so', async () => {
+    const list = (await rpc('team:list')).result.members;
+    const row = list.find((member) => member.email === 'jordan@semrush.com');
+    expect(row.programIds).toEqual(['program-weekly']);
+    const saved = (await rpc('team:save-member', { id: row.id, programIds: null })).result.member;
+    expect(saved.programIds).toBeNull();
+    const { body } = await rpcAs(jordan, 'state');
+    expect(body.result.contentStudio.programs.map((program) => program.id).sort()).toEqual(['program-pulse', 'program-weekly']);
+    await rpc('team:save-member', { id: row.id, programIds: ['program-weekly'] });
+  });
+});
+
 describe('people and roles in the browser studio', () => {
   let alex; let riley; let alexId; let rileyId;
   beforeAll(async () => {
@@ -123,6 +160,22 @@ describe('people and roles in the browser studio', () => {
     const editor = await add({ name: 'Riley', email: 'riley@semrush.com', role: 'editor' }); rileyId = editor.id;
     alex = (await login({ linkToken: tokenOf((await rpc('team:sign-in-link', { id: owner.id })).result.url) })).headers.get('set-cookie').split(';')[0];
     riley = (await login({ linkToken: tokenOf((await rpc('team:sign-in-link', { id: editor.id })).result.url) })).headers.get('set-cookie').split(';')[0];
+  });
+
+  it('lets a channel owner edit their own channel’s knowledge and asset instructions, and nobody else’s', async () => {
+    // Whatever channel the payload names, the owner reads and saves their own (Blog).
+    const read = await rpcAs(alex, 'studio:readChannelSettings', { channelId: 'social' });
+    expect(read.status).toBe(200);
+    expect(read.body.result).toMatchObject({ channelId: 'blog' });
+    expect(read.body.result.prompts.map((row) => row.prompt.id)).toEqual(['assets.blogshort', 'assets.bloglong']);
+    for (const prompt of read.body.result.prompts) for (const key of ['model', 'modelLabel', 'effort', 'route', 'tests']) expect(prompt).not.toHaveProperty(key);
+    const saved = await rpcAs(alex, 'studio:saveChannelKnowledge', { channelId: 'social', knowledge: { voice: 'Plain and friendly.', audience: 'Beginners.' } });
+    expect(saved.body.result).toMatchObject({ channelId: 'blog', knowledge: { voice: 'Plain and friendly.', audience: 'Beginners.' } });
+    expect((await rpc('studio:readChannelSettings', { channelId: 'social' })).result.knowledge.voice).toBe('');
+    // Another channel's prompt is refused.
+    expect(await rpcAs(alex, 'studio:saveChannelInstructions', { promptId: 'assets.social', blocks: { instruction: 'x' } })).toMatchObject({ status: 403 });
+    // An admin edits any channel.
+    expect((await rpc('studio:saveChannelKnowledge', { channelId: 'social', knowledge: { dos: 'Use one hashtag.' } })).result).toMatchObject({ channelId: 'social' });
   });
 
   it('signs each person in with their own link as who they are', async () => {

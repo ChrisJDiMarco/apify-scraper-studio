@@ -3,6 +3,7 @@ import { CirclePause, CirclePlay, Eye, KeyRound, Link2, PenLine, Search, Trash2,
 import { MoreMenu, useNarrow } from './role-screens.jsx';
 import { LinkPanel, linkStatus } from './person-sheet.jsx';
 import { firstName, formatDay, formatTime, initials, plural, writeProps } from './viewer.js';
+import { programsLabel } from './program-access-field.jsx';
 
 // The People tab: who owns each channel (one line when every channel has an owner), then everyone in a table you can
 // search, filter and sort, each with a menu of what an admin can do. Below 860px the rows become cards.
@@ -139,6 +140,7 @@ export function PeopleTable({ team, viewer = {}, web = false, editable = false, 
         <RoleCell member={member} onAccess={() => onOpen(member, 'access')} />
         <dl className="people-card-facts">
           {member.base === 'channel' && <><dt>Channel</dt><dd>{channelName(member.channelId) || 'No channel'}</dd></>}
+          <dt>Programs</dt><dd>{member.base === 'admin' ? 'All programs' : programsLabel(member.programIds, team?.programs)}</dd>
           <dt>Last active</dt><dd>{active(member)}</dd>
           {status(member) && <><dt>Sign-in</dt><dd>{status(member)}</dd></>}
         </dl>
@@ -146,17 +148,18 @@ export function PeopleTable({ team, viewer = {}, web = false, editable = false, 
       </li>)}</ul>
       : <table className="people-table">
         <caption className="sr-only">People in the studio</caption>
-        <thead><tr><th scope="col">Person</th><th scope="col">Role & access</th><th scope="col">Channel</th><th scope="col">Last active</th>{web && <th scope="col">Sign-in</th>}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+        <thead><tr><th scope="col">Person</th><th scope="col">Role & access</th><th scope="col">Channel</th><th scope="col">Programs</th><th scope="col">Last active</th>{web && <th scope="col">Sign-in</th>}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
         <tbody>{shown.map((member) => <React.Fragment key={member.id}>
           <tr className={member.disabled ? 'is-disabled' : ''}>
             <th scope="row">{person(member)}</th>
             <td><RoleCell member={member} onAccess={() => onOpen(member, 'access')} /></td>
             <td>{member.base === 'channel' ? channelName(member.channelId) || 'No channel' : <span className="people-none" aria-label="No channel">—</span>}</td>
+            <td>{member.base === 'admin' ? 'All programs' : programsLabel(member.programIds, team?.programs)}</td>
             <td>{active(member)}</td>
             {web && <td className="people-signin-cell">{status(member)}</td>}
             <td className="people-row-actions">{actions(member)}</td>
           </tr>
-          {panel?.memberId === member.id && <tr className="people-panel-row"><td colSpan={web ? 6 : 5}>{linkFor(member)}</td></tr>}
+          {panel?.memberId === member.id && <tr className="people-panel-row"><td colSpan={web ? 7 : 6}>{linkFor(member)}</td></tr>}
         </React.Fragment>)}</tbody>
       </table>)}
   </div>;

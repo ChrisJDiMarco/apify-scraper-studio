@@ -11,6 +11,7 @@
 const POLICY = require('../shared/roles.json');
 const kit = require('../shared/asset-kit');
 const { buildChannelView, channelOf } = require('./channel-view');
+const programScope = require('./program-scope');
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
@@ -203,7 +204,7 @@ function effectiveRole(realRole, realChannelId, viewAs, compiled) {
 
 // ---------- Pages ----------
 // Nav, hidden pages and layouts from the capabilities. hiddenPages keeps roles.json's page order, so a default editor
-// still gets exactly [settings, knowledge, analytics, people]; a channel base uses its own shell's pages.
+// gets exactly [settings, knowledge, analytics, people, programs]; a channel base uses its own shell's pages.
 function pagesFor(caps, base) {
   if (!base) return { nav: { main: [], admin: [], bottom: [] }, hiddenPages: [], modes: [] };
   const held = new Set(base === 'admin' ? CAPABILITY_IDS : list(caps));
@@ -257,7 +258,8 @@ function buildViewer({ identity = null, session = null, prefs = null, editionId 
   const who = identity && typeof identity === 'object' ? identity : {};
   const realRoleDef = roleOf(who.roleId || who.role, compiled);
   const realBase = realRoleDef?.base || null;
-  const realAccess = { roleId: realRoleDef?.id || null, grants: list(access?.grants), denies: list(access?.denies) };
+  // programIds: the research programs this person was invited to (null: every program); see program-scope.js.
+  const realAccess = { roleId: realRoleDef?.id || null, grants: list(access?.grants), denies: list(access?.denies), programIds: Array.isArray(access?.programIds) ? [...access.programIds] : null };
   const realSubject = subjectFor(realAccess, compiled);
   // Who this session looks like: the real person, or (a real admin's View as) a role or one member.
   let target = { ...realAccess, channelId: realBase === 'channel' && isChannelId(who.channelId) ? who.channelId : null, previewName: '', memberId: '' };
@@ -265,10 +267,10 @@ function buildViewer({ identity = null, session = null, prefs = null, editionId 
   if (viewAs?.memberId) {
     const member = previewMember && previewMember.id === viewAs.memberId && !previewMember.disabled ? previewMember : null;
     const def = member ? roleOf(member.role, compiled) : null;
-    if (def && def.base !== 'admin' && (def.base === 'editor' || isChannelId(member.channelId))) target = { roleId: def.id, grants: list(member.grants), denies: list(member.denies), channelId: def.base === 'channel' ? member.channelId : null, previewName: String(member.name || ''), memberId: member.id };
+    if (def && def.base !== 'admin' && (def.base === 'editor' || isChannelId(member.channelId))) target = { roleId: def.id, grants: list(member.grants), denies: list(member.denies), programIds: Array.isArray(member.programIds) ? [...member.programIds] : null, channelId: def.base === 'channel' ? member.channelId : null, previewName: String(member.name || ''), memberId: member.id };
   } else if (viewAs) {
     const seen = effectiveRole(realRoleDef?.id, null, viewAs, compiled);
-    if (seen.role && seen.role !== 'admin') target = { roleId: seen.roleId, grants: [], denies: [], channelId: seen.channelId, previewName: '', memberId: '' };
+    if (seen.role && seen.role !== 'admin') target = { roleId: seen.roleId, grants: [], denies: [], programIds: null, channelId: seen.channelId, previewName: '', memberId: '' };
   }
   const def = roleOf(target.roleId, compiled);
   const base = def?.base || null;
@@ -286,6 +288,8 @@ function buildViewer({ identity = null, session = null, prefs = null, editionId 
     prefs: cleanPrefs(prefs, base), nav: pages.nav, modes: pages.modes, hiddenPages: pages.hiddenPages, allowed: allowedFor(subject, { preview, realSubject }),
     askAdmin: askWho(admins),
   };
+  // Someone invited to some research programs only: their programs (admins always see every program).
+  if (base !== 'admin' && Array.isArray(target.programIds)) viewer.programIds = [...target.programIds];
   // In a preview, `allowed` is reads only (the server refuses writes), so the renderer shows the previewed role's controls
   // from roleAllowed, disabled, instead of hiding them: an admin sees what an editor would. roleCapabilities is the role
   // before the person's own changes, so the banner can say "Editor, 2 changes".
@@ -434,8 +438,11 @@ function driveLinksView(studio, viewer) {
 // money when the role lacks See costs; a channel base gets only its channel's view; someone without a role gets nothing.
 function projectState(base, viewer, { adoptions = [], admins = [], memberCount = 0, editionId, noteInbox = null } = {}) {
   const state = base && typeof base === 'object' ? base : {};
-  const studio = state.contentStudio && typeof state.contentStudio === 'object' ? state.contentStudio : {};
   const role = BASES.includes(viewer?.base) ? viewer.base : isRole(viewer?.role) ? viewer.role : null;
+  // Research programs this person wasn't invited to leave the studio they receive (program-scope.js); admins see all.
+  const scope = role === 'admin' ? null : programScope.scopeOf(viewer);
+  const rawStudio = state.contentStudio && typeof state.contentStudio === 'object' ? state.contentStudio : {};
+  const studio = scope ? programScope.scopeStudio(rawStudio, scope) : rawStudio;
   const team = { admins: list(admins).filter((admin) => admin?.name).map((admin) => ({ name: String(admin.name) })) };
   if (role === 'admin') team.memberCount = Number(memberCount) || 0;
   const active = list(studio.workspaces).find((workspace) => workspace.id === studio.activeWorkspaceId);
@@ -444,7 +451,7 @@ function projectState(base, viewer, { adoptions = [], admins = [], memberCount =
     const { promptChanges, ...studioRest } = studio;
     // A person's own jobs (an Ask AI answer carries ownerId) reach only them, and nobody receives whose job it is.
     const ownJobs = Array.isArray(state.jobs) ? { jobs: state.jobs.filter((job) => job && (!job.ownerId || job.ownerId === viewer?.id)).map(({ ownerId: _ownerId, ...job }) => job) } : {};
-    const full = withoutUnheld({ ...state, ...ownJobs, viewer, team, contentStudio: { ...studioRest, ...(promptChanges !== undefined && seesPrompts(viewer) ? { promptChanges } : {}), adoptionsByTheme: adoptionsByTheme(adoptions, studio.activeWorkspaceId, edition), ...notesView(studio, noteInbox, viewer), ...driveLinksView(studio, viewer) } }, viewer);
+    const full = withoutUnheld({ ...state, ...ownJobs, viewer, team, contentStudio: { ...studioRest, ...(promptChanges !== undefined && seesPrompts(viewer) ? { promptChanges } : {}), adoptionsByTheme: scope ? programScope.scopeAdoptions(adoptionsByTheme(adoptions, studio.activeWorkspaceId, edition), rawStudio, scope) : adoptionsByTheme(adoptions, studio.activeWorkspaceId, edition), ...notesView(studio, noteInbox, viewer), ...driveLinksView(studio, viewer) } }, viewer);
     if (seesMoney(viewer)) return full;
     const { viewer: _viewer, ...rest } = full;
     return { ...stripMoney(rest), viewer };

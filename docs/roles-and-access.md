@@ -70,7 +70,7 @@ the No access screen.
    `costsOptional` (Ask AI). A channel base never needs costs.
 
 The methods are the union of the capabilities' methods (a channel base: intersected with `channelSafeMethods`). With
-no policy edits this is exactly the old fixed matrix plus Ask AI for channel owners: admin 188 methods, editor 117, channel owner 34
+no policy edits this is exactly the old fixed matrix plus Ask AI for channel owners: admin 194 methods, editor 121, channel owner 38
 (`test/roles.test.js` and `test/docs-consistency.test.js` check these numbers).
 
 Channels are the ten asset-kit folders in `src/shared/kit-folders.json` `folders` (main reads them through
@@ -79,6 +79,35 @@ social, affiliate, enterprise, backlinko, explodingtopics, searchengineland`. Di
 workspace's edition (`kitFolders(editionId)` returns `{ id, name, short, deliverableIds }`); members store only the id.
 A file's channel is `kitFolderFor(asset.deliverableId, editionId).id`, and a kit run's channels are derived from its job
 ids (`kitChannelIds`), never stored.
+
+### Research program access
+
+On top of their role, a member can be limited to some research programs (`programIds` on the member in `team.json`;
+left out means every program, so nobody loses access on upgrade). Admins always see every program. Set it in People &
+access (the person sheet and Invite) or on a program's **People who see it** (Research programs page, a program's More
+menu). The server enforces it in `src/main/program-scope.js`:
+
+- **State.** `roles.projectState` drops other programs' research runs, their trends' report runs, the channel-asset sets
+  and drafts made from those reports, their files, trends, workflows, Create content's report picker and the maps keyed
+  by those ids. Work that belongs to no program (a draft from a pasted brief, a set from a Google Doc) stays.
+- **Calls.** `access.check` traces a payload's program, run, file, trend or workbook to its program and refuses another
+  program's with `outOfScope`, for every method.
+- **Answers.** Lists that span programs (workbooks, trend history, search) leave other programs' rows out.
+- **Ask AI** reads the studio through the same scope (`helpStudio` in `index.js`).
+- **Preview.** "Preview as" a member shows exactly their programs.
+
+A channel owner keeps their channel scope as well: they see their programs' trends, and only their channel's assets.
+
+### Channel settings
+
+Studio › My channel (channel owners, their own channel) and Studio › Channels (admins and editors, any channel) hold a
+channel's **knowledge** (`src/shared/channel-knowledge.json`: audience, voice, format rules, do's and don'ts, examples,
+links; stored per workspace in `channelKnowledge`) and its **asset instructions**: the editable text of the
+`assets.<deliverable>` prompts that write its assets, with versions and Restore through the Prompt Library's own save
+and revert. Capability `editChannel` (default: admin, editor, channel owner). The access gate pins a channel owner to
+their own channel and strips models, routes and test costs from what they receive; a prompt an admin locked stays
+read-only. Channel knowledge goes into that channel's asset prompts after the brand knowledge
+(`content-studio.js buildContentPlan`), so every AI route uses it.
 
 ## Architecture
 

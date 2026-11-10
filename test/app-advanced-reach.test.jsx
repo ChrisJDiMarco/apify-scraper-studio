@@ -17,7 +17,7 @@ const plan = { title: TREND, sourceKey: 'theme:theme-1', sourceKind: 'trend', ch
   estimate: { totalUsd: 9.4, capUsd: 25, calls: 1, pictures: 0, modelLabel: 'Claude Fable 5.1' },
   folders: [{ id: 'blog', name: 'Semrush Blog', items: [{ id: 'blogshort', label: 'Blog — Short News Update', kind: 'text', selected: true, available: true }] }] };
 
-// An Advanced page (the Trend board, from the sidebar's Trends tools: settings.uiMode shows them), as the local admin.
+// An Advanced page (Create content, from the sidebar's Workbench), as the local admin.
 async function openAdvanced(extra = {}) {
   const workspaces = [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush', knowledge: {}, products: [] }];
   const state = { projects: [], recipes: [], datasets: [{ id: 'd1', name: 'Saved posts', itemCount: 3, createdAt: '2026-10-01T00:00:00Z' }], cards: [], assets: [], runs: [], analyses: [], jobs: [], keys: { APIFY_API_TOKEN: true, OPENAI_API_KEY: true }, settings: { maxItems: 1000, sheets: {}, uiMode: 'classic' }, v5: { missions: [], jobs: [], recipeVersions: {}, commandPalette: [], evidenceSummary: { sample: [] } },
@@ -27,11 +27,13 @@ async function openAdvanced(extra = {}) {
     contentCatalog: vi.fn(async () => ({ editions: [], deliverables: [] })), listHelpImages: vi.fn(async () => []), readHelpImage: vi.fn(async () => ({})),
     readStudioAsset: vi.fn(async ({ assetId }) => ({ markdown: `# Draft ${assetId}\n\nBody text for ${assetId}.` })),
     planAssetKit: vi.fn(async () => plan), createAssetKit: vi.fn(async () => kitRun), setViewPrefs: vi.fn(async () => ({})), saveSettings: vi.fn(async () => ({})),
+    createContentRun: vi.fn(async () => ({ id: 'content-new', status: 'queued' })),
   };
   window.apifyStudio = api;
   render(<App />);
   await screen.findByRole('heading', { level: 1, name: /^This week in/ });
-  fireEvent.click(document.querySelector('[data-spot="nav.board"]'));
+  if (document.querySelector('[data-spot="nav.data-tools"]')?.getAttribute('aria-expanded') !== 'true') fireEvent.click(document.querySelector('[data-spot="nav.data-tools"]'));
+  fireEvent.click(document.querySelector('[data-spot="nav.create"]'));
   await waitFor(() => expect(document.querySelector('.app-shell')).toHaveAttribute('data-mode', 'classic'));
   return api;
 }
@@ -62,13 +64,14 @@ describe('the Advanced layout reaches what Simple has', () => {
     expect(api.readDataset).not.toHaveBeenCalled();
   });
 
-  it('finds channel-asset folders in ⌘K and opens them in the Library', async () => {
+  it('finds channel-asset folders in ⌘K and opens them in Assets', async () => {
     await openAdvanced();
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     const palette = await screen.findByRole('dialog', { name: 'Command palette' });
     fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'folder' } });
     fireEvent.click(await within(palette).findByRole('button', { name: new RegExp(`Open folder: ${TREND}`) }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your asset library' })).toBeInTheDocument();
+    expect(await screen.findByRole('navigation', { name: 'Folder path' })).toHaveTextContent('Assets');
+    expect(mode()).toBe('simple');
   });
 });
 
@@ -87,35 +90,36 @@ describe('Advanced hand-offs between studio pages', () => {
       { id: 'kit-file', workspaceId: 'semrush', runId: 'content-kit', deliverableId: 'blogshort', kind: 'text', title: 'Blog — Short News Update', createdAt: '2026-10-16T14:00:00Z' }],
   };
   const sidebar = (name) => fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: new RegExp(`^${name}`) }));
-  const card = async (name) => within(await screen.findByRole('article', { name }));
 
-  it('opens Create content with the trend’s report attached from a Ready card on the Trend board', async () => {
+  it('opens Create content with the trend’s report attached from the report a Ready trend opens', async () => {
     const api = await openAdvanced(ready);
-    sidebar('Trend board');
-    fireEvent.click((await card(TREND)).getByRole('button', { name: 'Create content' }));
+    sidebar('Trends');
+    fireEvent.click((await screen.findAllByRole('button', { name: new RegExp(`^${TREND}`) }))[0]);
+    await screen.findByText('Body text for asset-report.');
+    fireEvent.click(document.querySelector('[data-spot="report.create"]'));
     expect((await screen.findAllByRole('heading', { level: 1, name: 'Create content' })).length).toBeGreaterThan(0); // the top bar names the page too
     await waitFor(() => expect(screen.getByLabelText('Source title')).toHaveValue(`${TREND} — Comprehensive Trends Report`));
     expect(screen.getByRole('textbox', { name: 'Source brief' })).toHaveValue('# Draft asset-report\n\nBody text for asset-report.');
     expect(api.readStudioAsset).toHaveBeenCalledWith({ assetId: 'asset-report' });
     // Asking for new content later starts from a blank brief, not the report handed over before.
-    sidebar('Library');
+    sidebar('Assets');
     sidebar('Create content');
     expect(await screen.findByLabelText('Source title')).toHaveValue('');
   });
 
-  it('shows the report Read trends report names, even after a folder was opened in the Library', async () => {
+  it('shows the report a Ready trend names, even after a folder was opened in Assets', async () => {
     const api = await openAdvanced(ready);
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     const palette = await screen.findByRole('dialog', { name: 'Command palette' });
     fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'folder' } });
     fireEvent.click(await within(palette).findByRole('button', { name: new RegExp(`Open folder: ${TREND}`) }));
-    expect(await screen.findByText('Body text for kit-file.')).toBeInTheDocument();
-    sidebar('Trend board');
-    fireEvent.click((await card(OTHER)).getByRole('button', { name: 'Read trends report' }));
+    expect(await screen.findByRole('navigation', { name: 'Folder path' })).toBeInTheDocument();
+    sidebar('Trends');
+    fireEvent.click((await screen.findAllByRole('button', { name: new RegExp(`^${OTHER}`) }))[0]);
     expect(await screen.findByText('Body text for asset-report-2.')).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(screen.getByText('Body text for asset-report-2.')).toBeInTheDocument();
-    expect(screen.queryByText('Body text for kit-file.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Folder path' })).not.toBeInTheDocument();
     expect(api.readStudioAsset).toHaveBeenLastCalledWith({ assetId: 'asset-report-2' });
   });
 });

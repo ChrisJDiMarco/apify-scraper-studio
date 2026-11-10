@@ -109,6 +109,12 @@ function build(promptId, { editionId = 'general', brandName = '', sample, prompt
       const parts = helpPromptParts({ question: sample.questions?.['assistant.ask-ai'] || 'What is rising this week?', history: [], context: { ...(sample.helpContext || {}), role, layout: 'simple' }, guide: '(The app guide is added here: docs/app-guide.md.)', role, blocks, trace });
       return { kind: 'none', prompt: parts.prefix + parts.body, outputTokens: 1500 };
     }
+    case 'assistant.program-setup': {
+      // Guided setup (shared/program-setup.js): the person's company, website, vertical and focus, here a sample one.
+      const setup = require('../shared/program-setup');
+      const request = setup.setupRequest({ company: brandName || 'Acme Analytics', website: 'https://www.example.com', vertical: 'B2B marketing analytics', focus: 'How marketers measure their visibility in AI search answers' });
+      return { kind: 'text', prompt: setup.setupPrompt(request, { editionId, blocks, trace }), schema: setup.SETUP_SCHEMA, validate: (raw) => setup.cleanSetup(raw), outputTokens: 4000 };
+    }
     case 'assistant.ask-datasets': {
       const context = findings().buildFindingsContext({ datasets: [{ dataset: sample.dataset, items: sample.datasetItems }], messages: [], question: sample.questions?.['assistant.ask-datasets'] || 'What are people saying?', blocks, trace });
       const prompt = context.prompt + findings().brandContextBlock([{ datasetId: sample.dataset.id, brand: sample.dataset.marketingBrief?.brandContext || sample.dataset.brandContext || null }]);

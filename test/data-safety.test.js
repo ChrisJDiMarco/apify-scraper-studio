@@ -165,6 +165,7 @@ describe('the Codex command', () => {
     expect(args[7]).toBe('read-only');
     for (const feature of ['shell_tool', 'unified_exec', 'view_image', 'apps', 'plugins']) expect(CODEX_TOOLS_OFF).toContain(feature);
     for (const feature of CODEX_TOOLS_OFF) expect(args).toContain(`features.${feature}=false`);
+    expect(args).toContain('web_search="disabled"');
     expect(args).toEqual(expect.arrayContaining(['--ephemeral', '--ignore-rules', '--ignore-user-config']));
     expect(args.at(-1)).toBe('-');
     // An older CLI gets none of the flags it doesn't know, and the Mac app keeps its own config.

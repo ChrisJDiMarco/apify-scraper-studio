@@ -11,6 +11,9 @@ import App from '../src/renderer/src/App.jsx';
 import roles from '../src/main/roles.js';
 import teamStoreModule from '../src/main/team-store.js';
 import fixture from './fixtures/roles-state.js';
+import { pinClock } from './helpers/pin-clock.js';
+
+pinClock();
 
 // Hand-offs through the real App: what was clicked is what the next page shows (a run, a report, a folder, a brief), a
 // request is spent once its page is left, and leaving unsaved edits asks once.
@@ -46,7 +49,7 @@ function openStudio(who, { uiMode = 'simple', web = false, api: extra = {} } = {
     saveSettings: vi.fn(async () => true), startResearchRun: vi.fn(async () => ({ id: 'research-next' })), decideResearchTheme: vi.fn(async () => true),
     getTeam: vi.fn(async () => ({ members: [], channels: [], signIn: { web: false } })), getTrendAnalytics: vi.fn(async () => null), selectContentWorkspace: vi.fn(async () => true),
     setTrendAdoption: vi.fn(async () => ({ adoption: null })), openSourceUrl: vi.fn(async () => true), askHelp: vi.fn(async () => ({ answer: 'Sure.', pages: [], followUps: [], actions: [] })),
-    listPrompts: vi.fn(async () => ({ prompts: [], groups: [] })),
+    listPrompts: vi.fn(async () => ({ prompts: [], groups: [] })), saveResearchProgram: vi.fn(async (program) => ({ program })), createContentRun: vi.fn(async () => ({ id: 'content-new', status: 'queued' })),
     ...extra,
   };
   window.apifyStudio = api;
@@ -69,6 +72,7 @@ async function boot(studio = {}, { uiMode = 'simple', edition = 'general', wait 
     appMeta: vi.fn(async () => ({ version: 'test' })), state: vi.fn(async () => state), onStateChanged: vi.fn(() => () => {}), contentCatalog: vi.fn(async () => ({ editions: [], deliverables: [] })),
     listHelpImages: vi.fn(async () => []), readStudioAsset: vi.fn(async () => ({ markdown: '# x' })), setViewPrefs: vi.fn(async () => ({})), saveSettings: vi.fn(async () => ({})),
     cancelStudioRun: vi.fn(async () => true), retryStudioRun: vi.fn(async () => true), readTrendHistory: vi.fn(async () => null), estimateResearchProgram: vi.fn(async () => null),
+    saveResearchProgram: vi.fn(async (program) => ({ program })), startResearchRun: vi.fn(async () => ({ id: 'research-next' })),
     ...extra,
   };
   window.apifyStudio = api;
@@ -77,15 +81,14 @@ async function boot(studio = {}, { uiMode = 'simple', edition = 'general', wait 
   return api;
 }
 
-describe('Create content keeps what the Trend board handed it (the original bug)', () => {
-  it('Advanced Trend board › Create content on a ready trend opens Create content with that report attached', async () => {
+describe('Create content keeps the report a trend handed it (the original bug)', () => {
+  it('Trends › a ready trend’s report › Create content opens Create content with that report attached', async () => {
     const { api } = openStudio('admin', { uiMode: 'classic' });
     await h1(GREETING.name);
-    side('board');
-    await h1('Trend board');
-    const ready = [...document.querySelectorAll('.tb-card')].filter((node) => node.getAttribute('aria-label') === 'AI Overviews eat clicks' && within(node).queryByRole('button', { name: /^Create (more )?content$/ }));
-    expect(ready.length).toBeGreaterThan(0);
-    fireEvent.click(within(ready[0]).getByRole('button', { name: /^Create (more )?content$/ }));
+    side('trends');
+    await h1('Trends');
+    fireEvent.click((await screen.findAllByRole('button', { name: /^AI Overviews eat clicks/ }))[0]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create content' }));
     await h1('Create content');
     await waitFor(() => expect(api.readStudioAsset).toHaveBeenCalledWith({ assetId: 'asset-aio-report-2' }));
     await waitFor(() => expect(screen.getByLabelText('Source title')).toHaveValue('AI Overviews eat clicks — Comprehensive Trends Report'));
@@ -116,8 +119,8 @@ describe('Opening a run shows that run', () => {
   it('the Working popover’s Open selects the live run, not the newest program’s run', async () => {
     const live = { id: 'r3', workspaceId: 'general', programId: 'p2', title: 'Live run of older', status: 'running', stage: 'collecting', createdAt: '2026-10-01T00:00:00Z' };
     await boot({ programs: [newest, older], researchRuns: [runOfNewest, live] }, { uiMode: 'classic' });
-    side('board'); // from an Advanced page, Open shows the run where its progress is (from Simple it opens Home)
-    await h1('Trend board');
+    side('data-tools'); side('create'); // from an Advanced page, Open shows the run where its progress is (from Simple it opens Home)
+    await h1('Create content');
     fireEvent.click(document.querySelector('[data-spot="top.working"]'));
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'Working now' })).getByRole('button', { name: 'Open Live run of older' }));
     await h1('Research programs');
@@ -152,8 +155,7 @@ describe('Advanced navigation asks about unsaved edits once', () => {
   async function editReport() {
     openStudio('admin', { uiMode: 'classic', api: { editStudioAsset: vi.fn(async () => { throw new Error('The studio is offline.'); }) } });
     await h1(GREETING.name);
-    side('library'); // the Library's editor (Simple's Reports has its own, in simple-assets and app-roles)
-    await h1('Your asset library');
+    // The palette's Read opens a trend's report in the reader on Trends, where it's edited in place.
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     const palette = await screen.findByRole('dialog', { name: 'Command palette' });
     fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'Read: AI Overviews eat clicks' } });
@@ -166,13 +168,13 @@ describe('Advanced navigation asks about unsaved edits once', () => {
     await screen.findByText('Not saved');
   }
 
-  it('the sidebar and the Library’s own Create content ask first, and Stay keeps the editor', async () => {
+  it('the sidebar and the palette ask first, and Stay keeps the editor', async () => {
     await editReport();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^Trend board/ }));
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^Assets/ }));
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(confirm).toHaveBeenCalledWith('Leave without saving your edits?');
-    expect(screen.getByRole('heading', { level: 1, name: 'Your asset library' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Assets' })).not.toBeInTheDocument();
     expect(editorText()).toContain('Half-written edit');
     // The palette's Read of another report replaces the editor, so it asks too.
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
@@ -209,8 +211,8 @@ describe('Requests are spent once their page is left', () => {
     const invite = await screen.findByRole('dialog', { name: 'Invite people' });
     fireEvent.click(within(invite).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Invite people' })).not.toBeInTheDocument());
-    side('board');
-    await h1('Trend board');
+    side('trends');
+    await h1('Trends');
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^People & access/ }));
     await h1('People & access');
     await screen.findByText('Chris DiMarco', { selector: 'strong' });
@@ -225,11 +227,15 @@ describe('Requests are spent once their page is left', () => {
     const readWorkbook = vi.fn(async ({ workbookId }) => workbook(workbookId));
     window.requestAnimationFrame = (callback) => setTimeout(callback, 0);
     await boot({ programs: [newest], researchRuns: [{ ...runOfNewest, counts: { retained: 5 } }] }, { uiMode: 'classic', edition: 'semrush', api: { listWorkbooks, readWorkbook, saveWorkbookEdits: vi.fn(async () => ({})), readDataset: vi.fn(async () => ({ items: [] })) } });
-    side('research');
+    // Research programs › Runs and results shows the program's runs, with Open in Sheets.
+    side('programs');
+    await h1('Research programs');
+    fireEvent.click(screen.getByRole('button', { name: /^More for / }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Runs and results' }));
     fireEvent.click(await screen.findByRole('button', { name: /Open in Sheets/ }));
     await waitFor(() => expect(readWorkbook).toHaveBeenCalledWith({ workbookId: 'r1' }));
-    side('library');
-    await h1('Your asset library');
+    side('assets');
+    await h1('Assets');
     // A research run started meanwhile: a plain visit to Sheets opens it, as Sheets does for new runs.
     listWorkbooks.mockResolvedValue([listing('r1', '2026-10-11T00:00:00Z'), listing('r9', '2026-10-13T00:00:00Z')]);
     side('data-tools'); // Sheets is in the Workbench
@@ -261,15 +267,16 @@ describe('Links and openers land on what they name', () => {
     expect(screen.getByRole('button', { name: /Use a report/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('the Working popover’s Open on a live channel-asset set opens its folder in the Library', async () => {
+  it('the Working popover’s Open on a live channel-asset set opens its folder in Assets, even from an Advanced page', async () => {
     openStudio('admin', { uiMode: 'classic' });
     await h1(GREETING.name);
-    side('board'); // from an Advanced page the folder opens in the Library (from Simple, in Assets)
-    await h1('Trend board');
+    side('data-tools'); side('create');
+    await h1('Create content');
     fireEvent.click(document.querySelector('[data-spot="top.working"]'));
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'Working now' })).getByRole('button', { name: 'Open Local packs shrink' }));
-    await h1('Your asset library');
-    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Folder path' })).toHaveTextContent('Local packs shrink'));
+    await h1('Local packs shrink');
+    expect(mode()).toBe('simple');
+    expect(screen.getByRole('navigation', { name: 'Folder path' })).toHaveTextContent('Assets');
   });
 
   it('Needs your OK on a recurring trend opens its card waiting for an OK, not last run’s report', async () => {
@@ -334,16 +341,16 @@ describe('Links and openers land on what they name', () => {
   it('Back to Admin leaves the admin where they went when the preview could show the page it started on', async () => {
     const { api } = openStudio('admin', { uiMode: 'classic' });
     await h1(GREETING.name);
-    side('board');
-    await h1('Trend board');
+    side('trends');
+    await h1('Trends');
     fireEvent.click(screen.getByRole('button', { name: /^Account: Chris/ }));
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Editor' }));
     await screen.findByText(/^Previewing what an editor sees/);
-    side('library');
-    await h1('Your asset library');
+    side('assets');
+    await h1('Assets');
     fireEvent.click(screen.getByRole('button', { name: 'Back to Admin' }));
     await waitFor(() => expect(api.setViewAs).toHaveBeenLastCalledWith({ role: 'admin' }));
     await waitFor(() => expect(screen.queryByText(/^Previewing what/)).not.toBeInTheDocument());
-    expect(screen.getAllByRole('heading', { level: 1, name: 'Your asset library' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('heading', { level: 1, name: 'Assets' }).length).toBeGreaterThan(0);
   });
 });

@@ -3,6 +3,7 @@ import { Check, ClipboardCopy, Link2, LoaderCircle, Lock, RefreshCw, Unlink } fr
 import { Dialog, DialogClose, copyText } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { firstName, formatDay, formatTime, plural, writeProps } from './viewer.js';
+import { ProgramAccessField } from './program-access-field.jsx';
 
 // One person, in a wide sheet with four tabs: Details (name, email, role, channel), Access (their own changes on top of
 // the role: Role default · On · Off for each capability), Sign-in (their link) and Activity (the access log about them).
@@ -205,6 +206,7 @@ export function PersonSheet({ team, member, viewer = {}, web = false, api, actio
   const [email, setEmail] = useState(member.email || '');
   const [role, setRole] = useState(member.role);
   const [channelId, setChannelId] = useState(member.channelId || '');
+  const [programIds, setProgramIds] = useState(Array.isArray(member.programIds) ? member.programIds : null); // null: every program
   const [grants, setGrants] = useState(list(member.grants));
   const [denies, setDenies] = useState(list(member.denies));
   const [notes, setNotes] = useState({});
@@ -222,7 +224,9 @@ export function PersonSheet({ team, member, viewer = {}, web = false, api, actio
   const sso = Boolean(team?.signIn?.sso); const links = Boolean(team?.signIn?.links) && typeof api?.createSignInLink === 'function';
   const emailChanged = sso && email.trim().toLowerCase() !== String(member.email || '').toLowerCase();
   const baseChanged = (savedDef?.base || member.base) !== base;
-  const detailsChanged = name.trim() !== (member.name || '') || email.trim().toLowerCase() !== String(member.email || '').toLowerCase() || role !== member.role || (base === 'channel' ? channelId : null) !== (member.channelId || null);
+  const programKey = (value) => (Array.isArray(value) ? [...value].sort().join() : '*');
+  const programsChanged = base !== 'admin' && programKey(programIds) !== programKey(member.programIds);
+  const detailsChanged = name.trim() !== (member.name || '') || email.trim().toLowerCase() !== String(member.email || '').toLowerCase() || role !== member.role || (base === 'channel' ? channelId : null) !== (member.channelId || null) || programsChanged;
   const accessChanged = !baseChanged && base !== 'admin' && (list(grants).join() !== list(member.grants).join() || list(denies).join() !== list(member.denies).join());
   const first = firstName(member.name) || member.name || 'They';
 
@@ -247,7 +251,7 @@ export function PersonSheet({ team, member, viewer = {}, web = false, api, actio
 
   async function save(event) {
     event?.preventDefault();
-    const clean = { name: name.trim(), email: email.trim(), role, channelId: base === 'channel' ? channelId : null };
+    const clean = { name: name.trim(), email: email.trim(), role, channelId: base === 'channel' ? channelId : null, ...(base !== 'admin' ? { programIds } : {}) };
     if (!clean.name) { setTab('details'); setProblem('Add their name.'); setTimeout(() => nameRef.current?.focus()); return; }
     if (clean.name.length > 120) { setTab('details'); setProblem('Keep the name under 120 characters.'); return; }
     if ((web || clean.email) && !EMAIL.test(clean.email)) { setTab('details'); setProblem('That doesn’t look like an email address.'); return; }
@@ -304,6 +308,7 @@ export function PersonSheet({ team, member, viewer = {}, web = false, api, actio
             </label>)}</div>
             {baseChanged && (list(member.grants).length > 0 || list(member.denies).length > 0) && <p className="studio-hint">{roleDef?.label} is a different kind of role, so {first}’s own access changes will be cleared.</p>}
           </fieldset>
+          {base !== 'admin' && <ProgramAccessField programs={list(team?.programs)} value={programIds} disabled={!editable || viewer.preview} first={first} onChange={(next) => { setProgramIds(next); setProblem(''); }} />}
           {base === 'channel' && <label className="studio-field"><span>Channel</span><select value={channelId} disabled={!editable} onChange={(event) => { setChannelId(event.target.value); setProblem(''); }}><option value="">Choose a channel</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label>}
         </>}
         {tab === 'access' && <>

@@ -51,7 +51,7 @@ describe('Ask AI in the channel layout', () => {
     expect(button.querySelector('kbd')).toHaveTextContent(/^(⌘J|Ctrl\+J)$/);
     expect(button).toHaveAttribute('aria-keyshortcuts', expect.stringMatching(/^(Meta|Control)\+J$/));
     // The pages stay the four channel pages; Ask AI is with the actions, as in Simple.
-    expect(within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('button').map((row) => row.textContent.replace(/\d+$/, ''))).toEqual(['Trends', 'My assets', 'My plan', 'Inbox']);
+    expect(within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('button').map((row) => row.textContent.replace(/\d+$/, ''))).toEqual(['Inbox', 'Trends', 'Assets', 'Calendar', 'My channel']);
     fireEvent.click(button);
     expect(await screen.findByRole('heading', { name: 'What can I help with?' })).toBeInTheDocument();
     expect(button).toHaveAttribute('aria-current', 'page');
@@ -67,7 +67,7 @@ describe('Ask AI in the channel layout', () => {
     expect(api.askHelp.mock.calls[0][0]).toMatchObject({ question: 'What’s new for my channel?', page: { id: 'channel', label: 'Semrush Blog', layout: 'channel', tab: 'trends' } });
     expect(await screen.findByText('Here is what’s new for Blog.')).toBeInTheDocument();
     // A "Needs you now" button takes them to the page it names.
-    fireEvent.click(within(sidebar()).getByRole('button', { name: /My assets/ }));
+    fireEvent.click(within(sidebar()).getByRole('button', { name: /^Assets/ }));
     await screen.findByRole('heading', { level: 1, name: 'My assets · Semrush Blog' });
     fireEvent.keyDown(window, { key: 'j', metaKey: true });
     expect(await screen.findByRole('heading', { name: 'What can I help with?' })).toBeInTheDocument();
@@ -80,7 +80,7 @@ describe('Ask AI in the channel layout', () => {
       await screen.findByRole('heading', { level: 1, name: 'Trends for Semrush Blog' });
       const bottom = document.querySelector('.studio-bottom-nav');
       const ask = within(bottom).getByRole('button', { name: 'Ask AI' });
-      expect(within(bottom).getAllByRole('button').map((row) => row.textContent.replace(/^\d+|\d+$/g, ''))).toEqual(['Trends', 'My assets', 'My plan', 'Inbox', 'Ask AI']);
+      expect(within(bottom).getAllByRole('button').map((row) => row.textContent.replace(/^\d+|\d+$/g, ''))).toEqual(['Inbox', 'Trends', 'Assets', 'Calendar', 'My channel', 'Ask AI']);
       fireEvent.click(ask);
       expect(await screen.findByRole('heading', { name: 'What can I help with?' })).toBeInTheDocument();
       expect(ask).toHaveAttribute('aria-current', 'page');

@@ -44,10 +44,11 @@ const tab = (name) => fireEvent.click(within(screen.getByRole('navigation', { na
 describe('Assets: report folders of channel assets', () => {
   it('keeps kit drafts out of Reports and files them in a report folder by channel team', async () => {
     const api = await openSimple();
-    tab('Reports');
-    expect(await screen.findByText(/2 reports, newest first/)).toBeInTheDocument();
-    expect(screen.queryByText('AI citations are the new rankings')).not.toBeInTheDocument();
     tab('Assets');
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Type' }), { target: { value: 'reports' } });
+    expect(await screen.findByRole('heading', { name: '2 matches' })).toBeInTheDocument();
+    expect(screen.queryByText('AI citations are the new rankings')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Type' }), { target: { value: '' } });
     fireEvent.click(await screen.findByRole('button', { name: `Open the ${TREND} folder` }));
     const run = await screen.findByRole('region', { name: `Golden Thread — ${TREND} (2026-10-16)` });
     expect(within(run).getByText(/2 of 3 ready · 1 needs another try · \$9\.12 · Claude Fable 5\.1/)).toBeInTheDocument();
@@ -107,8 +108,9 @@ describe('Assets: report folders of channel assets', () => {
 
   it('opens the asset dialog on the report being read', async () => {
     const api = await openSimple();
-    tab('Reports');
-    fireEvent.click((await screen.findAllByRole('button', { name: new RegExp(`^${TREND}`) }))[0]); // one row per trend, named after it
+    tab('Assets');
+    fireEvent.click(await screen.findByRole('button', { name: `Open the ${TREND} folder` }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Trends report/ })); // the trend's report opens in the reader, on Assets
     fireEvent.click(await screen.findByRole('button', { name: 'Make channel assets' }));
     await waitFor(() => expect(api.planAssetKit).toHaveBeenCalledWith({ source: { kind: 'report', assetId: 'asset-report' } }));
     expect(await screen.findByText('1 earlier run in its folder', { exact: false })).toBeInTheDocument();

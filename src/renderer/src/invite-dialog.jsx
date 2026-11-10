@@ -3,6 +3,7 @@ import { Check, ChevronDown, ClipboardCopy, LoaderCircle, UserPlus, X } from 'lu
 import { Dialog, DialogClose, copyText } from './role-screens.jsx';
 import { AccessList, capabilityRules, linkMessage, roleOf, roleSummary } from './person-sheet.jsx';
 import { plural, writeProps } from './viewer.js';
+import { ProgramAccessField } from './program-access-field.jsx';
 
 // Invite people: paste one or more work emails, choose their role (and channel for a channel role), optionally adjust
 // what they can do, then one inviteMembers call adds everyone. The answer depends on how this studio signs in: with
@@ -47,6 +48,8 @@ export function InviteDialog({ team, viewer = {}, api, action, preset = {}, stud
   const [entries, setEntries] = useState(() => [...new Set(list(preset.emails).map((email) => String(email || '').trim().toLowerCase()).filter(Boolean))].slice(0, 50).map((email) => ({ key: `${email}-${Math.random().toString(36).slice(2, 8)}`, email, name: '' })));
   const [role, setRole] = useState(preset.role || (roles.some((entry) => entry.id === 'editor') ? 'editor' : roles[0]?.id || 'editor'));
   const [channelId, setChannelId] = useState(preset.channelId || '');
+  // Which research programs they see: every program unless the admin chooses (preset.programIds: a program's Invite).
+  const [programIds, setProgramIds] = useState(Array.isArray(preset.programIds) ? preset.programIds : null);
   const [adjust, setAdjust] = useState(false);
   const [grants, setGrants] = useState([]);
   const [denies, setDenies] = useState([]);
@@ -77,7 +80,7 @@ export function InviteDialog({ team, viewer = {}, api, action, preset = {}, stud
     if (base === 'channel' && !channelId) { setProblem('Choose the channel they own.'); return; }
     setSending(true); setProblem('');
     try {
-      const answer = await runWith(action, () => api.inviteMembers({ people: people.map((entry) => ({ email: entry.email, ...(entry.name.trim() ? { name: entry.name.trim() } : {}) })), role, ...(base === 'channel' ? { channelId } : {}), ...(adjust && (grants.length || denies.length) ? { grants, denies } : {}) }));
+      const answer = await runWith(action, () => api.inviteMembers({ people: people.map((entry) => ({ email: entry.email, ...(entry.name.trim() ? { name: entry.name.trim() } : {}) })), role, ...(base === 'channel' ? { channelId } : {}), ...(base !== 'admin' && programIds ? { programIds } : {}), ...(adjust && (grants.length || denies.length) ? { grants, denies } : {}) }));
       setSending(false);
       if (answer === null) { setProblem('Nobody was invited. Try again.'); return; }
       setResult(answer || { members: [], links: [], skipped: [] });
@@ -147,6 +150,7 @@ export function InviteDialog({ team, viewer = {}, api, action, preset = {}, stud
           </label>)}</div>
         </fieldset>
         {base === 'channel' && <label className="studio-field"><span>Channel</span><select value={channelId} onChange={(event) => { setChannelId(event.target.value); setProblem(''); }}><option value="">Choose a channel</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label>}
+        {base !== 'admin' && Array.isArray(team?.programs) && team.programs.length > 0 && <ProgramAccessField programs={team.programs} value={programIds} onChange={(next) => { setProgramIds(next); setProblem(''); }} />}
         {base !== 'admin' && <div className="people-invite-adjust">
           <button type="button" className="studio-link" aria-expanded={adjust} onClick={() => setAdjust((value) => !value)}><ChevronDown size={15} aria-hidden="true" className={adjust ? 'is-open' : ''} />Adjust access</button>
           {adjust && <AccessList access={access} base={base} roleCaps={roleDef?.capabilities} roleName={roleDef?.label || 'chosen'} grants={grants} denies={denies} notes={notes} onChange={(next) => { setGrants(next.grants); setDenies(next.denies); setNotes(next.note ? { [next.id]: next.note } : {}); }} />}

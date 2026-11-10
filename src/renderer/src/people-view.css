@@ -228,3 +228,29 @@
   .people-sheet-tabs { padding: 0 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .people-role-card, .people-invite-adjust .studio-link svg, .access-log-row .studio-icon-button svg { transition: none; } }
+
+/* Research programs (program-access-field.jsx): All programs, or only the ones chosen, with a checklist. */
+.people-programs { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; border: 0; }
+.studio-frame .people-programs legend { margin-bottom: 6px; padding: 0; font-size: 13px; font-weight: 650; color: var(--s-ink); }
+.people-program-modes { display: grid; gap: 8px; }
+.people-program-modes > label { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 14px; cursor: pointer; }
+.people-program-modes > label:hover { border-color: var(--s-line-strong); }
+.people-program-modes > label.checked { background: var(--s-soft); border-color: var(--s-accent); }
+.people-program-modes > label:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.people-program-modes > label:has(input:focus-visible) { outline: 2px solid var(--s-focus); outline-offset: 2px; }
+.studio-frame .people-program-modes input { flex: none; width: 18px; height: 18px; min-height: 18px; margin: 2px 0 0; padding: 0; accent-color: var(--s-ink); }
+.people-program-modes > label > span { display: grid; gap: 2px; }
+.people-program-modes strong { font-size: 14px; font-weight: 650; color: var(--s-ink); }
+.people-program-modes small { font-size: 12.5px; color: var(--s-muted); }
+.people-program-list { display: grid; gap: 4px; margin: 2px 0 0 30px; padding: 0; list-style: none; }
+.people-program-list label { display: flex; align-items: center; gap: 10px; min-height: 32px; font-size: 14px; color: var(--s-ink); cursor: pointer; }
+.studio-frame .people-program-list input { width: 16px; height: 16px; min-height: 16px; margin: 0; accent-color: var(--s-ink); }
+
+/* Who sees one research program (programs-page.jsx ProgramPeople). */
+.program-people-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.program-people-list label { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--s-line); cursor: pointer; }
+.program-people-list label.is-locked { cursor: default; }
+.studio-frame .program-people-list input { flex: none; width: 18px; height: 18px; min-height: 18px; margin: 0; accent-color: var(--s-ink); }
+.program-people-list label > span { display: grid; gap: 2px; }
+.program-people-list strong { font-size: 14px; font-weight: 650; color: var(--s-ink); }
+.program-people-list small { font-size: 12.5px; color: var(--s-muted); }

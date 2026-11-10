@@ -61,6 +61,26 @@ export function dateGroup(value) {
   const days = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(then.getFullYear(), then.getMonth(), then.getDate())) / 86400000);
   return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 7 ? 'This week' : days < 31 ? 'This month' : 'Earlier';
 }
+// Assets' headings, newest first: This week (since Monday), Last week, then the month ("October 2026").
+export function periodLabel(value, now = Date.now()) {
+  const then = new Date(value || ''); if (!value || Number.isNaN(then.getTime())) return 'Undated';
+  const today = new Date(now); const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
+  if (then >= monday) return 'This week';
+  if (then >= new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 7)) return 'Last week';
+  return then.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+// A date filter's window as { from, to } (ISO days, '' for open ends): 'week' (since Monday), '7d', '30d', 'month' (since
+// the 1st), 'custom' (the given days), anything else everything.
+export function rangeWindow(range, { from = '', to = '' } = {}, now = Date.now()) {
+  const today = new Date(now); const day = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const back = (days) => day(new Date(today.getFullYear(), today.getMonth(), today.getDate() - days));
+  if (range === 'week') return { from: back((today.getDay() + 6) % 7), to: '' };
+  if (range === '7d') return { from: back(6), to: '' };
+  if (range === '30d') return { from: back(29), to: '' };
+  if (range === 'month') return { from: day(new Date(today.getFullYear(), today.getMonth(), 1)), to: '' };
+  if (range === 'custom') return { from: /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : '', to: /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : '' };
+  return { from: '', to: '' };
+}
 // "Oct 14" this year, "Oct 14, 2025" otherwise, in the viewer's locale.
 export function dayLabel(value, now = Date.now()) {
   const date = new Date(value || ''); if (!value || Number.isNaN(date.getTime())) return '';
@@ -309,6 +329,8 @@ export function buildLibraryTree({ researchRuns = [], contentRuns = [], assets =
   const tierRank = (id) => TIER_RANK[nodes[id].meta.priorityTier] ?? 4;
   for (const value of Object.values(nodes)) {
     if (value.type === 'research-run') value.children.sort((a, b) => tierRank(a) - tierRank(b)); // stable: reportRunIds order breaks ties
+    // A trend says where research found it ("Found in the Oct 20 run · AI search pulse"), for Assets' trend folders.
+    if (value.type === 'trend') { const run = nodes[value.parentId]; value.meta.programId = run?.meta.programId || ''; value.meta.programName = run?.meta.programName || ''; value.meta.runDate = run?.type === 'research-run' ? run.date : ''; }
     if (value.type === 'earlier') value.children.sort((a, b) => time(nodes[b].date) - time(nodes[a].date));
     if (value.type === 'trend') {
       const rank = { kits: 0, drafts: 1, pictures: 2 }; value.children.sort((a, b) => (rank[nodes[a].type] ?? 3) - (rank[nodes[b].type] ?? 3));
@@ -332,10 +354,14 @@ export function buildLibraryTree({ researchRuns = [], contentRuns = [], assets =
     return keys;
   }
   for (const id of rootIds) gather(id);
+  // The research program a node's files came from: its research run's (a trend's run, a quick scan), else none.
+  const programOf = (nodeId) => { for (let id = nodeId; id && nodes[id]; id = nodes[id].parentId) if (nodes[id].type === 'research-run') return nodes[id].meta.programId || ''; return ''; };
   for (const item of items) {
     const path = [];
     for (let id = item.nodeIds[0]; id && nodes[id]; id = nodes[id].parentId) path.unshift(nodes[id].title);
     item.location = item.nodeIds[0] || '';
+    item.programId = programOf(item.trendNodeId || item.location);
+    item.programName = item.programId ? programName.get(item.programId) || '' : '';
     item.haystack = [...new Set([item.title, cleanTitle(item.title), item.label, item.channelName, TYPE_LABEL[item.type], ...path, ...item.context].map((value) => String(value || '').toLowerCase().trim()).filter(Boolean))].join(' \n');
     delete item.context;
   }
@@ -356,18 +382,32 @@ export function pathTo(tree, nodeId) {
 // "Oct 14" style dates match whole days in the viewer's time zone; ISO stamps match exactly.
 const dayStart = (value) => { const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '')); return day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])).getTime() : time(value); };
 // Search and filters across everything at once: flat results, newest first, each with the folders it sits in.
-export function filterLibrary(tree, { query = '', types = [], channels = [], from = '', to = '' } = {}) {
+export function filterLibrary(tree, { query = '', types = [], channels = [], programs = [], from = '', to = '' } = {}) {
   const terms = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
-  const wantTypes = new Set(list(types)); const wantChannels = new Set(list(channels));
+  const wantTypes = new Set(list(types)); const wantChannels = new Set(list(channels)); const wantPrograms = new Set(list(programs));
   const start = from ? dayStart(from) : 0; const end = to ? (/^\d{4}-\d{2}-\d{2}$/.test(to) ? dayStart(to) + 86400000 - 1 : time(to)) : 0;
-  const active = Boolean(terms.length || wantTypes.size || wantChannels.size || start || end);
+  const active = Boolean(terms.length || wantTypes.size || wantChannels.size || wantPrograms.size || start || end);
   const matches = list(tree?.items).filter((item) => (!terms.length || terms.every((term) => item.haystack.includes(term)))
     && (!wantTypes.size || item.types.some((type) => wantTypes.has(type)))
     && (!wantChannels.size || wantChannels.has(item.channelId))
+    && (!wantPrograms.size || wantPrograms.has(item.programId))
     && (!start || time(item.createdAt) >= start) && (!end || (time(item.createdAt) && time(item.createdAt) <= end)));
   const counts = {}; const expand = new Set();
   for (const item of matches) for (const node of pathTo(tree, item.location)) { counts[node.id] = (counts[node.id] || 0) + 1; expand.add(node.id); }
   return { active, items: matches.map((item) => ({ ...item, path: pathTo(tree, item.location) })), counts, expand };
+}
+
+// Assets' trend folders, newest first: every trend research reported (from a run in this workspace or an earlier one),
+// within the date window (when its report was written) and the programs asked for. Quick scans, by the same rules.
+const inWindow = (value, start, end) => (!start || time(value) >= start) && (!end || (time(value) && time(value) <= end));
+function windowOf(from, to) { return { start: from ? dayStart(from) : 0, end: to ? dayStart(to) + 86400000 - 1 : 0 }; }
+export function trendFolders(tree, { from = '', to = '', programs = [] } = {}) {
+  const want = new Set(list(programs)); const { start, end } = windowOf(from, to);
+  return Object.values(tree?.nodes || {}).filter((node) => node.type === 'trend' && (!want.size || want.has(node.meta.programId)) && inWindow(node.date, start, end)).sort((a, b) => time(b.date) - time(a.date));
+}
+export function scanFolders(tree, { from = '', to = '', programs = [] } = {}) {
+  const want = new Set(list(programs)); const { start, end } = windowOf(from, to);
+  return list(tree?.roots).map((id) => tree.nodes[id]).filter((node) => node?.type === 'research-run' && node.meta.origin === 'quick-scan' && (!want.size || want.has(node.meta.programId)) && inWindow(node.date, start, end));
 }
 
 // Simple Reports: one entry per trend (its Trends report and Editorial toolkit together, kind 'trend') and one per quick

@@ -594,7 +594,7 @@ describe('Ask AI on for every role (team.json v3)', () => {
     expect(capsOf(store, 'role-quiet-0003')).not.toContain('askAi'); // an admin turned it off for this role
     expect(capsOf(store, 'role-briefs-0004')).toEqual(['core', 'readAssets']); // it lacks See research and evidence, which Ask AI needs on an editor base
     expect(capsOf(store, 'editor')).not.toContain('askAi'); // an admin's Off on the built-in Editor stays
-    expect(capsOf(store, 'admin')).toHaveLength(28);
+    expect(capsOf(store, 'admin')).toHaveLength(29);
     // People's own access is untouched: Jordan's Off for Make channel assets stays, and Jordan has Ask AI from the role.
     expect(store.accessFor('member-jordan')).toEqual({ grants: [], denies: ['makeAssets'] });
     // The access log says what changed, as Automatic, with who it affects.

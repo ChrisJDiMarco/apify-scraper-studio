@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, CheckCheck, ChevronRight, ClipboardCopy, Command, Globe2, Inbox, ListChecks, LoaderCircle, RefreshCw, ScrollText, Sparkles, UserRound, Workflow, X } from 'lucide-react';
+import { CalendarDays, CheckCheck, ChevronRight, ClipboardCopy, Command, Link2, Globe2, Inbox, ListChecks, LoaderCircle, RefreshCw, ScrollText, Sparkles, UserRound, Workflow, X } from 'lucide-react';
 import { AutomationView } from './automation-view.jsx';
 import { DatasetsView, ReportsView } from './dataset-report-views.jsx';
 import { CommandPalette } from './command-palette.jsx';
@@ -35,11 +35,13 @@ import { useConfirm } from './confirm-dialog.jsx';
 import { SheetsView } from './sheets-view.jsx';
 import { SimpleMode } from './simple-mode.jsx';
 import { ChannelBottomNav, NAV_ICONS, StudioSidebar, StudioTopBar } from './studio-sidebar.jsx';
-import { DATA_TOOL_IDS, PAGE_LABELS, STUDIO_PAGES, WORKBENCH, buildNav, generalStudioTabs, isChannelViewer, isRealAdmin, navPages } from './nav-model.js';
+import { DATA_TOOL_IDS, PAGE_LABELS, STUDIO_PAGES, WORKBENCH, buildNav, focusChannelOptions, generalStudioTabs, isChannelViewer, isRealAdmin, navPages } from './nav-model.js';
+import { ChannelSettings } from './channel-settings.jsx';
+import { ProgramSetup } from './program-setup.jsx';
 import { InboxView, inboxUnread, markInboxRead } from './inbox-view.jsx';
 import { CalendarView } from './calendar-view.jsx';
 import { PromptLibrary } from './prompt-library.jsx';
-import { LINK_COPIED, deepLinkTarget, linkFor, shareOrigin, useDeepLink } from './deep-links.js';
+import { LINK_COPIED, deepLinkTarget, hashForRoute, linkFor, routeLink, shareOrigin, useRoutes } from './deep-links.js';
 import { NoAccess, PreviewBanner, copyText, useNarrow, useToast } from './role-screens.jsx';
 import { ChannelAssets, ChannelPlan, ChannelTrends } from './channel-owner.jsx';
 import { ChannelAskPage } from './channel-ask.jsx';
@@ -94,6 +96,10 @@ function saveRail(on) {
 // Pages folded into a better home. Old links (palette, saved actions, other views) still land somewhere useful.
 const DATASET_TAB_FOR = { signals: 'signals', threads: 'conversations', clusters: 'topics', competitive: 'coverage' };
 const STUDIO_HOME_FOR = { kanban: 'board', assets: 'library', brands: 'knowledge' };
+// The Advanced Library and Trend board are Simple's Assets and Trends now: one page each, for everyone.
+const SIMPLE_FOR_STUDIO = Object.freeze({ library: 'assets', board: 'trends' });
+// A trend's two documents, which open inside Trends; every other report opens inside Assets.
+const TREND_DOCS = new Set(['evidence-report', 'editorial-toolkit']);
 // Pages other modules draw, routed here in both layouts (and for channel owners, My plan and Inbox): renderSharedPage
 // mounts each one. A studio too old for a page's methods (an older main process) shows what it holds instead.
 const SHARED_PAGES = {
@@ -140,6 +146,12 @@ class ErrorBoundary extends React.Component {
 
   static getDerivedStateFromError(error) {
     return { error };
+  }
+
+  // Nothing else records a render failure, so say where it happened (the page's address) in the console, which the
+  // desktop log and a browser's devtools both keep.
+  componentDidCatch(error, info) {
+    try { console.error('Golden Thread render error', { page: this.props.page ? 'page' : 'shell', route: typeof window !== 'undefined' ? window.location.hash : '', message: error?.message || String(error), stack: String(info?.componentStack || '').split('\n').slice(0, 8).join('\n') }); } catch { /* logging never makes it worse */ }
   }
 
   // Moving to another page clears a page's error screen without remounting the page: remounting would throw away what
@@ -278,6 +290,9 @@ function StudioApp({ api }) {
   // (a stage's tool, the Workbench, the palette) open in their place until a Simple page is opened again.
   const [peek, setPeek] = useState(false);
   const [simpleTab, setSimpleTab] = useState('home');
+  const [simpleReopen, setSimpleReopen] = useState(0); // bumps when the open Simple page is pressed again
+  // What a Simple page has open, for its address: { report, folder, program } (SimpleMode reports it).
+  const [simpleDetail, setSimpleDetail] = useState({ report: '', folder: '', program: '' });
   const [channelTab, setChannelTab] = useState('trends');
   const [channelFocus, setChannelFocus] = useState('');
   const [channelCache, setChannelCache] = useState({});
@@ -289,6 +304,9 @@ function StudioApp({ api }) {
   const [newMenuKey, setNewMenuKey] = useState(0); // ⌥⌘N opens the sidebar's New menu
   const [peopleRequest, setPeopleRequest] = useState(null); // { kind: 'invite', key, preset? } opens Invite, { kind: 'person', key, memberId } that person's sheet, once
   const [programRequest, setProgramRequest] = useState(null); // { kind: 'new', key }: Research programs opens a new program
+  const [programSection, setProgramSection] = useState(''); // the program form's section Workbench last opened ('' when a program's runs are open)
+  const [programRouteId, setProgramRouteId] = useState(''); // the program the research page was last opened on, for its address
+  const [programSetup, setProgramSetup] = useState(null); // { key, firstRun }: the guided setup sheet (program-setup.jsx)
   const [runRequest, setRunRequest] = useState(null); // { key, runId }: Research programs or Create content selects that run once
   const [createRequest, setCreateRequest] = useState(null); // { key, mode: 'report' }: Create content opens on "Use a report"
   const [promptRequest, setPromptRequest] = useState(null); // { key, promptId, tab? }: Prompts opens that prompt once
@@ -532,12 +550,14 @@ function StudioApp({ api }) {
 
   // Ask AI's "Open" buttons name a studio view (Research programs, Library…) or an app page (Sheets, Settings…).
   function openHelpPage(page) {
+    if (page === 'programs') { if (simpleAllowed('programs')) goSimple('programs'); else setNotice(pageOffNotice('research')); return; }
     if (mode === 'simple' && (page === 'knowledge' || page === 'brands')) { openClassicPage(page); return; } // Simple's own page
     if (STUDIO_VIEWS.has(page)) navigateStudio(page);
     else navigate(page);
   }
 
   function navigateStudio(view, { confirmed = false } = {}) {
+    if (SIMPLE_FOR_STUDIO[view]) { goSimple(SIMPLE_FOR_STUDIO[view], { confirmed }); return; }
     if (!studioAllowed(view)) { setNotice(pageOffNotice(view)); return; }
     if (!confirmed && !(active === 'content-studio' && studioView === view) && !guard.confirmLeave()) return;
     withViewTransition(() => {
@@ -550,6 +570,7 @@ function StudioApp({ api }) {
   // until a Simple page is opened from the sidebar again. `args`
   // go with it (Sheets takes { workbookId }; Research programs and Create content take { runId }, the run to show).
   function openClassicPage(view, args = {}, { confirmed = false } = {}) {
+    if (SIMPLE_FOR_STUDIO[view]) { goSimple(SIMPLE_FOR_STUDIO[view], { confirmed }); return; }
     if (!pageAllowed(view)) { setNotice(pageOffNotice(view)); return; }
     // Brand knowledge is a Simple page of its own: Ask AI's Open buttons, the palette and old links land there, not on a peek.
     if ((view === 'knowledge' || view === 'brands') && mode === 'simple' && knowledgeInSimple) {
@@ -561,6 +582,7 @@ function StudioApp({ api }) {
     if (!confirmed && !guard.confirmLeave()) return;
     setPeek(true); setDrawerOpen(false);
     if (STUDIO_VIEWS.has(view)) {
+      if (view === 'research' && (args.runId || args.programId)) { setProgramSection(args.programId ? 'basics' : ''); setProgramRouteId(args.programId ? String(args.programId) : programOfRun(args.runId)); } // the drawer's Open full page edits; a run shows results
       if (args.runId && (view === 'research' || view === 'create')) setRunRequest({ key: Date.now(), runId: String(args.runId) });
       if (args.programId && view === 'research') setProgramRequest({ kind: 'edit', key: Date.now(), programId: String(args.programId) }); // Home's program drawer: Open full page
       navigateStudio(view, { confirmed: true });
@@ -568,7 +590,8 @@ function StudioApp({ api }) {
   }
   // One run where it shows its progress (Research programs or Create content), with that run selected: the Inbox, Next
   // up, Ask AI, the Working popover, Sheets and Activity all open runs this way in the Advanced layout.
-  function openStudioRun(view, runId) { openStudioWith(view, runId ? () => setRunRequest({ key: Date.now(), runId: String(runId) }) : null); }
+  const programOfRun = (runId) => list(studioState.researchRuns).find((run) => run.id === runId)?.programId || '';
+  function openStudioRun(view, runId) { openStudioWith(view, () => { if (view === 'research') { setProgramSection(''); setProgramRouteId(programOfRun(runId)); } if (runId) setRunRequest({ key: Date.now(), runId: String(runId) }); }); }
   // A studio page opened with a request for it (the run to select, a new program, Ask AI's draft): unsaved edits are
   // asked about first, so a "Stay" never leaves the request behind for a later visit. From Simple it opens as a peek.
   function openStudioWith(view, request) {
@@ -581,9 +604,9 @@ function StudioApp({ api }) {
   // Simple's pages, the sidebar and ⌘1–9 all come here, so unsaved report edits are asked about once. From an Advanced
   // page it closes that page too.
   const simpleTabRef = useRef(simpleTab); simpleTabRef.current = simpleTab;
-  function goSimple(next) {
+  function goSimple(next, { confirmed = false } = {}) {
     if (!simpleAllowed(next)) return;
-    if ((peek || next !== simpleTabRef.current) && !guard.confirmLeave()) return;
+    if (!confirmed && (peek || next !== simpleTabRef.current) && !guard.confirmLeave()) return;
     withViewTransition(() => { setPeek(false); setSimpleTab(next); });
   }
   // `focus` is a trend to jump to in My assets, once: any other way there (the nav, ⌘2) starts at the top.
@@ -623,9 +646,12 @@ function StudioApp({ api }) {
   function openNavItem(row) {
     if (!row) return;
     if (row.kind === 'channel') { goChannel(row.target); return; }
+    // The Simple page already open, pressed again: SimpleMode goes back to its top (out of a report or a folder), asking first.
+    if (row.kind === 'simple' && !peek && mode === 'simple' && row.target === simpleTabRef.current) { if (guard.confirmLeave()) setSimpleReopen((value) => value + 1); return; }
     if (row.kind === 'simple') { goSimple(row.target); return; }
     if (row.kind === 'admin') { openAdminPage(row.target); return; }
     if (row.kind === 'settings') { openSettings(); return; }
+    if (row.kind === 'program') { openProgramSection(row.section); return; }
     if (mode === 'simple') { openClassicPage(row.target); return; }
     if (row.kind === 'studio') navigateStudio(row.target);
     else navigate(row.target);
@@ -667,29 +693,34 @@ function StudioApp({ api }) {
     else if (start) setHelpSeed({ key: Date.now(), draft: start });
     setPaletteOpen(false); setHelpOpen(true);
   }
-  // Open a report (an asset id) where each layout reads it: Simple's Reports, or the Advanced Library.
+  // Open a report (an asset id) where it's read: a trend's Trends report and Editorial toolkit inside Trends, every other
+  // report (a quick scan's, a Create content draft) inside Assets. From an Advanced page it closes that page.
   function openReport(assetId) {
     if (!assetId) return;
-    if (mode === 'simple') {
-      if (!simpleAllowed('reports') || !guard.confirmLeave()) return;
-      setShellRequest({ key: Date.now(), kind: 'report', assetId });
-      withViewTransition(() => setSimpleTab('reports'));
+    const tab = reportTab(assetId);
+    if (!simpleAllowed(tab) || !guard.confirmLeave()) return;
+    setShellRequest({ key: Date.now(), kind: 'report', assetId, tab });
+    withViewTransition(() => { setPeek(false); setSimpleTab(tab); });
+  }
+  function reportTab(assetId) {
+    const asset = list(studioState.assets).find((row) => row.id === assetId);
+    return TREND_DOCS.has(asset?.deliverableId) && simpleAllowed('trends') ? 'trends' : 'assets';
+  }
+  // A channel-asset folder (a kit's sourceKey) in Assets, from anywhere.
+  function openLibraryFolder(folderKey) { if (folderKey) openTarget({ kind: 'folder', id: folderKey, page: 'assets' }); }
+  // Workbench → Edit research program: one section of the program form ('basics', 'sources'…), for the program asked for,
+  // else the one this person chose last, else the newest; 'prompts' lists the research and report prompts. With no
+  // program yet, the form opens empty.
+  function openProgramSection(section = 'basics', programId = '') {
+    if (section === 'prompts') {
+      if (!adminPages.includes('prompts')) { setNotice(pageOffNotice('prompts')); return; }
+      setPromptRequest({ key: Date.now(), groups: ['research', 'reports'] });
+      openAdminPage('prompts');
       return;
     }
-    if (!studioAllowed('library')) { setNotice(pageOffNotice('library')); return; }
-    // Asked first even inside the Library: the new file replaces the editor.
-    if (!guard.confirmLeave()) return;
-    setLibraryRequest({ key: Date.now(), assetId });
-    navigateStudio('library', { confirmed: true });
-  }
-  // A channel-asset folder (a kit's sourceKey) in the Advanced Library; Simple's Assets opens its own folders.
-  function openLibraryFolder(folderKey) {
-    if (!folderKey || mode !== 'classic') return;
-    if (!studioAllowed('library')) { setNotice(pageOffNotice('library')); return; }
-    // Inside the Library, the Library itself asks before a folder replaces the editor.
-    if (!(active === 'content-studio' && studioView === 'library') && !guard.confirmLeave()) return;
-    setLibraryRequest({ key: Date.now(), folderKey });
-    navigateStudio('library', { confirmed: true });
+    const programs = list(studioState.programs).filter(inWorkspace);
+    const program = defaultProgram(programs, { id: programId, lastId: lastProgramId(viewer) });
+    openStudioWith('research', () => { setProgramSection(section); setProgramRouteId(program?.id || ''); setProgramRequest(program ? { kind: 'edit', key: Date.now(), programId: program.id, section } : { kind: 'new', key: Date.now() }); });
   }
   // After a palette jump, bring the named card into view once its page has drawn it.
   function scrollToCard(selector, name) {
@@ -707,14 +738,9 @@ function StudioApp({ api }) {
   // A trend: Simple's Trends, or the Advanced Trend board, scrolled to its card (a card waiting for an OK, or the
   // Being written, Ready, approved and Skipped rows, which carry trends.ready-card).
   function reviewTrend({ name } = {}) {
-    if (mode === 'simple') {
-      if (!simpleAllowed('trends')) return;
-      goSimple('trends');
-      scrollToCard('[data-spot="trends.card"], [data-spot="trends.ready-card"]', name);
-      return;
-    }
-    navigateStudio('board');
-    scrollToCard('.tb-card', name);
+    if (!simpleAllowed('trends')) return;
+    goSimple('trends');
+    scrollToCard('[data-spot="trends.card"], [data-spot="trends.ready-card"]', name);
   }
   // One prompt on the Prompts page (Ask AI's Open in Prompts, How this was made, a share link, an Inbox row), in either
   // layout. A role without the Prompt Library says so; the page itself shows a locked prompt read-only.
@@ -772,15 +798,14 @@ function StudioApp({ api }) {
       // Simple's Reports lists neither channel assets nor pictures: a channel asset opens its set in Assets, and a picture
       // opens Assets. (Advanced's Library opens any file by id.)
       const asset = id ? list(studioState.assets).find((row) => row.id === id) : null;
-      if (mode === 'simple' && asset) {
+      if (asset) {
         const kitRun = list(studioState.contentRuns).find((run) => run.id === asset.runId && run.kit);
         if (kitRun) { openTarget({ kind: 'folder', id: kitRun.kit.sourceKey || '', runId: kitRun.id, page: 'assets' }); return; }
         if (['image', 'video'].includes(asset.kind)) { openTarget({ kind: 'page', page: 'assets' }); return; }
       }
       const known = Boolean(asset);
       if (known) openReport(id);
-      else if (mode === 'simple') goSimple('reports');
-      else navigateStudio('library');
+      else goSimple(simpleAllowed('assets') ? 'assets' : 'trends');
       if (id && !known) noticeAcross('That report isn’t in this workspace. It may be in another workspace, or it was removed.');
       return;
     }
@@ -795,7 +820,7 @@ function StudioApp({ api }) {
       const card = exact || waitingCard || cards.find((row) => list(row.reportAssets).length) || cards[0] || null;
       const reportAssets = card?.stage === 'ready' || card?.stage === 'production' ? list(card.reportAssets) : [];
       const report = reportAssets.find((asset) => asset.deliverableId === 'evidence-report') || reportAssets[0];
-      if (report && list(studioState.assets).some((asset) => asset.id === report.id) && (mode !== 'simple' || simpleAllowed('reports')) && (mode === 'simple' || studioAllowed('library'))) { openReport(report.id); return; }
+      if (report && list(studioState.assets).some((asset) => asset.id === report.id) && simpleAllowed('trends')) { openReport(report.id); return; }
       const name = card?.name || trendNameOf(id);
       // A quick scan's trends never reach Trends or the board; they're in the Trend tracker.
       const scan = !card && id ? list(studioState.researchRuns).find((run) => run.origin === 'quick-scan' && [...list(run.discoveredThemes), ...list(run.themes)].some((theme) => theme?.id === id)) : null;
@@ -818,12 +843,9 @@ function StudioApp({ api }) {
       return;
     }
     if (kind === 'folder') {
-      if (mode === 'simple') {
-        if (!simpleAllowed('assets') || (simpleTabRef.current !== 'assets' && !guard.confirmLeave())) return;
-        setShellRequest({ key: Date.now(), kind: 'assets', ...(id ? { folderKey: id } : {}), ...(id && target.runId ? { runId: target.runId } : {}) }); // runId: open that set in the folder
-        withViewTransition(() => setSimpleTab('assets'));
-      } else if (id) openLibraryFolder(id);
-      else navigateStudio('library');
+      if (!simpleAllowed('assets') || ((peek || simpleTabRef.current !== 'assets') && !guard.confirmLeave())) return;
+      setShellRequest({ key: Date.now(), kind: 'assets', ...(id ? { folderKey: id } : {}), ...(id && target.runId ? { runId: target.runId } : {}) }); // runId: open that set in the folder
+      withViewTransition(() => { setPeek(false); setSimpleTab('assets'); });
       return;
     }
     if (kind === 'run') {
@@ -839,8 +861,9 @@ function StudioApp({ api }) {
       else goSimple('home');
       return;
     }
-    // A page, by its Simple id (trends, reports, assets, inbox…) or an Advanced one (research, library…).
-    const tabId = { overview: 'home', board: 'trends', library: 'reports' }[page] || page;
+    // A page, by its Simple id (trends, assets, inbox…) or an Advanced one (research…). Older links to Reports, the
+    // Library or the Trend board land on the page that holds them now.
+    const tabId = { overview: 'home', board: 'trends', library: 'assets', reports: 'trends' }[page] || page;
     if (!tabId) return;
     if (tabId === 'settings') {
       // #/settings/brand-knowledge (older links): Simple's Brand knowledge page, Content › Brand knowledge in Advanced.
@@ -854,8 +877,9 @@ function StudioApp({ api }) {
       return;
     }
     if (ADMIN_PAGES[tabId]) { if (adminPages.includes(tabId)) openAdminPage(tabId); else setNotice(pageOffNotice(tabId)); return; }
-    if (mode === 'simple') { if (simpleAllowed(tabId)) goSimple(tabId); else openClassicPage(tabId); return; }
-    const classic = { home: 'overview', trends: 'board', reports: 'library', assets: 'library' }[page] || page;
+    if (simpleAllowed(tabId)) { goSimple(tabId); return; }
+    if (mode === 'simple') { openClassicPage(tabId); return; }
+    const classic = { home: 'overview' }[tabId] || tabId;
     if (STUDIO_VIEWS.has(classic)) navigateStudio(classic); else navigate(classic);
   }
   // "Find new trends with <program>" (the palette, in either layout): the shared action adapter (studio-actions.js)
@@ -917,7 +941,7 @@ function StudioApp({ api }) {
     }
     // "Content from a report" opens Create content on Use a report, with the reports to pick from.
     if (kind === 'content') { openStudioWith('create', () => setCreateRequest({ key: Date.now(), mode: 'report' })); return; }
-    if (kind === 'program') { openStudioWith('research', () => setProgramRequest({ kind: 'new', key: Date.now() })); return; }
+    if (kind === 'program') { openProgramSetup(); return; }
     if (kind === 'playbook') { openPlaybook(); return; }
     if (kind === 'person') { openInvite(); return; }
     if (kind === 'workspace' && newWorkspace) newWorkspace();
@@ -929,6 +953,14 @@ function StudioApp({ api }) {
     setPeopleRequest({ kind: 'invite', key: Date.now(), ...(preset && typeof preset === 'object' && Object.keys(preset).length ? { preset } : {}) });
     openAdminPage('people');
   }
+  // A new research program, guided (program-setup.jsx): over the page you're on. The studio's first setup (no programs
+  // and no brand knowledge yet) also saves the brand as the workspace's.
+  function openProgramSetup() {
+    if (!can('saveResearchProgram')) { setNotice(viewer.preview ? 'Setting up research isn’t part of the role you’re previewing.' : `Only an admin can set up research programs. Ask ${askAdmin}.`); return; }
+    const active = list(studioState.workspaces).find((row) => row.id === studioState.activeWorkspaceId);
+    const firstRun = !list(studioState.programs).filter(inWorkspace).length && !String(active?.knowledge?.name || '').trim();
+    setProgramSetup({ key: Date.now(), firstRun });
+  }
   // A research program drafted elsewhere (Ask AI): the program editor opens filled in, and nothing is saved until Save.
   function openProgramDraft(draft = {}) {
     if (!can('saveResearchProgram')) { setNotice(viewer.preview ? 'Setting up research isn’t part of the role you’re previewing.' : `Only an admin can set up research programs. Ask ${askAdmin}.`); return; }
@@ -937,7 +969,42 @@ function StudioApp({ api }) {
   // One saved research program (Ask AI's program card, its Open button, a [[Program]] link): Research programs opens
   // with that program selected, whether the page is opening or already showing. Anyone who can see the page can open one.
   function openProgram(programId = '') {
-    openStudioWith('research', programId ? () => setProgramRequest({ kind: 'open', key: Date.now(), programId: String(programId) }) : null);
+    openStudioWith('research', () => { setProgramSection(''); setProgramRouteId(String(programId || '')); if (programId) setProgramRequest({ kind: 'open', key: Date.now(), programId: String(programId) }); });
+  }
+  // The page on screen as a route (deep-links.js): a Simple page (with the report open in its reader, the Assets folder
+  // open, or Trends' program), an Advanced page (a Workbench tool, a program's editor at its section or its runs), Settings.
+  function screenRoute() {
+    if (mode === 'channel') return { kind: 'page', page: ['assets', 'plan', 'inbox', 'ask', 'mychannel'].includes(channelTab) ? channelTab : 'trends' };
+    if (mode === 'simple') {
+      if (simpleDetail.report) return { kind: 'report', id: simpleDetail.report };
+      if (simpleTab === 'assets' && simpleDetail.folder) return { kind: 'assets', id: simpleDetail.folder };
+      if (simpleTab === 'settings') return { kind: 'settings', id: settingsRequest?.section || '' };
+      return { kind: 'page', page: simpleTab, ...(simpleTab === 'trends' && simpleDetail.program ? { program: simpleDetail.program } : {}) };
+    }
+    if (active === 'content-studio') {
+      if (studioView === 'research') return programRouteId ? { kind: 'page', page: 'program', id: programRouteId, section: programSection } : { kind: 'page', page: 'programs' };
+      if (studioView === 'knowledge') return { kind: 'page', page: 'knowledge' };
+      return { kind: 'page', page: 'workbench', id: studioView };
+    }
+    if (active === 'settings') return { kind: 'settings', id: settingsRequest?.section || '' };
+    if (ADMIN_PAGES[active]) return { kind: 'page', page: active };
+    return { kind: 'page', page: 'workbench', id: { reports: 'dataset-reports', 'marketing-template': 'templates' }[active] || active };
+  }
+  // An address, opened: a share link through openTarget (which says what this role can't see), a page by its id.
+  function openRoute(route) {
+    if (!route?.kind) return;
+    if (route.kind !== 'page') { const target = deepLinkTarget(route); if (target) openTarget(target); return; }
+    const { page } = route;
+    if (mode === 'channel') { goChannel(channelIds.includes(page) || (page === 'ask' && channelAsk) ? page : 'trends'); return; }
+    if (page === 'program') { if (route.section) openProgramSection(route.section, route.id); else openProgram(route.id); return; }
+    if (page === 'workbench') { openClassicPage({ 'dataset-reports': 'reports' }[route.id] || route.id); return; }
+    if (page === 'ask') { openAskAi(''); return; }
+    if (ADMIN_PAGES[page]) { if (adminPages.includes(page)) openAdminPage(page); else setNotice(pageOffNotice(page)); return; }
+    if (page === 'trends') setShellRequest({ key: Date.now(), kind: 'trends', program: route.program || '' });
+    // The page already open (Back from its report or folder, or its address typed again): back to the page itself.
+    if (mode === 'simple' && !peek && page === simpleTabRef.current) { setSimpleReopen((value) => value + 1); return; }
+    if (simpleAllowed(page) || page === 'knowledge') { openTarget({ kind: 'page', page }); return; }
+    setNotice(pageOffNotice(page === 'programs' ? 'research' : page));
   }
   // A share link for a report, trend, Assets folder or prompt (deep-links.js), copied as it's returned. '' when there is
   // no address to build it on (the Mac without a Studio web address) or nothing to link to.
@@ -962,7 +1029,7 @@ function StudioApp({ api }) {
   // selected), a channel-asset set's own folder, My assets for owners.
   function liveRunOpener(run, kind) {
     if (mode === 'channel') return () => goChannel('assets', run.kit?.themeId || '');
-    if (kind === 'kit' && run.kit?.sourceKey && (mode === 'simple' ? simpleAllowed('assets') : mode === 'classic' && studioAllowed('library'))) return () => openTarget({ kind: 'folder', id: run.kit.sourceKey, page: 'assets', runId: run.id });
+    if (kind === 'kit' && run.kit?.sourceKey && simpleAllowed('assets')) return () => openTarget({ kind: 'folder', id: run.kit.sourceKey, page: 'assets', runId: run.id });
     const simple = { research: run.status === 'awaiting-review' ? 'trends' : 'home', scan: 'home', kit: 'assets' }[kind];
     const classic = { research: 'research', scan: 'overview', kit: 'library', content: 'create' }[kind];
     const runId = kind === 'research' || kind === 'content' ? run.id : '';
@@ -1094,6 +1161,7 @@ function StudioApp({ api }) {
   // Pages memoized below call the current ones.
   const openAskAiRef = useRef(openAskAi); openAskAiRef.current = openAskAi;
   const openTargetRef = useRef(openTarget); openTargetRef.current = openTarget;
+  const openRouteRef = useRef(openRoute); openRouteRef.current = openRoute;
   const openPromptRef = useRef(openPrompt); openPromptRef.current = openPrompt;
   const openKitDialogRef = useRef(openKitDialog); openKitDialogRef.current = openKitDialog;
   // Home's Next up in the Advanced layout, through the same shared actions (and confirmations) as Simple.
@@ -1135,6 +1203,7 @@ function StudioApp({ api }) {
   async function runPaletteItem(item) {
     const args = item.args || {};
     if (item.action === 'nav') { openNavItem(args.row); return; }
+    if (item.action === 'copy-page-link') { const link = routeLink(screenRoute(), { origin: linkOrigin }); if (link) setNotice((await copyText(link)) ? LINK_COPIED : 'The link couldn’t be copied. Try again.'); return; }
     if (item.action === 'create') { await createFromNav(args.kind, args); return; }
     if (item.action === 'simple') { goSimple(args.tab); return; }
     if (item.action === 'settings') { openSettings(); return; }
@@ -1189,6 +1258,7 @@ function StudioApp({ api }) {
     if (id === 'analytics') return <AnalyticsView api={api} viewer={viewer} web={web} state={state} onFindTrends={() => openTargetRef.current({ kind: 'page', page: 'trends' })} />;
     if (id === 'people') return <PeopleView api={api} web={web} busy={busy} action={runAction} viewer={viewer} request={peopleRequest} onPreview={(payload) => (payload && typeof payload === 'object' ? viewAs(payload) : false)} />;
     if (id === 'prompts') return renderSharedPage('prompts');
+    if (id === 'channels') return <ChannelSettings api={api} channels={focusChannelOptions(viewer, semrushShell ? 'semrush' : 'general')} onNotice={setNotice} />;
     return null;
   }
   // Pages both layouts share (SHARED_PAGES): Inbox and Calendar for the team, My plan and Inbox for channel owners, and
@@ -1316,6 +1386,8 @@ function StudioApp({ api }) {
       ]) : []),
       ...(canWriteReports(can) && classicActions.approved.length ? [{ id: 'write-reports', label: `Write reports for ${classicActions.approved.length} approved ${classicActions.approved.length === 1 ? 'trend' : 'trends'}`, hint: 'Shows the cost first', icon: Sparkles, group: PALETTE_GROUPS.actions, keywords: 'write reports approved trends', action: 'write-reports' }] : []),
       ...(api.contentCatalog && state.contentStudio ? [{ id: 'copy-briefing', label: 'Copy briefing for Slack', hint: linkOrigin ? 'With links' : '', icon: ClipboardCopy, group: PALETTE_GROUPS.actions, keywords: 'slack weekly briefing copy share summary', action: 'copy-briefing' }] : []),
+      // Copy link to this page: its address, for someone else to open (on the Mac, once Settings has a Studio web address).
+      ...(linkOrigin && hashForRoute(screenRoute()) ? [{ id: 'copy-page-link', label: 'Copy link to this page', hint: hashForRoute(screenRoute()).replace(/^#\//, ''), icon: Link2, group: PALETTE_GROUPS.actions, keywords: 'share link url address send page', action: 'copy-page-link' }] : []),
       ...(inboxCount > 0 && pageAllowed('inbox') ? [{ id: 'mark-inbox-read', label: 'Mark Inbox read', hint: `${inboxCount} unread`, icon: CheckCheck, group: PALETTE_GROUPS.actions, keywords: 'inbox read clear notifications', action: 'mark-inbox-read' }] : []),
     ];
     return [...next, ...pages, ...tabs, ...peeks, ...create, ...content, ...prompts, ...people, ...actions];
@@ -1334,7 +1406,7 @@ function StudioApp({ api }) {
     openInvite,
     viewAs: viewAsFromNav,
     openProgramDraft,
-    openTab: (tab) => (tab === 'ask' ? openAskAi('') : tab === 'settings' ? openSettings() : openHelpPage({ home: 'overview', reports: 'library', trends: 'board', assets: 'library' }[tab] || tab)),
+    openTab: (tab) => (tab === 'ask' ? openAskAi('') : tab === 'settings' ? openSettings() : simpleAllowed(tab === 'reports' ? 'trends' : tab) ? goSimple(tab === 'reports' ? 'trends' : tab) : openHelpPage(tab)),
     openPage: (page) => (mode === 'simple' ? openClassicPage(page) : openHelpPage(page)),
     openSheets: (workbookId) => navigate('sheets', workbookId ? { workbookId } : {}),
     openPrompt: (promptId) => openPrompt(promptId),
@@ -1359,12 +1431,27 @@ function StudioApp({ api }) {
   // decisions made a moment ago) and unread Inbox rows. ⌘1–9 walk its order.
   const nav = buildNav({ ...navBase, layout: mode === 'channel' ? 'channel' : 'unified', askMode: mode === 'classic' ? 'drawer' : 'page', counts: { waiting: can('decideResearchTheme') ? classicActions.waiting.length : 0 }, inboxUnread: inboxCount });
   // Advanced pages by their unified ids: a studio view (either edition), Dataset reports ('reports' is Simple's Reports).
-  const activeNavId = mode === 'channel' ? channelTab : mode === 'simple' ? simpleTab : active === 'content-studio' ? studioView : active === 'marketing-template' ? 'templates' : active === 'reports' ? 'dataset-reports' : active;
+  // The research program editor is Workbench → Edit research program: the section last opened is the current item; a
+  // program's runs and results (Ask AI, See why, an Inbox row) belong to Research programs.
+  const activeNavId = mode === 'channel' ? channelTab : mode === 'simple' ? simpleTab : active === 'content-studio' ? (studioView === 'research' ? (programSection ? `program-${programSection}` : 'programs') : studioView) : active === 'marketing-template' ? 'templates' : active === 'reports' ? 'dataset-reports' : active;
   keysRef.current = { mode, order: nav.order, openNavItem, settingsAllowed, openSettings, canAsk: Boolean(nav.actions.ask), toggleAsk, canRail: !narrow, toggleRail, canCreate: nav.actions.create.length > 0, openNew: openNewMenu };
   // Share links (#/report/…, #/trend/…, #/assets/…, #/prompt/…), opened once the studio has loaded and this person has a
   // role (a link opened while signed out was kept through sign-in by web/main.jsx). Someone without a role keeps the link
   // in the address bar until they're let in.
-  useDeepLink((link) => { const target = deepLinkTarget(link); if (target) openTargetRef.current(target); }, { enabled: !loading && Boolean(!state.viewer || state.viewer.role) });
+  // Every page has an address (deep-links.js useRoutes): the page on screen goes into the address bar as people move,
+  // and an address opened (a link, a reload, Back and Forward) opens its page. Access still applies.
+  useRoutes({ enabled: !loading && Boolean(!state.viewer || state.viewer.role), current: hashForRoute(screenRoute()), onOpen: (route) => openRouteRef.current(route) });
+  // The browser tab, history and screen readers name the page on screen ("Trends · Golden Thread"): the page's own
+  // heading, read once it has drawn, so every page (and an open report) is named without a second list of titles.
+  const titleRoute = loading ? '' : hashForRoute(screenRoute());
+  useEffect(() => {
+    if (loading || typeof document === 'undefined') return undefined;
+    const timer = setTimeout(() => {
+      const heading = document.querySelector('.simple-page h1, .channel-main h1, .workspace h1, main h1')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+      document.title = heading && heading !== 'Golden Thread' ? `${heading.slice(0, 80)} · Golden Thread` : 'Golden Thread';
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [titleRoute, loading]);
   // My channels (the account menu): saved per person; Assets, the asset dialog and trend cards read prefs.focusChannels.
   async function saveFocusChannels(ids) {
     const names = nav.footer.channels.filter((row) => ids.includes(row.id)).map((row) => row.short || row.name);
@@ -1391,7 +1478,7 @@ function StudioApp({ api }) {
       ...list(studioState.contentRuns).filter(inWorkspace).filter(live).map((run) => {
         const kit = Boolean(run.kit); const title = (kit && run.kit.sourceTitle) || run.title || (kit ? 'Channel assets' : 'Content');
         // A trends report being written opens its trend (Being written), where Write reports started it.
-        const report = !kit && Boolean(run.themeId) && (mode === 'simple' ? simpleAllowed('trends') : studioAllowed('board'));
+        const report = !kit && Boolean(run.themeId) && simpleAllowed('trends');
         return { id: run.id, title, kindLabel: kit ? 'Channel assets' : run.themeId ? 'Trends report' : 'Writing', line: runLine(run), onOpen: report ? () => openTarget(reportRunTrend(run)) : liveRunOpener(run, kit ? 'kit' : 'content'), onStop: stopper(run, title) };
       }),
       ...list(state.jobs).filter(live).map((job) => ({ id: `job-${job.id}`, title: job.title || readable(job.kind) || 'Job', kindLabel: readable(job.kind), line: runLine(job), stopLabel: 'Cancel',
@@ -1407,8 +1494,14 @@ function StudioApp({ api }) {
   const signOut = web && api.signOut ? () => api.signOut() : undefined;
   // The shell's own ways, for Simple's Ask AI and Home (SimpleMode's nav and Next up). makeAssets opens the asset dialog
   // over the Simple page the person is on (KitCreatorHost), so Cancel leaves them there.
-  const simpleShellNav = { copyLink, openInvite, viewAs: viewAsFromNav, openProgramDraft, create: (kind) => createFromNav(kind), makeAssets: (request) => openKitDialog(request) };
+  const simpleShellNav = { copyLink, openInvite, viewAs: viewAsFromNav, openProgramDraft, newProgram: openProgramSetup, create: (kind) => createFromNav(kind), makeAssets: (request) => openKitDialog(request),
+    ...(navCan('createContentRun') && pageAllowed('create') ? { createFrom: (assetId) => openStudioWith('create', () => setCreateRequest({ key: Date.now(), assetId: String(assetId || '') })) } : {}), ...(navCan('saveResearchProgram') && studioAllowed('research') ? { editProgram: (programId, section = 'basics') => openProgramSection(section, programId) } : {}) };
   const kitHost = mode !== 'channel' && <KitCreatorHost request={kitRequest} api={api} sources={kitSourcesFrom(classicActions.reports, list(studioState.contentRuns).filter(inWorkspace))} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} action={runAction} busy={busy} picturesOff={`Pictures are off for your team. ${askAdmin} can turn them on.`} focus={list(viewer.prefs?.focusChannels)} edition={semrushShell ? 'semrush' : 'general'} onSettings={settingsAllowed ? openSettings : undefined} onOpenFolder={(key) => openTarget({ kind: 'folder', id: key, page: 'assets' })} onDone={() => setKitRequest(null)} />;
+  // Guided setup of a research program, over whatever page is open.
+  const activeWorkspace = list(studioState.workspaces).find((row) => row.id === studioState.activeWorkspaceId) || null;
+  const programSetupHost = mode !== 'channel' && programSetup && activeWorkspace && <ProgramSetup key={programSetup.key} api={api} workspace={activeWorkspace} firstRun={programSetup.firstRun} onNotice={setNotice}
+    onClose={() => setProgramSetup(null)} onSaved={(program) => { setNotice(`Saved “${program?.name || 'the program'}”.`); refresh().catch(() => {}); }}
+    onStartResearch={can('startResearchRun') && typeof api.startResearchRun === 'function' ? (program) => startProgramResearch(program.id) : undefined} />;
   // The playbook setup sheet, over whatever page is open in either layout; saving lands on Workflows with it selected.
   const playbookHost = mode !== 'channel' && playbookRequest && <PlaybookSetup key={playbookRequest.key} playbookId={playbookRequest.playbookId} api={api} state={state} viewer={viewer} can={can} action={runAction} confirm={confirm} edition={semrushShell ? 'semrush' : 'general'} desktop={!web} settingsAllowed={settingsAllowed} onClose={() => setPlaybookRequest(null)} onDone={(workflowId) => openWorkflow(workflowId)} onOpenPrompts={adminPages.includes('prompts') ? () => { setPlaybookRequest(null); openAdminPage('prompts'); } : undefined} />;
   // From a Simple "Show me" step: below 860px the sidebar is a drawer, so open it for nav.* spots and close it after.
@@ -1416,16 +1509,18 @@ function StudioApp({ api }) {
 
   const main = mode === 'channel'
     ? <main className="channel-main" key={`channel-${roleEpoch}`} data-tab={channelTab}>
-      {channelTab === 'ask' && channelAsk
+      <ErrorBoundary page resetKey={`channel:${channelTab}`}>{channelTab === 'ask' && channelAsk
         ? <ChannelAskPage api={askApi} state={state} viewer={viewer} can={can} canRun={canRun} action={runAction} askAdmin={askAdmin} web={web} seed={channelSeed} lastTab={channelLastTab}
           onOpenTrend={(themeId) => { goChannel('trends'); setChannelTrendFocus(themeId || ''); }} onOpenFolder={(themeId) => goChannel('assets', themeId || '')} onOpenTab={(tab) => goChannel(tab)} />
+        : channelTab === 'mychannel'
+        ? <ChannelSettings api={api} channelId={viewer.channelId || ''} onNotice={setNotice} />
         : channelTab === 'assets'
         ? <ChannelAssets api={api} web={web} view={channelView} viewer={viewer} busy={busy} action={runAction} cache={channelCache} onCache={(key, url) => setChannelCache((current) => ({ ...current, [key]: url }))} focusThemeId={channelFocus} />
         : SHARED_PAGES[channelTab] ? renderSharedPage(channelTab)
-          : <ChannelTrends api={api} view={channelView} viewer={viewer} busy={busy} action={runAction} imagesReady={studioState.capabilities?.imagesConfigured ?? true} onOpenAssets={(themeId) => goChannel('assets', themeId || '')} onPrefs={(patch) => Promise.resolve(api.setViewPrefs?.(patch)).catch(() => null)} onToast={setNotice} linkOrigin={linkOrigin} focusThemeId={channelTrendFocus} />}
+          : <ChannelTrends api={api} view={channelView} viewer={viewer} busy={busy} action={runAction} imagesReady={studioState.capabilities?.imagesConfigured ?? true} onOpenAssets={(themeId) => goChannel('assets', themeId || '')} onPrefs={(patch) => Promise.resolve(api.setViewPrefs?.(patch)).catch(() => null)} onToast={setNotice} linkOrigin={linkOrigin} focusThemeId={channelTrendFocus} />}</ErrorBoundary>
     </main>
     : mode === 'simple'
-      ? <SimpleMode key={`simple-${roleEpoch}`} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onNavSpot={revealNav} spotRoot={() => frameRef.current} shellRequest={shellRequest} onOpenSheets={(workbookId) => openClassicPage('sheets', workbookId ? { workbookId } : {})} onOpenTarget={openTarget} onOpenPrompt={openPrompt} linkOrigin={linkOrigin} shellNav={simpleShellNav} />
+      ? <ErrorBoundary page resetKey={`simple:${simpleTab}`}><SimpleMode key={`simple-${roleEpoch}`} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onNavSpot={revealNav} spotRoot={() => frameRef.current} shellRequest={shellRequest} onOpenSheets={(workbookId) => openClassicPage('sheets', workbookId ? { workbookId } : {})} onOpenTarget={openTarget} onOpenPrompt={openPrompt} linkOrigin={linkOrigin} shellNav={simpleShellNav} reopenKey={simpleReopen} onRouteDetail={setSimpleDetail} /></ErrorBoundary>
       : <main className="workspace" key={`classic-${roleEpoch}`}>
         <Header title={classicTitle} workspaceName={contentWorkspace?.name || (web ? 'Shared studio' : 'Workspace')} busy={busy} background={backgroundLabels} onRefresh={() => runAction(refresh)} />
         <div className={`content${active === 'sheets' ? ' content-fill' : active === 'chat' ? ' content-fit' : ''}`} ref={contentRef}>
@@ -1455,6 +1550,7 @@ function StudioApp({ api }) {
         {mode === 'classic' && classicUndoToast}
         {kitHost}
         {playbookHost}
+        {programSetupHost}
       </div>
     </div>
   </UnsavedContext.Provider></ViewerContext.Provider>;

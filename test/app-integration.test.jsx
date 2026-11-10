@@ -89,11 +89,31 @@ describe('pages both layouts share', () => {
 });
 
 describe('share links', () => {
-  it('opens a report link in Simple’s reader once the studio has loaded, and clears the address', async () => {
+  it('opens a report link in the reader once the studio has loaded, and keeps the report’s address', async () => {
     const api = await openStudio({ hash: '#/report/asset-1' });
     expect(await screen.findByText('People want answers.')).toBeInTheDocument();
     expect(api.readStudioAsset).toHaveBeenCalledWith(expect.objectContaining({ assetId: 'asset-1' }));
-    await waitFor(() => expect(window.location.hash).toBe(''));
+    await waitFor(() => expect(window.location.hash).toBe('#/report/asset-1')); // a reload opens it again
+  });
+
+  it('puts every page in the address bar, and Back and Forward move between them', async () => {
+    await openStudio();
+    await waitFor(() => expect(window.location.hash).toBe('#/home'));
+    fireEvent.click(document.querySelector('[data-spot="nav.trends"]'));
+    await waitFor(() => expect(window.location.hash).toBe('#/trends'));
+    fireEvent.click(document.querySelector('[data-spot="nav.calendar"]'));
+    await waitFor(() => expect(window.location.hash).toBe('#/calendar'));
+    act(() => { window.history.back(); });
+    await waitFor(() => expect(document.querySelector('[data-spot="nav.trends"]')).toHaveAttribute('aria-current', 'page'));
+    expect(window.location.hash).toBe('#/trends');
+    act(() => { window.history.forward(); });
+    await waitFor(() => expect(document.querySelector('[data-spot="nav.calendar"]')).toHaveAttribute('aria-current', 'page'));
+  });
+
+  it('opens an address typed into the bar', async () => {
+    await openStudio();
+    act(() => { window.location.hash = '#/trends'; });
+    await waitFor(() => expect(document.querySelector('[data-spot="nav.trends"]')).toHaveAttribute('aria-current', 'page'));
   });
 
   it('opens a prompt link on the Prompts page', async () => {
@@ -116,13 +136,14 @@ describe('the New menu', () => {
     expect(await screen.findByRole('textbox', { name: 'Question about Golden Thread' })).toHaveValue('Plan a quick scan on ');
   });
 
-  it('opens a blank research program in the Advanced layout', async () => {
+  it('opens the guided setup for a new research program, over the page you’re on', async () => {
     await openStudio({ uiMode: 'classic' });
     fireEvent.click(screen.getByRole('button', { name: /^New/ }));
     fireEvent.click(within(screen.getByRole('menu', { name: 'New' })).getByRole('menuitem', { name: 'Research program' }));
-    expect(navButton('Research programs')).toHaveAttribute('aria-current', 'page');
-    const name = await screen.findByLabelText(/Program name/);
-    expect(name).toHaveValue('');
+    const dialog = await screen.findByRole('dialog', { name: 'About' });
+    expect(within(dialog).getByText(/New research program|Set up Golden Thread/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('textbox', { name: 'Company' })).toHaveValue('');
+    expect(within(dialog).getByRole('list', { name: 'Steps' })).toHaveTextContent('1. About2. Sources3. Brand4. Schedule5. Review');
   });
 });
 

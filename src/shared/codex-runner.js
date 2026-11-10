@@ -190,6 +190,9 @@ function buildCodexCommand({ workspaceDir, schemaPath, outputPath, prompt, isola
   const guard = isolated ? [
     '--sandbox', 'read-only',
     ...CODEX_TOOLS_OFF.flatMap((feature) => ['-c', `features.${feature}=false`]),
+    // Web search off too: scraped posts go into these prompts, and a search query is a way to send prompt text out.
+    // `web_search` is the current setting ("disabled" | "cached" | "live"); the two feature names are its older forms.
+    '-c', 'web_search="disabled"', '-c', 'features.web_search_request=false', '-c', 'features.web_search_cached=false',
     ...(support.ephemeral ? ['--ephemeral'] : []),
     ...(support.ignoreRules ? ['--ignore-rules'] : []),
     ...(ignoreUserConfig && support.ignoreUserConfig ? ['--ignore-user-config'] : []),

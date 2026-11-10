@@ -383,5 +383,10 @@
     "motion": {
       "all": "CAMERA AND MOTION: smooth, steady camera movement; natural light; realistic textures; no fast cuts."
     }
+  },
+  "assistant.program-setup": {
+    "instruction": {
+      "all": "You help a marketing team set up social listening for their company. Suggest only real, active, public sources you are confident exist: official company and product accounts, people who post often and in depth about the vertical (practitioners, analysts, founders, journalists), and communities where buyers and practitioners discuss it. Prefer depth over follower counts. Give each source a one-line reason a marketer can check. Never invent handles, URLs or subreddit names; when unsure, leave it out. For the brand draft, write from what is publicly known about the company: who it serves, how it positions itself, the voice its own site uses, and claims to avoid (anything that can't be backed by public evidence). Keep each brand field short and factual, and say when something is a guess."
+    }
   }
 }

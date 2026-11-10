@@ -447,14 +447,30 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     };
     streams.add(entry); req.on('close', entry.close);
   }
+  const ZIP_TYPES = new Set(['.html', '.js', '.css', '.json', '.svg', '.map', '.txt']);
+  const zipped = new Map(); // file path → { key: its mtime and size, body: Promise<Buffer> }
   function staticFile(url, req, res) {
     const requested = decodeURIComponent(url.pathname); const root = path.resolve(webRoot);
     const target = path.resolve(root, `.${requested === '/' ? '/index.html' : requested}`);
     if (!target.startsWith(root + path.sep) || !fs.existsSync(target) || !fs.statSync(target).isFile()) return send(res, 404, { error: 'Not found.' });
     if (!fs.realpathSync(target).startsWith(fs.realpathSync(root) + path.sep)) return send(res, 404, { error: 'Not found.' });
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(target).toLowerCase()] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': CSP, 'Cache-Control': path.basename(target) === 'index.html' ? 'no-cache' : 'public, max-age=31536000, immutable' });
-    if (req.method === 'HEAD') return res.end();
-    fs.createReadStream(target).pipe(res);
+    const headers = { 'Content-Type': TYPES[path.extname(target).toLowerCase()] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': CSP, 'Cache-Control': path.basename(target) === 'index.html' ? 'no-cache' : 'public, max-age=31536000, immutable' };
+    const plain = () => { res.writeHead(200, headers); if (req.method === 'HEAD') return res.end(); return fs.createReadStream(target).pipe(res); };
+    // The app's script and stylesheet are text: gzip takes the first load from about 3.4 MB to under 1 MB. Each file is
+    // compressed once, off the event loop, and kept until the file changes (a deploy replaces it).
+    if (!ZIP_TYPES.has(path.extname(target).toLowerCase())) return plain();
+    headers.Vary = 'Accept-Encoding';
+    if (!acceptsGzip(req)) return plain();
+    const stat = fs.statSync(target); const key = `${stat.mtimeMs}:${stat.size}`;
+    let entry = zipped.get(target);
+    if (!entry || entry.key !== key) {
+      entry = { key, body: fs.promises.readFile(target).then((raw) => new Promise((resolve, reject) => zlib.gzip(raw, (error, out) => (error ? reject(error) : resolve(out))))) };
+      zipped.set(target, entry);
+    }
+    return entry.body.then((body) => {
+      res.writeHead(200, { ...headers, 'Content-Encoding': 'gzip', 'Content-Length': body.length });
+      res.end(req.method === 'HEAD' ? undefined : body);
+    }, () => { zipped.delete(target); plain(); });
   }
   // Readiness: the data folder takes writes and has room, this process still owns it, and it isn't stopping. The answer
   // names which check failed, never a path, an identity or a count.

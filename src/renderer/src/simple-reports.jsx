@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, CloudCheck, CloudUpload, Download, ExternalLink, FileText, FolderOpen, Images, Link2, ListOrdered, LoaderCircle, Megaphone, MessageSquareText, PenLine, Presentation, ScrollText, Search, Share2, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy, CloudCheck, CloudUpload, Download, ExternalLink, FileText, FolderOpen, Images, Link2, ListOrdered, LoaderCircle, Megaphone, MessageSquareText, PenLine, Presentation, ScrollText, Search, Share2, Sparkles, SquarePen, X } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import { studioRefDragProps } from './ask-slash.js';
 import { AssetEditor, AssetStatusMenu, canEditAsset, statusLabel, statusOf, useUnsavedGuard } from './asset-editor.jsx';
@@ -17,6 +17,8 @@ import { dateGroup, groupReports, pathTo } from '../../shared/library-tree.js';
 import './library.css';
 import './drive-settings.css'; // Open in Drive and Save to Drive
 
+// `onCreateContent(assetId)` opens Create content with this report attached (the shell's, when the role may write).
+// `backLabel` names the page Back returns to: the reader opens inside Trends (a trend's documents) or Assets (the rest).
 // Reports in Simple mode, filed as the Library is (src/shared/library-tree.js): one row per trend, holding its Trends
 // report and Editorial toolkit, grouped by the research run that reported it; then each quick scan's short trends report
 // (Quick scans); other reports and Create content drafts follow, by date. The reader switches between a trend's two documents, says where they live, and links to the channel
@@ -259,7 +261,7 @@ export function DriveSaveButton({ api, studio = null, drive = null, asset = null
 // Docs option and the brand check; `linkOrigin` is the address share links use (deep-links.js shareOrigin; on the web
 // this page's own); `onOpenPrompt(promptId)` opens a prompt on the Prompts page. `drive` (state.driveSync) and
 // `onOpenDriveSettings` (only for people who may change Settings) are for Save to Drive.
-export function SimpleReports({ api, web, reports, selectedId, onSelect, action, busy, onAsk, onFindTrends, onMakeAssets, usesOf, tree, onOpenAssets, studio = null, linkOrigin, onOpenPrompt, drive = null, onOpenDriveSettings }) {
+export function SimpleReports({ api, web, reports, selectedId, onSelect, backLabel = 'All reports', onCreateContent, action, busy, onAsk, onFindTrends, onMakeAssets, usesOf, tree, onOpenAssets, studio = null, linkOrigin, onOpenPrompt, drive = null, onOpenDriveSettings }) {
   const can = useCan();
   const viewer = useViewer();
   // With the live report editor the reader is the editor: the report is edited in place and saved as people type.
@@ -396,7 +398,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
     const both = pair && pair.reportId && pair.toolkitId;
     return <div className={`simple-page simple-reader${editing ? ' is-editing' : ''}`}>
       {!editing && <div className="simple-reader-bar">
-        <button type="button" className="simple-back" title="Back to all reports (Esc)" onClick={() => onSelect('')}><ArrowLeft size={15} aria-hidden="true" />All reports</button>
+        <button type="button" className="simple-back" title={`Back to ${backLabel === 'All reports' ? 'all reports' : backLabel} (Esc)`} onClick={() => onSelect('')}><ArrowLeft size={15} aria-hidden="true" />{backLabel}</button>
         <div className="simple-reader-tools">
           {canEdit && !live && <button type="button" data-spot="report.edit" {...writeProps(viewer, !markdown || loading || Boolean(readError))} onClick={() => setEditing(true)}><PenLine size={15} aria-hidden="true" />Edit</button>}
           <button type="button" data-spot="report.copy" disabled={!markdown} onClick={copy}>{copied ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}{copied ? 'Copied' : 'Copy text'}</button>
@@ -405,6 +407,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, action,
           <ReportShareMenu api={api} studio={studio} asset={selected} markdown={markdown} shareLink={shareLink} action={action} busy={busy} disabled={loading} onToast={showToast} />
           <DriveSaveButton api={api} studio={studio} drive={drive} asset={selected} onOpenSettings={onOpenDriveSettings} onToast={showToast} />
           {can('createAssetKit') && <button type="button" data-spot="report.make-assets" {...writeProps(viewer, busy)} onClick={() => onMakeAssets(selected)}><Images size={15} aria-hidden="true" />Make channel assets</button>}
+          {onCreateContent && <button type="button" data-spot="report.create" {...writeProps(viewer, busy)} onClick={() => onCreateContent(selected.id)}><SquarePen size={15} aria-hidden="true" />Create content</button>}
           {onAsk && <span className="simple-split" role="group" aria-label="Ask AI about this report"><button type="button" data-spot="report.ask" className="simple-primary" {...writeProps(viewer, !markdown)} onClick={() => ask('next')}><Sparkles size={15} aria-hidden="true" />Ask AI about this</button>
             <MoreMenu label="More questions for Ask AI" icon={ChevronDown} disabled={!markdown || viewer.preview} align="end" items={MARKETER_ASKS.map(([id, label, icon]) => ({ label, icon, onSelect: () => ask(id) }))} /></span>}
         </div>

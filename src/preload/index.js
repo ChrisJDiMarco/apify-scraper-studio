@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   saveWorkspaceTaxonomy: (payload) => invoke('studio:saveWorkspaceTaxonomy', payload),
   saveReferenceDoc: (payload) => invoke('studio:saveReferenceDoc', payload),
   readReferenceDoc: (payload) => invoke('studio:readReferenceDoc', payload),
+  readChannelSettings: (payload) => invoke('studio:readChannelSettings', payload),
+  estimateProgramSetup: (payload) => invoke('setup:estimate', payload),
+  suggestProgramSetup: (payload) => invoke('setup:suggest', payload),
+  saveChannelKnowledge: (payload) => invoke('studio:saveChannelKnowledge', payload),
+  saveChannelInstructions: (payload) => invoke('studio:saveChannelInstructions', payload),
+  revertChannelInstructions: (payload) => invoke('studio:revertChannelInstructions', payload),
   deleteReferenceDoc: (payload) => invoke('studio:deleteReferenceDoc', payload),
   // Ask AI: questions about the app, answered from the app guide and this person's setup.
   askHelp: (payload) => invoke('help:ask', payload),

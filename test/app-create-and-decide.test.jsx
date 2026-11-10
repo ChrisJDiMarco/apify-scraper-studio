@@ -36,19 +36,19 @@ function openStudio({ uiMode = 'classic', api: extra = {} } = {}) {
   render(<App />);
   return { api, server };
 }
-const readyTrendButton = () => {
-  const ready = [...document.querySelectorAll('.tb-card')].filter((node) => node.getAttribute('aria-label') === 'AI Overviews eat clicks' && within(node).queryByRole('button', { name: /^Create (more )?content$/ }));
-  expect(ready.length).toBeGreaterThan(0);
-  return within(ready[0]).getByRole('button', { name: /^Create (more )?content$/ });
+// A trend's report opens from its card on Trends (Ready), and the reader's Create content hands it over.
+const createFromTrend = async () => {
+  side('trends');
+  await h1('Trends');
+  fireEvent.click((await screen.findAllByRole('button', { name: /^AI Overviews eat clicks/ }))[0]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Create content' }));
 };
 
 describe('Create content keeps a handed-over report as an attached report', () => {
-  it('Advanced Trend board › Create content on a ready trend shows that report’s title and text as an attached report', async () => {
+  it('Trends › a ready trend’s report › Create content shows that report’s title and text as an attached report', async () => {
     const { api } = openStudio();
     await h1(GREETING);
-    side('board');
-    await h1('Trend board');
-    fireEvent.click(readyTrendButton());
+    await createFromTrend();
     await h1('Create content');
     await waitFor(() => expect(api.readStudioAsset).toHaveBeenCalledWith({ assetId: 'asset-aio-report-2' }));
     const attached = await screen.findByRole('group', { name: 'Attached report: AI Overviews eat clicks — Comprehensive Trends Report' });
@@ -63,9 +63,7 @@ describe('Create content keeps a handed-over report as an attached report', () =
   it('sends the brief the person edited, with the report still attached', async () => {
     const { api } = openStudio();
     await h1(GREETING);
-    side('board');
-    await h1('Trend board');
-    fireEvent.click(readyTrendButton());
+    await createFromTrend();
     await screen.findByRole('group', { name: /^Attached report:/ });
     fireEvent.change(screen.getByLabelText('Source title'), { target: { value: 'Clicks are leaving' } });
     fireEvent.change(document.getElementById('cs-source-text'), { target: { value: 'My shorter brief.' } });
@@ -81,9 +79,7 @@ describe('Create content keeps a handed-over report as an attached report', () =
   it('Remove takes the report away and leaves a blank brief', async () => {
     openStudio();
     await h1(GREETING);
-    side('board');
-    await h1('Trend board');
-    fireEvent.click(readyTrendButton());
+    await createFromTrend();
     const attached = await screen.findByRole('group', { name: /^Attached report:/ });
     fireEvent.click(within(attached).getByRole('button', { name: /Remove/ }));
     expect(screen.queryByRole('group', { name: /^Attached report:/ })).not.toBeInTheDocument();
@@ -126,8 +122,8 @@ describe('Advanced Home’s Yes and Skip', () => {
     const TREND = 'AI Overviews eat clicks';
     expect(within(needs).getByRole('button', { name: TREND })).toBeInTheDocument();
     fireEvent.click(within(needs).getByRole('button', { name: `Skip ${TREND}` }));
-    // Shown at once, before the save comes back.
-    await waitFor(() => expect(within(screen.getByRole('region', { name: /Needs your OK/ })).queryByRole('button', { name: TREND })).not.toBeInTheDocument());
+    // Shown at once, before the save comes back (with nothing left waiting, the card goes).
+    await waitFor(() => { const region = screen.queryByRole('region', { name: /Needs your OK/ }); expect(region && within(region).queryByRole('button', { name: TREND })).toBeFalsy(); });
     expect(api.decideResearchTheme).toHaveBeenCalledWith(expect.objectContaining({ runId: 'research-review', themeId: 'theme-aio', decision: 'passed' }));
     release();
     const toast = await screen.findByText(`Skipped “${TREND}”.`);

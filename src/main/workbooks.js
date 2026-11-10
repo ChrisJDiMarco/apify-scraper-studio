@@ -21,6 +21,11 @@ const KEY_COLUMNS = /^(post_url|url|link|permalink|id|item_id|post_id|theme|cate
 const GOLDEN_THREAD_TABS = ['Theme Repository', 'Twitter', 'Reddit', 'LinkedIn', 'Theme Summary Data', 'Post Counts Reference', 'Trend Velocity', 'Taxonomy Lookup', 'Batch Analysis Log', 'Active Log'];
 
 function fail(message) { throw new Error(message); }
+// Names that reach Object.prototype through a plain object. An edit keyed by one is refused, so a request can never
+// change defaults for the whole server process (the trees below are plain objects keyed by what the page sent).
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const safeKey = (key) => { if (UNSAFE_KEYS.has(key)) fail('That sheet, row or column name can’t hold an edit.'); return key; };
+const own = (object, key) => (object && Object.hasOwn(object, key) ? object[key] : undefined);
 function safeId(value) { if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,180}$/.test(value)) fail('Choose a workbook from the list.'); return value; }
 const slug = (value) => String(value || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'sheet';
 
@@ -64,7 +69,16 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
   const seenKey = (id) => `${callerOf().id}|${editsKey(id)}`;
   function remember(key, sheets) { seen.delete(key); seen.set(key, sheets); while (seen.size > MAX_SEEN) seen.delete(seen.keys().next().value); }
   // The edits a page receives: the cells only (who changed each cell stays on the server, for conflict messages).
-  function editsForPage(id) { const stored = readEdits(id); const edits = { version: 1, sheets: stored.sheets || {}, ...(stored.savedAt ? { savedAt: stored.savedAt } : {}) }; remember(seenKey(id), edits.sheets); return edits; }
+  // `workbook` (the Trend tracker, which each person receives built from the programs they were invited to): only the
+  // edits on rows that workbook has, so a note on another program's trend never travels with it.
+  function editsForPage(id, workbook = null) {
+    const stored = readEdits(id); let sheets = stored.sheets || {};
+    if (workbook) {
+      const rowsOf = new Map((workbook.sheets || []).map((sheet) => [sheet.id, new Set(sheet.rowKeys || [])]));
+      sheets = Object.fromEntries(Object.entries(sheets).map(([sheetId, rows]) => [sheetId, Object.fromEntries(Object.entries(rows || {}).filter(([rowKey]) => rowsOf.get(sheetId)?.has(rowKey)))]).filter(([, rows]) => Object.keys(rows).length));
+    }
+    const edits = { version: 1, sheets, ...(stored.savedAt ? { savedAt: stored.savedAt } : {}) }; remember(seenKey(id), edits.sheets); return edits;
+  }
   const importedMeta = (id) => readIndex().workbooks.find((row) => row.id === id && row.workspaceId === activeWorkspaceId());
   const trackerListing = () => { try { return contentWorkspace.listTrendHistorySources?.() || null; } catch (_) { return null; } };
 
@@ -85,7 +99,7 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
       const tracker = trackerListing(); if (!tracker) fail('The Trend tracker isn’t available on this studio host yet.');
       const key = `${activeWorkspaceId()}|${tracker.version}`;
       if (trackerCache?.key !== key) trackerCache = { key, workbook: trendHistory().buildTrendTrackerWorkbook(await contentWorkspace.readTrendHistorySource(), { now: clock() }) };
-      return { ...trackerCache.workbook, edits: editsForPage(id) };
+      return { ...trackerCache.workbook, edits: editsForPage(id, trackerCache.workbook) };
     }
     const meta = importedMeta(id);
     if (meta) { const workbook = readJson(workbookFile(id), null); if (!workbook) fail('This imported workbook is missing its data. Import the file again.'); return { ...workbook, kind: 'import', source: meta.source, edits: editsForPage(id) }; }
@@ -173,9 +187,9 @@ function createWorkbookStore({ root, contentWorkspace, activeWorkspaceId = () =>
     const current = readEdits(id); const sheets = current.sheets && typeof current.sheets === 'object' ? current.sheets : {}; const meta = current.meta && typeof current.meta === 'object' ? current.meta : {};
     const conflicts = []; let changed = 0; const at = stamp();
     for (const change of list) {
-      const stored = sheets[change.sheetId]?.[change.rowKey]?.[change.columnKey] ?? null;
+      const stored = own(own(own(sheets, change.sheetId), change.rowKey), change.columnKey) ?? null;
       if (stored === change.value) continue;
-      const writer = meta[change.sheetId]?.[change.rowKey]?.[change.columnKey] || null;
+      const writer = own(own(own(meta, change.sheetId), change.rowKey), change.columnKey) || null;
       // An older page may have missed a refresh, so the cells it no longer holds are cleared only when this person wrote
       // them (or nobody is recorded); clearing someone else's cell needs a page that sends its base.
       const othersCell = older && change.value === null && writer?.id && writer.id !== who.id;
@@ -226,7 +240,7 @@ function cleanSheets(input) {
       if (!cells || typeof cells !== 'object') continue;
       for (const [columnKey, value] of Object.entries(cells)) {
         if (typeof value !== 'string' || value.length > MAX_EDIT_CHARS) fail('A cell can hold up to 50,000 characters of text.');
-        ((clean[String(sheetId).slice(0, 120)] ||= {})[String(rowKey).slice(0, 320)] ||= {})[String(columnKey).slice(0, 200)] = value;
+        setCell(clean, { sheetId: safeKey(String(sheetId).slice(0, 120)), rowKey: safeKey(String(rowKey).slice(0, 320)), columnKey: safeKey(String(columnKey).slice(0, 200)) }, value);
       }
     }
   }
@@ -237,8 +251,8 @@ const cellsOf = (sheets) => Object.entries(sheets).flatMap(([sheetId, rows]) => 
 // What changed between the edits a page started from and the snapshot it sends now; a cell gone from the snapshot was reverted.
 function diffSheets(base, next) {
   const list = [];
-  for (const cell of cellsOf(next)) { const before = base[cell.sheetId]?.[cell.rowKey]?.[cell.columnKey] ?? null; if (before !== cell.value) list.push({ ...cell, base: before }); }
-  for (const cell of cellsOf(base)) if (next[cell.sheetId]?.[cell.rowKey]?.[cell.columnKey] === undefined) list.push({ ...cell, value: null, base: cell.value });
+  for (const cell of cellsOf(next)) { const before = own(own(own(base, cell.sheetId), cell.rowKey), cell.columnKey) ?? null; if (before !== cell.value) list.push({ ...cell, base: before }); }
+  for (const cell of cellsOf(base)) if (own(own(own(next, cell.sheetId), cell.rowKey), cell.columnKey) === undefined) list.push({ ...cell, value: null, base: cell.value });
   return list;
 }
 function cleanChanges(changes) {
@@ -247,17 +261,21 @@ function cleanChanges(changes) {
     if (!change || typeof change !== 'object' || ['sheetId', 'rowKey', 'columnKey'].some((field) => typeof change[field] !== 'string' || !change[field])) fail('Each change needs its sheet, row and column.');
     const value = change.value ?? null; const base = change.base === undefined ? null : change.base;
     if ((value !== null && (typeof value !== 'string' || value.length > MAX_EDIT_CHARS)) || (base !== null && typeof base !== 'string')) fail('A cell can hold up to 50,000 characters of text.');
-    return { sheetId: change.sheetId.slice(0, 120), rowKey: change.rowKey.slice(0, 320), columnKey: change.columnKey.slice(0, 200), value, base };
+    return { sheetId: safeKey(change.sheetId.slice(0, 120)), rowKey: safeKey(change.rowKey.slice(0, 320)), columnKey: safeKey(change.columnKey.slice(0, 200)), value, base };
   });
 }
 // Sets (or, with undefined, removes) one cell in a sheets/rows/cells tree, dropping rows and sheets left empty.
 function setCell(tree, { sheetId, rowKey, columnKey }, value) {
+  // Own keys only: an inherited name (toString, __proto__) is never read as a sheet or a row, whatever a stored file holds.
+  if ([sheetId, rowKey, columnKey].some((key) => UNSAFE_KEYS.has(key))) return;
   if (value === undefined) {
-    const row = tree[sheetId]?.[rowKey]; if (!row) return;
+    const row = own(own(tree, sheetId), rowKey); if (!row) return;
     delete row[columnKey]; if (!Object.keys(row).length) delete tree[sheetId][rowKey]; if (!Object.keys(tree[sheetId]).length) delete tree[sheetId];
     return;
   }
-  ((tree[sheetId] ||= {})[rowKey] ||= {})[columnKey] = value;
+  const rows = own(tree, sheetId) || (tree[sheetId] = {});
+  const row = own(rows, rowKey) || (rows[rowKey] = {});
+  row[columnKey] = value;
 }
 // Edit column keys as the grid makes them (sheet-model.js columnKeys): the header when it is unique, else the column letter.
 function columnLetter(index) { let n = index + 1; let letters = ''; while (n > 0) { const rem = (n - 1) % 26; letters = String.fromCharCode(65 + rem) + letters; n = Math.floor((n - 1) / 26); } return letters; }

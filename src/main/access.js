@@ -11,6 +11,7 @@ const roles = require('./roles');
 const kit = require('../shared/asset-kit');
 const content = require('../shared/content-studio');
 const { kitChannelIds, publicKitRun, channelOf } = require('./channel-view');
+const programScope = require('./program-scope');
 
 const SYSTEM = Object.freeze({ id: 'system', name: 'Automatic' });
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -38,7 +39,7 @@ const AUDITED = new Set(['saveMember', 'removeMember', 'createSignInLink', 'revo
 // answers from the channel projection only (src/main/ask-channel.js), in that person's channel space of conversations
 // and memory (ask-store.js), with pictures only for a role that makes channel assets.
 const ASK_METHODS = Object.freeze(['readAskProgress', 'cancelAsk', 'askHelp', 'listAskConversations', 'readAskConversation', 'renameAskConversation', 'deleteAskConversation', 'recordAskOutcome', 'listAskMemory', 'saveAskMemory', 'forgetAskMemory', 'createHelpImage', 'saveHelpImage', 'listHelpImages', 'readHelpImage']);
-const SCOPE_METHODS = Object.freeze({ channel: Object.freeze(['planAssetKit', 'createAssetKit', 'readStudioAsset', 'openStudioAsset', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption', 'setViewPrefs', 'openReportDoc', 'closeReportDoc', 'listReportNotes', 'saveReportNote', 'resolveReportNote', 'deleteReportNote', ...ASK_METHODS]), editor: Object.freeze(['saveResearchReview']) });
+const SCOPE_METHODS = Object.freeze({ channel: Object.freeze(['planAssetKit', 'createAssetKit', 'readStudioAsset', 'openStudioAsset', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption', 'setViewPrefs', 'openReportDoc', 'closeReportDoc', 'listReportNotes', 'saveReportNote', 'resolveReportNote', 'deleteReportNote', 'readChannelSettings', 'saveChannelKnowledge', 'saveChannelInstructions', 'revertChannelInstructions', ...ASK_METHODS]), editor: Object.freeze(['saveResearchReview']) });
 // The methods that read a file the browser uploads first (web-api.js FILE_PICKERS), for studio-server's upload check.
 const UPLOAD_METHODS = Object.freeze(['importStudioSource', 'importWorkbook', 'pickImportFile', 'openSetupFile', 'applySetup', 'addBrandImage']);
 const osName = () => { try { return os.userInfo().username || 'You'; } catch (_) { return 'You'; } };
@@ -96,8 +97,19 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     // Scopes rebuild the payload from an allowlist for anyone below admin. Identity methods follow the real role, so an
     // admin previewing a channel owner still changes only their own preferences.
     const scope = SCOPES[method]?.[base];
-    if (!scope) return payload;
-    try { return scope(record(payload), viewer); } catch (error) { if (error.status === 403) deny(error, viewer, method); throw error; }
+    let out = payload;
+    if (scope) { try { out = scope(record(payload), viewer); } catch (error) { if (error.status === 403) deny(error, viewer, method); throw error; } }
+    programGate(method, out, viewer);
+    return out;
+  }
+  // Research programs (program-scope.js): someone invited to some programs only can't open, run or change another
+  // program's run, report, file, trend or the program itself, by any method. Admins see every program.
+  function programIndex() { try { return programScope.indexStudio(workspace.trendSource()); } catch (_) { return null; } }
+  function programGate(method, payload, viewer) {
+    const scope = baseOf(viewer) === 'admin' ? null : programScope.scopeOf(viewer);
+    if (!scope || IDENTITY.has(method)) return;
+    const index = programIndex();
+    if (index && programScope.outOfScope(index, payload, scope)) throw deny(policy.refusal('outOfProgram'), viewer, method);
   }
 
   // Channel owners: what they may send. Every scope builds a new payload, so nothing else rides along (no workspaceId,
@@ -174,6 +186,11 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     saveReportNote: { channel: reportScope(['noteId', 'replyTo', 'replyId', 'anchor', 'body', 'mentions']) },
     resolveReportNote: { channel: reportScope(['noteId', 'resolved']) },
     deleteReportNote: { channel: reportScope(['noteId', 'replyId']) },
+    // Channel settings (Studio › My channel): a channel owner's own channel only, whatever the payload names.
+    readChannelSettings: { channel: (payload, viewer) => ({ channelId: viewer.channelId }) },
+    saveChannelKnowledge: { channel: (payload, viewer) => ({ channelId: viewer.channelId, knowledge: record(payload.knowledge) }) },
+    saveChannelInstructions: { channel: (payload, viewer) => ({ channelId: viewer.channelId, ...Object.fromEntries(['promptId', 'blocks', 'expectedVersion', 'note'].filter((key) => payload[key] !== undefined).map((key) => [key, payload[key]])) }) },
+    revertChannelInstructions: { channel: (payload, viewer) => ({ channelId: viewer.channelId, ...Object.fromEntries(['promptId', 'toVersion', 'expectedVersion', 'note'].filter((key) => payload[key] !== undefined).map((key) => [key, payload[key]])) }) },
     // On the web a review is signed by the person who saved it.
     saveResearchReview: { editor: (payload, viewer) => (web ? { ...payload, reviewer: viewer.name } : payload) },
   };
@@ -253,6 +270,9 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
   // live progress (each streamed event and snapshot is shaped as the askHelp answer would be).
   function projectResult(method, result, viewer) {
     const base = baseOf(viewer);
+    // Lists that span programs (workbooks, trend history, search) leave out the programs this person wasn't invited to.
+    const scope = base === 'admin' || IDENTITY.has(method) ? null : programScope.scopeOf(viewer);
+    if (scope) { const index = programIndex(); if (index) result = programScope.scopeResult(result, index, scope); }
     const project = base === 'channel' ? RESULTS[method] : null;
     if (project) return project(result, viewer);
     // A role without See costs never receives money, from a call's answer either. Identity methods answer with the
@@ -278,7 +298,13 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     const shaped = { id: asset.id, title: asset.title || '', deliverableId: asset.deliverableId, kind: asset.kind || 'text', format: asset.format || '', createdAt: asset.createdAt || '', edited: asset.edited?.at ? { at: asset.edited.at, byName: asset.edited.by?.name || '' } : null };
     return typeof value.imageDataUrl === 'string' ? { asset: shaped, imageDataUrl: value.imageDataUrl } : { asset: shaped, markdown: text(value.markdown) };
   }
+  // A channel owner's channel settings: the prompts' editable text, versions and who changed them, never a model, a
+  // route, an effort or a test (with its cost).
+  const channelPrompt = (detail) => { const { model: _m, modelLabel: _ml, effort: _e, route: _r, metered: _me, tests: _t, testable: _te, ...rest } = record(policy.stripMoney(detail)); return rest; };
   const RESULTS = {
+    readChannelSettings: (result) => ({ ...record(result), prompts: list(record(result).prompts).map(channelPrompt) }),
+    saveChannelInstructions: (result) => ({ ...record(policy.stripMoney(result)), ...(record(result).detail ? { detail: channelPrompt(record(result).detail) } : {}) }),
+    revertChannelInstructions: (result) => ({ ...record(policy.stripMoney(result)), ...(record(result).detail ? { detail: channelPrompt(record(result).detail) } : {}) }),
     planAssetKit: channelPlanResult,
     createAssetKit: kitRun,
     cancelStudioRun: kitRun,

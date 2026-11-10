@@ -9,9 +9,11 @@ import { programSummaries, scheduledDate } from './program-summary.js';
 import { ProgramDrawer } from './program-drawer.jsx';
 import './home-programs.css';
 
-// Home → Research programs (admins with Manage research programs): each program's schedule, next and last run, sources
-// and budgets, with Run now (the layout's own confirmation shows the estimate first), Edit (the quick-edit drawer with
-// every setting) and Pause or Resume schedule (Resume confirms the per-run caps). Add program opens the same drawer empty. Money shows only with See costs.
+// Home → Research programs (admins with Manage research programs), and the Research programs page itself (`page`: every
+// program, no "All programs" link): each program's schedule, next and last run, sources and budgets, with Run now (the
+// layout's own confirmation shows the estimate first), Edit (Workbench → Edit research program when `onEditProgram` is
+// given, else the quick-edit drawer with every setting) and Pause or Resume schedule (Resume confirms the per-run caps).
+// Add program opens the drawer empty. Money shows only with See costs.
 const list = (value) => (Array.isArray(value) ? value : []);
 const money = (value) => (Number.isFinite(Number(value)) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value)) : '—');
 const readable = (value) => String(value || '').replaceAll('-', ' ').replace(/^./, (letter) => letter.toUpperCase());
@@ -25,7 +27,7 @@ function statusChip(row) {
   return null;
 }
 
-export function ProgramsPanel({ state = {}, viewer: viewerIn, api = {}, busy = false, needsSetup = false, onStartResearch, onOpenTarget, onNotice, onOpenProgramPage, limit = 5 }) {
+export function ProgramsPanel({ state = {}, viewer: viewerIn, api = {}, busy = false, needsSetup = false, onStartResearch, onOpenTarget, onNotice, onOpenProgramPage, onEditProgram, onPeople, onAddProgram, limit = 5, page = false }) {
   const contextViewer = useViewer(); const viewer = viewerIn || contextViewer;
   const can = (method) => canCall(viewer, method);
   const confirm = useConfirm();
@@ -59,10 +61,12 @@ export function ProgramsPanel({ state = {}, viewer: viewerIn, api = {}, busy = f
   }
 
   const shown = rows.slice(0, limit);
+  // Edit: the full editor in Workbench → Edit research program when the shell offers it, else the quick-edit drawer.
+  const edit = (id) => (onEditProgram ? onEditProgram(id) : setOpen(id));
   const editing = open === 'new' ? null : programs.find((program) => program.id === open) || null;
   return <section className="wb-card hp-card" aria-labelledby="hp-title" data-spot="home.programs" ref={anchor}>
     <header className="wb-card-head"><span className="wb-icon tone-purple" aria-hidden="true"><Radar size={17} /></span><h2 id="hp-title"><span className="wb-title-text">Research programs</span> <span className="wb-count">{number(rows.length)}</span></h2>
-      <button type="button" className="wb-link" onClick={() => onOpenTarget?.({ kind: 'page', id: 'research', page: 'research' })}>All programs<ArrowRight size={14} aria-hidden="true" /></button>
+      {!page && <button type="button" className="wb-link" onClick={() => onOpenTarget?.({ kind: 'page', id: 'programs', page: 'programs' })}>All programs<ArrowRight size={14} aria-hidden="true" /></button>}
     </header>
     {problem && <p className="wb-problem" role="alert">{problem}</p>}
     {shown.length ? <ul className="hp-list">{shown.map((row) => {
@@ -73,13 +77,13 @@ export function ProgramsPanel({ state = {}, viewer: viewerIn, api = {}, busy = f
       return <li key={row.id} className="hp-row">
         <div className="hp-copy">
           <div className="hp-line">
-            <button type="button" className="hp-name" onClick={() => setOpen(row.id)}>{row.name}</button>
+            <button type="button" className="hp-name" onClick={() => edit(row.id)}>{row.name}</button>
             {chip && (chip.tone === 'review' && onOpenTarget
               ? <button type="button" className={`hp-chip tone-${chip.tone}`} onClick={() => onOpenTarget({ kind: 'run', id: row.activeRun.id, page: 'research' })}>{chip.label}</button>
               : <span className={`hp-chip tone-${chip.tone}`}>{chip.label}</span>)}
           </div>
-          <p className="hp-meta"><CalendarClock size={13} aria-hidden="true" />{row.schedule.summary} · {row.schedule.recurring ? (row.schedule.enabled ? 'Schedule on' : 'Paused') : 'On demand'}</p>
-          <p className="hp-meta">Next: {row.schedule.next || '—'} · {row.lastRun ? `Last: ${day(row.lastRun.at)} · ${readable(row.lastRun.status)}` : 'No runs yet'}</p>
+          <p className="hp-meta hp-when"><CalendarClock size={13} aria-hidden="true" /><span>{row.schedule.recurring ? `${row.schedule.summary} · ${row.schedule.enabled ? 'Schedule on' : 'Paused'}` : 'On demand'}</span></p>
+          <p className="hp-meta">{[row.schedule.next ? `Next: ${row.schedule.next}` : '', row.lastRun ? `Last: ${day(row.lastRun.at)} · ${readable(row.lastRun.status)}` : 'No runs yet'].filter(Boolean).join(' · ')}</p>
           <ul className="hp-chips" aria-label={`Sources for ${row.name}`}>
             {byPlatform.x > 0 && <li>X {number(byPlatform.x)}</li>}
             {byPlatform.reddit > 0 && <li>Reddit {number(byPlatform.reddit)}</li>}
@@ -93,17 +97,20 @@ export function ProgramsPanel({ state = {}, viewer: viewerIn, api = {}, busy = f
         </div>
         <div className="hp-actions">
           {canRun && <button type="button" className="wb-primary" aria-label={`Run “${row.name}” now`} title={runTitle} {...writeProps(viewer, busy || needsSetup || !row.sources.total || Boolean(working))} onClick={() => onStartResearch(row.program)}><Radar size={14} aria-hidden="true" />Run now</button>}
-          <button type="button" className="wb-quiet" aria-label={`Edit “${row.name}”`} onClick={() => setOpen(row.id)}><Pencil size={14} aria-hidden="true" />Edit</button>
+          <button type="button" className="wb-quiet" data-spot="programs.edit" data-spot-item={row.name} aria-label={`Edit “${row.name}”`} onClick={() => edit(row.id)}><Pencil size={14} aria-hidden="true" />Edit</button>
           <MoreMenu label={`More for ${row.name}`} disabled={Boolean(working)} items={[
             row.schedule.recurring && !viewer.preview && { label: row.schedule.enabled ? 'Pause schedule' : 'Resume schedule', onSelect: () => saveSchedule(row, !row.schedule.enabled), disabled: busy },
-            (onOpenProgramPage || onOpenTarget) && { label: 'Open in Research programs', onSelect: () => (onOpenProgramPage ? onOpenProgramPage(row.id) : onOpenTarget({ kind: 'page', id: 'research', page: 'research' })) },
+            onPeople && { label: 'People who see it', onSelect: () => onPeople(row.program) },
+            onEditProgram && { label: 'Quick edit', onSelect: () => setOpen(row.id) },
+            (onOpenProgramPage || onOpenTarget) && { label: 'Runs and results', onSelect: () => (onOpenProgramPage ? onOpenProgramPage(row.id) : onOpenTarget({ kind: 'program', id: row.id })) },
           ]} />
         </div>
       </li>;
     })}</ul> : <p className="wb-empty">No research programs yet. A program is the accounts and communities research follows, with its schedule and budgets.</p>}
     <div className="hp-foot">
-      <button type="button" className="wb-quiet" {...writeProps(viewer, busy || !workspace)} onClick={() => setOpen('new')}><Plus size={14} aria-hidden="true" />Add program</button>
-      {rows.length > limit && <button type="button" className="wb-link" onClick={() => onOpenTarget?.({ kind: 'page', id: 'research', page: 'research' })}>See all {number(rows.length)}<ArrowRight size={14} aria-hidden="true" /></button>}
+      {/* Add program: the guided setup (suggested sources, brand, schedule) when the shell offers it, else the drawer. */}
+      <button type="button" className="wb-quiet" data-spot="programs.add" {...writeProps(viewer, busy || !workspace)} onClick={() => (onAddProgram ? onAddProgram() : setOpen('new'))}><Plus size={14} aria-hidden="true" />Add program</button>
+      {rows.length > limit && <button type="button" className="wb-link" onClick={() => onOpenTarget?.({ kind: 'page', id: 'programs', page: 'programs' })}>See all {number(rows.length)}<ArrowRight size={14} aria-hidden="true" /></button>}
     </div>
     {open && workspace && <ProgramDrawer key={open} program={editing} missing={open !== 'new' && !editing} workspace={workspace} state={state} api={api} viewer={viewer} busy={busy} anchor={anchor}
       onClose={(message) => { setOpen(null); if (typeof message === 'string' && message) notice(message); }}

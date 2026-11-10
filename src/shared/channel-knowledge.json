@@ -1,0 +1,12 @@
+{
+  "//": "Channel knowledge: what a channel's own team knows about writing for it. One set per channel per workspace (content-workspace.js saveChannelKnowledge), edited in Studio › My channel (channel owners, their own channel) or Studio › Channels (admins and editors, any channel). It goes into that channel's asset prompts after the workspace's brand knowledge, on every AI route (content-studio.js buildContentPlan).",
+  "fields": [
+    { "id": "audience", "label": "Who this channel speaks to", "limit": 2000, "placeholder": "The readers or followers this channel reaches, what they already know and what they come for." },
+    { "id": "voice", "label": "Voice and tone", "limit": 2000, "placeholder": "How this channel sounds, in a few words or examples. For example: friendly, plain, one idea per post." },
+    { "id": "format", "label": "Format rules", "limit": 3000, "placeholder": "Length, structure, headings, hashtags, emoji, links and calls to action this channel uses." },
+    { "id": "dos", "label": "Always do", "limit": 2000, "placeholder": "What every piece for this channel should do." },
+    { "id": "donts", "label": "Never do", "limit": 2000, "placeholder": "Words, claims or styles this channel avoids." },
+    { "id": "examples", "label": "Examples that worked", "limit": 6000, "placeholder": "Paste a few posts or intros that did well, so the AI can follow their shape." },
+    { "id": "links", "label": "Reference links", "limit": 2000, "placeholder": "Style guides, past pieces or pages the team uses, one per line." }
+  ]
+}

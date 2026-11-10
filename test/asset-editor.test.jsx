@@ -6,6 +6,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AssetEditor, LEAVE_MESSAGE, UnsavedContext, canEditAsset, createUnsavedGuard, useUnsavedGuard } from '../src/renderer/src/asset-editor.jsx';
 import { ViewerContext } from '../src/renderer/src/viewer.js';
+import { pinClock } from './helpers/pin-clock.js';
+
+pinClock();
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const day = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });

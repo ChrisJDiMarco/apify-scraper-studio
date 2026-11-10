@@ -89,31 +89,37 @@ describe('Inbox rows for channel assets', () => {
   });
 });
 
-describe('Reports opens as the list when you come back to it', () => {
+describe('A report opens as its page when you come back to it', () => {
+  // A Create content draft has no trend, so it lives in Assets and opens in the reader there.
   const draft = { id: 'draft-1', workspaceId: 'semrush', runId: 'c1', deliverableId: 'bloglong', kind: 'text', title: 'My draft', createdAt: '2026-10-15T10:00:00Z' };
   const studio = { contentRuns: [{ id: 'c1', workspaceId: 'semrush', status: 'succeeded', title: 'Campaign', createdAt: '2026-10-15T10:00:00Z', jobs: [] }], assets: [draft] };
-  const openDraft = async () => { side('reports'); fireEvent.click(await screen.findByRole('button', { name: /My draft/ })); await waitFor(() => expect(document.querySelector('.simple-reader')).not.toBeNull()); };
-  const expectList = async () => { expect(await screen.findByRole('heading', { level: 1, name: 'Reports' })).toBeInTheDocument(); expect(document.querySelector('.simple-reader')).toBeNull(); };
+  const openDraft = async () => {
+    side('assets');
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Search assets' }), { target: { value: 'My draft' } });
+    fireEvent.click(await screen.findByRole('button', { name: /^My draft/ }));
+    await waitFor(() => expect(document.querySelector('.simple-reader')).not.toBeNull());
+  };
+  const expectPage = async (name) => { expect(await screen.findByRole('heading', { level: 1, name })).toBeInTheDocument(); expect(document.querySelector('.simple-reader')).toBeNull(); };
 
-  it('from Home’s All reports and from the sidebar, but keeps the report for Ask AI', async () => {
+  it('from another page and the sidebar, but keeps the report for Ask AI', async () => {
     await boot(studio);
     await openDraft();
     side('home');
     await screen.findByRole('heading', { level: 1, name: /^This week in/ });
-    fireEvent.click(document.querySelector('[data-spot="home.reports"]')); // Ready for channels › All reports
-    await expectList();
+    side('assets');
+    await expectPage('Assets');
 
     await openDraft();
-    side('home');
-    await screen.findByRole('heading', { level: 1, name: /^This week in/ });
-    side('reports');
-    await expectList();
+    side('trends');
+    await expectPage('Trends');
+    side('assets');
+    await expectPage('Assets');
 
     // A trip to Ask AI keeps the report open (it's Ask AI's context), so coming back resumes it.
     await openDraft();
     fireEvent.click(document.querySelector('[data-spot="nav.ask"]'));
     await waitFor(() => expect(simpleTab()).toBe('ask'));
-    side('reports');
+    side('assets');
     await waitFor(() => expect(document.querySelector('.simple-reader')).not.toBeNull());
   });
 });
@@ -176,17 +182,18 @@ describe('What changed opens the trend’s newest card', () => {
 
 describe('Make channel assets opens over the page you’re on', () => {
   const studio = { contentRuns: [trendRun, kitRun], assets: reportPair };
-  const openReader = async () => { side('reports'); fireEvent.click((await screen.findAllByRole('button', { name: new RegExp(`^${TREND}`) }))[0]); await waitFor(() => expect(document.querySelector('.simple-reader')).not.toBeNull()); };
+  // The trend's report, read from its folder in Assets (this studio's research run isn't on Trends).
+  const openReader = async () => { side('assets'); fireEvent.click(await screen.findByRole('button', { name: `Open the ${TREND} folder` })); fireEvent.click(await screen.findByRole('button', { name: /^Trends report/ })); await waitFor(() => expect(document.querySelector('.simple-reader')).not.toBeNull()); };
 
   it('in Simple, Cancel leaves you on the report, and Make leaves one note with Open folder', async () => {
     const api = await boot(studio);
     await openReader();
     fireEvent.click(await screen.findByRole('button', { name: 'Make channel assets' }));
     let dialog = await screen.findByRole('dialog', { name: 'Check what will be made' });
-    expect(simpleTab()).toBe('reports'); // the dialog is over the report, not on Assets
+    expect(simpleTab()).toBe('assets'); // the dialog is over the report, not Assets' own page
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Check what will be made' })).toBeNull());
-    expect(simpleTab()).toBe('reports');
+    expect(simpleTab()).toBe('assets');
     expect(document.querySelector('.simple-reader')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Make channel assets' }));

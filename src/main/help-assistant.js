@@ -15,7 +15,7 @@ const { readStringField } = require('../shared/structured-stream');
 const { readJsonField } = require('../shared/json-reply');
 
 const HELP_PAGES = {
-  overview: 'Overview', research: 'Research programs', sheets: 'Sheets', board: 'Trend board', create: 'Create content', library: 'Library', knowledge: 'Brand knowledge',
+  overview: 'Overview', programs: 'Research programs', research: 'Edit research program (and its runs)', sheets: 'Sheets', board: 'Trends (board view)', create: 'Create content', library: 'Assets', knowledge: 'Brand knowledge',
   dashboard: 'Collection overview', templates: 'Brief starters', search: 'Search platforms', chat: 'Ask your datasets', automation: 'Scrapers', datasets: 'Datasets', reports: 'Dataset reports', runs: 'Activity', imports: 'Import research', compare: 'Compare snapshots', playbooks: 'Playbooks', workflows: 'Workflows', settings: 'Settings',
   prompts: 'Prompts', // only for people who can open the Prompt Library (pagesFor)
 };
@@ -54,7 +54,7 @@ const N = { type: 'number' };
 // What an editor can't open (src/shared/roles.json hiddenPages): Ask AI never points them there. Admins see everything;
 // a channel owner's Ask AI has no pages or spots at all (isChannel below).
 const EDITOR_HIDDEN_PAGES = ['knowledge', 'settings'];
-const EDITOR_HIDDEN_SPOT = (id) => id.startsWith('settings.') || id.startsWith('people.') || ['nav.settings', 'nav.people', 'nav.analytics', 'nav.workspace', 'nav.knowledge'].includes(id);
+const EDITOR_HIDDEN_SPOT = (id) => id.startsWith('settings.') || id.startsWith('people.') || id.startsWith('programs.') || id.startsWith('nav.program') || ['nav.settings', 'nav.people', 'nav.analytics', 'nav.workspace', 'nav.knowledge'].includes(id);
 const isEditor = (role) => role === 'editor';
 // A channel-based role's Ask AI (roles.json askAi on the channel base): the same answer shape, cleaner and loop, with its
 // own prompt (channelPromptParts), and a LIVE CONTEXT, lookups, cards and buttons the main process builds only from

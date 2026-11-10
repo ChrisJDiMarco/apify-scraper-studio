@@ -4139,7 +4139,8 @@
       "enforced": [
         "Buttons are offered, never run; paid work asks again.",
         "Card numbers come from the studio, not the model.",
-        "Secrets and data from lookups are never remembered.", "A picture’s family must be one of this workspace’s reference sets, or none."
+        "Secrets and data from lookups are never remembered.",
+        "A picture’s family must be one of this workspace’s reference sets, or none."
       ],
       "viewOnly": [
         {
@@ -4269,6 +4270,80 @@
         "Links come from the source records, never the model."
       ],
       "viewOnly": []
+    },
+    {
+      "id": "assistant.program-setup",
+      "name": "Program setup suggestions",
+      "group": "assistant",
+      "description": "Suggests the X accounts, LinkedIn people and pages, and subreddits to follow, and drafts brand knowledge, when someone sets up Golden Thread or a new research program.",
+      "powers": [
+        "Guided setup: suggested sources and brand draft"
+      ],
+      "stage": "assistant",
+      "editions": [
+        "semrush",
+        "general"
+      ],
+      "ai": {
+        "stage": "assistant",
+        "modelSource": "settings",
+        "effort": "",
+        "outputTokens": 4000
+      },
+      "test": {
+        "kind": "text",
+        "samples": [
+          "bundled"
+        ]
+      },
+      "blocks": [
+        {
+          "id": "instruction",
+          "label": "Instruction",
+          "help": "How to choose the sources and draft the brand. The JSON shape stays fixed.",
+          "editable": true,
+          "reason": "",
+          "variables": [],
+          "requiredVariables": [],
+          "requiredTerms": [],
+          "maxChars": 4000,
+          "lines": null
+        }
+      ],
+      "layout": [
+        {
+          "kind": "fixed",
+          "label": "Suggest sources to follow and/or a brand knowledge draft.",
+          "reason": "Says which parts were asked for; it follows the person’s choices."
+        },
+        {
+          "kind": "block",
+          "blockId": "instruction"
+        },
+        {
+          "kind": "fixed",
+          "label": "Return only schema-valid JSON, with the target format for each platform.",
+          "reason": "Tied to the answer the studio checks and shows, so it stays fixed."
+        },
+        {
+          "kind": "data",
+          "label": "SETUP_REQUEST: the company, website, vertical and focus the person entered"
+        }
+      ],
+      "enforced": [
+        "Every source is checked with the program form’s rules before it is shown; ones that don’t pass are left out.",
+        "Nothing is saved until the person saves the program."
+      ],
+      "viewOnly": [
+        {
+          "label": "Suggest sources to follow and/or a brand knowledge draft.",
+          "reason": "Says which parts were asked for; it follows the person’s choices."
+        },
+        {
+          "label": "Return only schema-valid JSON, with the target format for each platform.",
+          "reason": "Tied to the answer the studio checks and shows, so it stays fixed."
+        }
+      ]
     },
     {
       "id": "data.dataset-report",

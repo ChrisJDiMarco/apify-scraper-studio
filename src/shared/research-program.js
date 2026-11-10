@@ -191,6 +191,7 @@ function validateResearchProgram(input = {}) {
   const sizes = input.taggingBatchSizes === undefined ? {} : object(input.taggingBatchSizes, 'taggingBatchSizes');
   const delivery = input.delivery === undefined ? {} : object(input.delivery, 'delivery');
   const notes = programNotes(input.notes);
+  const brand = programBrand(input.brand);
   return {
     id: string(input.id, 'id', 160) || `program-${digest(name + JSON.stringify(sourceGroups))}`, name, query, sourceGroups, window: { startDate, endDate, ...(startAt ? { startAt } : {}) }, schedule,
     targetPerPlatform: number(input.targetPerPlatform, 'targetPerPlatform', 1, MAX_EVIDENCE_ITEMS, 3000, true),
@@ -209,7 +210,30 @@ function validateResearchProgram(input = {}) {
     delivery: { publishToDrive: bool(delivery.publishToDrive, 'delivery.publishToDrive', false) },
     // Absent unless the program has notes, so programs without them keep their exact validated shape.
     ...(notes ? { notes } : {}),
+    // Absent unless the program has its own brand (a program for another brand than the workspace's).
+    ...(brand ? { brand } : {}),
   };
+}
+
+// A program's own brand (guided setup, D3): a program for another brand than the workspace's (an Adobe Firefly program in
+// the Semrush workspace) carries its own name, audience, positioning, voice and claims to avoid. Its trends reports,
+// toolkits and channel assets are written for that brand, with no product registry, reference documents or taxonomy from
+// the workspace. null (left out) means the program uses the workspace's brand knowledge, as every program did before.
+const BRAND_LIMITS = { name: 160, audience: 4000, positioning: 6000, voice: 4000, forbiddenClaims: 6000, editorialRules: 6000 };
+function programBrand(input) {
+  if (input === undefined || input === null) return null;
+  object(input, 'brand');
+  if (input.mode !== 'own') return null;
+  const out = { mode: 'own' };
+  for (const [key, max] of Object.entries(BRAND_LIMITS)) {
+    const value = input[key] == null ? '' : input[key];
+    if (typeof value !== 'string') fail(`brand.${key}`, 'Brand fields must be text.');
+    const text = value.replace(/\r\n?/g, '\n').trim();
+    if (text.length > max) fail(`brand.${key}`, `Keep the brand’s ${key} under ${max.toLocaleString('en-US')} characters.`);
+    if (text) out[key] = text;
+  }
+  if (!out.name) fail('brand.name', 'Name the brand this program researches for.');
+  return out;
 }
 
 // Notes for the AI (workflows and playbooks, SPEC-3): admin-written guidance added to the research prompts (research) and
@@ -738,4 +762,4 @@ function estimateResearchCost(input, { evidenceCounts, themeCount, stages: resol
   return { posts: { ...planned, total }, batches: { discovery: discoveryBatches, tagging: taggingBatches }, stages, totalUsd: round(Object.values(stages).reduce((sum, value) => sum + value, 0)), models, effort, basis: 'List prices per million tokens; actual CLI-reported cost is recorded per call.' };
 }
 
-module.exports = { TEXT_ROUTES, validateResearchAi, MAX_EVIDENCE_ITEMS, PLATFORMS, PLATFORM_LABELS, PAIN_POINTS, URGENCY_SIGNALS, DEFAULT_THRESHOLDS, DEFAULT_RESEARCH_PROGRAM, DEFAULT_RESEARCH_AI, DEFAULT_TAGGING_BATCH_SIZES, DEFAULT_COLLECTION_SETTINGS, RESEARCH_STAGES, RESEARCH_MODELS, EFFORT_LEVELS, DISCOVERY_SCHEMA, THEMES_SCHEMA, MATCHING_SCHEMA, ASSIGNMENTS_SCHEMA, validateResearchProgram, resolveResearchWindow, researchMetrics, engagementScore, batchEngagementScore, prepareResearchEvidence, discoveryPost, taggingPost, postRef, themeRef, candidateRef, refLookup, buildDiscoveryBatches, buildAssignmentBatches, validateCandidates, mergeCandidates, synthesisCandidate, validateThemes, validateThemeMatches, validateAssignments, unclassifiedAssignments, applyAssignments, calculateThemeHistory, calculateThemePriority, aggregateEvidenceMetrics, buildThemeEvidenceSnapshot, validateExactQuotes, estimateResearchCost, callCost, estimateTokens, modelPrice };
+module.exports = { TEXT_ROUTES, validateResearchAi, MAX_EVIDENCE_ITEMS, PLATFORMS, PLATFORM_LABELS, PAIN_POINTS, URGENCY_SIGNALS, DEFAULT_THRESHOLDS, DEFAULT_RESEARCH_PROGRAM, DEFAULT_RESEARCH_AI, DEFAULT_TAGGING_BATCH_SIZES, DEFAULT_COLLECTION_SETTINGS, RESEARCH_STAGES, RESEARCH_MODELS, EFFORT_LEVELS, DISCOVERY_SCHEMA, THEMES_SCHEMA, MATCHING_SCHEMA, ASSIGNMENTS_SCHEMA, normalizeTarget, validateResearchProgram, resolveResearchWindow, researchMetrics, engagementScore, batchEngagementScore, prepareResearchEvidence, discoveryPost, taggingPost, postRef, themeRef, candidateRef, refLookup, buildDiscoveryBatches, buildAssignmentBatches, validateCandidates, mergeCandidates, synthesisCandidate, validateThemes, validateThemeMatches, validateAssignments, unclassifiedAssignments, applyAssignments, calculateThemeHistory, calculateThemePriority, aggregateEvidenceMetrics, buildThemeEvidenceSnapshot, validateExactQuotes, estimateResearchCost, callCost, estimateTokens, modelPrice };

@@ -69,6 +69,38 @@ describe('weekly briefing', () => {
     expect(onOpenTarget).toHaveBeenCalledWith({ kind: 'report', id: 'asset-report', page: 'reports' });
   });
 
+  it('sums the week up in four tiles that open their pages', () => {
+    const onOpenTarget = vi.fn();
+    render(<WeeklyBriefing state={state()} viewer={viewer} api={{}} now={NOW} onDecide={vi.fn()} onOpenTarget={onOpenTarget} />);
+    const glance = within(screen.getByRole('region', { name: 'This week at a glance' }));
+    const tile = (name) => glance.getByRole('button', { name: new RegExp(`^${name}`) });
+    expect(tile('Needs your OK')).toHaveTextContent('Needs your OK2Trends waiting for a yes');
+    expect(tile('Needs your OK')).toHaveClass('is-hot');
+    expect(tile('Ready for channels')).toHaveTextContent('Ready for channels1Briefs ready this week');
+    expect(tile('Shipped')).toHaveTextContent('Shipped1Used by channels this week');
+    expect(tile('Research')).toHaveTextContent('ResearchRunningCollecting…');
+    fireEvent.click(tile('Research'));
+    expect(onOpenTarget).toHaveBeenLastCalledWith({ kind: 'page', id: 'programs', page: 'programs' });
+    fireEvent.click(tile('Shipped'));
+    expect(onOpenTarget).toHaveBeenLastCalledWith({ kind: 'page', id: 'assets', page: 'assets' });
+  });
+
+  it('leaves out cards with nothing in them, and calls older briefs the latest ones', () => {
+    const later = state();
+    later.contentStudio.researchRuns[0].decisions = { 't-1': 'passed', 't-2': 'passed' };
+    later.contentStudio.researchRuns[2].status = 'succeeded';
+    render(<WeeklyBriefing state={later} viewer={viewer} api={{}} now={new Date(2026, 9, 29, 12)} onDecide={vi.fn()} onOpenTarget={vi.fn()} />);
+    expect(screen.queryByRole('region', { name: /Needs your OK/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /Shipped/ })).not.toBeInTheDocument();
+    const glance = within(screen.getByRole('region', { name: 'This week at a glance' }));
+    expect(glance.getByRole('button', { name: /^Needs your OK/ })).toHaveTextContent('0All caught up');
+    expect(glance.getByRole('button', { name: /^Ready for channels/ })).toHaveTextContent('0None new · latest Oct 13');
+    expect(glance.getByRole('button', { name: /^Research/ })).toHaveTextContent('Oct 15Last run · Succeeded');
+    const latest = screen.getByRole('region', { name: 'Latest briefs' });
+    expect(within(latest).getByRole('button', { name: 'AI Overviews' })).toBeInTheDocument();
+    expect(latest).toHaveTextContent('Trends report + editorial toolkit · Oct 13');
+  });
+
   it('links each row in the Slack copy when there is a studio address, and ends with the studio link', () => {
     const data = briefingData({ state: state(), viewer, now: NOW });
     const text = briefingMarkdown(data, { origin: 'https://studio.example.com/' });
@@ -87,6 +119,7 @@ describe('weekly briefing', () => {
     render(<WeeklyBriefing state={stopped} viewer={viewer} api={{}} now={NOW} onRetryRun={onRetryRun} onOpenTarget={vi.fn()} />);
     expect(screen.queryByRole('heading', { name: 'Quiet week so far.' })).not.toBeInTheDocument();
     const next = within(screen.getByRole('region', { name: 'Next up' }));
+    expect(next.getByRole('list')).toHaveClass('is-single'); // one step: one row, its button at the end
     expect(next.getByText('Research stopped · AI search pulse')).toBeInTheDocument();
     fireEvent.click(next.getByRole('button', { name: 'Try again' }));
     expect(onRetryRun).toHaveBeenCalledWith('broken');
@@ -109,7 +142,7 @@ describe('weekly briefing', () => {
     render(<WeeklyBriefing state={fresh} viewer={{ ...viewer, id: 'member-setup' }} api={{}} now={NOW} web={false} onOpenTarget={onOpenTarget} onCreate={onCreate} />);
     const setup = within(screen.getByRole('region', { name: /Get the studio ready/ }));
     expect(setup.getByText('0 of 5')).toBeInTheDocument();
-    fireEvent.click(setup.getByRole('button', { name: 'New program' }));
+    fireEvent.click(setup.getByRole('button', { name: 'Start setup' }));
     expect(onCreate).toHaveBeenCalledWith('program');
     fireEvent.click(setup.getAllByRole('button', { name: 'Open Settings' })[0]);
     expect(onOpenTarget).toHaveBeenCalledWith({ kind: 'page', page: 'settings', section: 'sources' });

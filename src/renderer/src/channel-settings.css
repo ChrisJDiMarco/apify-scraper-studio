@@ -1,0 +1,11 @@
+/* Channel settings (channel-settings.jsx): Studio › My channel and Studio › Channels. */
+.channel-settings .simple-segment { margin: 0 0 18px; }
+.channel-knowledge, .channel-prompts { display: grid; gap: 14px; max-width: 760px; }
+.channel-settings textarea { width: 100%; min-height: 72px; padding: 10px 12px; font: inherit; font-size: 14px; line-height: 1.5; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-control); resize: vertical; }
+.channel-settings textarea:focus-visible, .channel-settings input:focus-visible { outline: 2px solid var(--s-focus); outline-offset: 1px; }
+.channel-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.channel-prompt { display: grid; gap: 12px; }
+.channel-prompt .cs-panel-title { margin-bottom: 0; }
+.channel-history summary { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--s-muted); cursor: pointer; }
+.channel-history ul { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.channel-history li { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--s-muted); }

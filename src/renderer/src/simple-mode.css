@@ -131,6 +131,9 @@
 .simple-report-list small { font-size: 13px; color: var(--s-muted); }
 .simple-report-list .simple-doc-icon { margin: 0; }
 .simple-reader { max-width: 860px; gap: 18px; }
+/* With notes open the reader makes room for them beside the report (860 report + 28 gap + 340 notes), so a note never
+   covers the sentence it is about; ReportDocument puts the panel beside the page once its root is 980px wide. */
+.simple-reader:has(.rd-root.has-notes) { max-width: 1228px; }
 .simple-reader-bar { position: sticky; top: -36px; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0; background: linear-gradient(var(--s-bg) 80%, transparent); }
 .simple-reader-tools { display: flex; gap: 8px; flex-wrap: wrap; }
 .simple-shell .simple-reader-tools button:not(.simple-primary) { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 16px; font-size: 13.5px; font-weight: 600; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; }
@@ -152,6 +155,7 @@
 .simple-trend-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--s-muted); }
 .simple-trend-meta > span { padding: 3px 9px; background: var(--s-bg); border-radius: 999px; }
 .simple-trend-meta > .simple-tier { font-weight: 700; color: var(--s-ink); background: var(--s-soft); }
+.simple-trend-meta > .simple-trend-program { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s-soft-ink); background: var(--s-soft); }
 .simple-trend-meta > .tier-fast-track { background: var(--s-accent); }
 .simple-trend-meta > .tier-strong { background: var(--s-mint); color: var(--s-mint-ink); }
 .simple-trend h3 { margin: 0; font-size: 18px; line-height: 1.3; letter-spacing: -.3px; }
@@ -235,8 +239,9 @@
 .simple-settings .settings-block, .simple-settings .settings-health { margin-top: 14px; padding: 22px 24px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 20px; box-shadow: 0 1px 2px rgba(24, 30, 21, .03); }
 .simple-settings .settings-view h3 { font-size: 16px; letter-spacing: -.2px; }
 .simple-settings .settings-view p, .simple-settings .settings-view small { font-size: 13px; line-height: 1.55; }
-.simple-settings .settings-view button { min-height: 38px; padding: 0 16px; font-size: 13px; font-weight: 600; color: #fff; background: var(--s-ink); border: 1px solid var(--s-ink); border-radius: 999px; }
-.simple-settings .settings-view button:hover:not(:disabled) { background: #2d362a; transform: none; box-shadow: none; }
+/* .ai-link is a text link that happens to be a button (ai-settings.css); :where() keeps these rules' weight as it was. */
+.simple-settings .settings-view button:where(:not(.ai-link)) { min-height: 38px; padding: 0 16px; font-size: 13px; font-weight: 600; color: #fff; background: var(--s-ink); border: 1px solid var(--s-ink); border-radius: 999px; }
+.simple-settings .settings-view button:where(:not(.ai-link)):hover:not(:disabled) { background: #2d362a; transform: none; box-shadow: none; }
 .simple-settings .settings-view button.ghost { color: var(--s-ink); background: var(--s-card); border-color: var(--s-line); }
 .simple-settings .settings-view button.ghost:hover:not(:disabled) { background: var(--s-bg); }
 .simple-settings .settings-view :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { border-radius: 12px; }
@@ -386,10 +391,11 @@
 .simple-shell .simple-sheet-head .simple-lightbox-close { position: static; flex: none; }
 .simple-sheet-body { display: grid; align-content: start; gap: 16px; padding: 6px 28px 22px; overflow-y: auto; }
 .simple-sheet-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 22px; background: color-mix(in srgb, var(--s-bg) 60%, var(--s-card)); border-top: 1px solid var(--s-line); }
+/* Segments also sit on pages the channel owner's shell renders (My channel), which has no .simple-shell around it. */
 .simple-segment { display: flex; flex-wrap: wrap; gap: 4px; justify-self: start; padding: 4px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 999px; }
-.simple-shell .simple-segment button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 14px; font-size: 13.5px; font-weight: 600; color: var(--s-muted); background: transparent; border: 0; border-radius: 999px; }
-.simple-shell .simple-segment button:hover { color: var(--s-ink); background: transparent; }
-.simple-shell .simple-segment button[aria-selected="true"], .simple-shell .simple-segment button[aria-selected="true"]:hover { color: var(--s-ink); background: var(--s-card); box-shadow: 0 1px 3px rgba(24, 30, 21, .1), 0 0 0 1px var(--s-line); }
+:is(.simple-shell, .simple-page) .simple-segment button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 14px; font-size: 13.5px; font-weight: 600; color: var(--s-muted); background: transparent; border: 0; border-radius: 999px; }
+:is(.simple-shell, .simple-page) .simple-segment button:hover { color: var(--s-ink); background: transparent; }
+:is(.simple-shell, .simple-page) .simple-segment button[aria-selected="true"], :is(.simple-shell, .simple-page) .simple-segment button[aria-selected="true"]:hover { color: var(--s-ink); background: var(--s-card); box-shadow: 0 1px 3px rgba(24, 30, 21, .1), 0 0 0 1px var(--s-line); }
 .simple-source-pick { display: grid; gap: 10px; }
 .simple-search.wide { width: 100%; }
 .simple-source-list { display: grid; gap: 6px; max-height: 340px; overflow-y: auto; padding: 2px; }
