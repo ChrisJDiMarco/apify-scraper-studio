@@ -45,15 +45,19 @@ button.ai-link:hover:not(:disabled) { color: var(--s-soft-ink, #5a2fa0); backgro
 .ai-picker-field:focus-within { outline: 2px solid var(--s-focus, #181e15); outline-offset: 1px; }
 .ai-picker-field input { flex: 1; min-width: 0; padding: 7px 0; border: 0; background: transparent; color: var(--s-ink, #181e15); font: inherit; font-size: 13px; }
 .ai-picker-field input::placeholder { color: transparent; }
-.ai-picker-field input:focus { outline: none; }
+/* The field draws the one focus ring. The class is doubled so a page's own input rules (Settings styles every input
+   inside it) never draw a second box around the text. */
+.ai-picker.ai-picker .ai-picker-field input, .ai-picker.ai-picker .ai-picker-field input:focus, .ai-picker.ai-picker .ai-picker-field input:focus-visible { width: auto; min-height: 0; padding: 7px 0; outline: none; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .ai-picker-field.is-open input::placeholder { color: var(--s-muted, #62685e); }
 .ai-picker-current { position: absolute; left: 30px; right: 28px; overflow: hidden; color: var(--s-ink, #181e15); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
-.ai-picker-pop { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; width: max(100%, 320px); max-width: min(92vw, 520px); padding: 8px; border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-control, 12px); background: var(--s-card, #fff); box-shadow: var(--s-shadow, 0 12px 32px rgba(0, 0, 0, .12)); }
+/* Floats above everything on the page, dialogs and side sheets included (model-picker.jsx places it). */
+.ai-picker-pop { position: fixed; z-index: 120; display: flex; flex-direction: column; min-height: 0; padding: 8px; border: 1px solid var(--s-line, #e3e8e4); border-radius: var(--s-radius-control, 12px); background: var(--s-card, #fff); box-shadow: var(--s-shadow, 0 12px 32px rgba(0, 0, 0, .12)); }
 .ai-picker-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .ai-picker-chips button { padding: 3px 9px; border: 1px solid var(--s-line-strong, #cfd6d0); border-radius: 999px; background: var(--s-card, #fff); color: var(--s-ink, #181e15); font: inherit; font-size: 12px; cursor: pointer; }
 .ai-picker-chips button[aria-pressed="true"] { border-color: var(--s-accent, #c190ff); background: var(--s-soft, #f1eaff); color: var(--s-soft-ink, #5a2fa0); }
-.ai-picker-list { max-height: 300px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.ai-picker-list { flex: 1 1 auto; min-height: 0; margin: 0; padding: 0; overflow: auto; list-style: none; }
 .ai-picker-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+.ai-picker-list li > svg { grid-column: 2; grid-row: 1; align-self: center; color: var(--s-soft-ink, #5a2fa0); }
 .ai-picker-list li.is-active, .ai-picker-list li:hover { background: var(--s-bg, #f4f6f5); }
 .ai-picker-list li[aria-selected="true"] strong { color: var(--s-soft-ink, #5a2fa0); }
 .ai-picker-row-main { display: grid; min-width: 0; }
@@ -139,13 +143,17 @@ button.ai-link:hover:not(:disabled) { color: var(--s-soft-ink, #5a2fa0); backgro
    picker showing only its icon. */
 @media (min-width: 761px) {
   .ai-route-table { table-layout: fixed; }
-  .ai-route-table th:nth-child(1) { width: 20%; }
-  .ai-route-table th:nth-child(2) { width: 16%; }
-  .ai-route-table th:nth-child(3) { width: 18%; }
-  .ai-route-table th:nth-child(4) { width: 12%; }
+  .ai-route-table th:nth-child(1) { width: 19%; }
+  .ai-route-table th:nth-child(2) { width: 18%; }
+  .ai-route-table th:nth-child(3) { width: 17%; }
+  .ai-route-table th:nth-child(4) { width: 13%; }
   .ai-route-table th:nth-child(5) { width: 9%; }
-  .ai-route-table th:nth-child(7) { width: 100px; }
-  .ai-route-table select { width: 100%; }
+  .ai-route-table th:nth-child(7) { width: 96px; }
+  /* What's left is the status column: its text wraps inside it and never runs under the Test button. */
+  .ai-route-table .ai-route-status { min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
+  /* A menu's words fit its column: tighter padding, and an ellipsis rather than a letter cut in half. */
+  .ai-route-table.ai-route-table select, .simple-settings .settings-view .ai-route-table select { width: 100%; padding-left: 9px; padding-right: 22px; font-size: 12.5px; text-overflow: ellipsis; background-position: right 6px center; }
+  .ai-route-table.ai-route-table :is(td, th) { padding-left: 8px; padding-right: 8px; }
   .ai-route-table .ai-route-cost { white-space: normal; }
   .ai-route-table :is(.ai-route-job, .ai-route-status) { overflow-wrap: break-word; }
 }

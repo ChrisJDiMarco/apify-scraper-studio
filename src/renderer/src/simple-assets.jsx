@@ -78,7 +78,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
   const picturesOff = `Pictures are off for your team. ${askAdmin} can turn them on.`;
   // node: the folder page open; key: a folder asked for by its sourceKey or node id (resolved when it exists, so a set
   // that was just started opens as soon as it arrives); runId: the set to show inside it.
-  const [place, setPlace] = useState({ node: '', key: '', reportAssetId: embedded?.reportAssetId || '', runId: '' });
+  const [place, setPlace] = useState({ node: '', key: '', reportAssetId: embedded?.reportAssetId || '', runId: embedded?.runId || '' });
   const [creating, setCreating] = useState(null);
   const [reading, setReading] = useState(null); // a written asset open in the viewer
   // Ask AI's pictures, read again whenever Ask AI makes one (help-images.js), even while it draws behind this page.
@@ -132,7 +132,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
     if (!handedOver) return;
     if (onOpenTrendPage(current.meta.reportAssetId || current.meta.toolkitAssetId || '', runId)) setPlace({ node: '', key: '', reportAssetId: '', runId: '' });
   }, [handedOver, current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { onViewChange?.(current ? current.title : '', current ? current.id : ''); }, [current?.id]);
+  useEffect(() => { if (!handedOver) onViewChange?.(current ? current.title : '', current ? current.id : ''); }, [current?.id, handedOver]);
   useEffect(() => { document.querySelector('.simple-main')?.scrollTo?.({ top: 0 }); }, [current?.id]);
   const kitFolderOf = useMemo(() => new Map(kitRuns.flatMap((run) => list(run.jobs).map((job) => [`${run.id}:${job.id}`, job.folder]))), [kitRuns]);
 

@@ -1,4 +1,5 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronDown, LoaderCircle, Search } from 'lucide-react';
 import MODELS from '../../shared/ai-models.json';
 import PROVIDERS from '../../shared/ai-providers.json';
@@ -43,7 +44,25 @@ export function ModelPicker({ route, kind = 'text', value = '', onChange, api, i
   const [cursor, setCursor] = useState(null); const [active, setActive] = useState(0);
   const [structured, setStructured] = useState(kind === 'text'); const [takesRefs, setTakesRefs] = useState(false);
   const remote = !(kind === 'text' && CLAUDE_ROUTES.has(route)) && !(kind === 'image' && route === 'openai') && typeof api?.listAiModels === 'function';
-  const timer = useRef(null); const asked = useRef(0); const box = useRef(null);
+  const timer = useRef(null); const asked = useRef(0); const box = useRef(null); const pop = useRef(null);
+  // The list floats above the page (a portal with a fixed position), so a table, a folded group or a panel that clips
+  // its own overflow never cuts it off. It opens under the field, or above it when there's more room there, and follows
+  // the field while the page scrolls or resizes.
+  const [place, setPlace] = useState(null);
+  useLayoutEffect(() => {
+    if (!open || !box.current) { setPlace(null); return undefined; }
+    const update = () => {
+      const field = box.current?.getBoundingClientRect(); if (!field) return;
+      const width = Math.min(Math.max(field.width, 320), Math.min(window.innerWidth - 16, 520));
+      const left = Math.max(8, Math.min(field.left, window.innerWidth - width - 8));
+      const below = window.innerHeight - field.bottom - 12; const above = field.top - 12;
+      const up = below < 240 && above > below;
+      setPlace({ left, width, maxHeight: Math.max(160, Math.min(420, up ? above : below)), ...(up ? { bottom: window.innerHeight - field.top + 4 } : { top: field.bottom + 4 }) });
+    };
+    update();
+    window.addEventListener('scroll', update, true); window.addEventListener('resize', update);
+    return () => { window.removeEventListener('scroll', update, true); window.removeEventListener('resize', update); };
+  }, [open]);
   useEffect(() => { setRows(catalogModels(route, kind)); setCursor(null); setProblem(''); }, [route, kind]);
   useEffect(() => {
     if (!open || !remote) return undefined;
@@ -62,7 +81,7 @@ export function ModelPicker({ route, kind = 'text', value = '', onChange, api, i
   }, [open, remote, route, kind, query, structured, takesRefs, api]);
   useEffect(() => {
     if (!open) return undefined;
-    const away = (event) => { if (box.current && !box.current.contains(event.target)) setOpen(false); };
+    const away = (event) => { if (box.current && !box.current.contains(event.target) && !pop.current?.contains(event.target)) setOpen(false); };
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
   }, [open]);
@@ -96,7 +115,7 @@ export function ModelPicker({ route, kind = 'text', value = '', onChange, api, i
       <span className="ai-picker-current" aria-hidden={open ? 'true' : undefined}>{open ? '' : current}</span>
       <ChevronDown size={14} aria-hidden="true" />
     </div>
-    {open && <div className="ai-picker-pop">
+    {open && place && createPortal(<div className="ai-picker-pop" ref={pop} style={place}>
       {(kind === 'text' && route === 'openrouter') || kind === 'image' ? <div className="ai-picker-chips" role="group" aria-label="Filters">
         {kind === 'text' && <button type="button" aria-pressed={structured} onClick={() => setStructured((on) => !on)}>Structured answers</button>}
         {kind === 'image' && <button type="button" aria-pressed={takesRefs} onClick={() => setTakesRefs((on) => !on)}>Takes reference images</button>}
@@ -119,6 +138,6 @@ export function ModelPicker({ route, kind = 'text', value = '', onChange, api, i
       {loading && <p className="ai-picker-note"><LoaderCircle className="spin" size={13} aria-hidden="true" /> Loading models…</p>}
       {problem && <p className="ai-picker-note" role="status">{problem}</p>}
       {cursor && !loading && <button type="button" className="ai-link" onClick={more}>Show more</button>}
-    </div>}
+    </div>, box.current?.closest('.studio-frame') || document.body)}
   </div>;
 }

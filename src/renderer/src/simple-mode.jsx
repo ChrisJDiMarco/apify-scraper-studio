@@ -161,7 +161,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   function openFolder(folder) { openFolderKey(folder.key); }
   // `home` is where to read it; without one, a trend's documents open on Trends and everything else on Assets.
   // A trend's page (trend-page.jsx), on Trends: its overview, or the tab asked for.
-  function openTrend(card, trendTab = 'overview') { if (!card?.themeId) return; setReportId(''); withViewTransition(() => setTrendOpen({ themeId: card.themeId, runId: card.runId || '', tab: trendTab })); go('trends'); }
+  function openTrend(card, trendTab = 'overview', kitRunId = '') { if (!card?.themeId) return; setReportId(''); withViewTransition(() => setTrendOpen({ themeId: card.themeId, runId: card.runId || '', tab: trendTab, kitRunId })); go('trends'); }
   function openReport(id, home = '') {
     const asset = list(studio.assets).find((row) => row.id === id);
     // A trend's report and toolkit are tabs of that trend's page.
@@ -195,7 +195,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     ...(shellNav.openInvite ? { openInvite: shellNav.openInvite } : {}), ...(shellNav.viewAs ? { viewAs: shellNav.viewAs } : {}), ...(shellNav.openProgramDraft ? { openProgramDraft: shellNav.openProgramDraft } : {}) };
   // Ask AI's buttons and the studio work behind them, shared with the Advanced drawer (studio-actions.js): every paid
   // step shows its estimate in the in-app confirmation before it runs.
-  const { runAiAction, startResearch, decide, writeReports, waiting, approved, reports, kitRuns, kitFolders, findReport, findFolder, board, liveRuns, programs } = useStudioActions({ api, state, action, nav, settingsAllowed, tabs, web, onNotice });
+  const { runAiAction, startResearch, decide, writeReports, waiting, approved, reports, kitRuns, kitFolders, findReport, findFolder, board, programs } = useStudioActions({ api, state, action, nav, settingsAllowed, tabs, web, onNotice });
   // One rule for every Find new trends: the program picked here, else the one this person chose last, else the newest.
   const program = defaultProgram(programs, { id: programId, lastId: lastProgramId(viewer) });
   // A start that went through is the person's choice too, so the next Find new trends (here or on Home) starts it again.
@@ -321,11 +321,11 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const postsApi = typeof api.readTrendPosts === 'function' && can('readTrendPosts') ? api : null;
   const onAsk = can('askHelp') && api.askHelp ? ask : null;
   // Assets, as its own page and (`extra.embedded`) as a trend's Channel assets tab.
-  const openTrendFolder = (assetId) => { const card = assetId ? board.cards.find((row) => list(row.reportAssets).some((asset) => asset.id === assetId)) : null; if (!card || !tabs.includes('trends')) return false; openTrend(card, 'assets'); return true; };
+  const openTrendFolder = (assetId, kitRunId = '') => { const card = assetId ? board.cards.find((row) => list(row.reportAssets).some((asset) => asset.id === assetId)) : null; if (!card || !tabs.includes('trends')) return false; openTrend(card, 'assets', kitRunId); return true; };
   const assetsView = (extra = {}) => <SimpleAssets onOpenTrendPage={openTrendFolder} api={api} web={web} tree={libraryTree} programs={programs} editionId={workspace?.editionId || 'general'} contentRuns={list(studio.contentRuns).filter(mine)} kitRuns={kitRuns} assets={list(studio.assets).filter(mine)} studioImages={studioImages} sources={kitSourcesFrom(reports, list(studio.contentRuns).filter(mine))} request={assetRequest} onRequestDone={() => setAssetRequest(null)} cache={imageCache} onCache={(id, url) => setImageCache((current) => ({ ...current, [id]: url }))} action={action} busy={busy} imagesReady={imagesReady} googleReady={Boolean(studio.capabilities?.googlePublishConfigured)} askAdmin={askAdmin} onDraft={draftAsk} onAsk={ask} onSettings={openSettings} onOpenReport={(id) => openReport(id, 'assets')} onOpenTrends={() => go('trends')} onViewChange={(title, key = '') => { setAssetFolder(title); setAssetFolderKey(key); }} workspace={workspace} promptChanges={list(studio.promptChanges)} {...extra} />;
   // A trend's page: the header's next step does what the same button does on Trends, Home and Assets.
   function trendNext(card, next) {
-    if (next.id === 'write-reports') return writeReports();
+    if (next.id === 'write-reports') return writeReports({ runId: next.runId || card.runId });
     if (next.id === 'retry') return retryRun?.(next.runId);
     if (next.id === 'make-assets') return makeAssets({ kind: 'report', assetId: next.assetId });
     if (next.id === 'open-assets') return setTrendOpen((current) => (current ? { ...current, tab: 'assets' } : current));
@@ -344,7 +344,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     uses={usesOf({ themeId: trendCard.themeId })}
     onCopyLink={linkOrigin ? () => { if (nav.copyLink('trend', trendCard.themeId)) onNotice?.(LINK_COPIED); } : undefined}
     renderDoc={(id) => <SimpleReports key={id} embedded api={api} web={web} reports={reports} selectedId={id} onSelect={(next) => { if (!next) setTrendOpen((current) => (current ? { ...current, tab: 'overview' } : current)); else openReport(next); }} onCreateContent={shellNav.createFrom} action={action} busy={busy} onAsk={onAsk} onFindTrends={() => setTrendOpen(null)} onMakeAssets={(report) => makeAssets({ kind: 'report', assetId: report.id })} usesOf={usesOf} tree={libraryTree} onOpenAssets={() => setTrendOpen((current) => (current ? { ...current, tab: 'assets' } : current))} studio={studio} linkOrigin={linkOrigin} onOpenPrompt={onOpenPrompt} drive={state.driveSync} onOpenDriveSettings={openDriveSettings} />}
-    renderAssets={(reportAssetId) => assetsView({ key: `trend-assets-${reportAssetId}`, embedded: { reportAssetId }, request: null, onRequestDone: undefined, onViewChange: undefined, onOpenReport: (id) => openReport(id) })} /> : null;
+    renderAssets={(reportAssetId) => assetsView({ key: `trend-assets-${reportAssetId}-${trendOpen?.kitRunId || ''}`, embedded: { reportAssetId, runId: trendOpen?.kitRunId || '' }, request: null, onRequestDone: undefined, onViewChange: undefined, onOpenReport: (id) => openReport(id) })} /> : null;
   // A report, read (and edited) on the page it belongs to: Back returns to that page.
   const reader = (backLabel) => <SimpleReports api={api} web={web} reports={reports} selectedId={reportId} onSelect={setReportId} backLabel={backLabel} onCreateContent={shellNav.createFrom} action={action} busy={busy} onAsk={onAsk} onFindTrends={() => go('trends')} onMakeAssets={(report) => makeAssets({ kind: 'report', assetId: report.id })} usesOf={usesOf} tree={libraryTree} onOpenAssets={openFolderKey} studio={studio} linkOrigin={linkOrigin} onOpenPrompt={onOpenPrompt} drive={state.driveSync} onOpenDriveSettings={openDriveSettings} />;
   // Studio setup: Brand knowledge, Channels, Prompts, People, Analytics and Settings are sections of one page. Each

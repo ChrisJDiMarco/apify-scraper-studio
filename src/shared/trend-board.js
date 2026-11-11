@@ -45,6 +45,11 @@ function baseCard(run, theme, programName) {
 export function buildTrendBoard({ researchRuns = [], contentRuns = [], assets = [], programs = [] } = {}) {
   const programNames = new Map(list(programs).map((program) => [program.id, program.name]));
   const contentById = new Map(list(contentRuns).map((run) => [run.id, run]));
+  // Indexed once: a card's reports, the runs made from them and those runs' assets are lookups, not scans of every asset
+  // and run for every card (the board is rebuilt whenever a run moves).
+  const group = (rows, keyOf) => { const map = new Map(); for (const row of list(rows)) { const key = keyOf(row); if (!key) continue; const held = map.get(key); if (held) held.push(row); else map.set(key, [row]); } return map; };
+  const assetsByRun = group(assets, (asset) => asset.runId);
+  const runsBySource = group(contentRuns, (row) => row.sourceAssetId);
   const cards = [];
   const scouting = [];
   // A failed run that found no trends leaves the board once a newer run of the same program has found
@@ -79,12 +84,12 @@ export function buildTrendBoard({ researchRuns = [], contentRuns = [], assets = 
       const entry = list(run.reportRunIds).find((row) => row.themeId === theme.id);
       const report = entry && contentById.get(entry.runId);
       if (report?.status === 'succeeded') {
-        const reportAssets = list(assets).filter((asset) => asset.runId === report.id && REPORT_DELIVERABLES.has(asset.deliverableId));
+        const reportAssets = list(assetsByRun.get(report.id)).filter((asset) => REPORT_DELIVERABLES.has(asset.deliverableId));
         const reportAssetIds = new Set(reportAssets.map((asset) => asset.id));
-        const followUps = list(contentRuns).filter((row) => row.sourceAssetId && reportAssetIds.has(row.sourceAssetId));
-        const followUpIds = new Set(followUps.map((row) => row.id));
+        // In the order the runs were listed, as before.
+        const followUps = reportAssets.length > 1 ? list(contentRuns).filter((row) => row.sourceAssetId && reportAssetIds.has(row.sourceAssetId)) : list(runsBySource.get(reportAssets[0]?.id));
         const creating = followUps.some((row) => ACTIVE.has(row.status));
-        cards.push({ ...card, stage: creating ? 'production' : 'ready', activity: creating ? 'Creating assets' : '', reportRunId: report.id, reportAssets: reportAssets.map(({ id, title, deliverableId }) => ({ id, title, deliverableId })), assetCount: list(assets).filter((asset) => followUpIds.has(asset.runId)).length, contentRunCount: followUps.length });
+        cards.push({ ...card, stage: creating ? 'production' : 'ready', activity: creating ? 'Creating assets' : '', reportRunId: report.id, reportAssets: reportAssets.map(({ id, title, deliverableId }) => ({ id, title, deliverableId })), assetCount: followUps.reduce((sum, row) => sum + list(assetsByRun.get(row.id)).length, 0), contentRunCount: followUps.length });
         continue;
       }
       const stuck = TROUBLE.has(report?.status) || (TROUBLE.has(run.status) && !ACTIVE.has(report?.status));

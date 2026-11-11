@@ -159,18 +159,20 @@ export function SearchView({ state = {}, busy = false, onSearch, onPreviewSearch
   const requestKey = JSON.stringify(request);
   const currentPreview = preview.requestKey === requestKey ? preview : { status: 'pending' };
 
+  const previewSearch = useRef(onPreviewSearch); previewSearch.current = onPreviewSearch;
+  const canPreview = Boolean(onPreviewSearch);
   useEffect(() => {
-    if (tab !== 2 || !onPreviewSearch) return;
+    if (tab !== 2 || !canPreview) return;
     let cancelled = false;
     setPreview({ status: 'pending', requestKey });
     const timer = setTimeout(async () => {
       try {
-        const checked = await onPreviewSearch(request);
+        const checked = await previewSearch.current(request);
         if (!cancelled) setPreview({ status: checked?.valid ? 'ready' : 'invalid', plan: checked?.plan, error: checked?.error || (!checked ? { message: 'Could not check the search plan. Try again before running.' } : null), requestKey });
       } catch (failure) { if (!cancelled) setPreview({ status: 'invalid', error: { message: failure?.message || 'Could not check the search plan.' }, requestKey }); }
     }, 150);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [tab, onPreviewSearch, request, requestKey]);
+  }, [tab, canPreview, request, requestKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); setSavedLocally(true); } catch { setSavedLocally(false); } }, [draft]);
   useEffect(() => { if (focusTarget && !disabled) { const node = document.getElementById(focusTarget); node?.closest('details')?.setAttribute('open', ''); node?.focus(); setFocusTarget(''); } }, [focusTarget, tab, activeSource, disabled]);
   function update(key, value) { setDraft((current) => ({ ...current, [key]: value })); setError(''); }

@@ -26,6 +26,8 @@ const promptLabModule = () => require('./prompt-lab');
 const KIT_TEXT_TASKS = new Set(require('../shared/ai-tasks.json').tasks.filter(task => task.group === 'assets').map(task => task.id));
 // Channel knowledge (shared/channel-knowledge.json): each channel team's own notes on writing for it, per workspace.
 const CHANNEL_FIELDS = require('../shared/channel-knowledge.json').fields;
+// Error codes raised before an AI call is dispatched (ai-connections.js, text-router.js, ai-limits.js).
+const NEVER_SENT = new Set(['AI_NOT_CONNECTED', 'AI_ROUTING_PROBLEM', 'AI_MODEL_UNAVAILABLE', 'AI_PRICE_UNKNOWN', 'dailyAiBudget']);
 function cleanChannelKnowledge(input = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Send the channel knowledge as text per field.');
   const out = {};
@@ -394,6 +396,11 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       run.receipts.push({ stage: key, allowanceUsd: allowance, ...receipt, ...(unmetered && !Number.isFinite(receipt.costUsd) ? { costBasis: 'Codex reports no cost; it uses the Codex plan or OpenAI key' } : {}) }); save(); check(run); return result.output;
     } catch (error) {
       if (Number.isFinite(error?.costUsd) && error.costUsd >= 0) { run.reservedUsd += error.costUsd - allowance; run.costUsd += error.costUsd; run.receipts.push({ stage: key, allowanceUsd: allowance, failed: true, costUsd: error.costUsd, error: safeError(error).slice(0, 300) }); save(); }
+      // Refused before anything was sent (no connection, a routing or model problem, an unknown price, the day's AI cap):
+      // nothing was spent, so the reservation is given back. Without this a signed-out CLI across a batch used up the
+      // run's whole budget, and Retry then refused with "Run budget exhausted" at $0 spent. A call that may have started
+      // (a timeout, a killed process) keeps its reservation, as before.
+      else if (NEVER_SENT.has(error?.code)) { run.reservedUsd = Math.max(0, run.reservedUsd - allowance); save(); }
       throw error;
     }
   }

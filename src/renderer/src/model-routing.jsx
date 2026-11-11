@@ -94,10 +94,13 @@ export function ModelRouting({ state = {}, api, busy, role = 'admin', layout }) 
     catch (error) { setProblem(error?.message || 'Model routing couldn’t be read.'); }
   }, [api]);
   useEffect(() => { load(); }, [load]);
+  const keysKey = JSON.stringify(state.keys || {});
   useEffect(() => {
-    if (typeof api?.getAiConnections !== 'function') return;
-    api.getAiConnections({}).then((status) => setReadiness(Object.fromEntries((status?.connections || []).map((row) => [row.id, row.status === 'ready'])))).catch(() => {});
-  }, [api, state.keys]);
+    if (typeof api?.getAiConnections !== 'function') return undefined;
+    let live = true;
+    api.getAiConnections({}).then((status) => { if (live) setReadiness(Object.fromEntries((status?.connections || []).map((row) => [row.id, row.status === 'ready']))); }).catch(() => {});
+    return () => { live = false; };
+  }, [api, keysKey]);
   // Every edit re-resolves the draft on the server (400 ms after the last change).
   useEffect(() => {
     const wanted = JSON.stringify(draft || null);

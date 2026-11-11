@@ -88,6 +88,43 @@ export function DialogClose({ onClose, disabled, label = 'Close' }) {
 // share a `group` string sit under that heading (role="group"); { type: 'separator' } draws a line. placement 'top'
 // opens it upward (a footer menu).
 const ITEM_ROLES = '[role="menuitem"]:not([disabled]), [role="menuitemradio"]:not([disabled])';
+// A menu that would be cut off (by the window's edge, or by a table, card or panel that clips its overflow) is moved to
+// a fixed position beside its button instead: flipped above when there's no room below, and kept inside the window.
+// Returns the style to put on the menu, or null to leave it where the stylesheet puts it. Where an ancestor makes fixed
+// positions relative to itself (a container query box), the move is undone rather than left in the wrong place.
+export function useUnclippedMenu(open, button, menu, { align = 'end', placement = 'bottom', onScrollAway } = {}) {
+  const [style, setStyle] = useState(null);
+  useLayoutEffect(() => {
+    if (!open) { setStyle(null); return; }
+    const node = menu.current; const anchor = button.current; if (!node || !anchor) return;
+    const box = node.getBoundingClientRect(); if (!box.width || !box.height) return;
+    const edge = 6;
+    let cut = box.bottom > window.innerHeight - edge || box.top < edge || box.right > window.innerWidth - edge || box.left < edge;
+    for (let parent = node.parentElement; parent && !cut; parent = parent.parentElement) {
+      const css = window.getComputedStyle(parent);
+      if (!/(auto|scroll|hidden|clip)/.test(`${css.overflowX} ${css.overflowY}`)) continue;
+      const frame = parent.getBoundingClientRect();
+      cut = box.bottom > frame.bottom + 1 || box.top < frame.top - 1 || box.right > frame.right + 1 || box.left < frame.left - 1;
+    }
+    if (!cut) return;
+    const at = anchor.getBoundingClientRect(); const gap = 6;
+    const fitsAbove = at.top - box.height - gap >= edge; const fitsBelow = at.bottom + gap + box.height <= window.innerHeight - edge;
+    const up = placement === 'top' ? fitsAbove || !fitsBelow : !fitsBelow && fitsAbove;
+    const top = Math.max(edge, up ? at.top - box.height - gap : Math.min(at.bottom + gap, window.innerHeight - box.height - edge));
+    const left = Math.max(edge, Math.min(align === 'start' ? at.left : at.right - box.width, window.innerWidth - box.width - edge));
+    setStyle({ position: 'fixed', top, left, right: 'auto', bottom: 'auto' });
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    if (!style || !menu.current) return undefined;
+    const box = menu.current.getBoundingClientRect();
+    if (Math.abs(box.top - style.top) > 2 || Math.abs(box.left - style.left) > 2) { setStyle(null); return undefined; }
+    // It no longer follows its button once the page scrolls, so scrolling anything but the menu itself closes it.
+    const scrolled = (event) => { if (!menu.current?.contains(event.target)) onScrollAway?.(); };
+    window.addEventListener('scroll', scrolled, true); window.addEventListener('resize', scrolled);
+    return () => { window.removeEventListener('scroll', scrolled, true); window.removeEventListener('resize', scrolled); };
+  }, [style]); // eslint-disable-line react-hooks/exhaustive-deps
+  return style;
+}
 export function MoreMenu({ label, items, disabled = false, title, align = 'end', placement = 'bottom', icon: Icon = Ellipsis, buttonText = '', describedBy, buttonClassName = '', buttonContent = null }) {
   const [open, setOpen] = useState(false);
   const button = useRef(null); const menu = useRef(null);
@@ -100,6 +137,7 @@ export function MoreMenu({ label, items, disabled = false, title, align = 'end',
     return () => document.removeEventListener('mousedown', away);
   }, [open]);
   function close(refocus = true) { setOpen(false); if (refocus) button.current?.focus(); }
+  const floating = useUnclippedMenu(open, button, menu, { align, placement, onScrollAway: () => setOpen(false) });
   function onKeyDown(event) {
     const nodes = [...(menu.current?.querySelectorAll(ITEM_ROLES) || [])];
     const index = nodes.indexOf(document.activeElement);
@@ -123,7 +161,7 @@ export function MoreMenu({ label, items, disabled = false, title, align = 'end',
   shown.forEach((item, index) => { const last = sections[sections.length - 1]; if (item.group && last?.group === item.group) last.items.push([item, index]); else sections.push({ group: item.group || '', items: [[item, index]] }); });
   return <span className="studio-menu-wrap">
     <button ref={button} type="button" className={buttonClassName || (buttonText ? 'studio-quiet small' : 'studio-icon-button')} aria-label={buttonText || buttonContent ? undefined : label} aria-haspopup="menu" aria-expanded={open} aria-describedby={describedBy} disabled={disabled} title={title} onClick={() => setOpen((value) => !value)} onKeyDown={(event) => { if (event.key === 'ArrowDown' && !open) { event.preventDefault(); setOpen(true); } }}>{buttonContent || <><Icon size={17} aria-hidden="true" />{buttonText}</>}</button>
-    {open && <div ref={menu} className={`studio-menu align-${align}${placement === 'top' ? ' placement-top' : ''}`} role="menu" aria-label={label} onKeyDown={onKeyDown}>
+    {open && <div ref={menu} className={`studio-menu align-${align}${placement === 'top' ? ' placement-top' : ''}`} role="menu" aria-label={label} style={floating || undefined} onKeyDown={onKeyDown}>
       {sections.map((section, index) => (section.group
         ? <div key={`group-${section.group}-${index}`} role="group" aria-label={section.group} className="studio-menu-group"><span className="studio-menu-heading" aria-hidden="true">{section.group}</span>{section.items.map(([item, at]) => renderItem(item, at))}</div>
         : section.items.map(([item, at]) => renderItem(item, at))))}
@@ -136,9 +174,9 @@ export function useToast(duration = 6000) {
   const [toast, setToast] = useState(null);
   const timer = useRef(null);
   const held = useRef(false);
-  const dismiss = useCallback(() => { clearTimeout(timer.current); setToast(null); }, []);
+  const dismiss = useCallback(() => { clearTimeout(timer.current); held.current = false; setToast(null); }, []);
   const arm = useCallback((ms) => { clearTimeout(timer.current); timer.current = setTimeout(() => { if (!held.current) setToast(null); }, ms); }, []);
-  const show = useCallback((text, options = {}) => { setToast({ text, key: Date.now() + Math.random(), tone: options.tone || '', actionLabel: options.actionLabel || '', onAction: options.onAction || null }); arm(options.duration || duration); }, [arm, duration]);
+  const show = useCallback((text, options = {}) => { held.current = false; setToast({ text, key: Date.now() + Math.random(), tone: options.tone || '', actionLabel: options.actionLabel || '', onAction: options.onAction || null }); arm(options.duration || duration); }, [arm, duration]);
   useEffect(() => () => clearTimeout(timer.current), []);
   const element = toast ? <div className={`studio-toast${toast.tone === 'error' ? ' error' : ''}`} role={toast.tone === 'error' ? 'alert' : 'status'} key={toast.key}
     onMouseEnter={() => { held.current = true; }} onMouseLeave={() => { held.current = false; arm(2500); }}>

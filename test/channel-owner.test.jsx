@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChannelAssets, ChannelGenerateSheet, ChannelTrends, channelPlan, linkLabel, normalizeLink } from '../src/renderer/src/channel-owner.jsx';
 import { PREVIEW_TITLE } from '../src/renderer/src/viewer.js';

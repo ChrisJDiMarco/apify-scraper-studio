@@ -240,6 +240,15 @@ describe('persistent content workspace orchestration', () => {
     expect(() => h.api.startResearchRun({ programId: unattended.id })).toThrow(/for a full unattended run/);
     expect(h.api.publicState().researchRuns).toHaveLength(0); expect(h.calls).toHaveLength(0);
   });
+  it('gives a reservation back when the call was refused before anything was sent', async () => {
+    // Not connected, a routing problem, an unknown price or the day's AI cap: nothing was spent, so nothing stays reserved.
+    for (const code of ['AI_NOT_CONNECTED', 'AI_ROUTING_PROBLEM', 'AI_MODEL_UNAVAILABLE', 'AI_PRICE_UNKNOWN', 'dailyAiBudget']) {
+      const h = harness({ runAI: async () => { throw Object.assign(new Error('Claude isn’t signed in. Nothing was started.'), { code }); } }); const run = await discover(h);
+      expect(run.status, code).toBe('failed');
+      expect(run.reservedUsd, code).toBe(0);
+      expect(run.costUsd || 0, code).toBe(0);
+    }
+  });
   it('retains conservative spend reservations for unknown-cost failed calls', async () => {
     const h = harness({ runAI: async () => { throw new Error('Lost response after request'); } }); const run = await discover(h);
     expect(run.reservedUsd).toBeGreaterThan(0);

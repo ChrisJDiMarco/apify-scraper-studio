@@ -54,7 +54,7 @@ const { accountForUrl } = require('../shared/brand-context');
 const { DEFAULT_CLAUDE_MODEL, CLAUDE_CLI_ENV } = require('../shared/claude-runner');
 const { createAiRoutes } = require('./ai-routes');
 const { modelPrice } = require('../shared/research-program');
-const { SOURCE_CATALOG, buildSearchRecipes } = require('../shared/source-catalog');
+const { buildSearchRecipes } = require('../shared/source-catalog');
 const { CHAT_SCHEMA, buildFindingsContext, normalizeFindingsAnswer } = require('../shared/findings-chat');
 // Prompt Library: the data tools' prompts read the active workspace's saved text (contentWorkspace.promptEffective).
 const dataPrompts = require('../shared/data-prompts');
@@ -66,7 +66,7 @@ try {
   autoUpdater = null;
 }
 const { createApifyRunner, discoverApifyResource: discoverApifyResourceLive } = require('../shared/apify-runner');
-const { SCHEMAS, buildAnalysisContext, buildPrompt, codexExecSupport, parseJsonlEvents, reportPresetById, validateAiOutput } = require('../shared/codex-runner');
+const { SCHEMAS, buildAnalysisContext, codexExecSupport, parseJsonlEvents, reportPresetById, validateAiOutput } = require('../shared/codex-runner');
 const { buildArchiveClearRequest, buildDatasetWriteRequests, buildPingRequest, buildSheetReadRequest, isRetryableSheetMessage, isRetryableSheetStatus } = require('../shared/google-sheets');
 const { buildStudioIntelligence } = require('../shared/intelligence');
 const { normalizeItem, toCsv, toJsonl } = require('../shared/normalize');

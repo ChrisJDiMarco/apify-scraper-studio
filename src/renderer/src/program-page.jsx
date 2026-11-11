@@ -62,7 +62,9 @@ export function ProgramPage({ program, missing = false, workspace, state = {}, a
   const mayEdit = can('saveResearchProgram') && typeof api.saveResearchProgram === 'function';
   const codex = state.contentStudio?.capabilities?.aiProvider === 'codex';
   const seeCosts = hasCapability(viewer, 'seeCosts');
-  const shown = programTab(tab);
+  // Spending caps are for roles that see costs, here as in the header and on Research programs.
+  const tabs = seeCosts ? PROGRAM_TABS : PROGRAM_TABS.filter(([id]) => id !== 'budgets');
+  const shown = tabs.some(([id]) => id === programTab(tab)) ? programTab(tab) : 'runs';
 
   useEffect(() => { guard.set(guardKey, dirty); }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => guard.set(guardKey, false), []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -140,7 +142,7 @@ export function ProgramPage({ program, missing = false, workspace, state = {}, a
         </div>
       </div>
       <div className="simple-segment trend-page-tabs" role="tablist" aria-label="This program">
-        {PROGRAM_TABS.map(([id, label]) => <button type="button" role="tab" key={id} id={`program-tab-${id}`} aria-selected={shown === id} aria-controls="program-panel" onClick={() => onTab?.(id)}>{label}{id === 'runs' && rows.length > 0 && <span className="trend-tab-count">{number(rows.length)}</span>}{error?.group === id && <span className="pd-chip-dot" aria-label=", has a problem" />}</button>)}
+        {tabs.map(([id, label]) => <button type="button" role="tab" key={id} id={`program-tab-${id}`} aria-selected={shown === id} aria-controls="program-panel" onClick={() => onTab?.(id)}>{label}{id === 'runs' && rows.length > 0 && <span className="trend-tab-count">{number(rows.length)}</span>}{error?.group === id && <span className="pd-chip-dot" aria-label=", has a problem" />}</button>)}
       </div>
     </header>
 

@@ -54,7 +54,6 @@ function number(v, field, min, max, fallback, integer = false) {
 }
 function bool(v, field, fallback = false) { if (v === undefined) return fallback; if (typeof v !== 'boolean') fail(field, `${field} must be true or false.`); return v; }
 function array(v, field, max = MAX_EVIDENCE_ITEMS) { if (!Array.isArray(v) || v.length > max) fail(field, `${field} must be a list of at most ${max} entries.`); return v; }
-function strings(v, field, maxItems = 30, maxLength = 300) { return array(v === undefined ? [] : v, field, maxItems).map((x) => string(x, field, maxLength, true)); }
 function date(v, field) {
   const value = string(v, field, 10);
   if (value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T00:00:00Z`)) || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value)) fail(field, `Use a valid YYYY-MM-DD date for ${field}.`);
@@ -438,12 +437,6 @@ const THEMES_SCHEMA = schema({ themes: { type: 'array', maxItems: 6, items: sche
 const MATCHING_SCHEMA = schema({ matches: { type: 'array', maxItems: 6, items: schema({ themeId: stringSchema, matchedExistingId: { type: ['string', 'null'] }, finalName: stringSchema, nameSource: { type: 'string', enum: ['new', 'existing', 'rewritten'] }, reason: stringSchema }) } });
 // The reason comes first so it is written before the confidence, as the n8n tagging rules require.
 const ASSIGNMENTS_SCHEMA = schema({ assignments: { type: 'array', items: schema({ itemId: stringSchema, reason: stringSchema, themeId: { type: ['string', 'null'] }, confidence: { type: 'number', minimum: 0, maximum: 1 }, painPoint: { type: 'string', enum: PAIN_POINTS }, urgency: { type: 'string', enum: URGENCY_SIGNALS }, entities: schema({ tools: stringListSchema, people: stringListSchema, companies: stringListSchema }) }) } });
-function enumValue(v, values, field) { if (!values.includes(v)) fail(field, `Invalid ${field}.`); return v; }
-function ids(v, allowed, field, { allowEmpty = false } = {}) {
-  const result = strings(v, field, MAX_EVIDENCE_ITEMS, 200);
-  if ((!allowEmpty && !result.length) || new Set(result).size !== result.length || result.some((id) => !allowed.has(id))) fail(field, `${field} must contain unique IDs from the supplied evidence.`);
-  return result;
-}
 // Lenient readers for enrichment fields: wrong types are skipped, long text is cut, lists are capped.
 const lenientText = (v, max) => text(v).slice(0, max);
 function lenientList(v, maxItems, maxLength) { return [...new Set((Array.isArray(v) ? v : []).filter((x) => typeof x === 'string').map((x) => text(x).slice(0, maxLength)).filter(Boolean))].slice(0, maxItems); }

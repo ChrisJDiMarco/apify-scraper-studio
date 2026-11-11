@@ -27,9 +27,6 @@ export const SIMPLE_PAGES = Object.freeze([
   { id: 'inbox', label: 'Inbox', icon: 'Inbox' },
   { id: 'calendar', label: 'Calendar', icon: 'CalendarDays' },
 ]);
-// The research program form's sections (program-editor.jsx renders one titled section per entry), which Workbench → Edit
-// research program lists one by one. Pure data here so the sidebar model stays free of React.
-export const PROGRAM_SECTIONS = Object.freeze([['basics', 'Name & focus'], ['sources', 'Sources'], ['when', 'Schedule & dates'], ['budgets', 'Budgets & estimate'], ['ai', 'AI models'], ['automation', 'Automation'], ['advanced', 'Advanced']]);
 // Advanced, Semrush edition: Research and Content. Studio views open inside the content studio; Sheets, Inbox and
 // Calendar are app pages.
 export const RESEARCH_PAGES = Object.freeze([
@@ -71,15 +68,11 @@ export const PIPELINE = Object.freeze([
   { id: 'assets', label: 'Assets', icon: 'Images', tools: [] },
   { id: 'calendar', label: 'Calendar', icon: 'CalendarDays', tools: [] },
 ]);
-// The unified Workbench (collapsed by default, remembered as Data tools was): editing a research program (admins, with
-// Manage research programs: one item per section of the form, then the research and report prompts), collecting,
-// creating, data work, automation, then Activity. Dataset reports opens the Advanced 'reports' page under its own id.
+// The unified Workbench (collapsed by default, remembered as Data tools was): collecting, creating, data work,
+// automation, then Activity. A research program is edited on its own page (program-page.jsx), so it has no items here.
+// Dataset reports opens the Advanced 'reports' page under its own id.
 // The General edition's collection Overview leads the data set (`general`).
 export const WORKBENCH = Object.freeze([
-  { id: 'program', label: 'Edit research program', manage: true, items: [
-    ...PROGRAM_SECTIONS.map(([section, label]) => ({ id: `program-${section}`, label, icon: { basics: 'Radar', sources: 'Globe', when: 'CalendarDays', budgets: 'Gauge', ai: 'Sparkles', automation: 'Workflow', advanced: 'Wrench' }[section], kind: 'program', target: 'research', section, spot: `nav.program-${section}` })),
-    { id: 'program-prompts', label: 'Research & report prompts', icon: 'ScrollText', kind: 'program', target: 'prompts', section: 'prompts', method: 'listPrompts', spot: 'nav.program-prompts' },
-  ] },
   { id: 'collect', label: 'Collect', items: [{ id: 'search', label: 'Search platforms', icon: 'ScanSearch', data: true, spot: 'nav.search' }, { id: 'automation', label: 'Scrapers', icon: 'Globe', data: true, spot: 'nav.scrapers' }, { id: 'imports', label: 'Import research', icon: 'FileUp', data: true, spot: 'nav.imports' }] },
   { id: 'create', label: 'Create', items: [{ id: 'create', label: 'Create content', icon: 'SquarePen', kind: 'studio', spot: 'nav.create' }, { id: 'templates', label: 'Brief starters', icon: 'FileStack', data: true, spot: 'nav.brief-starters' }] },
   { id: 'analyze', label: 'Data', items: [{ id: 'dashboard', label: 'Overview', icon: 'Gauge', general: true }, { id: 'sheets', label: 'Sheets', icon: 'Sheet' }, { id: 'datasets', label: 'Datasets', icon: 'Database', data: true, spot: 'nav.datasets' }, { id: 'dataset-reports', target: 'reports', label: 'Dataset reports', icon: 'FileChartColumn', data: true, spot: 'nav.dataset-reports' }, { id: 'compare', label: 'Compare snapshots', icon: 'GitCompareArrows', data: true, spot: 'nav.compare' }, { id: 'chat', label: 'Ask your datasets', icon: 'MessagesSquare', data: true, spot: 'nav.ask-datasets' }] },
@@ -285,8 +278,7 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
       return [item(stage, { kind: 'simple', stage: true, children, ...marks(stage.id) })];
     });
     if (stages.length) groups.push({ id: 'pipeline', label: 'Pipeline', collapsible: false, open: true, pipeline: true, items: stages });
-    const manages = hasStudio && can('saveResearchProgram') && !hidden.has('research');
-    const subgroups = WORKBENCH.filter((set) => set.id !== 'program' && (!set.manage || manages)).map((set) => ({ id: set.id, label: set.label, items: set.items.filter(toolAllowed).map((page) => item(page, {
+    const subgroups = WORKBENCH.map((set) => ({ id: set.id, label: set.label, items: set.items.filter(toolAllowed).map((page) => item(page, {
       kind: page.kind || 'app', target: page.target || page.id, ...(page.section ? { section: page.section } : {}), ...marks(page.id),
       ...(page.id === 'workflows' ? { ...(workflowsWaiting ? { badge: workflowsWaiting, badgeLabel: `${workflowsWaiting} waiting on you` } : {}), live: workflowRunning, liveLabel: 'a workflow is running' } : {}),
     })) })).filter((set) => set.items.length);

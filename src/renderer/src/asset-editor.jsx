@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ClipboardCopy, LoaderCircle, ShieldCheck, Sparkles } from 'lucide-react';
-import { copyText } from './role-screens.jsx';
+import { copyText, useUnclippedMenu } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { can as canCall, canRun as canRunCall, isChannelBase, useViewer, writeProps } from './viewer.js';
 import { CHECK_KINDS, checkBrand, checkSummary } from './brand-check.js';
@@ -138,6 +138,8 @@ export function AssetStatusMenu({ api, asset, align = 'start', onChanged, onNoti
   useEffect(() => { setPending(''); }, [asset?.reviewStatus, asset?.status]);
   useEffect(() => { if (open) menu.current?.querySelector('[aria-checked="true"]')?.focus(); }, [open]);
   useEffect(() => { if (asking) input.current?.focus(); }, [asking]);
+  // Inside a card or a table the status list would be cut off; it moves itself clear (role-screens.jsx).
+  const floating = useUnclippedMenu(open, button, menu, { align, onScrollAway: () => setOpen(false) });
   useEffect(() => {
     if (!open && !asking) return undefined;
     const away = (event) => { if (!menu.current?.contains(event.target) && !button.current?.contains(event.target)) { setOpen(false); setAsking(false); } };
@@ -172,7 +174,7 @@ export function AssetStatusMenu({ api, asset, align = 'start', onChanged, onNoti
   }
   return <span className="studio-status-wrap">
     <button ref={button} type="button" className={`studio-status status-${shown} is-menu`} aria-haspopup="menu" aria-expanded={open || asking} aria-label={`Status: ${statusLabel(shown)}. Change status of ${asset.title || 'this file'}`} {...writeProps(viewer, saving)} onClick={() => { setAsking(false); setOpen((value) => !value); }}>{saving ? <LoaderCircle className="spin" size={12} aria-hidden="true" /> : null}{chip}<ChevronDown size={12} aria-hidden="true" /></button>
-    {open && <span ref={menu} className={`studio-menu studio-status-menu align-${align}`} role="menu" aria-label="Status" onKeyDown={onMenuKey}>
+    {open && <span ref={menu} className={`studio-menu studio-status-menu align-${align}`} role="menu" aria-label="Status" style={floating || undefined} onKeyDown={onMenuKey}>
       {ASSET_STATUSES.map(([value, label]) => <button key={value} type="button" role="menuitemradio" aria-checked={shown === value} onClick={() => (value === 'published' ? (setOpen(false), setLink(asset.review?.link || asset.link || ''), setAsking(true)) : choose(value))}><span className={`studio-status-dot status-${value}`} aria-hidden="true" />{label}{shown === value && <Check size={14} aria-hidden="true" className="studio-status-check" />}</button>)}
     </span>}
     {asking && <form ref={menu} className={`studio-menu studio-status-form align-${align}`} aria-labelledby={`${id}-live`} onSubmit={(event) => { event.preventDefault(); choose('published', link.trim()); }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setAsking(false); button.current?.focus(); } }}>

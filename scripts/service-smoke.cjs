@@ -102,5 +102,5 @@ async function main() {
   console.log(JSON.stringify({ status:receipt.status,receiptPath }));
   app.exit(0);
 }
-const timer=setTimeout(()=>{ receipt.status='timeout';save();app.exit(1); },12*60*1000);
+setTimeout(()=>{ receipt.status='timeout';save();app.exit(1); },12*60*1000);
 main().catch(error=>{ receipt.status='failed';receipt.error=String(error.message||error).replace(/apify_api_[A-Za-z0-9]+/g,'[redacted]');save();console.error(receipt.error);app.exit(1); });

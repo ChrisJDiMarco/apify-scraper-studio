@@ -726,7 +726,7 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
         const turnsOn = (schedule === 'on' || schedule === 'daily' || schedule === 'weekly') && !(now.enabled && now.frequency !== 'manual');
         next.schedule = schedule === 'off' ? { ...now, enabled: false } : schedule === 'manual' ? { ...now, frequency: 'manual', enabled: false } : schedule === 'on' ? { ...now, enabled: true } : { ...now, frequency: schedule, enabled: true };
         // A schedule turned on authorizes paid runs with nobody watching: say what each may spend, and ask.
-        if (turnsOn && !(await confirm({ title: `Turn on scheduled runs for “${next.name}”?`, lines: [`It will run ${next.schedule.frequency === 'daily' ? 'every day' : 'every week'} by itself.`, `Each run can spend up to ${money(next.budgets?.collectionUsd)} on collection and ${money(next.budgets?.aiUsd)} on AI.`, 'Keep the app or server running. Missed times don’t pile up.'], confirmLabel: 'Turn on schedule' }))) return false;
+        if (turnsOn && !(await confirm({ title: `Turn on scheduled runs for “${next.name}”?`, lines: [`It will run ${{ daily: 'every day', weekly: 'every week', monthly: 'every month' }[next.schedule.frequency] || 'on its schedule'} by itself.`, `Each run can spend up to ${money(next.budgets?.collectionUsd)} on collection and ${money(next.budgets?.aiUsd)} on AI.`, 'Keep the app or server running. Missed times don’t pile up.'], confirmLabel: 'Turn on schedule' }))) return false;
         said.push(schedule === 'off' ? 'paused its schedule' : schedule === 'manual' ? 'set it to run only when started' : schedule === 'on' ? 'resumed its schedule' : `scheduled it ${schedule}`);
       }
       if (!said.length) throw new Error('Nothing to change: fill in at least one setting.');
@@ -791,8 +791,12 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
       if (target && !/^(default|the default|studio default|everything)$/i.test(target) && !task) throw new Error(`I couldn’t find an AI task called “${target}”.`);
       const { routing } = await api.previewAiRouting({});
       const draft = JSON.parse(JSON.stringify(routing));
-      if (task) draft.tasks = { ...(draft.tasks || {}), [task.id]: { ...(draft.tasks?.[task.id] || {}), model: model.id, ...(effort ? { effort } : {}) } };
-      else draft.defaults = { ...(draft.defaults || {}), text: { ...(draft.defaults?.text || {}), model: model.id } };
+      if (!task && effort) throw new Error('The studio’s default has no effort of its own. Name the task to set an effort for it.');
+      if (task) {
+        const kept = { ...(draft.tasks?.[task.id] || {}), model: model.id, ...(effort ? { effort } : {}) };
+        if (kept.effort && !list(model.efforts).includes(kept.effort)) delete kept.effort;
+        draft.tasks = { ...(draft.tasks || {}), [task.id]: kept };
+      } else draft.defaults = { ...(draft.defaults || {}), text: { ...(draft.defaults?.text || {}), model: model.id } };
       draft.preset = 'custom';
       await act(() => api.saveAiRouting({ routing: draft, baseUpdatedAt: routing.updatedAt || '' }));
       return `${task ? `“${task.label}”` : 'The studio’s default'} now uses ${model.label}${effort ? ` at ${effort} effort` : ''}. Later runs cost what that model costs.`;

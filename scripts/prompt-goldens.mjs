@@ -23,7 +23,6 @@ const joinParts = (parts) => parts.map(([name, text]) => `===== ${name} =====\n$
 
 export function goldenCases() {
   const input = JSON.parse(fs.readFileSync(path.join(dir, 'inputs.json'), 'utf8'));
-  const research = load('src/shared/research-program.js');
   const prompts = load('src/shared/research-prompts.js');
   const reports = load('src/shared/research-reports.js');
   const content = load('src/shared/content-studio.js');

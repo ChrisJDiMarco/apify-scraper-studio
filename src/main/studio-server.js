@@ -72,6 +72,9 @@ const base64url = (buffer) => Buffer.from(buffer).toString('base64').replace(/\+
 const maskEmail = (email) => { const [local = '', domain = ''] = String(email || '').split('@'); return local && domain ? `${local[0]}•••@${domain}` : ''; };
 let version = ''; try { version = require('../../package.json').version || ''; } catch (_) { version = ''; }
 // The role this request acts as: View as only ever lowers a real admin's role, and only for this session.
+// Streams a file into a response. pipeline() closes the file when the client goes away and reports a read error to its
+// callback; the response is destroyed rather than left half-written.
+function sendFile(file, res) { require('node:stream').pipeline(fs.createReadStream(file), res, (error) => { if (error && !res.destroyed) res.destroy(); }); }
 function effective(identity, session) {
   const seen = effectiveRole(identity?.role ?? null, identity?.channelId ?? null, session?.viewAs);
   return { ...seen, preview: identity?.role === 'admin' && seen.role !== 'admin' };
@@ -334,7 +337,7 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     const stat = fs.statSync(entry.path); const ascii = entry.fileName.replace(/[^\x20-\x7e]+/g, '_').replace(/["\\]/g, '_');
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(entry.fileName).toLowerCase()] || 'application/octet-stream', 'Content-Length': stat.size, 'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(entry.fileName)}`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     if (head) return res.end();
-    fs.createReadStream(entry.path).pipe(res);
+    sendFile(entry.path, res);
   }
   // Each person sees their own projection of the state. Every stream that flushes the same broadcast shares one
   // rendering per view (identity, effective role and channel, preview), so a broadcast is projected and serialised
@@ -455,7 +458,7 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     if (!target.startsWith(root + path.sep) || !fs.existsSync(target) || !fs.statSync(target).isFile()) return send(res, 404, { error: 'Not found.' });
     if (!fs.realpathSync(target).startsWith(fs.realpathSync(root) + path.sep)) return send(res, 404, { error: 'Not found.' });
     const headers = { 'Content-Type': TYPES[path.extname(target).toLowerCase()] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': CSP, 'Cache-Control': path.basename(target) === 'index.html' ? 'no-cache' : 'public, max-age=31536000, immutable' };
-    const plain = () => { res.writeHead(200, headers); if (req.method === 'HEAD') return res.end(); return fs.createReadStream(target).pipe(res); };
+    const plain = () => { res.writeHead(200, headers); if (req.method === 'HEAD') return res.end(); return sendFile(target, res); };
     // The app's script and stylesheet are text: gzip takes the first load from about 3.4 MB to under 1 MB. Each file is
     // compressed once, off the event loop, and kept until the file changes (a deploy replaces it).
     if (!ZIP_TYPES.has(path.extname(target).toLowerCase())) return plain();

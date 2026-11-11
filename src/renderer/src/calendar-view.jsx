@@ -9,7 +9,6 @@ import './calendar.css';
 // using this trend"). Calendar (admins and editors, mode 'team') is weeks × channels for the team; My plan (channel
 // owners, mode 'channel') is the same for one channel, where trends in use without a date can get one. Download .ics
 // gives a local file any calendar app opens, and Copy week as a table pastes into Sheets or Docs.
-const DAY = 86400000;
 const WEEKS = 4;
 const list = (value) => (Array.isArray(value) ? value : []);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -85,11 +84,11 @@ export function researchByWeek(programs, weeks) {
       if (next && next > end) continue; // it hasn't started running by this week
       const time = schedule.time || '';
       let when = '';
-      if (next && next >= start && next <= end) when = [weekdayDate(next), time].filter(Boolean).join(' · ');
+      if (next && next >= start && next <= end) when = [schedule.frequency === 'daily' ? `Every day from ${weekdayDate(next)}` : weekdayDate(next), time].filter(Boolean).join(' · ');
       else if (!next || next < start) {
         if (schedule.frequency === 'daily') when = ['Every day', time].filter(Boolean).join(' · ');
         else if (schedule.frequency === 'weekly') when = [weekdayDate(dayKey(addDays(week, ((Number(schedule.weekday) || 0) + 6) % 7))), time].filter(Boolean).join(' · ');
-        else if (schedule.frequency === 'monthly') { const day = Array.from({ length: 7 }, (_, index) => addDays(week, index)).find((date) => date.getDate() === (Number(schedule.dayOfMonth) || 1)); if (day) when = [weekdayDate(dayKey(day)), time].filter(Boolean).join(' · '); }
+        else if (schedule.frequency === 'monthly') { const wanted = Number(schedule.dayOfMonth) || 1; const day = Array.from({ length: 7 }, (_, index) => addDays(week, index)).find((date) => date.getDate() === Math.min(wanted, new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate())); if (day) when = [weekdayDate(dayKey(day)), time].filter(Boolean).join(' · '); }
       }
       if (when) rows.push({ key: `${program.id}:${start}`, name: program.name || 'Research program', when });
     }

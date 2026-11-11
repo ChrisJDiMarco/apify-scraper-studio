@@ -52,6 +52,7 @@ import { requestNoteFocus } from './report-editor/events.js';
 import { LOCAL_ADMIN_FALLBACK, PREVIEW_TITLE, ViewerContext, adminNames, can as canCall, canRun as canRunCall, roleLabel } from './viewer.js';
 import { Button, StatusBanner, number, withViewTransition } from './ui.jsx';
 import { isMac } from './platform.js';
+import { shareState } from './state-share.js';
 import './studio-frame.css';
 
 // What disconnecting each credential stops, so the confirmation says what is at stake.
@@ -379,12 +380,13 @@ function StudioApp({ api }) {
   async function refresh() {
     const [nextMeta, nextState] = await Promise.all([api.appMeta(), api.state()]);
     setMeta(nextMeta);
-    setState({ ...EMPTY_STATE, ...nextState });
+    setState((previous) => shareState(previous, { ...EMPTY_STATE, ...nextState }));
   }
 
   useEffect(() => {
     refresh().catch((err) => setError(err.message || String(err))).finally(() => setLoading(false));
-    return api.onStateChanged((next) => setState({ ...EMPTY_STATE, ...next }));
+    // Unchanged parts keep their identity (state-share.js), so a progress tick re-renders only what reads the part that moved.
+    return api.onStateChanged((next) => setState((previous) => shareState(previous, { ...EMPTY_STATE, ...next })));
   }, []);
 
   // One keyboard handler for every layout (keysRef is filled in below, once the nav model is known): ⌘1–9 open pages in
@@ -658,7 +660,6 @@ function StudioApp({ api }) {
     if (row.kind === 'setup') { const sections = list(row.children); openNavItem(sections.find((section) => section.id === lastSetup.current) || sections[0]); return; }
     if (row.kind === 'admin') { openAdminPage(row.target); return; }
     if (row.kind === 'settings') { openSettings(); return; }
-    if (row.kind === 'program') { openProgramSection(row.section); return; }
     if (mode === 'simple') { openClassicPage(row.target); return; }
     if (row.kind === 'studio') navigateStudio(row.target);
     else navigate(row.target);
@@ -828,7 +829,8 @@ function StudioApp({ api }) {
       const waitingCard = can('decideResearchTheme') ? cards.find((row) => row.canDecide && row.stage === 'potential') : null;
       const card = exact || waitingCard || cards.find((row) => list(row.reportAssets).length) || cards[0] || null;
       // An address that names a tab (#/trend/<id>/overview) is the trend's page (trend-page.jsx) at that tab.
-      if (card && target.tab && simpleAllowed('trends') && guard.confirmLeave()) {
+      if (card && target.tab && simpleAllowed('trends')) {
+        if (!guard.confirmLeave()) return;
         setShellRequest({ key: requestKey(), kind: 'trend', themeId: id, runId: card.runId, tab: target.tab });
         withViewTransition(() => { setPeek(false); setSimpleTab('trends'); });
         return;
@@ -1029,7 +1031,7 @@ function StudioApp({ api }) {
     if (ADMIN_PAGES[page]) { if (adminPages.includes(page)) openAdminPage(page); else setNotice(pageOffNotice(page)); return; }
     if (page === 'trends') setShellRequest({ key: Date.now(), kind: 'trends', program: route.program || '' });
     // The page already open (Back from its report or folder, or its address typed again): back to the page itself.
-    if (mode === 'simple' && !peek && page === simpleTabRef.current) { setSimpleReopen((value) => value + 1); return; }
+    if (mode === 'simple' && !peek && page === simpleTabRef.current) { if (guard.confirmLeave()) setSimpleReopen((value) => value + 1); return; }
     if (simpleAllowed(page) || page === 'knowledge') { openTarget({ kind: 'page', page }); return; }
     setNotice(pageOffNotice(page === 'programs' ? 'research' : page));
   }
@@ -1165,17 +1167,18 @@ function StudioApp({ api }) {
   }, [mode]);
   // The Library, Research programs, Create content, Prompts, People and Sheets act on their request when they open; once
   // the person leaves the page, it is spent, so coming back later starts where the page normally does.
-  const wasOn = useRef({ library: false, research: false, create: false, run: false, prompts: false, people: false, sheets: false });
+  const wasOn = useRef({ library: false, research: false, create: false, run: false, prompts: false, people: false, sheets: false, workflows: false });
   useEffect(() => {
     const studioOn = (view) => mode === 'classic' && active === 'content-studio' && studioView === view;
     const now = { library: studioOn('library'), research: studioOn('research'), create: studioOn('create'), run: studioOn('research') || studioOn('create'), prompts: mode === 'simple' ? simpleTab === 'prompts' : mode === 'classic' && active === 'prompts',
-      people: mode === 'simple' ? simpleTab === 'people' : mode === 'classic' && active === 'people', sheets: mode === 'classic' && active === 'sheets' };
+      people: mode === 'simple' ? simpleTab === 'people' : mode === 'classic' && active === 'people', sheets: mode === 'classic' && active === 'sheets', workflows: mode === 'classic' && active === 'workflows' };
     if (wasOn.current.library && !now.library) setLibraryRequest(null);
     if (wasOn.current.research && !now.research) setProgramRequest(null);
     if (wasOn.current.create && !now.create) setCreateRequest(null);
     if (wasOn.current.run && !now.run) setRunRequest(null);
     if (wasOn.current.prompts && !now.prompts) setPromptRequest(null);
     if (wasOn.current.people && !now.people) setPeopleRequest(null);
+    if (wasOn.current.workflows && !now.workflows) setWorkflowRequest(null);
     // Sheets keeps the request's key, so the next workbook asked for still counts as new.
     if (wasOn.current.sheets && !now.sheets) setSheetRequest((current) => (current.id ? { id: '', key: current.key } : current));
     wasOn.current = now;
