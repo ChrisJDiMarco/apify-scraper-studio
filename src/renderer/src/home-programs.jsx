@@ -1,9 +1,9 @@
 import React, { useRef, useState } from 'react';
-import { ArrowRight, CalendarClock, Pencil, Plus, Radar } from 'lucide-react';
+import { ArrowRight, CalendarClock, CircleStop, LoaderCircle, Pencil, Plus, Radar } from 'lucide-react';
 import { MoreMenu } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { can as canCall, hasCapability, useViewer, writeProps } from './viewer.js';
-import { number } from './ui.jsx';
+import { friendlyMessage, number } from './ui.jsx';
 import { CODEX_UNCAPPED } from './studio-actions.js';
 import { programSummaries, scheduledDate } from './program-summary.js';
 import { ProgramDrawer } from './program-drawer.jsx';
@@ -13,7 +13,9 @@ import './home-programs.css';
 // program, no "All programs" link): each program's schedule, next and last run, sources and budgets, with Run now (the
 // layout's own confirmation shows the estimate first), Edit (Workbench → Edit research program when `onEditProgram` is
 // given, else the quick-edit drawer with every setting) and Pause or Resume schedule (Resume confirms the per-run caps).
-// Add program opens the drawer empty. Money shows only with See costs.
+// Add program opens the drawer empty. Money shows only with See costs. While a program's run is going, its row wears a
+// moving border, says what the run is doing, and offers Cancel in place of Run now (behind the studio's confirmation).
+// A run waiting for someone's OK is not "running": it keeps its Needs your OK chip and Run now.
 const list = (value) => (Array.isArray(value) ? value : []);
 const money = (value) => (Number.isFinite(Number(value)) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value)) : '—');
 const readable = (value) => String(value || '').replaceAll('-', ' ').replace(/^./, (letter) => letter.toUpperCase());
@@ -60,6 +62,16 @@ export function ProgramsPanel({ state = {}, viewer: viewerIn, api = {}, busy = f
     finally { setWorking(''); }
   }
 
+  async function cancelRun(row) {
+    const ok = await confirm({ title: `Cancel the run of “${row.name}”?`, lines: ['What it has collected so far is kept. Nothing more is spent after it stops.'], confirmLabel: 'Cancel run', cancelLabel: 'Keep it running', tone: 'danger' });
+    if (!ok) return;
+    setWorking(row.id); setProblem('');
+    try { await api.cancelStudioRun({ runId: row.activeRun.id }); notice(`Cancelled the run of “${row.name}”.`); }
+    catch (error) { setProblem(friendlyMessage(error?.message || error) || 'The run couldn’t be cancelled. Try again.'); }
+    finally { setWorking(''); }
+  }
+
+  const canCancel = can('cancelStudioRun') && typeof api.cancelStudioRun === 'function';
   const shown = rows.slice(0, limit);
   // Edit: the full editor in Workbench → Edit research program when the shell offers it, else the quick-edit drawer.
   const edit = (id) => (onEditProgram ? onEditProgram(id) : setOpen(id));
@@ -74,14 +86,17 @@ export function ProgramsPanel({ state = {}, viewer: viewerIn, api = {}, busy = f
       const codex = codexStudio || row.lastRun?.route === 'codex';
       const runTitle = needsSetup ? 'Connect Apify first' : !row.sources.total ? 'Add sources first' : undefined;
       const { byPlatform } = row.sources;
-      return <li key={row.id} className="hp-row">
+      const running = Boolean(row.activeRun) && row.activeRun.status !== 'awaiting-review';
+      const doing = running ? friendlyMessage(row.activeRun.message) : '';
+      return <li key={row.id} className={`hp-row${running ? ' is-running' : ''}`}>
         <div className="hp-copy">
           <div className="hp-line">
             <button type="button" className="hp-name" onClick={() => edit(row.id)}>{row.name}</button>
             {chip && (chip.tone === 'review' && onOpenTarget
               ? <button type="button" className={`hp-chip tone-${chip.tone}`} onClick={() => onOpenTarget({ kind: 'run', id: row.activeRun.id, page: 'research' })}>{chip.label}</button>
-              : <span className={`hp-chip tone-${chip.tone}`}>{chip.label}</span>)}
+              : <span className={`hp-chip tone-${chip.tone}`} role={running ? 'status' : undefined}>{running && <LoaderCircle className="spin" size={12} aria-hidden="true" />}{chip.label}</span>)}
           </div>
+          {doing && <p className="hp-meta hp-doing">{doing}</p>}
           <p className="hp-meta hp-when"><CalendarClock size={13} aria-hidden="true" /><span>{row.schedule.recurring ? `${row.schedule.summary} · ${row.schedule.enabled ? 'Schedule on' : 'Paused'}` : 'On demand'}</span></p>
           <p className="hp-meta">{[row.schedule.next ? `Next: ${row.schedule.next}` : '', row.lastRun ? `Last: ${day(row.lastRun.at)} · ${readable(row.lastRun.status)}` : 'No runs yet'].filter(Boolean).join(' · ')}</p>
           <ul className="hp-chips" aria-label={`Sources for ${row.name}`}>
@@ -96,7 +111,8 @@ export function ProgramsPanel({ state = {}, viewer: viewerIn, api = {}, busy = f
           {!row.schedule.problem && row.schedule.skipped && <p className="hp-meta">{row.schedule.skipped}</p>}
         </div>
         <div className="hp-actions">
-          {canRun && <button type="button" className="wb-primary" aria-label={`Run “${row.name}” now`} title={runTitle} {...writeProps(viewer, busy || needsSetup || !row.sources.total || Boolean(working))} onClick={() => onStartResearch(row.program)}><Radar size={14} aria-hidden="true" />Run now</button>}
+          {running && canCancel ? <button type="button" className="wb-quiet hp-cancel" aria-label={`Cancel the run of “${row.name}”`} {...writeProps(viewer, Boolean(working))} onClick={() => cancelRun(row)}><CircleStop size={14} aria-hidden="true" />Cancel</button>
+            : canRun && <button type="button" className="wb-primary" aria-label={`Run “${row.name}” now`} title={runTitle} {...writeProps(viewer, busy || needsSetup || !row.sources.total || Boolean(working) || running)} onClick={() => onStartResearch(row.program)}><Radar size={14} aria-hidden="true" />Run now</button>}
           <button type="button" className="wb-quiet" data-spot="programs.edit" data-spot-item={row.name} aria-label={`Edit “${row.name}”`} onClick={() => edit(row.id)}><Pencil size={14} aria-hidden="true" />Edit</button>
           <MoreMenu label={`More for ${row.name}`} disabled={Boolean(working)} items={[
             row.schedule.recurring && !viewer.preview && { label: row.schedule.enabled ? 'Pause schedule' : 'Resume schedule', onSelect: () => saveSchedule(row, !row.schedule.enabled), disabled: busy },

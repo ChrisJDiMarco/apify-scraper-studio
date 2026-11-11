@@ -45,7 +45,7 @@ export function programSummaries({ programs = [], researchRuns = [] } = {}) {
       sources: sourceCounts(program),
       schedule: { recurring, enabled: recurring && Boolean(schedule.enabled), summary: scheduleSummary(schedule), nextRunAt: recurring && schedule.enabled ? schedule.nextRunAt || '' : '', next: recurring && schedule.enabled ? scheduledDate(schedule.nextRunAt, schedule.timeZone) : '', problem, skipped: String(schedule.skippedReason || '') },
       lastRun: last ? { id: last.id, status: last.status, at: last.createdAt || '', costUsd: Number.isFinite(Number(last.costUsd)) ? Number(last.costUsd) : null, route: last.ai?.route || '' } : null,
-      activeRun: active ? { id: active.id, status: active.status } : null,
+      activeRun: active ? { id: active.id, status: active.status, ...(active.message ? { message: String(active.message) } : {}) } : null,
       budgets: { collectionUsd: Number(program.budgets?.collectionUsd) || 0, aiUsd: Number(program.budgets?.aiUsd) || 0 },
       attention: Boolean(problem || last?.status === 'failed'),
       updatedAt: program.updatedAt || program.createdAt || '',

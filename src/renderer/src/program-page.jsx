@@ -10,7 +10,7 @@
 // runs      this program's research runs, newest first
 // onOpenRun(runId), onStartResearch(program), onBack()
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, Radar, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CircleStop, LoaderCircle, Radar, TriangleAlert } from 'lucide-react';
 import { useConfirm } from './confirm-dialog.jsx';
 import { useUnsavedGuard } from './asset-editor.jsx';
 import { can as canCall, formatTime, hasCapability, writeProps } from './viewer.js';
@@ -130,6 +130,14 @@ export function ProgramPage({ program, missing = false, workspace, state = {}, a
     seeCosts ? `Up to ${money(draft.budgets?.collectionUsd)} collection + ${money(draft.budgets?.aiUsd)} AI per run` : ''].filter(Boolean).join(' · ');
   const canRunNow = Boolean(program?.id) && typeof onStartResearch === 'function' && can('startResearchRun');
   const rows = runRows(runs);
+  // A run that is going (not one waiting for someone's OK): the header says so and offers Cancel in place of Run now.
+  const live = (Array.isArray(runs) ? runs : []).find((run) => ['queued', 'running'].includes(run.status)) || null;
+  const canCancel = can('cancelStudioRun') && typeof api.cancelStudioRun === 'function';
+  async function cancelRun() {
+    if (!(await confirm({ title: `Cancel the run of “${program?.name || 'this program'}”?`, lines: ['What it has collected so far is kept. Nothing more is spent after it stops.'], confirmLabel: 'Cancel run', cancelLabel: 'Keep it running', tone: 'danger' }))) return;
+    try { await api.cancelStudioRun({ runId: live.id }); onNotice?.('Cancelled the run.'); }
+    catch (failure) { setError({ message: friendlyMessage(failure?.message || failure) || 'The run couldn’t be cancelled. Try again.', group: '' }); }
+  }
   const status = dirty ? 'Unsaved changes' : note;
 
   return <div className="simple-page program-page" data-spot="program.page">
@@ -138,7 +146,9 @@ export function ProgramPage({ program, missing = false, workspace, state = {}, a
       <div className="trend-page-title">
         <div><h1>{draft.name || program?.name || 'Research program'}</h1><p className="trend-page-detail">{meta}</p></div>
         <div className="simple-head-actions trend-page-actions">
-          {canRunNow && <button type="button" className="simple-primary" data-spot="program.run" title={dirty ? 'Save your changes first' : undefined} {...writeProps(viewer, busy || dirty || saving)} onClick={() => onStartResearch(program)}><Radar size={15} aria-hidden="true" />Run now</button>}
+          {live && <span className="stage-chip" data-tone="working" role="status"><LoaderCircle className="spin" size={12} aria-hidden="true" />Running</span>}
+          {live && canCancel ? <button type="button" className="simple-quiet" data-spot="program.run" {...writeProps(viewer, false)} onClick={cancelRun}><CircleStop size={15} aria-hidden="true" />Cancel run</button>
+            : canRunNow && <button type="button" className="simple-primary" data-spot="program.run" title={dirty ? 'Save your changes first' : undefined} {...writeProps(viewer, busy || dirty || saving || Boolean(live))} onClick={() => onStartResearch(program)}><Radar size={15} aria-hidden="true" />Run now</button>}
         </div>
       </div>
       <div className="simple-segment trend-page-tabs" role="tablist" aria-label="This program">

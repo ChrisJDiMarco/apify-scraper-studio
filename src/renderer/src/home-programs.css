@@ -10,7 +10,17 @@
 .wb-page button.hp-name { min-height: 0; padding: 0; box-shadow: none; font: inherit; font-size: 14.5px; font-weight: 650; line-height: 1.35; text-align: left; color: var(--s-ink, #181e15); background: none; border: 0; cursor: pointer; overflow-wrap: anywhere; }
 .wb-page button.hp-name:hover { text-decoration: underline; text-underline-offset: 2px; }
 .hp-chip { display: inline-flex; align-items: center; min-height: 22px; padding: 1px 8px; font: inherit; font-size: 11.5px; font-weight: 650; border: 0; border-radius: 999px; white-space: nowrap; }
-.hp-chip.tone-active { color: var(--s-ink, #181e15); background: var(--s-bg, #f4f6f5); }
+.hp-chip.tone-active { gap: 5px; color: #fff; background: var(--s-soft-ink, #5a2fa0); }
+/* A program whose run is going: a thin border whose colors travel around the row. Still for reduced motion. */
+@property --hp-turn { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@keyframes hp-turn { to { --hp-turn: 360deg; } }
+.hp-row.is-running, .hp-row.is-running:first-child { margin: 6px -12px; padding: 12px; border: 2px solid transparent; border-radius: 16px;
+  background: linear-gradient(var(--s-card, #fff), var(--s-card, #fff)) padding-box, conic-gradient(from var(--hp-turn), #c190ff, #5fd3c4, #ffc857, #ff7a9c, #6ea8ff, #c190ff) border-box;
+  animation: hp-turn 3.5s linear infinite; }
+.hp-row.is-running + .hp-row { border-top-color: transparent; }
+@media (prefers-reduced-motion: reduce) { .hp-row.is-running { animation: none; } }
+.hp-doing { font-weight: 600; color: var(--s-ink, #181e15); }
+.wb-page .hp-actions .hp-cancel { color: var(--s-danger, #8a2f1c); border-color: currentColor; }
 .hp-chip.tone-review { color: var(--s-soft-ink, #5a2fa0); background: var(--s-soft, #f1eaff); }
 .wb-page button.hp-chip { min-height: 22px; cursor: pointer; box-shadow: none; }
 .hp-chip.tone-problem { color: var(--s-danger, #8a2f1c); background: var(--s-danger-soft, #fbe7df); }

@@ -93,4 +93,28 @@ describe('Home → Research programs', () => {
     expect(screen.getByRole('button', { name: 'Run “AI search pulse” now' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Add program' })).toBeDisabled();
   });
+  it('shows a program that is running: a marked row, what the run is doing, and Cancel in place of Run now', async () => {
+    const live = state([pulse], { researchRuns: [{ id: 'live', programId: 'p1', workspaceId: 'w', status: 'running', message: 'Collecting posts from X', createdAt: '2026-10-17T09:00:00Z' }] });
+    const cancelStudioRun = vi.fn(async () => ({})); const onNotice = vi.fn(); const onStartResearch = vi.fn();
+    renderPanel({ state: live, api: { saveResearchProgram: vi.fn(), cancelStudioRun }, onNotice, onStartResearch });
+    const item = row('Edit “AI search pulse”');
+    expect(item).toHaveClass('is-running'); expect(within(item).getByRole('status')).toHaveTextContent('Running'); expect(within(item).getByText('Collecting posts from X')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run “AI search pulse” now' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel the run of “AI search pulse”' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep it running' }));
+    expect(cancelStudioRun).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel the run of “AI search pulse”' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel run' }));
+    await waitFor(() => expect(cancelStudioRun).toHaveBeenCalledWith({ runId: 'live' }));
+    await waitFor(() => expect(onNotice).toHaveBeenCalledWith('Cancelled the run of “AI search pulse”.'));
+  });
+  it('keeps Run now, disabled, for someone who cannot cancel, and leaves a run waiting for an OK alone', () => {
+    const live = state([pulse], { researchRuns: [{ id: 'live', programId: 'p1', workspaceId: 'w', status: 'running', createdAt: '2026-10-17T09:00:00Z' }] });
+    const first = renderPanel({ state: live });
+    expect(screen.getByRole('button', { name: 'Run “AI search pulse” now' })).toBeDisabled();
+    first.unmount();
+    const waiting = state([pulse], { researchRuns: [{ id: 'live', programId: 'p1', workspaceId: 'w', status: 'awaiting-review', createdAt: '2026-10-17T09:00:00Z' }] });
+    renderPanel({ state: waiting, api: { saveResearchProgram: vi.fn(), cancelStudioRun: vi.fn() } });
+    expect(row('Edit “AI search pulse”')).not.toHaveClass('is-running'); expect(screen.getByRole('button', { name: 'Run “AI search pulse” now' })).toBeEnabled();
+  });
 });
