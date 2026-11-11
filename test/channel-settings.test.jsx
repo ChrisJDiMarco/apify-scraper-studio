@@ -59,11 +59,32 @@ describe('a channel’s settings', () => {
   it('lets an admin or editor pick any channel', async () => {
     const calls = api();
     show(<ChannelSettings api={calls} channels={[{ id: 'blog', name: 'Semrush Blog' }, { id: 'social', name: 'Semrush Social Team' }]} />);
+    // Channels opens on every channel in one table: how much of each one's knowledge is filled in, at a glance.
     expect(await screen.findByRole('heading', { level: 1, name: 'Channels' })).toBeInTheDocument();
-    await waitFor(() => expect(calls.readChannelSettings).toHaveBeenCalledWith({ channelId: 'blog' }));
+    const blogRow = (await screen.findByRole('rowheader', { name: 'Semrush Blog' })).closest('tr');
+    await waitFor(() => expect(blogRow).toHaveTextContent(`1 of ${FIELDS.fields.length} filled in`));
+    expect(blogRow).toHaveTextContent('2 prompts');
+    const socialRow = screen.getByRole('rowheader', { name: 'Semrush Social Team' }).closest('tr');
+    await waitFor(() => expect(socialRow).toHaveTextContent('Empty'));
+    expect(screen.getByRole('status')).toHaveTextContent('1 of 2 has no channel knowledge yet');
+    expect(screen.queryByRole('columnheader', { name: 'Owner' })).not.toBeInTheDocument(); // this role can't read People
+    // A row opens that channel; its picker moves to another, and Back returns to the table.
+    fireEvent.click(within(blogRow).getByRole('button', { name: 'Semrush Blog' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Semrush Blog' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'Channel' }), { target: { value: 'social' } });
     await waitFor(() => expect(calls.readChannelSettings).toHaveBeenLastCalledWith({ channelId: 'social' }));
     fireEvent.click(await screen.findByRole('tab', { name: 'Asset instructions' }));
     expect(await screen.findByRole('region', { name: 'Social posts' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'All channels' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Channels' })).toBeInTheDocument();
+  });
+
+  it('names each channel’s owner for a role that can read People, and says which have none', async () => {
+    const calls = { ...api(), getTeam: vi.fn(async () => ({ members: [{ id: 'm1', name: 'Alex', base: 'channel', channelId: 'blog' }, { id: 'm2', name: 'Gone', base: 'channel', channelId: 'social', disabled: true }, { id: 'm3', name: 'Riley', base: 'admin' }] })) };
+    show(<ChannelSettings api={calls} channels={[{ id: 'blog', name: 'Semrush Blog' }, { id: 'social', name: 'Semrush Social Team' }]} />);
+    const blogRow = (await screen.findByRole('rowheader', { name: 'Semrush Blog' })).closest('tr');
+    await waitFor(() => expect(blogRow).toHaveTextContent('Alex'));
+    expect(screen.getByRole('rowheader', { name: 'Semrush Social Team' }).closest('tr')).toHaveTextContent('No owner');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 has no owner'));
   });
 });

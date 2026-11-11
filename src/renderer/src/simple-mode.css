@@ -652,3 +652,16 @@
 .program-run-open { text-align: right; white-space: nowrap; }
 .pp-fields .cs-field > label, .pp-fields .cs-check strong { font-size: 13px; }
 .pp-fields .cs-field small, .pp-fields .cs-check small { font-size: 12.5px; line-height: 1.45; }
+
+/* Studio setup: one section menu above Brand knowledge, Channels, Prompts, People, Analytics and Settings. */
+.setup-frame { width: 100%; display: grid; gap: 22px; min-width: 0; }
+.setup-nav { width: 100%; max-width: 1080px; margin: 0 auto; display: flex; align-items: center; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--s-line); min-width: 0; }
+.setup-nav-title { flex: none; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--s-muted); }
+.setup-nav-items { display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.simple-shell .setup-nav-items button { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 13px; font-size: 13.5px; font-weight: 600; color: var(--s-muted); background: none; border: 0; border-radius: 999px; white-space: nowrap; cursor: pointer; }
+.simple-shell .setup-nav-items button:hover { color: var(--s-ink); background: var(--s-card); }
+.simple-shell .setup-nav-items button[aria-current="page"] { color: var(--s-ink); background: var(--s-soft); }
+.setup-nav-warn { width: 7px; height: 7px; border-radius: 50%; background: var(--s-warn, #c98a1a); }
+@media (max-width: 700px) { .setup-nav { flex-direction: column; align-items: flex-start; gap: 8px; } .setup-nav-items { max-width: 100%; } }
+.channel-table-note { margin: -14px 0 0; font-size: 14.5px; color: var(--s-muted); }
+.channel-table-none { color: #8f2a1c; font-weight: 600; }

@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useState } from 'react';
-import { History, Save } from 'lucide-react';
+import { ArrowLeft, ArrowRight, History, Save } from 'lucide-react';
 import { formatDay, useViewer, writeProps } from './viewer.js';
 import './channel-settings.css';
 
@@ -8,11 +8,13 @@ import './channel-settings.css';
 // channel owner sees their own channel (Studio › My channel: `channelId` fixed); admins and editors pick any channel
 // (Studio › Channels). Saving goes through the server, which pins a channel owner to their own channel and keeps a
 // prompt an admin locked read-only. Nothing here costs anything.
+// Studio › Channels opens on a table of every channel (who owns it, how much of its knowledge is filled in, when it was
+// last saved), so an empty or ownerless channel is visible at a glance; a row opens that channel.
 const list = (value) => (Array.isArray(value) ? value : []);
 export function ChannelSettings({ api, channels = [], channelId: fixed = '', onNotice }) {
   const viewer = useViewer();
   const pickId = useId();
-  const [channelId, setChannelId] = useState(fixed || list(channels)[0]?.id || '');
+  const [channelId, setChannelId] = useState(fixed || '');
   const [data, setData] = useState(null);
   const [problem, setProblem] = useState('');
   const [tab, setTab] = useState('knowledge');
@@ -24,8 +26,10 @@ export function ChannelSettings({ api, channels = [], channelId: fixed = '', onN
     return () => { live = false; };
   }, [channelId, reload]); // eslint-disable-line react-hooks/exhaustive-deps
   const name = data?.channelName || list(channels).find((row) => row.id === channelId)?.name || 'this channel';
+  if (!fixed && !channelId) return <ChannelTable api={api} channels={channels} onOpen={setChannelId} />;
   return <div className="simple-page channel-settings" data-spot="channel.settings">
-    <div className="simple-page-head"><div><h1>{fixed ? 'My channel' : 'Channels'}</h1><p>{fixed ? `What ${name}’s assets should know about the channel, and the instructions that write them.` : 'Each channel’s knowledge and the instructions that write its assets. Channel owners edit their own.'}</p></div>
+    {!fixed && <button type="button" className="simple-back" onClick={() => setChannelId('')}><ArrowLeft size={15} aria-hidden="true" />All channels</button>}
+    <div className="simple-page-head"><div><h1>{fixed ? 'My channel' : name === 'this channel' ? 'Channel' : name}</h1><p>{fixed ? `What ${name}’s assets should know about the channel, and the instructions that write them.` : 'This channel’s knowledge and the instructions that write its assets. Its owner can edit them too.'}</p></div>
       {!fixed && list(channels).length > 0 && <div className="simple-head-actions"><label className="cs-program-pick" htmlFor={pickId}><span className="sr-only">Channel</span><select id={pickId} className="simple-program-pick" value={channelId} onChange={(event) => setChannelId(event.target.value)}>{channels.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label></div>}</div>
     <div className="simple-segment" role="tablist" aria-label="Channel settings">{[['knowledge', 'Channel knowledge'], ['instructions', 'Asset instructions']].map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div>
     {problem && <p className="studio-error" role="alert">{problem}</p>}
@@ -90,4 +94,47 @@ function InstructionCard({ api, channelId, detail, viewer, onNotice, onSaved }) 
         {!locked && <button type="button" className="simple-link" {...writeProps(viewer, saving)} onClick={() => restore(row.version)}>Restore</button>}</li>)}</ul>
     </details>}
   </section>;
+}
+
+// Every channel in one table. Each channel's settings are read once (free), and the owners come from People when this
+// role can read it; without it the Owner column is left out.
+export function knowledgeFilled(data) {
+  const fields = list(data?.fields);
+  return { filled: fields.filter((field) => String(data?.knowledge?.[field.id] || '').trim()).length, total: fields.length };
+}
+function ChannelTable({ api, channels = [], onOpen }) {
+  const [rows, setRows] = useState({}); // channelId → settings, or { problem }
+  const [owners, setOwners] = useState(null); // channelId → [name], null when People can't be read
+  const ids = list(channels).map((row) => row.id).join('|');
+  useEffect(() => {
+    if (typeof api?.readChannelSettings !== 'function') return undefined;
+    let live = true; setRows({});
+    for (const channel of list(channels)) Promise.resolve().then(() => api.readChannelSettings({ channelId: channel.id })).then((result) => { if (live) setRows((current) => ({ ...current, [channel.id]: result || {} })); }, (failure) => { if (live) setRows((current) => ({ ...current, [channel.id]: { problem: failure?.message || 'Couldn’t be loaded' } })); });
+    return () => { live = false; };
+  }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (typeof api?.getTeam !== 'function') return undefined;
+    let live = true;
+    Promise.resolve().then(() => api.getTeam()).then((team) => { if (!live) return; const map = {}; for (const member of list(team?.members)) if (!member.disabled && member.base === 'channel' && member.channelId) (map[member.channelId] ||= []).push(member.name); setOwners(map); }, () => {});
+    return () => { live = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const loaded = list(channels).filter((channel) => rows[channel.id] && !rows[channel.id].problem);
+  const empty = loaded.filter((channel) => knowledgeFilled(rows[channel.id]).filled === 0).length;
+  const unowned = owners ? list(channels).filter((channel) => !list(owners[channel.id]).length).length : 0;
+  const summary = [loaded.length === list(channels).length && empty ? `${empty} of ${list(channels).length} ${empty === 1 ? 'has' : 'have'} no channel knowledge yet` : '', unowned ? `${unowned} ${unowned === 1 ? 'has' : 'have'} no owner` : ''].filter(Boolean).join(', and ');
+  return <div className="simple-page channel-settings" data-spot="channel.settings">
+    <div className="simple-page-head"><div><h1>Channels</h1><p>Each channel’s knowledge and the instructions that write its assets. Channel owners edit their own.</p></div></div>
+    {summary && <p className="channel-table-note" role="status">{summary.replace(/^./, (letter) => letter.toUpperCase())}. Assets for a channel with no knowledge are written from the brand knowledge alone.</p>}
+    {list(channels).length ? <div className="simple-file-table-wrap"><table className="simple-file-table channel-table">
+      <thead><tr><th scope="col">Channel</th>{owners && <th scope="col">Owner</th>}<th scope="col">Channel knowledge</th><th scope="col">Asset instructions</th><th scope="col">Last saved</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
+      <tbody>{list(channels).map((channel) => { const data = rows[channel.id]; const fill = data && !data.problem ? knowledgeFilled(data) : null; const own = list(owners?.[channel.id]); return <tr key={channel.id}>
+        <th scope="row"><button type="button" className="simple-file-open" onClick={() => onOpen(channel.id)}>{channel.name}</button></th>
+        {owners && <td>{own.length ? own.join(', ') : <span className="channel-table-none">No owner</span>}</td>}
+        <td>{!data ? 'Loading…' : data.problem ? data.problem : fill.filled === 0 ? <span className="channel-table-none">Empty</span> : `${fill.filled} of ${fill.total} filled in`}</td>
+        <td>{fill ? `${list(data.prompts).length} ${list(data.prompts).length === 1 ? 'prompt' : 'prompts'}` : ''}</td>
+        <td className="simple-file-date">{fill && data.updatedAt ? `${formatDay(data.updatedAt)}${data.updatedBy?.name ? ` · ${data.updatedBy.name}` : ''}` : fill ? 'Never' : ''}</td>
+        <td className="program-run-open"><button type="button" className="simple-link" aria-label={`Open ${channel.name}`} onClick={() => onOpen(channel.id)}>Open<ArrowRight size={14} aria-hidden="true" /></button></td>
+      </tr>; })}</tbody>
+    </table></div> : <div className="simple-empty"><p>This edition has no channels.</p></div>}
+  </div>;
 }

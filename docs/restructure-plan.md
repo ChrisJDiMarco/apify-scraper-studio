@@ -180,3 +180,10 @@ A second reader checked this plan against the code. What changed, all my calls:
   still open the older editor (they name no program); they go away with the sidebar in step 9. A run's row opens the
   older run detail (review, results, Open in Sheets), which has not moved. The quick-edit drawer on Home is unchanged
   and duplicates the page's save logic; one of the two should go once Home is redone in step 6.
+- **Step 5, Studio setup and channels: done, in a lighter form than planned.** Brand knowledge, Prompts, Channels,
+  Analytics, People & access and Settings share one "Studio setup" section menu above the page (the sections this role
+  has); each keeps its address, so nothing redirects. A top menu rather than a left one, because Settings already has
+  its own left menu. Channels opens on a table of every channel (owner, knowledge filled in, prompts, last saved) with
+  a line saying how many are empty or ownerless; a row opens the channel. Not done: a channel's own prompts and
+  adoption numbers on its page, and `#/setup/…` addresses (the existing `#/studio/…` ones were kept instead).
+  The sidebar still lists the six pages separately until step 9.

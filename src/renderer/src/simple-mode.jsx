@@ -104,7 +104,7 @@ function trendIndex(history) {
 // carries the shell's own ways (App): copyLink(kind, id), openInvite(preset), viewAs(payload), openProgramDraft(draft),
 // create(kind) (the New menu) and makeAssets(request) (the asset dialog over the current page), which Ask AI's nav, the
 // report reader and Home's Next up use.
-export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, error, onDismiss, action, background = [], renderPage, renderSettings, onOpenClassic, onOpenSheets, onOpenTarget, onOpenPrompt, linkOrigin: linkOriginIn, tab: shownTab, onTab, tabs = SIMPLE_TABS, settingsAllowed = true, onNotice, onNavSpot, spotRoot, shellRequest = null, shellNav = {}, reopenKey = 0, onRouteDetail }) {
+export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, error, onDismiss, action, background = [], renderPage, renderSettings, onOpenClassic, onOpenSheets, onOpenTarget, onOpenPrompt, linkOrigin: linkOriginIn, tab: shownTab, onTab, tabs = SIMPLE_TABS, settingsAllowed = true, onNotice, onNavSpot, spotRoot, shellRequest = null, shellNav = {}, reopenKey = 0, onRouteDetail, setupPages = [], onOpenSetup }) {
   // Ask AI announces each picture it makes, so Assets lists it even when it was drawn behind another tab.
   const api = useAnnouncingApi(apiIn);
   const viewer = useViewer();
@@ -342,6 +342,11 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     renderAssets={(reportAssetId) => assetsView({ key: `trend-assets-${reportAssetId}`, embedded: { reportAssetId }, request: null, onRequestDone: undefined, onViewChange: undefined, onOpenReport: (id) => openReport(id) })} /> : null;
   // A report, read (and edited) on the page it belongs to: Back returns to that page.
   const reader = (backLabel) => <SimpleReports api={api} web={web} reports={reports} selectedId={reportId} onSelect={setReportId} backLabel={backLabel} onCreateContent={shellNav.createFrom} action={action} busy={busy} onAsk={onAsk} onFindTrends={() => go('trends')} onMakeAssets={(report) => makeAssets({ kind: 'report', assetId: report.id })} usesOf={usesOf} tree={libraryTree} onOpenAssets={openFolderKey} studio={studio} linkOrigin={linkOrigin} onOpenPrompt={onOpenPrompt} drive={state.driveSync} onOpenDriveSettings={openDriveSettings} />;
+  // Studio setup: Brand knowledge, Channels, Prompts, People, Analytics and Settings are sections of one page. Each
+  // keeps its own address and content; this puts the same section menu above all of them (the ones this role has).
+  const inSetup = list(setupPages).length > 1 && list(setupPages).some((row) => row.id === tab);
+  const setup = (content) => (inSetup ? <div className="setup-frame"><nav className="setup-nav" aria-label="Studio setup" data-spot="setup.nav"><span className="setup-nav-title">Studio setup</span>
+    <div className="setup-nav-items">{list(setupPages).map((row) => <button type="button" key={row.id} aria-current={row.id === tab ? 'page' : undefined} onClick={() => { if (row.id !== tab) onOpenSetup?.(row); }}>{row.label}{row.warn && <span className="setup-nav-warn" role="img" aria-label={row.warnLabel || 'Needs attention'} />}</button>)}</div></nav>{content}</div> : content);
   const spotlight = tour && !loading ? <Spotlight key={tour.key} steps={tour.steps} onPrepare={prepareSpot} onClose={() => { setTour(null); onNavSpot?.(false); }} onBackToChat={() => { setTour(null); onNavSpot?.(false); go('ask'); }} /> : null;
   // The spotlight sits on the frame, not in this column, so it stays usable while the sidebar drawer is open.
   const spotHost = spotlight && typeof spotRoot === 'function' ? spotRoot() : null;
@@ -359,8 +364,8 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
         : reportId && tab === reportTab ? reader(tab === 'trends' ? 'Trends' : 'Assets')
         : tab === 'trends' ? <SimpleTrends board={programBoard} waiting={waiting.filter(inProgram)} approved={approved.filter(inProgram)} programs={programs} program={shownProgram ? programs.find((row) => row.id === shownProgram) : program} programFilter={shownProgram} onProgramFilter={setTrendProgram} trendOf={trendOf} researchRuns={list(studio.researchRuns).filter(mine)} channels={channels} focusChannels={list(viewer.prefs?.focusChannels)} busy={busy} needsSetup={needsSetup} askAdmin={askAdmin} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk || undefined} onWriteReports={writeReports} onStartResearch={startAndRemember} onOpenReport={openReport} onOpenTrend={openTrend} onOpenClassic={onOpenClassic} onSettings={openSettings} stopped={stopped.filter(inProgram)} onRetry={retryRun} postsApi={postsApi} monday={state.monday} mondayApi={api} />
         : tab === 'assets' ? assetsView()
-        : tab === 'settings' ? <div className="simple-page simple-settings"><div className="simple-page-head"><div><h1>Settings</h1><p>{settingsAllowed ? 'Connections, AI, pictures and brand knowledge for the whole studio.' : 'Brand knowledge for the whole studio.'}</p></div></div>{page('settings')}</div>
-        : SHELL_PAGES.has(tab) ? page(tab)
+        : tab === 'settings' ? setup(<div className="simple-page simple-settings"><div className="simple-page-head"><div><h1>Settings</h1><p>{settingsAllowed ? 'Connections, AI, pictures and brand knowledge for the whole studio.' : 'Brand knowledge for the whole studio.'}</p></div></div>{page('settings')}</div>)
+        : SHELL_PAGES.has(tab) ? setup(page(tab))
         : null}
       <div className="simple-ask-wrap" hidden={tab !== 'ask' || loading}>
         <HelpAssistant api={api} variant="page" open={tab === 'ask'} seed={seed} starters={starters} copy={askCopy} imagesReady={imagesReady} page={{ id: 'simple-mode', label: 'Simple mode', layout: 'simple', tab: lastTab, ...(lastTab === reportTab && reportId ? { report: reports.find((row) => row.id === reportId)?.title || '' } : {}), ...(lastTab === 'assets' && assetFolder ? { folder: assetFolder } : {}) }} onOpenPage={openPage} onOpenSettings={openSettings} onAction={runAiAction} onShow={showTour} state={state} nav={nav} onOpenAssets={() => go('assets')} onClose={() => go('home')} />
