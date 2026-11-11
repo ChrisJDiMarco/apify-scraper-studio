@@ -186,8 +186,8 @@ function planBudget({ model, maxBudgetUsd, inputCharacters, price: given = null 
   return { inputTokens, inputCostUsd, budgetTokens };
 }
 
-// Cache reads bill at 0.1× input, but 0.05× on Opus 5.5 and 0.025× on Fable 5.1 / Mythos 5.1 (prompt-caching docs).
-const cacheReadRate = (model) => /^claude-(fable|mythos)-5-1(-|$)/.test(model) ? 0.025 : /^claude-opus-5-5(-|$)/.test(model) ? 0.05 : 0.1;
+// Cache reads bill at 0.1× input, but 0.05× on Opus 5.5 and 0.025× on Fable / Mythos 5.1 and 5.2 ($0.25 on $10, $0.20 on $8).
+const cacheReadRate = (model) => /^claude-(fable|mythos)-5-[12](-|$)/.test(model) ? 0.025 : /^claude-opus-5-5(-|$)/.test(model) ? 0.05 : 0.1;
 // List-price USD for a reply's usage. output_tokens already includes thinking. Only calls with a cachePrefix ask for
 // caching (a 5-minute entry); writes (1.25× for 5 minutes, 2× for 1 hour) and reads are priced whenever they appear.
 // Haiku 5.5 bills a request whose prompt passes 100K tokens at its higher tier (modelPrice(model).tiers), for the whole request.

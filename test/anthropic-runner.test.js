@@ -136,6 +136,8 @@ describe('Anthropic API spend guard and cost', () => {
     const usage = { input_tokens: 1000, output_tokens: 500, cache_creation_input_tokens: 2000, cache_read_input_tokens: 10000, cache_creation: { ephemeral_5m_input_tokens: 1000, ephemeral_1h_input_tokens: 1000 } };
     expect(usageCost('claude-opus-5-5', usage)).toBe((1000 * 4 + (1000 * 1.25 + 1000 * 2) * 4 + 10000 * 0.05 * 4 + 500 * 20) / 1e6);
     expect(usageCost('claude-fable-5-1', { ...usage, cache_creation: null })).toBe((1000 * 10 + 2000 * 1.25 * 10 + 10000 * 0.025 * 10 + 500 * 50) / 1e6);
+    // Fable 5.2: $8 in, $40 out, cache reads $0.20 (0.025× input).
+    expect(usageCost('claude-fable-5-2', { ...usage, cache_creation: null })).toBe((1000 * 8 + 2000 * 1.25 * 8 + 10000 * 0.025 * 8 + 500 * 40) / 1e6);
     expect(usageCost('claude-sonnet-5-5', { input_tokens: 100, output_tokens: 100, cache_read_input_tokens: 1000 })).toBe((100 * 2 + 1000 * 0.1 * 2 + 100 * 10) / 1e6);
     expect(usageCost('claude-opus-5-5', null)).toBeNull();
   });
