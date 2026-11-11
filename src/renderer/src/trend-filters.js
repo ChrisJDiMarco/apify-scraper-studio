@@ -73,6 +73,21 @@ export function filterChoices(cards) {
   return { tiers: Object.keys(TIER_LABELS).filter((id) => tiers.has(id)), platforms: Object.keys(PLATFORM_LABELS).filter((id) => platforms.has(id)) };
 }
 
+// When research found a trend, for its card: { day: 'Nov 9' (with the year once it isn't this year), ago: 'today' |
+// 'yesterday' | '5 days ago' | '' (older than a month says nothing more), full: the whole date and time }. null undated.
+export function foundOn(value, now = Date.now()) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const today = new Date(now);
+  const sameYear = date.getFullYear() === today.getFullYear();
+  const days = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()) - new Date(date.getFullYear(), date.getMonth(), date.getDate())) / DAY);
+  return {
+    day: date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) }),
+    ago: days <= 0 ? 'today' : days === 1 ? 'yesterday' : days <= 30 ? `${days} days ago` : '',
+    full: date.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }),
+  };
+}
+
 const no = (reason) => ({ allowed: false, reason });
 const STAGE_NAMES = { potential: 'Needs your OK', approved: 'Approved', production: 'Being written', ready: 'Ready', passed: 'Skipped', archived: 'Archived' };
 

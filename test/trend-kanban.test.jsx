@@ -33,6 +33,11 @@ describe('Trends board', () => {
     expect(within(column('Ready')).getAllByRole('article')).toHaveLength(24);
     expect(within(column('Archived')).getByText('Drag a finished trend here to file it away.')).toBeInTheDocument();
   });
+  it('shows when research found each trend, on the card', () => {
+    open([card('Zero click', 'potential', { discoveredAt: new Date(2025, 2, 4, 9).toISOString() }), card('Undated', 'potential')]);
+    expect(within(cardOf('Zero click')).getByText(new Date(2025, 2, 4).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }))).toBeInTheDocument();
+    expect(cardOf('Undated').querySelector('.simple-kanban-date strong')).toBeNull();
+  });
   it('approves a waiting trend dropped on Approved, with no question', () => {
     const h = open([card('Zero click', 'potential')]);
     drag('Zero click', 'Approved');

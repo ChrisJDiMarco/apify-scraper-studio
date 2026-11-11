@@ -533,7 +533,10 @@
 .simple-kanban-col.drop-ok { border-color: var(--s-accent-strong); background: var(--s-soft); }
 .simple-kanban-col.drop-no { border-style: dashed; opacity: .6; }
 .simple-kanban-top { display: flex; align-items: flex-start; gap: 6px; }
-.simple-kanban-top > .simple-trend-meta { flex: 1; min-width: 0; }
+.simple-kanban-date { flex: 1; display: flex; align-items: baseline; gap: 6px; min-width: 0; min-height: 26px; margin: 0; font-size: 13px; color: var(--s-muted); }
+.simple-kanban-date svg { align-self: center; flex: none; color: var(--s-ink); }
+.simple-kanban-date strong { font-size: 14px; font-weight: 750; letter-spacing: -.1px; color: var(--s-ink); white-space: nowrap; }
+.simple-kanban-date small { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .simple-shell .simple-kanban-move { display: grid; place-items: center; width: 26px; height: 26px; min-height: 26px; padding: 0; color: var(--s-muted); background: transparent; border: 0; border-radius: 8px; }
 .simple-shell .simple-kanban-move:hover { color: var(--s-ink); background: var(--s-bg); }
 .simple-kanban-col.stage-archived { opacity: .88; }
@@ -547,7 +550,7 @@
 .simple-report-card:hover .trend-file, .simple-shell .simple-report-cards button.trend-file:focus-visible { opacity: 1; }
 .simple-shell .simple-report-cards button.trend-file:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--s-ink); background: var(--s-line); }
 @media (hover: none) { .simple-shell .simple-report-cards button.trend-file { opacity: 1; } }
-.simple-kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(clamp(200px, calc((100% - 70px) / 6), 250px), 1fr); gap: 14px; align-items: start; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
+.simple-kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(clamp(264px, calc((100% - 70px) / 6), 320px), 1fr); gap: 14px; align-items: start; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
 .simple-kanban-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; min-width: 0; min-height: 220px; padding: 12px 10px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 20px; scroll-snap-align: start; }
 .simple-kanban-col > header { display: grid; gap: 4px; padding: 2px 4px 6px; }
 .simple-kanban-col h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14.5px; font-weight: 700; letter-spacing: -.1px; }

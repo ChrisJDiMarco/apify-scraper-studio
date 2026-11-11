@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildTrendBoard } from '../src/shared/trend-board.js';
-import { NO_FILTERS, activeCount, askAgain, cleanFilters, filterBoard, filterCards, filterChoices, movePlan, stopAsking } from '../src/renderer/src/trend-filters.js';
+import { NO_FILTERS, activeCount, askAgain, cleanFilters, filterBoard, filterCards, filterChoices, foundOn, movePlan, stopAsking } from '../src/renderer/src/trend-filters.js';
 import { stageIdOf, stageOf } from '../src/renderer/src/trend-stage.js';
 
 const NOW = Date.parse('2026-11-11T12:00:00Z');
@@ -46,6 +46,22 @@ describe('filterCards', () => {
     const board = { cards, scouting: [], columns: { ready: cards.slice(0, 2), passed: cards.slice(2), archived: [] } };
     const view = filterBoard(board, { since: '90' }, NOW);
     expect(names(view.columns.ready)).toEqual(['AI citations', 'Zero click']); expect(view.columns.passed).toEqual([]); expect(view.cards).toHaveLength(2);
+  });
+});
+
+describe('foundOn', () => {
+  const now = new Date(2026, 10, 11, 15, 0).getTime();
+  const at = (...parts) => new Date(...parts).toISOString();
+  it('says the day, and how long ago while that is recent', () => {
+    expect(foundOn(at(2026, 10, 11, 9), now)).toMatchObject({ day: new Date(2026, 10, 11).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), ago: 'today' });
+    expect(foundOn(at(2026, 10, 10, 23), now).ago).toBe('yesterday');
+    expect(foundOn(at(2026, 10, 2, 9), now).ago).toBe('9 days ago');
+    expect(foundOn(at(2026, 8, 1, 9), now).ago).toBe('');
+  });
+  it('adds the year once it is not this year, and has nothing for an undated trend', () => {
+    expect(foundOn(at(2025, 11, 30, 9), now).day).toContain('2025');
+    expect(foundOn(at(2026, 0, 5, 9), now).day).not.toContain('2026');
+    expect(foundOn('', now)).toBeNull(); expect(foundOn('not a date', now)).toBeNull();
   });
 });
 

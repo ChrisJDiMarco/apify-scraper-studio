@@ -3,14 +3,14 @@
 // moves between columns by dragging or from its "Move to" menu; both go through movePlan, which says what the move does,
 // asks first when it goes backwards or files a trend away, and explains a move that can't be made instead of ignoring it.
 import React, { useRef, useState } from 'react';
-import { Archive, ArchiveRestore, ArrowRight, LoaderCircle, MoveRight, RotateCcw, Search, Undo2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowRight, CalendarDays, LoaderCircle, MoveRight, RotateCcw, Search, Undo2, X } from 'lucide-react';
 import { MoreMenu } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { readJsonChoice, saveJsonChoice } from './choices.js';
 import { writeProps } from './viewer.js';
 import { number } from './ui.jsx';
 import { ARCHIVED_STAGE, PASSED_STAGE, TREND_STAGES } from '../../shared/trend-board.js';
-import { NO_FILTERS, PAGE, PLATFORM_LABELS, SINCE_OPTIONS, SORT_OPTIONS, TIER_LABELS, activeCount, askAgain, movePlan, stopAsking } from './trend-filters.js';
+import { NO_FILTERS, PAGE, PLATFORM_LABELS, SINCE_OPTIONS, SORT_OPTIONS, TIER_LABELS, activeCount, askAgain, foundOn, movePlan, stopAsking } from './trend-filters.js';
 
 const plural = (count, word) => `${number(count)} ${word}${count === 1 ? '' : 's'}`;
 export const BOARD_STAGES = [...TREND_STAGES, PASSED_STAGE, ARCHIVED_STAGE];
@@ -87,11 +87,13 @@ export function TrendKanban({ board, approved, busy, canDecide, canWrite, viewer
             {!cards.length && <p className="simple-kanban-empty">{stage.empty || 'Nothing here yet.'}</p>}
             {shown.map((card) => {
               const report = stage.id === 'ready' || stage.id === 'archived' ? reportOf(card) : null;
+              const found = foundOn(card.discoveredAt);
               const moves = locked ? [] : BOARD_STAGES.filter((other) => other.id !== stage.id && planFor(card, other.id).allowed);
               return <article key={card.key} className={`simple-kanban-card${card.needsAttention ? ' attention' : ''}${dragKey === card.key ? ' is-dragged' : ''}`} data-spot="trends.card" data-spot-item={card.name}
                 draggable={!locked && stage.id !== 'production'} onDragStart={(event) => { dragging.current = card; setDragKey(card.key); setNote(''); if (event.dataTransfer) { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', card.name); } }} onDragEnd={endDrag}
                 style={{ viewTransitionName: `kanban-${card.key.replace(/[^a-zA-Z0-9_-]/g, '-')}` }}>
-                <div className="simple-kanban-top">{meta(card)}{moves.length > 0 && <MoreMenu label={`Move ${card.name}`} icon={MoveRight} buttonClassName="simple-kanban-move" items={moves.map((other) => ({ label: `Move to ${other.label}`, onSelect: () => move(card, other.id) }))} />}</div>
+                <div className="simple-kanban-top">{found ? <p className="simple-kanban-date" title={`Research found it ${found.full}`}><CalendarDays size={14} aria-hidden="true" /><span className="sr-only">Found </span><strong>{found.day}</strong>{found.ago && <small>{found.ago}</small>}</p> : <span className="simple-kanban-date" />}{moves.length > 0 && <MoreMenu label={`Move ${card.name}`} icon={MoveRight} buttonClassName="simple-kanban-move" items={moves.map((other) => ({ label: `Move to ${other.label}`, onSelect: () => move(card, other.id) }))} />}</div>
+                {meta(card)}
                 <h3>{onOpenTrend ? <button type="button" className="simple-trend-open" onClick={() => onOpenTrend(card)}>{card.name}</button> : card.name}</h3>
                 {card.description && stage.id !== 'passed' && stage.id !== 'archived' && <p>{card.description}</p>}
                 {stage.id === 'potential' ? why(card) : stage.id !== 'archived' && decided(card)}
