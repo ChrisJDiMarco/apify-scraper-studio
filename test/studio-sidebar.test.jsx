@@ -448,16 +448,13 @@ describe('StudioSidebar: the unified pipeline', () => {
     expect(main().getByRole('button', { name: 'Trends, 3 need your OK' })).toBeInTheDocument();
   });
 
-  it('puts Edit research program first in the Workbench, one item per section of the form, and opens the one pressed', () => {
+  it('lists the Workbench’s tools by what they do, without the program form (a program is edited on its own page)', () => {
     const { onNavigate } = sidebar({ nav: unifiedNav({ dataToolsOpen: true }) });
     const sets = [...document.querySelectorAll('.sb-subgroup')].map((node) => node.getAttribute('aria-label'));
-    expect(sets).toEqual(['Edit research program', 'Collect', 'Create', 'Data', 'Automate', 'Activity']);
-    const program = within(main().getByRole('group', { name: 'Edit research program' }));
-    expect(program.getAllByRole('button').map((button) => button.querySelector('.sb-text').textContent)).toEqual(['Name & focus', 'Sources', 'Schedule & dates', 'Budgets & estimate', 'AI models', 'Automation', 'Advanced', 'Research & report prompts']);
-    fireEvent.click(program.getByRole('button', { name: 'Sources' }));
-    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: 'program-sources', kind: 'program', section: 'sources' }));
-    fireEvent.click(program.getByRole('button', { name: 'Research & report prompts' }));
-    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: 'program-prompts', kind: 'program', section: 'prompts' }));
+    expect(sets).toEqual(['Collect', 'Create', 'Data', 'Automate', 'Activity']);
+    expect(main().queryByRole('button', { name: 'Name & focus' })).not.toBeInTheDocument();
+    fireEvent.click(main().getByRole('button', { name: /^Sheets/ }));
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: 'sheets' }));
     expect(main().getByRole('button', { name: /^Scrapers/ })).toBeInTheDocument();
     expect(main().getByRole('button', { name: /^Brief starters/ })).toBeInTheDocument();
   });

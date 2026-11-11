@@ -32,10 +32,10 @@ function nav(name) { return within(screen.getByRole('navigation', { name: 'Main'
 const navLabels = () => within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('button').filter((button) => !button.classList.contains('sb-stage-toggle')).map((button) => button.querySelector('.sb-text')?.textContent || button.textContent);
 
 describe('workspace navigation', () => {
-  it('lists Home and Inbox, the pipeline, the Workbench (open where there is no content studio), then Settings', async () => {
+  it('lists Home, the pipeline, the Workbench (open where there is no content studio), then Settings', async () => {
     await openApp();
     // No content studio here, so no Research programs and no program editor; the Workbench holds the collecting tools.
-    expect(navLabels()).toEqual(['Home', 'Inbox', 'Trends', 'Assets', 'Calendar', 'Workbench', 'Search platforms', 'Scrapers', 'Import research', 'Brief starters', 'Overview', 'Sheets', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Activity', 'Settings']);
+    expect(navLabels()).toEqual(['Home', 'Trends', 'Assets', 'Calendar', 'Workbench', 'Search platforms', 'Scrapers', 'Import research', 'Brief starters', 'Overview', 'Sheets', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Activity', 'Settings']);
     expect(nav('Workbench')).toHaveAttribute('aria-expanded', 'true');
     expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
     // Search and Ask AI moved from the top bar into the sidebar.
@@ -92,7 +92,7 @@ describe('Semrush studio shell', () => {
     expect(container.querySelector('.app-shell')).toHaveAttribute('data-edition', 'semrush');
     expect(screen.getByRole('img', { name: 'Semrush' })).toHaveAttribute('src', expect.stringContaining('semrush-2026-logo.svg'));
     expect(container.querySelector('.cs-hero-art')).not.toBeInTheDocument();
-    expect(navLabels()).toEqual(['Home', 'Inbox', 'Research programs', 'Trends', 'Assets', 'Calendar', 'Workbench', 'Brand knowledge', 'Settings']);
+    expect(navLabels()).toEqual(['Home', 'Research programs', 'Trends', 'Assets', 'Calendar', 'Workbench', 'Studio setup']);
     expect(screen.queryByRole('navigation', { name: 'Content studio' })).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Workspace:/ })).toHaveLength(1);
     fireEvent.click(nav('Workbench'));
@@ -103,10 +103,8 @@ describe('Semrush studio shell', () => {
     fireEvent.click(nav('Research programs'));
     expect(await screen.findByRole('heading', { level: 1, name: 'Research programs' })).toBeVisible();
     expect(nav('Research programs')).toHaveAttribute('aria-current', 'page');
-    // Workbench → Edit research program opens the program editor at that section.
-    fireEvent.click(nav('Sources'));
-    expect(await screen.findByRole('button', { name: 'New program' })).toBeVisible();
-    expect(nav('Sources')).toHaveAttribute('aria-current', 'page');
+    // A program is edited on its own page, so the Workbench has no program form links.
+    expect(screen.queryByRole('button', { name: 'Name & focus' })).not.toBeInTheDocument();
     expect(nav('Sheets')).toBeVisible();
     fireEvent.click(nav('Search platforms'));
     expect(await screen.findByRole('tab', { name: 'Sources & filters' })).toBeVisible();
@@ -169,7 +167,7 @@ describe('Simple mode', () => {
   it('opens in Simple mode by default with its pages, Settings, and Ask AI pinned above them', async () => {
     await openSimple();
     // No saved Advanced habit, so the stages start folded; the Workbench is closed where there is a content studio.
-    expect(navLabels()).toEqual(['Home', 'Inbox', 'Research programs', 'Trends', 'Assets', 'Calendar', 'Workbench', 'Brand knowledge', 'Settings']);
+    expect(navLabels()).toEqual(['Home', 'Research programs', 'Trends', 'Assets', 'Calendar', 'Workbench', 'Studio setup']);
     expect(screen.getByRole('button', { name: 'Ask AI' })).toHaveAttribute('data-spot', 'nav.ask');
     expect(nav('Trends')).toHaveAccessibleName('Trends, 1 needs your OK');
     expect(within(screen.getByRole('navigation', { name: 'Main' })).queryByRole('group', { name: 'Research' })).not.toBeInTheDocument();
@@ -250,10 +248,9 @@ describe('Simple mode', () => {
     const api = await openSimple();
     expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
     fireEvent.click(nav('Workbench'));
-    fireEvent.click(nav('Name & focus'));
-    expect(await screen.findByRole('button', { name: 'New program' })).toBeVisible();
-    expect(document.querySelector('.studio-frame')).toHaveAttribute('data-mode', 'classic');
-    expect(nav('Name & focus')).toHaveAttribute('aria-current', 'page');
+    fireEvent.click(nav('Create content'));
+    await waitFor(() => expect(document.querySelector('.studio-frame')).toHaveAttribute('data-mode', 'classic'));
+    expect(nav('Create content')).toHaveAttribute('aria-current', 'page');
     expect(screen.queryByRole('region', { name: 'Advanced page' })).not.toBeInTheDocument(); // no Back to Simple bar
     fireEvent.click(nav('Trends'));
     await waitFor(() => expect(document.querySelector('.studio-frame')).toHaveAttribute('data-mode', 'simple'));

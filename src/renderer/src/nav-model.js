@@ -269,8 +269,14 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
       ...(live[id] ? { live: true, liveLabel: liveLabels[id] } : {}),
       ...(id === 'trends' ? needsOk() : {}),
       ...(id === 'inbox' ? inboxBadge : {}),
+      ...(id === 'home' && unread ? { badge: unread, badgeLabel: `${unread} new in Recent` } : {}),
     });
-    const top = SIMPLE_PAGES.filter((page) => ['home', 'inbox'].includes(page.id) && simpleAllowed(page.id)).map((page) => item(page, { kind: 'simple', ...marks(page.id) }));
+    // Home lists the Inbox's newest rows (Recent) and carries its unread count, so Inbox is a sidebar row only for someone
+    // without Home. Its page stays: Home's "See all", the palette and its address open it.
+    const hasHome = simpleAllowed('home');
+    const top = SIMPLE_PAGES.filter((page) => (page.id === 'home' || (page.id === 'inbox' && !hasHome)) && simpleAllowed(page.id)).map((page) => item(page, { kind: 'simple', ...marks(page.id) }));
+    const inboxPage = hasHome && simpleAllowed('inbox') ? item(SIMPLE_PAGES.find((page) => page.id === 'inbox'), { kind: 'simple', ...inboxBadge }) : null;
+    if (inboxPage && top[0]) top[0].children = [inboxPage];
     if (top.length) groups.push({ id: 'top', label: '', collapsible: false, open: true, items: top });
     // A role without a stage's page (a Viewer has no Assets) still gets that stage's tools, on the spine without a node.
     const stages = PIPELINE.flatMap((stage) => {
@@ -280,7 +286,7 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
     });
     if (stages.length) groups.push({ id: 'pipeline', label: 'Pipeline', collapsible: false, open: true, pipeline: true, items: stages });
     const manages = hasStudio && can('saveResearchProgram') && !hidden.has('research');
-    const subgroups = WORKBENCH.filter((set) => !set.manage || manages).map((set) => ({ id: set.id, label: set.label, items: set.items.filter(toolAllowed).map((page) => item(page, {
+    const subgroups = WORKBENCH.filter((set) => set.id !== 'program' && (!set.manage || manages)).map((set) => ({ id: set.id, label: set.label, items: set.items.filter(toolAllowed).map((page) => item(page, {
       kind: page.kind || 'app', target: page.target || page.id, ...(page.section ? { section: page.section } : {}), ...marks(page.id),
       ...(page.id === 'workflows' ? { ...(workflowsWaiting ? { badge: workflowsWaiting, badgeLabel: `${workflowsWaiting} waiting on you` } : {}), live: workflowRunning, liveLabel: 'a workflow is running' } : {}),
     })) })).filter((set) => set.items.length);
@@ -323,7 +329,10 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
     // Unified lists Brand knowledge first: editors use it more than the admin pages.
     if (brandInSimple) studioItems[unified ? 'unshift' : 'push'](item({ id: 'knowledge', label: 'Brand knowledge', icon: 'BookOpen' }, { kind: 'simple', target: 'knowledge', spot: 'nav.knowledge' }));
     if (settingsShown) studioItems.push(item({ id: 'settings', label: 'Settings', icon: 'Settings2' }, { kind: 'settings', target: 'settings', shortcut: '⌘,', ...(settingsAllowed && apifyMissing ? { warn: true, warnLabel: 'Apify isn’t connected' } : {}) }));
-    if (studioItems.length) groups.push({ id: 'studio', label: 'Studio', collapsible: false, open: true, items: studioItems });
+    if (unified && studioItems.length > 1) {
+      const warned = studioItems.find((row) => row.warn);
+      groups.push({ id: 'studio', label: '', collapsible: false, open: true, items: [item({ id: 'setup', label: 'Studio setup', icon: 'Settings2' }, { kind: 'setup', target: studioItems[0].id, spot: 'nav.setup', children: studioItems, ...(warned ? { warn: true, warnLabel: warned.warnLabel } : {}) })] });
+    } else if (studioItems.length) groups.push({ id: 'studio', label: 'Studio', collapsible: false, open: true, items: studioItems });
   }
   groups.forEach((group) => group.items.forEach((row) => { row.group = group.id; list(row.children).forEach((child) => { child.group = group.id; }); }));
 
@@ -349,7 +358,7 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
     hasStudio && !hidden.has('research') && can('saveResearchProgram') && { id: 'program', label: 'Research program', icon: 'Radar', hint: 'What to follow, the window and the budgets.', section: 'admin' },
     hasStudio && !hidden.has('playbooks') && can('applyPlaybook') && { id: 'playbook', label: 'Playbook', icon: 'LayoutGrid', hint: 'Research, approvals, reports and assets set up in one go. You see the cost first.', section: 'admin' },
     // Inviting is the browser studio's (People on the Mac has no invite), so the Mac never offers it.
-    viewer.web && groups.some((group) => group.items.some((row) => row.id === 'people')) && (can('inviteMembers') || can('saveMember')) && { id: 'person', label: 'Person', icon: 'UserPlus', hint: 'Invite someone and choose their role.', section: 'admin' },
+    viewer.web && groups.some((group) => group.items.some((row) => row.id === 'people' || list(row.children).some((child) => child.id === 'people'))) && (can('inviteMembers') || can('saveMember')) && { id: 'person', label: 'Person', icon: 'UserPlus', hint: 'Invite someone and choose their role.', section: 'admin' },
     isRealAdmin(viewer) && workspaces.length > 0 && studio.workspacePolicy?.mode !== 'single' && can('saveContentWorkspace') && can('selectContentWorkspace') && { id: 'workspace', label: 'Workspace', icon: 'Building2', hint: 'A separate set of programs, trends and reports.', section: 'admin' },
   ].filter(Boolean).map((row) => (preview && row.section === 'admin' ? { ...row, disabled: true, title: PREVIEW_TITLE } : { disabled: false, title: '', choices: [], programId: '', ...row }));
 
@@ -368,7 +377,9 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
     ...order.map((row) => ({ keys: row.shortcut, label: row.label })),
     ...GLOBAL_SHORTCUTS.filter((row) => have[row.when]).map(({ keys, label }) => ({ keys, label })),
   ];
-  return { layout, groups, actions, footer, order, shortcuts };
+  // Studio setup's sections (the pages its row opens), for the section menu above them.
+  const setup = list(groups.find((group) => group.id === 'studio')?.items.find((row) => row.id === 'setup')?.children);
+  return { layout, groups, actions, footer, order, shortcuts, setup };
 }
 
 // Every page a layout has, flat (Data tools and each stage's tools included), for the palette and the breadcrumb.

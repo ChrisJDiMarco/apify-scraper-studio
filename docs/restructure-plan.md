@@ -195,3 +195,11 @@ A second reader checked this plan against the code. What changed, all my calls:
 - **Step 8, Calendar: done.** The team's Calendar always draws four weeks with a row for every channel, and a
   Research runs row when a program has its schedule on. Planning by dragging is not part of this work. The phone
   layout and a channel owner's My plan are unchanged.
+- **Step 9, sidebar: done, except the page frame.** An admin's sidebar is Home, Research programs, Trends, Assets,
+  Calendar, Workbench and Studio setup (seven rows, was thirteen; ⌘1–6). Home carries the Inbox's unread count and the
+  Inbox page opens from Home's Recent, the palette and its address. Studio setup opens the section last used.
+  Workbench no longer lists the program form. Not done: "Assets" keeps its name and its folder view by default (my
+  call: it still holds folders); the Collect and Data tools stay visible to roles that have the Data tools permission
+  (an admin can turn that permission off per role in People & access › Roles; no new setting was added); the single
+  page frame (same left edge and title size everywhere) is not done. The older program editor and the classic
+  Research programs page are still in the code, reached only from a run's row and from Ask AI's program drafts.

@@ -48,7 +48,8 @@ async function boot(studio = {}, { classic = false, api: extra = {}, home = true
   else await waitFor(() => expect(document.querySelector('.simple-main')?.dataset.tab).toBeTruthy());
   return api;
 }
-const side = (id) => fireEvent.click(document.querySelector(`[data-spot="nav.${id}"]`));
+// Inbox is opened from Home's Recent, and a Studio setup section from Studio setup's menu; everything else has a sidebar row.
+const side = (id) => { const row = document.querySelector(`[data-spot="nav.${id}"]`); if (row) { fireEvent.click(row); return; } if (id === 'inbox') { if (!document.querySelector('[data-spot="home.inbox"]')) fireEvent.click(document.querySelector('[data-spot="nav.home"]')); fireEvent.click(document.querySelector('[data-spot="home.inbox"]')); return; } fireEvent.click(document.querySelector('[data-spot="nav.setup"]')); const label = { people: 'People & access', prompts: 'Prompts', channels: 'Channels', analytics: 'Analytics', knowledge: 'Brand knowledge', settings: 'Settings' }[id]; const section = [...document.querySelectorAll('.setup-nav-items button')].find((button) => button.textContent === label); if (section) fireEvent.click(section); };
 const simpleTab = () => document.querySelector('.simple-main')?.dataset.tab;
 const toastText = () => [...document.querySelectorAll('.simple-toast, .studio-toast, .feedback')].map((node) => node.textContent).join(' | ');
 

@@ -22,7 +22,8 @@ Object.defineProperty(window, 'localStorage', { configurable: true, value: { get
 afterEach(() => { cleanup(); delete window.apifyStudio; vi.restoreAllMocks(); try { window.localStorage.clear(); } catch { /* no storage */ } window.history.replaceState(null, '', '/'); });
 
 const GREETING = { level: 1, name: /^This week in/ };
-const side = (id) => fireEvent.click(document.querySelector(`[data-spot="nav.${id}"]`));
+// Inbox is opened from Home's Recent, and a Studio setup section from Studio setup's menu; everything else has a sidebar row.
+const side = (id) => { const row = document.querySelector(`[data-spot="nav.${id}"]`); if (row) { fireEvent.click(row); return; } if (id === 'inbox') { if (!document.querySelector('[data-spot="home.inbox"]')) fireEvent.click(document.querySelector('[data-spot="nav.home"]')); fireEvent.click(document.querySelector('[data-spot="home.inbox"]')); return; } fireEvent.click(document.querySelector('[data-spot="nav.setup"]')); const label = { people: 'People & access', prompts: 'Prompts', channels: 'Channels', analytics: 'Analytics', knowledge: 'Brand knowledge', settings: 'Settings' }[id]; const section = [...document.querySelectorAll('.setup-nav-items button')].find((button) => button.textContent === label); if (section) fireEvent.click(section); };
 const h1 = async (name) => (await screen.findAllByRole('heading', { level: 1, name }))[0];
 const mode = () => document.querySelector('.app-shell')?.dataset.mode;
 const runShown = () => within(screen.getByRole('region', { name: 'Run progress' })).getAllByRole('heading').map((node) => node.textContent);
@@ -213,7 +214,7 @@ describe('Requests are spent once their page is left', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Invite people' })).not.toBeInTheDocument());
     side('trends');
     await h1('Trends');
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^People & access/ }));
+    side('people');
     await h1('People & access');
     await screen.findByText('Chris DiMarco', { selector: 'strong' });
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -331,7 +332,7 @@ describe('Links and openers land on what they name', () => {
   it('Back to Admin after a preview returns to People & access', async () => {
     const { api } = openStudio('admin', { uiMode: 'classic' });
     await h1(GREETING.name);
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^People & access/ }));
+    side('people');
     await h1('People & access');
     fireEvent.click(await screen.findByRole('button', { name: 'Preview as an editor' }));
     await screen.findByText(/^Previewing what an editor sees/);

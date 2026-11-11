@@ -110,6 +110,6 @@ export function InboxRecent({ state = {}, viewer: viewerIn, api = {}, limit = 5,
         <span className="ib-meta"><time dateTime={item.at}>{whenLabel(item.at)}</time>{item.unread && <span className="ib-dot"><span className="sr-only">Unread</span></span>}</span>
       </button>
     </li>; })}</ul>
-    {onOpenInbox && items.length > limit && <button type="button" className="wb-link" onClick={onOpenInbox}>See all {items.length}<ArrowRight size={13} aria-hidden="true" /></button>}
+    {onOpenInbox && <button type="button" className="wb-link" data-spot="home.inbox" onClick={onOpenInbox}>{items.length > limit ? `See all ${items.length} in Inbox` : 'Open Inbox'}<ArrowRight size={13} aria-hidden="true" /></button>}
   </section>;
 }

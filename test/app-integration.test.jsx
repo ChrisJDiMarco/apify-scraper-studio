@@ -57,10 +57,13 @@ const mainNav = () => within(screen.getByRole('navigation', { name: 'Main' }));
 const navButton = (name) => mainNav().getByRole('button', { name: new RegExp(`^${name}`) });
 
 describe('pages both layouts share', () => {
-  it('opens the Inbox from the sidebar, and Mark all read is saved for the person', async () => {
+  it('shows the Inbox’s newest rows on Home, opens the Inbox from there, and Mark all read is saved for the person', async () => {
     const api = await openStudio();
-    expect(navButton('Inbox')).toHaveAccessibleName(/^Inbox, 1 unread$/);
-    fireEvent.click(navButton('Inbox'));
+    // Home carries the unread count and lists the newest rows under Recent; the whole Inbox opens from there.
+    expect(navButton('Home')).toHaveAccessibleName(/^Home, 1 new in Recent$/);
+    expect(mainNav().queryByRole('button', { name: /^Inbox/ })).not.toBeInTheDocument();
+    const recent = await screen.findByRole('region', { name: /^Recent/ });
+    fireEvent.click(within(recent).getByRole('button', { name: /Inbox/ }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Inbox' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /1 trend needs your OK/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Mark all read' }));
@@ -79,9 +82,10 @@ describe('pages both layouts share', () => {
     expect(navButton('Calendar')).toHaveAttribute('aria-current', 'page');
   });
 
-  it('lists Prompts in the Studio group and opens the Prompt Library there', async () => {
+  it('lists Prompts in Studio setup and opens the Prompt Library there', async () => {
     const api = await openStudio();
-    const studio = within(mainNav().getByRole('group', { name: 'Studio' }));
+    fireEvent.click(navButton('Studio setup'));
+    const studio = within(await screen.findByRole('navigation', { name: 'Studio setup' }));
     fireEvent.click(studio.getByRole('button', { name: /^Prompts/ }));
     expect(await screen.findByRole('navigation', { name: 'All prompts' })).toBeInTheDocument();
     expect(api.listPrompts).toHaveBeenCalled();

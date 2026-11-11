@@ -60,7 +60,7 @@ describe('One frame for every role', () => {
   it('gives an editor the Simple pages and Ask AI, but no Settings, Studio pages, View as or ⌘,', async () => {
     openStudio('editor');
     await screen.findByRole('heading', GREETING);
-    expect(labels(mainNav())).toEqual(['Home', 'Inbox', 'Trends', 'Assets', 'Calendar', 'Workbench']);
+    expect(labels(mainNav())).toEqual(['Home', 'Trends', 'Assets', 'Calendar', 'Workbench']);
     expect(within(mainNav()).queryByRole('group', { name: 'Studio' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^Account:/ }));
@@ -80,7 +80,7 @@ describe('One frame for every role', () => {
     openStudio('editor', { uiMode: 'classic' });
     const primary = await screen.findByRole('navigation', { name: 'Main' });
     await within(primary).findByRole('group', { name: 'Pipeline' });
-    expect(labels(primary)).toEqual(['Home', 'Inbox', 'Trends', 'Assets', 'Calendar', 'Workbench']);
+    expect(labels(primary)).toEqual(['Home', 'Trends', 'Assets', 'Calendar', 'Workbench']);
     fireEvent.click(within(primary).getByRole('button', { name: 'Workbench' }));
     expect(within(primary).queryByRole('button', { name: /^Settings/ })).not.toBeInTheDocument();
     // Research programs and Edit research program are for admins; an editor finds new trends from Trends.
@@ -98,9 +98,11 @@ describe('One frame for every role', () => {
     try {
       openStudio('admin');
       await screen.findByRole('heading', GREETING);
-      const studio = within(mainNav()).getByRole('group', { name: 'Studio' });
-      expect(labels(studio)).toEqual(['Brand knowledge', 'Analytics', 'People & access', 'Settings']); // this studio's api has no Prompts
-      fireEvent.click(within(studio).getByRole('button', { name: /^Brand knowledge/ }));
+      // One Studio setup row opens its first section, with the same section menu above every one of them.
+      fireEvent.click(within(mainNav()).getByRole('button', { name: /^Studio setup/ }));
+      const studio = await screen.findByRole('navigation', { name: 'Studio setup' });
+      expect(within(studio).getAllByRole('button').map((button) => button.textContent)).toEqual(['Brand knowledge', 'Analytics', 'People & access', 'Settings']); // this studio's api has no Prompts
+      expect(within(mainNav()).getByRole('button', { name: /^Studio setup/ })).toHaveAttribute('aria-current', 'page');
       expect(await screen.findByRole('tab', { name: 'Research brand profiles' })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: 'Brand knowledge' })).toBeInTheDocument();
       expect(await screen.findByRole('button', { name: /Save brand knowledge/ })).toBeInTheDocument();
@@ -131,9 +133,10 @@ describe('One frame for every role', () => {
   it('keeps Brand knowledge in Studio for an admin who used Advanced, with no Brand knowledge in Settings', async () => {
     openStudio('admin', { uiMode: 'classic' });
     const primary = await screen.findByRole('navigation', { name: 'Main' });
-    await within(primary).findByRole('group', { name: 'Studio' });
-    expect(labels(within(primary).getByRole('group', { name: 'Studio' }))).toContain('Brand knowledge');
-    fireEvent.click(within(primary).getByRole('button', { name: /^Settings/ }));
+    fireEvent.click(await within(primary).findByRole('button', { name: /^Studio setup/ }));
+    const setup = await screen.findByRole('navigation', { name: 'Studio setup' });
+    expect(within(setup).getByRole('button', { name: 'Brand knowledge' })).toBeInTheDocument();
+    fireEvent.click(within(setup).getByRole('button', { name: /^Settings/ }));
     const sections = await screen.findByRole('navigation', { name: 'Settings sections' });
     expect(within(sections).queryByRole('link', { name: /^Brand knowledge/ })).not.toBeInTheDocument();
   });
@@ -159,7 +162,7 @@ describe('One frame for every role', () => {
     openStudio('admin', { uiMode: 'classic' });
     const primary = await screen.findByRole('navigation', { name: 'Main' });
     await within(primary).findByRole('group', { name: 'Pipeline' });
-    expect(labels(primary)).toContain('Brand knowledge');
+    expect(labels(primary)).toContain('Studio setup');
     fireEvent.click(within(primary).getByRole('button', { name: /^Research programs/ }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Research programs' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Run “AI search pulse” now' })).toBeInTheDocument();
@@ -169,8 +172,8 @@ describe('One frame for every role', () => {
     expect(screen.getByRole('tab', { name: 'Name & focus', selected: true })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Schedule' })).toBeInTheDocument();
     expect(within(primary).getByRole('button', { name: /^Research programs/ })).toHaveAttribute('aria-current', 'page');
-    expect(labels(within(primary).getByRole('group', { name: 'Studio' }))).toEqual(['Brand knowledge', 'Analytics', 'People & access', 'Settings']);
-    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+    fireEvent.click(within(primary).getByRole('button', { name: /^Studio setup/ }));
+    expect(within(await screen.findByRole('navigation', { name: 'Studio setup' })).getAllByRole('button').map((button) => button.textContent)).toEqual(['Brand knowledge', 'Analytics', 'People & access', 'Settings']);
   });
 
   it('gives a channel owner the same sidebar shape: Inbox, a pipeline of Trends with a count, Assets and Calendar, and My channel', async () => {
@@ -233,7 +236,7 @@ describe('One frame for every role', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to Admin' }));
     await waitFor(() => expect(api.setViewAs).toHaveBeenCalledWith({ role: 'admin' }));
     await waitFor(() => expect(screen.queryByText(/Previewing what/)).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Studio setup/ })).toBeInTheDocument();
     expect(screen.queryByText(/Your role changed/)).not.toBeInTheDocument();
   });
 
@@ -296,7 +299,7 @@ describe('One sidebar, no layout switch', () => {
     const frame = document.querySelector('.studio-frame'); const sidebar = document.querySelector('.studio-sidebar');
     expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
     fireEvent.click(within(mainNav()).getByRole('button', { name: 'Workbench' }));
-    const tool = within(mainNav()).getByRole('button', { name: /^Sources/ });
+    const tool = within(mainNav()).getByRole('button', { name: /^Create content/ });
     tool.focus();
     fireEvent.click(tool);
     await waitFor(() => expect(frame).toHaveAttribute('data-mode', 'classic'));

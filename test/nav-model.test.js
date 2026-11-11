@@ -246,30 +246,37 @@ describe('buildNav: unified', () => {
   const unified = (viewer, over = {}) => buildNav({ viewer, layout: 'unified', state: state(), edition: 'semrush', ...over });
   const stage = (nav, id) => findNavItem(nav, id);
 
-  it('lists Home and Inbox, the pipeline (Research programs, Trends, Assets, Calendar), the Workbench and Studio, with no layout switch', () => {
+  it('lists Home, the pipeline (Research programs, Trends, Assets, Calendar), the Workbench and one Studio setup row, with no layout switch', () => {
     const nav = unified(admin(), { dataToolsOpen: true });
     expect(labels(nav)).toEqual([
-      ['top', ['Home', 'Inbox']], ['pipeline', ['Research programs', 'Trends', 'Assets', 'Calendar']],
-      ['data', ['Name & focus', 'Sources', 'Schedule & dates', 'Budgets & estimate', 'AI models', 'Automation', 'Advanced', 'Research & report prompts', 'Search platforms', 'Scrapers', 'Import research', 'Create content', 'Brief starters', 'Sheets', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Playbooks', 'Workflows', 'Activity']],
-      ['studio', ['Brand knowledge', 'Prompts', 'Channels', 'Analytics', 'People & access', 'Settings']],
+      ['top', ['Home']], ['pipeline', ['Research programs', 'Trends', 'Assets', 'Calendar']],
+      ['data', ['Search platforms', 'Scrapers', 'Import research', 'Create content', 'Brief starters', 'Sheets', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Playbooks', 'Workflows', 'Activity']],
+      ['studio', ['Studio setup']],
     ]);
+    // Studio setup's sections are pages of their own: its section menu lists them, and the palette and addresses find them.
+    expect(nav.setup.map((row) => row.label)).toEqual(['Brand knowledge', 'Prompts', 'Channels', 'Analytics', 'People & access', 'Settings']);
+    expect(findNavItem(nav, 'setup')).toMatchObject({ kind: 'setup', target: 'knowledge', spot: 'nav.setup' });
+    expect(findNavItem(nav, 'prompts')).toMatchObject({ kind: 'admin', target: 'prompts' });
+    // Inbox is on Home (Recent); its page is still found, and its unread count shows on Home.
+    expect(findNavItem(nav, 'inbox')).toMatchObject({ kind: 'simple', target: 'inbox' });
+    expect(findNavItem(unified(admin(), { inboxUnread: 3 }), 'home')).toMatchObject({ badge: 3, badgeLabel: '3 new in Recent' });
     expect(nav.groups.find((group) => group.id === 'pipeline')).toMatchObject({ label: 'Pipeline', pipeline: true });
     const workbench = nav.groups.find((group) => group.id === 'data');
     expect(workbench).toMatchObject({ label: 'Workbench', collapsible: true, open: true, spot: 'nav.data-tools' });
-    expect(workbench.subgroups.map((set) => set.label)).toEqual(['Edit research program', 'Collect', 'Create', 'Data', 'Automate', '']);
+    expect(workbench.subgroups.map((set) => set.label)).toEqual(['Collect', 'Create', 'Data', 'Automate', '']);
     // No stage carries tools: Trends has its own List | Board, and Assets holds every file.
     expect(PIPELINE.every((row) => stage(nav, row.id).children.length === 0)).toBe(true);
     expect(stage(nav, 'programs')).toMatchObject({ kind: 'simple', stage: true, target: 'programs', icon: 'Radar' });
     for (const gone of ['reports', 'board', 'research', 'library']) expect(findNavItem(nav, gone)).toBeNull();
-    // Each section of the program form opens the editor at that section; the prompts item opens Prompts.
-    expect(findNavItem(nav, 'program-sources')).toMatchObject({ kind: 'program', target: 'research', section: 'sources', spot: 'nav.program-sources' });
-    expect(findNavItem(nav, 'program-prompts')).toMatchObject({ kind: 'program', target: 'prompts', section: 'prompts' });
+    // A program is edited on its own page (program-page.jsx), so the Workbench doesn't list the form's sections.
+    expect(findNavItem(nav, 'program-sources')).toBeNull();
+    expect(findNavItem(nav, 'program-prompts')).toBeNull();
     expect(findNavItem(nav, 'create')).toMatchObject({ kind: 'studio', group: 'data' });
     expect(nav.footer.layouts).toEqual([]);
   });
 
   it('numbers ⌘1–9 down the top-level pages, never the Workbench', () => {
-    expect(unified(admin()).order.map((row) => `${row.id} ${row.shortcut}`)).toEqual(['home ⌘1', 'inbox ⌘2', 'programs ⌘3', 'trends ⌘4', 'assets ⌘5', 'calendar ⌘6', 'knowledge ⌘7', 'prompts ⌘8', 'channels ⌘9']);
+    expect(unified(admin()).order.map((row) => `${row.id} ${row.shortcut}`)).toEqual(['home ⌘1', 'programs ⌘2', 'trends ⌘3', 'assets ⌘4', 'calendar ⌘5', 'setup ⌘6']);
   });
 
   it('opens Dataset reports under its own id', () => {
@@ -286,7 +293,7 @@ describe('buildNav: unified', () => {
     expect(stage(nav, 'assets').live).toBe(false);
   });
 
-  it('follows the role: Research programs and Edit research program are for program managers, and Data tools hide their tools', () => {
+  it('follows the role: Research programs is for program managers, Studio setup lists what the role has, and Data tools hide their tools', () => {
     // An editor's nav (from the server) has no Research programs, and without Manage research programs there's no editor.
     const ed = unified(editor({ nav: { main: ['home', 'trends', 'assets', 'calendar', 'ask'], admin: ['prompts'], bottom: [] } }));
     expect(labels(ed).find(([id]) => id === 'pipeline')[1]).toEqual(['Trends', 'Assets', 'Calendar']);
@@ -296,10 +303,10 @@ describe('buildNav: unified', () => {
     expect(findNavItem(noData, 'datasets')).toBeNull();
     expect(findNavItem(noData, 'search')).toBeNull();
     expect(findNavItem(noData, 'create')).toBeNull();
-    // An admin whose studio hides Prompts keeps the form's sections but not the prompts item.
+    // An admin whose studio hides Prompts doesn't get that section in Studio setup.
     const noPrompts = unified(admin({ hiddenPages: ['prompts'] }));
-    expect(findNavItem(noPrompts, 'program-basics')).not.toBeNull();
-    expect(findNavItem(noPrompts, 'program-prompts')).toBeNull();
+    expect(noPrompts.setup.map((row) => row.id)).not.toContain('prompts');
+    expect(findNavItem(noPrompts, 'prompts')).toBeNull();
     // Without the Advanced pages there is no Workbench.
     const simpleOnly = unified(admin({ modes: ['simple'] }));
     expect(simpleOnly.groups.some((group) => group.id === 'data')).toBe(false);

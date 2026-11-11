@@ -647,12 +647,15 @@ function StudioApp({ api }) {
   }
   // A page from the nav model (the sidebar, ⌘1–9, the palette), in whichever layout it belongs to: a Simple page closes
   // any open Advanced page, and an Advanced one opens in place.
+  const lastSetup = useRef('');
   function openNavItem(row) {
     if (!row) return;
     if (row.kind === 'channel') { goChannel(row.target); return; }
     // The Simple page already open, pressed again: SimpleMode goes back to its top (out of a report or a folder), asking first.
     if (row.kind === 'simple' && !peek && mode === 'simple' && row.target === simpleTabRef.current) { if (guard.confirmLeave()) setSimpleReopen((value) => value + 1); return; }
     if (row.kind === 'simple') { goSimple(row.target); return; }
+    // Studio setup opens the section this person was last on, else its first.
+    if (row.kind === 'setup') { const sections = list(row.children); openNavItem(sections.find((section) => section.id === lastSetup.current) || sections[0]); return; }
     if (row.kind === 'admin') { openAdminPage(row.target); return; }
     if (row.kind === 'settings') { openSettings(); return; }
     if (row.kind === 'program') { openProgramSection(row.section); return; }
@@ -1457,7 +1460,10 @@ function StudioApp({ api }) {
   // Advanced pages by their unified ids: a studio view (either edition), Dataset reports ('reports' is Simple's Reports).
   // The research program editor is Workbench → Edit research program: the section last opened is the current item; a
   // program's runs and results (Ask AI, See why, an Inbox row) belong to Research programs.
-  const activeNavId = mode === 'channel' ? channelTab : mode === 'simple' ? simpleTab : active === 'content-studio' ? (studioView === 'research' ? (programSection ? `program-${programSection}` : 'programs') : studioView) : active === 'marketing-template' ? 'templates' : active === 'reports' ? 'dataset-reports' : active;
+  const setupIds = list(nav.setup).map((row) => row.id);
+  const shownNavId = mode === 'channel' ? channelTab : mode === 'simple' ? simpleTab : active === 'content-studio' ? (studioView === 'research' ? (programSection ? `program-${programSection}` : 'programs') : studioView) : active === 'marketing-template' ? 'templates' : active === 'reports' ? 'dataset-reports' : active;
+  if (setupIds.includes(shownNavId)) lastSetup.current = shownNavId;
+  const activeNavId = setupIds.includes(shownNavId) ? 'setup' : shownNavId === 'inbox' && !nav.groups.some((group) => group.items.some((row) => row.id === 'inbox')) ? 'home' : shownNavId;
   keysRef.current = { mode, order: nav.order, openNavItem, settingsAllowed, openSettings, canAsk: Boolean(nav.actions.ask), toggleAsk, canRail: !narrow, toggleRail, canCreate: nav.actions.create.length > 0, openNew: openNewMenu };
   // Share links (#/report/…, #/trend/…, #/assets/…, #/prompt/…), opened once the studio has loaded and this person has a
   // role (a link opened while signed out was kept through sign-in by web/main.jsx). Someone without a role keeps the link
@@ -1544,7 +1550,7 @@ function StudioApp({ api }) {
           : <ChannelTrends api={api} view={channelView} viewer={viewer} busy={busy} action={runAction} imagesReady={studioState.capabilities?.imagesConfigured ?? true} onOpenAssets={(themeId) => goChannel('assets', themeId || '')} onPrefs={(patch) => Promise.resolve(api.setViewPrefs?.(patch)).catch(() => null)} onToast={setNotice} linkOrigin={linkOrigin} focusThemeId={channelTrendFocus} />}</ErrorBoundary>
     </main>
     : mode === 'simple'
-      ? <ErrorBoundary page resetKey={`simple:${simpleTab}`}><SimpleMode key={`simple-${roleEpoch}`} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onNavSpot={revealNav} spotRoot={() => frameRef.current} shellRequest={shellRequest} onOpenSheets={(workbookId) => openClassicPage('sheets', workbookId ? { workbookId } : {})} onOpenTarget={openTarget} onOpenPrompt={openPrompt} linkOrigin={linkOrigin} shellNav={simpleShellNav} reopenKey={simpleReopen} onRouteDetail={setSimpleDetail} setupPages={nav.groups.find((group) => group.id === 'studio')?.items || []} onOpenSetup={openNavItem} /></ErrorBoundary>
+      ? <ErrorBoundary page resetKey={`simple:${simpleTab}`}><SimpleMode key={`simple-${roleEpoch}`} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onNavSpot={revealNav} spotRoot={() => frameRef.current} shellRequest={shellRequest} onOpenSheets={(workbookId) => openClassicPage('sheets', workbookId ? { workbookId } : {})} onOpenTarget={openTarget} onOpenPrompt={openPrompt} linkOrigin={linkOrigin} shellNav={simpleShellNav} reopenKey={simpleReopen} onRouteDetail={setSimpleDetail} setupPages={nav.setup} onOpenSetup={openNavItem} /></ErrorBoundary>
       : <main className="workspace" key={`classic-${roleEpoch}`}>
         <Header title={classicTitle} workspaceName={contentWorkspace?.name || (web ? 'Shared studio' : 'Workspace')} busy={busy} background={backgroundLabels} onRefresh={() => runAction(refresh)} />
         <div className={`content${active === 'sheets' ? ' content-fill' : active === 'chat' ? ' content-fit' : ''}`} ref={contentRef}>
