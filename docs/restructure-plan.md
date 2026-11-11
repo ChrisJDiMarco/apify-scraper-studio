@@ -203,3 +203,24 @@ A second reader checked this plan against the code. What changed, all my calls:
   (an admin can turn that permission off per role in People & access › Roles; no new setting was added); the single
   page frame (same left edge and title size everywhere) is not done. The older program editor and the classic
   Research programs page are still in the code, reached only from a run's row and from Ask AI's program drafts.
+- **Step 10, guide and tours: done for what has changed.** `docs/app-guide.md` describes the trend page, the program
+  page, All files, Studio setup, the channels table, Home's order and Recent, the Calendar grid and the new sidebar,
+  and stays under its size limit (some older passages were tightened to make room). Ask AI's "Show me" spots: the
+  eight Workbench program links are gone, a Studio setup spot is added, the six setup sections are pointed at in the
+  section menu (their page opens first) and the Inbox spot points at Open Inbox on Home. The prompt goldens did not
+  change. Not verified: a real "Show me" tour to one of the moved spots (the sandbox blocks AI calls). From a
+  Workbench page such a step opens the section and the tour ends there.
+- **Step 7, docked Ask AI and the Activity panel: not started.** Ask AI is still a page in the studio frame and a
+  drawer beside Workbench pages, and opening a studio page from that drawer closes it.
+- Two tests failed once each under a full run and pass alone (`ask-store` message cap, `studio-owner-lock` heartbeat);
+  both are timing-sensitive server tests, unrelated to this work.
+
+## Still open after this pass
+
+1. Docked Ask AI (one instance for every layout) and Activity as a panel.
+2. One page frame: the same left edge and title size on every page.
+3. Trends: the shared card and stage chips with counts in place of the List sections.
+4. Assets: All files as the default view, and whether to rename the page.
+5. Retire what the new pages replaced: Home's quick-edit drawer, the classic Research programs page and program
+   editor (still reached from a run's Open and from Ask AI's program drafts), and the Assets trend-folder layout.
+6. A channel's prompts and adoption numbers on its own page.

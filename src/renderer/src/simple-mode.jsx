@@ -262,6 +262,11 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   // Sidebar controls (nav.*) sit in a drawer below 860px, so App opens it for those steps and closes it after.
   async function prepareSpot(step) {
     const spot = spotFor(step.target); if (!spot) return;
+    // A Studio setup section is pointed at in the section menu above it, so its page opens first; the Inbox's way in is
+    // Home's Recent. Neither is a sidebar row any more (someone with one section still has it as a row, handled below).
+    const section = list(setupPages).find((row) => row.spot === spot.id);
+    if (section) { onNavSpot?.(false, spot.id); if (tab !== section.id) onOpenSetup?.(section); return; }
+    if (spot.id === 'nav.inbox' && tabs.includes('home')) { onNavSpot?.(false, spot.id); go('home'); return; }
     const inSidebar = spot.id.startsWith('nav.') || String(spot.selector || '').includes('"nav.');
     onNavSpot?.(inSidebar, spot.id);
     if (inSidebar) return;
@@ -346,7 +351,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   // keeps its own address and content; this puts the same section menu above all of them (the ones this role has).
   const inSetup = list(setupPages).length > 1 && list(setupPages).some((row) => row.id === tab);
   const setup = (content) => (inSetup ? <div className="setup-frame"><nav className="setup-nav" aria-label="Studio setup" data-spot="setup.nav"><span className="setup-nav-title">Studio setup</span>
-    <div className="setup-nav-items">{list(setupPages).map((row) => <button type="button" key={row.id} aria-current={row.id === tab ? 'page' : undefined} onClick={() => { if (row.id !== tab) onOpenSetup?.(row); }}>{row.label}{row.warn && <span className="setup-nav-warn" role="img" aria-label={row.warnLabel || 'Needs attention'} />}</button>)}</div></nav>{content}</div> : content);
+    <div className="setup-nav-items">{list(setupPages).map((row) => <button type="button" key={row.id} data-spot={row.spot} aria-current={row.id === tab ? 'page' : undefined} onClick={() => { if (row.id !== tab) onOpenSetup?.(row); }}>{row.label}{row.warn && <span className="setup-nav-warn" role="img" aria-label={row.warnLabel || 'Needs attention'} />}</button>)}</div></nav>{content}</div> : content);
   const spotlight = tour && !loading ? <Spotlight key={tour.key} steps={tour.steps} onPrepare={prepareSpot} onClose={() => { setTour(null); onNavSpot?.(false); }} onBackToChat={() => { setTour(null); onNavSpot?.(false); go('ask'); }} /> : null;
   // The spotlight sits on the frame, not in this column, so it stays usable while the sidebar drawer is open.
   const spotHost = spotlight && typeof spotRoot === 'function' ? spotRoot() : null;

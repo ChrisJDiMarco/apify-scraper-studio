@@ -1071,6 +1071,10 @@ function StudioApp({ api }) {
   // that page; spots on an Advanced page (`page`: the Library, Sheets) open that page.
   async function prepareClassicSpot(step) {
     const spot = spotFor(step?.target); if (!spot) return;
+    // A Studio setup section and the Inbox aren't sidebar rows: open the section (its menu names it) or Home.
+    const section = list(nav.setup).find((row) => row.spot === spot.id);
+    if (section) { openNavItem(section); return; }
+    if (spot.id === 'nav.inbox' && simpleAllowed('home')) { goSimple('home'); return; }
     const inSidebar = spot.id.startsWith('nav.') || String(spot.selector || '').includes('"nav.');
     if (narrow) setDrawerOpen(inSidebar);
     if (inSidebar) revealNavSpot(spot.id);
