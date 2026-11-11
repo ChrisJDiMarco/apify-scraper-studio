@@ -259,7 +259,7 @@ describe('View as an editor shows what an editor sees', () => {
     seen.subhead = screen.getByRole('heading', { level: 1, name: 'Trends' }).parentElement.querySelector('p').textContent;
     for (const name of [/Yes, use it/, /^Skip /, /Find new trends/]) seen[String(name)] = states(name); // Skip is named after its trend
     fireEvent.click(main().getByRole('button', { name: /^Trends/ })); // a trend's reports open from its card on Trends
-    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') })).find((button) => button.matches('[data-spot="trends.ready-card"]') || /read the report$/.test(button.getAttribute('aria-label') || '')));
     await screen.findByText(/Original text/);
     for (const name of ['Edit', 'Make channel assets', 'Ask AI about this']) seen[name] = states(name);
     return seen;
@@ -340,7 +340,7 @@ describe('Simple reader', () => {
     await screen.findByRole('heading', GREETING);
     const main = () => within(screen.getByRole('navigation', { name: 'Main' }));
     fireEvent.click(main().getByRole('button', { name: /^Trends/ })); // a trend's reports open from its card on Trends
-    fireEvent.click((await screen.findAllByRole('button', { name: ROW('AI Overviews eat clicks') }))[0]); // the newest of two runs
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('AI Overviews eat clicks') })).find((button) => button.matches('[data-spot="trends.ready-card"]') || /read the report$/.test(button.getAttribute('aria-label') || ''))); // the newest of two runs
     expect(await screen.findByText('Original text.')).toBeInTheDocument();
     expect(screen.getByText('Used by Semrush Blog')).toBeInTheDocument();
     const uses = screen.getByRole('region', { name: 'Where it’s used' });
@@ -375,7 +375,7 @@ describe('Simple reader', () => {
     const { server, push } = openStudio('admin', { api: { readStudioAsset, editStudioAsset } });
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^Trends/ })); // a trend's reports open from its card on Trends
-    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') })).find((button) => button.matches('[data-spot="trends.ready-card"]') || /read the report$/.test(button.getAttribute('aria-label') || '')));
     expect(await screen.findByText('Original text.')).toBeInTheDocument();
     const id = reads[0];
     // Riley's save reaches this screen as a state push. Opening the editor before the text is read again still starts
@@ -406,7 +406,7 @@ describe('Simple reader', () => {
     const { server, push } = openStudio('editor', { api: { readStudioAsset } });
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^Trends/ })); // a trend's reports open from its card on Trends
-    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') })).find((button) => button.matches('[data-spot="trends.ready-card"]') || /read the report$/.test(button.getAttribute('aria-label') || '')));
     expect(await screen.findByText('Original text.')).toBeInTheDocument();
     const id = readStudioAsset.mock.calls[0][0].assetId;
     version = 1;
@@ -420,7 +420,7 @@ describe('Simple reader', () => {
     const { api, server, push } = openStudio('editor');
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^Trends/ })); // a trend's reports open from its card on Trends
-    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('Local packs shrink') })).find((button) => button.matches('[data-spot="trends.ready-card"]') || /read the report$/.test(button.getAttribute('aria-label') || '')));
     await screen.findByText('Original text.');
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     await typeInto(/^Text of /, ' Half-written edit…');
@@ -444,7 +444,7 @@ describe('Simple reader', () => {
     openStudio('editor');
     await screen.findByRole('heading', GREETING);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: /^Trends/ })); // a trend's reports open from its card on Trends
-    fireEvent.click((await screen.findAllByRole('button', { name: ROW('AI Overviews eat clicks') }))[0]);
+    fireEvent.click((await screen.findAllByRole('button', { name: ROW('AI Overviews eat clicks') })).find((button) => button.matches('[data-spot="trends.ready-card"]') || /read the report$/.test(button.getAttribute('aria-label') || '')));
     expect(await screen.findByText('Original text.')).toBeInTheDocument();
     expect(screen.getByText('Used by Semrush Blog')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Where it’s used' })).getByText(/Semrush Blog/)).toBeInTheDocument();

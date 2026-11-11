@@ -19,12 +19,28 @@ const STASH_MS = 30 * 60 * 1000;
 export function parseHash(hash) {
   const settings = String(hash || '').match(/^#\/?settings(?:\/([a-z0-9-]{1,40}))?\/?$/);
   if (settings) return { kind: 'settings', id: settings[1] || '' };
+  const trend = parseTrend(hash);
+  if (trend) return trend;
   const match = String(hash || '').match(/^#\/(report|trend|assets|prompt)\/([^/?#]+)\/?$/);
   if (!match) return null;
   let id = '';
   try { id = decodeURIComponent(match[2]).trim(); } catch { return null; }
   return ID.test(id) ? { kind: match[1], id } : null;
 }
+
+// A trend's page: #/trend/<themeId>, #/trend/<themeId>/<tab> and ?run=<researchRunId> (a recurring trend has a card in
+// every run that found it). { kind: 'trend', id, tab?, run? }. A bare #/trend/<id> is the share link people already
+// have: it has neither, and opens the trend where it can be acted on (its report when it has one, else Trends).
+export const TREND_TABS = Object.freeze(['overview', 'report', 'toolkit', 'assets']);
+function parseTrend(hash) {
+  const match = String(hash || '').match(/^#\/trend\/([^/?#]+)(?:\/([a-z]+))?\/?(?:\?([^#]*))?$/);
+  if (!match || (!match[2] && match[3] === undefined)) return null;
+  let id = ''; let run = '';
+  try { id = decodeURIComponent(match[1]).trim(); run = new URLSearchParams(match[3] || '').get('run') || ''; } catch { return null; }
+  if (!ID.test(id) || (match[2] && !TREND_TABS.includes(match[2]))) return null;
+  return { kind: 'trend', id, ...(match[2] ? { tab: match[2] } : {}), ...(run && ID.test(run) ? { run } : {}) };
+}
+const trendHash = (route) => `#/trend/${encodeURIComponent(route.id)}${route.tab && TREND_TABS.includes(route.tab) ? `/${route.tab}` : ''}${route.run && ID.test(route.run) ? `?run=${encodeURIComponent(route.run)}` : ''}`;
 
 // Page addresses: every page has one, and App keeps it in the address bar as people move (useRoutes), so a link to any
 // page can be sent and Back and Forward move between pages. { kind: 'page', page, id?, section?, program? }:
@@ -60,6 +76,7 @@ export function parseRoute(hash) {
 // The address for a route, '' when it has none.
 export function hashForRoute(route) {
   if (!route?.kind) return '';
+  if (route.kind === 'trend') return ID.test(String(route.id || '')) ? trendHash(route) : '';
   if (route.kind !== 'page') return LINK_KINDS.includes(route.kind) && validId(route.kind, route.id) ? hashFor(route.kind, route.id ?? '') : '';
   const id = String(route.id || '');
   if (route.page === 'program') return ID.test(id) ? (route.section && PAGE_ID.test(route.section) ? `#/programs/${encodeURIComponent(id)}/edit/${route.section}` : `#/programs/${encodeURIComponent(id)}`) : '#/programs';
@@ -195,7 +212,7 @@ function safeStorage(win = typeof window !== 'undefined' ? window : null) {
 // sourceKey), a prompt or a Settings section.
 export function deepLinkTarget(link) {
   if (!link || !LINK_KINDS.includes(link.kind)) return null;
-  return { report: { kind: 'report', id: link.id, page: 'trends' }, trend: { kind: 'trend', id: link.id, page: 'trends' }, assets: { kind: 'folder', id: link.id, page: 'assets' }, prompt: { kind: 'prompt', id: link.id, page: 'prompts' }, settings: { kind: 'page', page: 'settings', section: link.id || '' } }[link.kind];
+  return { report: { kind: 'report', id: link.id, page: 'trends' }, trend: { kind: 'trend', id: link.id, page: 'trends', ...(link.tab ? { tab: link.tab } : {}), ...(link.run ? { runId: link.run } : {}) }, assets: { kind: 'folder', id: link.id, page: 'assets' }, prompt: { kind: 'prompt', id: link.id, page: 'prompts' }, settings: { kind: 'page', page: 'settings', section: link.id || '' } }[link.kind];
 }
 
 // Plain words for the toast after Copy link.

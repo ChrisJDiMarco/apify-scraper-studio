@@ -40,7 +40,7 @@ function openStudio({ uiMode = 'classic', api: extra = {} } = {}) {
 const createFromTrend = async () => {
   side('trends');
   await h1('Trends');
-  fireEvent.click((await screen.findAllByRole('button', { name: /^AI Overviews eat clicks/ }))[0]);
+  fireEvent.click((await screen.findAllByRole('button', { name: /^AI Overviews eat clicks/ })).find((button) => button.matches('[data-spot="trends.ready-card"]') || /read the report$/.test(button.getAttribute('aria-label') || '')));
   fireEvent.click(await screen.findByRole('button', { name: 'Create content' }));
 };
 

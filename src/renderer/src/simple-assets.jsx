@@ -61,7 +61,9 @@ function jobLine(job, asset, live = true) {
 // runs every set files under Other sources. `workspace` (optional) gives the editor's brand check its Claims to avoid.
 // The person's own channels (prefs.focusChannels, from My channels) open first in a set and are pre-ticked in Make
 // channel assets.
-export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, themes = [], programs = [], editionId = '', adoptionsByTheme = {}, kitRuns, assets, studioImages, sources, request, onRequestDone, cache, onCache, action, busy, imagesReady, googleReady, askAdmin = 'an admin', onDraft, onAsk, onSettings, onOpenReport, onOpenTrends, onViewChange, workspace = null, promptChanges = [] }) {
+export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, themes = [], programs = [], editionId = '', adoptionsByTheme = {}, kitRuns, assets, studioImages, sources, request, onRequestDone, cache, onCache, action, busy, imagesReady, googleReady, askAdmin = 'an admin', onDraft, onAsk, onSettings, onOpenReport, onOpenTrends, onViewChange, workspace = null, promptChanges = [], embedded = null }) {
+  // `embedded` ({ reportAssetId }): a trend's channel assets inside its page (trend-page.jsx): this opens on that trend's
+  // folder and stays there, without the page title, Back, folder path or the documents list (the trend page has those).
   const can = useCan();
   const viewer = useViewer();
   const focus = list(viewer.prefs?.focusChannels);
@@ -73,7 +75,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
   const picturesOff = `Pictures are off for your team. ${askAdmin} can turn them on.`;
   // node: the folder page open; key: a folder asked for by its sourceKey or node id (resolved when it exists, so a set
   // that was just started opens as soon as it arrives); runId: the set to show inside it.
-  const [place, setPlace] = useState({ node: '', key: '', reportAssetId: '', runId: '' });
+  const [place, setPlace] = useState({ node: '', key: '', reportAssetId: embedded?.reportAssetId || '', runId: '' });
   const [creating, setCreating] = useState(null);
   const [reading, setReading] = useState(null); // a written asset open in the viewer
   // Ask AI's pictures, read again whenever Ask AI makes one (help-images.js), even while it draws behind this page.
@@ -243,6 +245,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
       {canMake && onAgain && <button type="button" className="simple-primary" disabled={busy} onClick={onAgain}>Make channel assets<ArrowRight size={15} aria-hidden="true" /></button>}
     </div>);
 
+  if (embedded && current?.type !== 'trend') return <><div className="simple-kit-intro"><div><strong>No channel assets yet</strong><p>Once this trend’s report is written, the assets made from it are filed here by channel team.</p></div></div>{overlays}</>;
   // A research run: a folder per trend it reported.
   if (current?.type === 'research-run') return <>
     <div className="simple-page">
@@ -267,12 +270,13 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
     const pictures = galleryOf(`pictures:${current.id}`);
     return <>
       <div className="simple-page simple-kit-page">
-        {head(current.title, folderSummary(current), canMake && again && <button type="button" data-spot="kit.again" className="simple-primary" disabled={busy} onClick={again}><Sparkles size={15} aria-hidden="true" />{runs.length ? 'Make another set' : 'Make channel assets'}</button>)}
-        <section className="simple-section" aria-labelledby="simple-trend-docs">
+        {embedded ? (canMake && again && <button type="button" data-spot="kit.again" className="simple-primary" disabled={busy} onClick={again}><Sparkles size={15} aria-hidden="true" />{runs.length ? 'Make another set' : 'Make channel assets'}</button>) && <div className="simple-head-actions simple-embed-actions">{canMake && again && <button type="button" data-spot="kit.again" className="simple-primary" disabled={busy} onClick={again}><Sparkles size={15} aria-hidden="true" />{runs.length ? 'Make another set' : 'Make channel assets'}</button>}</div>
+          : head(current.title, folderSummary(current), canMake && again && <button type="button" data-spot="kit.again" className="simple-primary" disabled={busy} onClick={again}><Sparkles size={15} aria-hidden="true" />{runs.length ? 'Make another set' : 'Make channel assets'}</button>)}
+        {!embedded && <section className="simple-section" aria-labelledby="simple-trend-docs">
           <div className="simple-section-head"><h2 id="simple-trend-docs">Trends report &amp; toolkit</h2>{list(current.meta.usedBy).length > 0 && <small className="simple-section-note">Used by {current.meta.usedBy.map((row) => row.name).join(', ')}</small>}</div>
           {docs.length ? <div className="simple-report-list">{docs.map((item) => { const stage = statusOf(assets.find((asset) => asset.id === item.id) || item.asset); return <button type="button" key={item.key} {...(item.id === reportId ? { 'data-spot': 'kit.report' } : {})} onClick={() => onOpenReport(item.id)}><span className="simple-doc-icon"><FileText size={18} aria-hidden="true" /></span><span><strong>{TYPE_LABEL[item.type]}</strong><small>{[cleanTitle(item.title) !== current.title ? item.title : '', item.createdAt ? formatDate(item.createdAt) : '', item.edited ? 'Edited' : '', stage !== 'draft' ? statusLabel(stage) : ''].filter(Boolean).join(' · ')}</small></span><ArrowRight size={16} aria-hidden="true" /></button>; })}</div>
             : <div className="simple-empty"><p>{current.live ? 'The report is being written. It opens here when it’s ready.' : 'This trend’s report wasn’t written.'}</p></div>}
-        </section>
+        </section>}
         <section className="simple-section" aria-labelledby="simple-trend-kits">
           <div className="simple-section-head"><h2 id="simple-trend-kits">Channel assets</h2>{runs.length > 0 && <small className="simple-section-note">A folder per set, split by channel team</small>}</div>
           {sets(runs, { onAgain: again })}

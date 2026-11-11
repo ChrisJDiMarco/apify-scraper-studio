@@ -292,7 +292,7 @@ function StudioApp({ api }) {
   const [simpleTab, setSimpleTab] = useState('home');
   const [simpleReopen, setSimpleReopen] = useState(0); // bumps when the open Simple page is pressed again
   // What a Simple page has open, for its address: { report, folder, program } (SimpleMode reports it).
-  const [simpleDetail, setSimpleDetail] = useState({ report: '', folder: '', program: '' });
+  const [simpleDetail, setSimpleDetail] = useState({ report: '', folder: '', program: '', trend: '', trendTab: '', trendRun: '' });
   const [channelTab, setChannelTab] = useState('trends');
   const [channelFocus, setChannelFocus] = useState('');
   const [channelCache, setChannelCache] = useState({});
@@ -819,6 +819,12 @@ function StudioApp({ api }) {
       const exact = target.runId ? cards.find((row) => row.runId === target.runId) : null;
       const waitingCard = can('decideResearchTheme') ? cards.find((row) => row.canDecide && row.stage === 'potential') : null;
       const card = exact || waitingCard || cards.find((row) => list(row.reportAssets).length) || cards[0] || null;
+      // An address that names a tab (#/trend/<id>/overview) is the trend's page (trend-page.jsx) at that tab.
+      if (card && target.tab && simpleAllowed('trends') && guard.confirmLeave()) {
+        setShellRequest({ key: Date.now(), kind: 'trend', themeId: id, runId: card.runId, tab: target.tab });
+        withViewTransition(() => { setPeek(false); setSimpleTab('trends'); });
+        return;
+      }
       const reportAssets = card?.stage === 'ready' || card?.stage === 'production' ? list(card.reportAssets) : [];
       const report = reportAssets.find((asset) => asset.deliverableId === 'evidence-report') || reportAssets[0];
       if (report && list(studioState.assets).some((asset) => asset.id === report.id) && simpleAllowed('trends')) { openReport(report.id); return; }
@@ -977,6 +983,7 @@ function StudioApp({ api }) {
   function screenRoute() {
     if (mode === 'channel') return { kind: 'page', page: ['assets', 'plan', 'inbox', 'ask', 'mychannel'].includes(channelTab) ? channelTab : 'trends' };
     if (mode === 'simple') {
+      if (simpleTab === 'trends' && simpleDetail.trend) return { kind: 'trend', id: simpleDetail.trend, tab: simpleDetail.trendTab || 'overview', run: simpleDetail.trendRun || '' };
       if (simpleDetail.report) return { kind: 'report', id: simpleDetail.report };
       if (simpleTab === 'assets' && simpleDetail.folder) return { kind: 'assets', id: simpleDetail.folder };
       if (simpleTab === 'settings') return { kind: 'settings', id: settingsRequest?.section || '' };

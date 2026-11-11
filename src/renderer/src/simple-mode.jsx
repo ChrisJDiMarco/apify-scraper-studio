@@ -10,8 +10,10 @@ import { DecidedBy, MOMENTUM_COPY, MomentumBadge, WhyItMatters, decisionOf } fro
 import { TrendYesButton, channelLabel, fitsFor, routingChannels } from './trend-decision-sheet.jsx';
 import { WeeklyBriefing } from './weekly-briefing.jsx';
 import { ProgramsPage } from './programs-page.jsx';
+import { TrendPage, tabOfDoc } from './trend-page.jsx';
+import { cardForTheme, stageOf } from './trend-stage.js';
 import { MondayChip, MondayStatusLine } from './monday-ui.jsx';
-import { linkFor, shareOrigin } from './deep-links.js';
+import { LINK_COPIED, linkFor, shareOrigin } from './deep-links.js';
 import { copyText, useToast } from './role-screens.jsx';
 import { useAnnouncingApi } from './help-images.js';
 import { defaultProgram, lastProgramId, readChoice, rememberProgram, saveChoice } from './choices.js';
@@ -111,6 +113,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const [seed, setSeed] = useState(null);
   const [reportId, setReportId] = useState('');
   const [reportTab, setReportTab] = useState('trends'); // the page the open report is read on: 'trends' or 'assets'
+  const [trendOpen, setTrendOpen] = useState(null); // the trend page open on Trends: { themeId, runId, tab }
   const [tour, setTour] = useState(null); // an Ask AI "Show me" in progress
   const [lastTab, setLastTab] = useState('home'); // where the person was before Ask AI, for its context
   const [assetFolder, setAssetFolder] = useState(''); // the Assets folder open, for Ask AI's context
@@ -135,10 +138,10 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   useEffect(() => { if (tab !== 'ask') setLastTab(tab); }, [tab]);
   // Leaving the page a report is read on (other than for Ask AI, which keeps the report as its context) closes the reader,
   // so every way back (the sidebar, an Inbox or Next up page link) opens the page itself. Opening a report sets it again.
-  useEffect(() => { if (tab !== reportTab && tab !== 'ask') setReportId(''); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tab !== reportTab && tab !== 'ask') setReportId(''); if (tab !== 'trends' && tab !== 'ask') setTrendOpen(null); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   // The sidebar pressed for the page already open (`reopenKey`, from App): back to the page itself, out of a report or a
   // folder, as pressing a page in any app does.
-  useEffect(() => { if (!reopenKey) return; setReportId(''); if (tab === 'assets') setAssetRequest({ key: Date.now(), open: 'home' }); }, [reopenKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!reopenKey) return; setReportId(''); setTrendOpen(null); if (tab === 'assets') setAssetRequest({ key: Date.now(), open: 'home' }); }, [reopenKey]); // eslint-disable-line react-hooks/exhaustive-deps
   function ask(text, context = '', extra = {}) { setSeed({ text, context, ...(Array.isArray(extra?.attachments) ? { attachments: extra.attachments } : {}), key: Date.now() }); go('ask'); }
   function draftAsk(text) { setSeed({ draft: text, key: Date.now() }); go('ask'); }
   // Images load once and stay cached for the session, so returning to Assets is instant.
@@ -155,8 +158,13 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   function openFolderKey(folderKey, runId = '') { setReportId(''); setAssetRequest({ key: Date.now(), open: 'folder', folderKey, ...(runId ? { runId } : {}) }); go('assets'); }
   function openFolder(folder) { openFolderKey(folder.key); }
   // `home` is where to read it; without one, a trend's documents open on Trends and everything else on Assets.
+  // A trend's page (trend-page.jsx), on Trends: its overview, or the tab asked for.
+  function openTrend(card, trendTab = 'overview') { if (!card?.themeId) return; setReportId(''); withViewTransition(() => setTrendOpen({ themeId: card.themeId, runId: card.runId || '', tab: trendTab })); go('trends'); }
   function openReport(id, home = '') {
     const asset = list(studio.assets).find((row) => row.id === id);
+    // A trend's report and toolkit are tabs of that trend's page.
+    const owner = TREND_DOCS.has(asset?.deliverableId) && tabs.includes('trends') ? board.cards.find((card) => list(card.reportAssets).some((row) => row.id === id)) : null;
+    if (owner) { openTrend(owner, tabOfDoc(asset)); return; }
     const where = home || (TREND_DOCS.has(asset?.deliverableId) && tabs.includes('trends') ? 'trends' : 'assets');
     setReportTab(where); setReportId(id); go(where);
   }
@@ -207,7 +215,15 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const inProgram = (row) => !shownProgram || row.programId === shownProgram;
   // What this page has open, for its address (App's useRoutes): the report being read, the Assets folder, Trends' program.
   const readingId = reportId && tab === reportTab ? reportId : '';
-  useEffect(() => { onRouteDetail?.({ report: readingId, folder: tab === 'assets' && !readingId ? assetFolderKey : '', program: shownProgram }); }, [readingId, tab, assetFolderKey, shownProgram]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The trend page open. A trend that leaves the board while its page is open (the workspace was switched) stays on
+  // screen as it was, as an open report always has, so an edit in progress is never thrown away; Back closes it.
+  const lastTrendCard = useRef(null);
+  const liveTrendCard = trendOpen && tab === 'trends' ? cardForTheme(board.cards, trendOpen.themeId, trendOpen.runId) : null;
+  if (liveTrendCard) lastTrendCard.current = liveTrendCard;
+  const trendCard = liveTrendCard || (trendOpen && tab === 'trends' && lastTrendCard.current?.themeId === trendOpen.themeId ? lastTrendCard.current : null);
+  const trendRuns = trendCard ? board.cards.filter((card) => card.themeId === trendCard.themeId) : [];
+  const trendTab = trendCard ? trendOpen.tab || 'overview' : '';
+  useEffect(() => { onRouteDetail?.({ report: readingId, folder: tab === 'assets' && !readingId ? assetFolderKey : '', program: shownProgram, trend: trendCard?.themeId || '', trendTab, trendRun: trendCard && trendRuns.length > 1 ? trendCard.runId : '' }); }, [readingId, tab, assetFolderKey, shownProgram, trendCard?.themeId, trendCard?.runId, trendTab, trendRuns.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const programBoard = useMemo(() => (shownProgram ? { ...board, cards: board.cards.filter(inProgram), scouting: board.scouting.filter(inProgram), columns: Object.fromEntries(Object.entries(board.columns).map(([stage, cards]) => [stage, list(cards).filter(inProgram)])) } : board), [board, shownProgram]); // eslint-disable-line react-hooks/exhaustive-deps
   const retryRun = can('retryStudioRun') ? (runId) => Promise.resolve().then(() => runAiAction({ kind: 'retry-run', runId })).then((result) => { if (typeof result === 'string') onNotice?.(result); }, (failure) => onNotice?.(failure?.message || 'That run couldn’t be tried again.')) : undefined;
   // "Yes, with a note…": the sheet waits for the save and shows a refusal itself.
@@ -272,6 +288,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     else if (shellRequest.kind === 'ask' && shellRequest.text) ask(shellRequest.text, shellRequest.context || '', { attachments: shellRequest.attachments });
     else if (shellRequest.kind === 'ask' && shellRequest.draft) draftAsk(shellRequest.draft);
     else if (shellRequest.kind === 'trends') setTrendProgram(shellRequest.program || '');
+    else if (shellRequest.kind === 'trend') { const card = cardForTheme(board.cards, shellRequest.themeId, shellRequest.runId || ''); if (card) openTrend(card, shellRequest.tab || 'overview'); else go('trends'); }
     else if (shellRequest.kind === 'assets') { if (shellRequest.source || shellRequest.creator) makeAssetsInAssets(shellRequest.source); else if (shellRequest.folderKey) openFolderKey(shellRequest.folderKey, shellRequest.runId || ''); else go('assets'); }
   }, [shellRequest?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const studioImages = list(studio.assets).filter(mine).filter((asset) => asset.kind === 'image' || asset.kind === 'video');
@@ -293,6 +310,30 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   // Real posts on a trend card are free (readTrendPosts reads saved research), for roles that read research.
   const postsApi = typeof api.readTrendPosts === 'function' && can('readTrendPosts') ? api : null;
   const onAsk = can('askHelp') && api.askHelp ? ask : null;
+  // Assets, as its own page and (`extra.embedded`) as a trend's Channel assets tab.
+  const assetsView = (extra = {}) => <SimpleAssets api={api} web={web} tree={libraryTree} programs={programs} editionId={workspace?.editionId || 'general'} contentRuns={list(studio.contentRuns).filter(mine)} kitRuns={kitRuns} assets={list(studio.assets).filter(mine)} studioImages={studioImages} sources={kitSourcesFrom(reports, list(studio.contentRuns).filter(mine))} request={assetRequest} onRequestDone={() => setAssetRequest(null)} cache={imageCache} onCache={(id, url) => setImageCache((current) => ({ ...current, [id]: url }))} action={action} busy={busy} imagesReady={imagesReady} googleReady={Boolean(studio.capabilities?.googlePublishConfigured)} askAdmin={askAdmin} onDraft={draftAsk} onAsk={ask} onSettings={openSettings} onOpenReport={(id) => openReport(id, 'assets')} onOpenTrends={() => go('trends')} onViewChange={(title, key = '') => { setAssetFolder(title); setAssetFolderKey(key); }} workspace={workspace} promptChanges={list(studio.promptChanges)} {...extra} />;
+  // A trend's page: the header's next step does what the same button does on Trends, Home and Assets.
+  function trendNext(card, next) {
+    if (next.id === 'write-reports') return writeReports();
+    if (next.id === 'retry') return retryRun?.(next.runId);
+    if (next.id === 'make-assets') return makeAssets({ kind: 'report', assetId: next.assetId });
+    if (next.id === 'open-assets') return setTrendOpen((current) => (current ? { ...current, tab: 'assets' } : current));
+    if (next.id === 'restore') return decideUndoable(card, 'pending');
+    return undefined;
+  }
+  const trendPage = trendCard ? <TrendPage card={trendCard} runs={trendRuns} stage={stageOf(trendCard, { can })} tab={trendTab} busy={busy} viewer={viewer} api={api}
+    onTab={(next) => withViewTransition(() => setTrendOpen((current) => (current ? { ...current, tab: next } : current)))}
+    onRun={(runId) => setTrendOpen((current) => (current ? { ...current, runId, tab: 'overview' } : current))}
+    onBack={() => withViewTransition(() => setTrendOpen(null))}
+    momentum={trendOf(trendCard)?.momentum ? <MomentumBadge momentum={trendOf(trendCard).momentum} /> : null}
+    yes={<TrendYesButton card={trendCard} channels={channels} className="simple-yes" size={16} spot="trends.yes" disabled={busy} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} />}
+    onNext={(next) => trendNext(trendCard, next)} onSkip={() => decideUndoable(trendCard, 'passed')}
+    why={<WhyItMatters card={trendCard} trend={trendOf(trendCard)} fits={[]} api={postsApi} onAsk={onAsk} className="simple-why" />}
+    decided={trendCard.decision && trendCard.decision !== 'pending' ? <DecidedBy by={decisionOf(list(studio.researchRuns).filter(mine), trendCard)} decision={trendCard.decision} channelName={(id) => channelLabel(channels, id)} className="simple-decided" /> : null}
+    uses={usesOf({ themeId: trendCard.themeId })}
+    onCopyLink={linkOrigin ? () => { if (nav.copyLink('trend', trendCard.themeId)) onNotice?.(LINK_COPIED); } : undefined}
+    renderDoc={(id) => <SimpleReports key={id} embedded api={api} web={web} reports={reports} selectedId={id} onSelect={(next) => { if (!next) setTrendOpen((current) => (current ? { ...current, tab: 'overview' } : current)); else openReport(next); }} onCreateContent={shellNav.createFrom} action={action} busy={busy} onAsk={onAsk} onFindTrends={() => setTrendOpen(null)} onMakeAssets={(report) => makeAssets({ kind: 'report', assetId: report.id })} usesOf={usesOf} tree={libraryTree} onOpenAssets={() => setTrendOpen((current) => (current ? { ...current, tab: 'assets' } : current))} studio={studio} linkOrigin={linkOrigin} onOpenPrompt={onOpenPrompt} drive={state.driveSync} onOpenDriveSettings={openDriveSettings} />}
+    renderAssets={(reportAssetId) => assetsView({ key: `trend-assets-${reportAssetId}`, embedded: { reportAssetId }, request: null, onRequestDone: undefined, onViewChange: undefined, onOpenReport: (id) => openReport(id) })} /> : null;
   // A report, read (and edited) on the page it belongs to: Back returns to that page.
   const reader = (backLabel) => <SimpleReports api={api} web={web} reports={reports} selectedId={reportId} onSelect={setReportId} backLabel={backLabel} onCreateContent={shellNav.createFrom} action={action} busy={busy} onAsk={onAsk} onFindTrends={() => go('trends')} onMakeAssets={(report) => makeAssets({ kind: 'report', assetId: report.id })} usesOf={usesOf} tree={libraryTree} onOpenAssets={openFolderKey} studio={studio} linkOrigin={linkOrigin} onOpenPrompt={onOpenPrompt} drive={state.driveSync} onOpenDriveSettings={openDriveSettings} />;
   const spotlight = tour && !loading ? <Spotlight key={tour.key} steps={tour.steps} onPrepare={prepareSpot} onClose={() => { setTour(null); onNavSpot?.(false); }} onBackToChat={() => { setTour(null); onNavSpot?.(false); go('ask'); }} /> : null;
@@ -304,9 +345,10 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
       {loading ? <div className="simple-loading" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><p>Opening your studio…</p></div>
         : tab === 'home' ? <WeeklyBriefing state={state} viewer={viewer} api={api} layout="simple" busy={busy} board={board} onNotice={onNotice} onOpenProgramPage={onOpenClassic ? (programId) => onOpenClassic('research', { programId }) : undefined} onOpenTarget={openTarget} onDecide={decideUndoable} onDecideWithNote={decideWithNote} onAsk={onAsk || undefined} onOpenTracker={can('readWorkbook') ? () => nav.openSheets('trend-tracker') : undefined} onStartResearch={startAndRemember} linkOrigin={linkOrigin} postsApi={postsApi} onWriteReports={canWriteReports(can) ? writeReports : undefined} onRetryRun={retryRun} onMakeAssets={can('planAssetKit') && can('createAssetKit') ? makeAssets : undefined} onCreate={shellNav.create} web={web} />
         : tab === 'programs' ? <ProgramsPage state={state} api={api} busy={busy} needsSetup={needsSetup} onStartResearch={startAndRemember} onOpenTarget={openTarget} onNotice={onNotice} onEditProgram={shellNav.editProgram} onAddProgram={shellNav.newProgram} />
+        : trendPage ? trendPage
         : reportId && tab === reportTab ? reader(tab === 'trends' ? 'Trends' : 'Assets')
-        : tab === 'trends' ? <SimpleTrends board={programBoard} waiting={waiting.filter(inProgram)} approved={approved.filter(inProgram)} programs={programs} program={shownProgram ? programs.find((row) => row.id === shownProgram) : program} programFilter={shownProgram} onProgramFilter={setTrendProgram} trendOf={trendOf} researchRuns={list(studio.researchRuns).filter(mine)} channels={channels} focusChannels={list(viewer.prefs?.focusChannels)} busy={busy} needsSetup={needsSetup} askAdmin={askAdmin} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk || undefined} onWriteReports={writeReports} onStartResearch={startAndRemember} onOpenReport={openReport} onOpenClassic={onOpenClassic} onSettings={openSettings} stopped={stopped.filter(inProgram)} onRetry={retryRun} postsApi={postsApi} monday={state.monday} mondayApi={api} />
-        : tab === 'assets' ? <SimpleAssets api={api} web={web} tree={libraryTree} programs={programs} editionId={workspace?.editionId || 'general'} contentRuns={list(studio.contentRuns).filter(mine)} kitRuns={kitRuns} assets={list(studio.assets).filter(mine)} studioImages={studioImages} sources={kitSourcesFrom(reports, list(studio.contentRuns).filter(mine))} request={assetRequest} onRequestDone={() => setAssetRequest(null)} cache={imageCache} onCache={(id, url) => setImageCache((current) => ({ ...current, [id]: url }))} action={action} busy={busy} imagesReady={imagesReady} googleReady={Boolean(studio.capabilities?.googlePublishConfigured)} askAdmin={askAdmin} onDraft={draftAsk} onAsk={ask} onSettings={openSettings} onOpenReport={(id) => openReport(id, 'assets')} onOpenTrends={() => go('trends')} onViewChange={(title, key = '') => { setAssetFolder(title); setAssetFolderKey(key); }} workspace={workspace} promptChanges={list(studio.promptChanges)} />
+        : tab === 'trends' ? <SimpleTrends board={programBoard} waiting={waiting.filter(inProgram)} approved={approved.filter(inProgram)} programs={programs} program={shownProgram ? programs.find((row) => row.id === shownProgram) : program} programFilter={shownProgram} onProgramFilter={setTrendProgram} trendOf={trendOf} researchRuns={list(studio.researchRuns).filter(mine)} channels={channels} focusChannels={list(viewer.prefs?.focusChannels)} busy={busy} needsSetup={needsSetup} askAdmin={askAdmin} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk || undefined} onWriteReports={writeReports} onStartResearch={startAndRemember} onOpenReport={openReport} onOpenTrend={openTrend} onOpenClassic={onOpenClassic} onSettings={openSettings} stopped={stopped.filter(inProgram)} onRetry={retryRun} postsApi={postsApi} monday={state.monday} mondayApi={api} />
+        : tab === 'assets' ? assetsView()
         : tab === 'settings' ? <div className="simple-page simple-settings"><div className="simple-page-head"><div><h1>Settings</h1><p>{settingsAllowed ? 'Connections, AI, pictures and brand knowledge for the whole studio.' : 'Brand knowledge for the whole studio.'}</p></div></div>{page('settings')}</div>
         : SHELL_PAGES.has(tab) ? page(tab)
         : null}
@@ -327,7 +369,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
 // waits for the save); `onAsk(text)` adds "What people are saying" to a card that needs an OK, and `postsApi` (an api with
 // readTrendPosts) shows two real posts in place. `stopped` are research runs that failed before finding trends, each
 // with Try again (`onRetry(runId)`, behind its cost confirmation) and See why.
-function SimpleTrends({ board, waiting, approved, programs, program, programFilter = '', onProgramFilter, trendOf = () => null, researchRuns = [], channels = [], focusChannels = [], busy, needsSetup, askAdmin, onDecide, onDecideWithNote, onAsk, onWriteReports, onStartResearch, onOpenReport, onOpenClassic, onSettings, stopped = [], onRetry, postsApi = null, monday = null, mondayApi = null }) {
+function SimpleTrends({ board, waiting, approved, programs, program, programFilter = '', onProgramFilter, trendOf = () => null, researchRuns = [], channels = [], focusChannels = [], busy, needsSetup, askAdmin, onDecide, onDecideWithNote, onAsk, onWriteReports, onStartResearch, onOpenReport, onOpenTrend, onOpenClassic, onSettings, stopped = [], onRetry, postsApi = null, monday = null, mondayApi = null }) {
   const can = useCan();
   const viewer = useViewer();
   const production = board.columns.production || [];
@@ -382,7 +424,7 @@ function SimpleTrends({ board, waiting, approved, programs, program, programFilt
       <h2 id="simple-waiting">Needs your OK <span className="simple-pill">{waiting.length}</span></h2>
       <div className="simple-trend-grid">{waiting.map((card) => <article className="simple-trend" key={card.key} data-spot="trends.card" data-spot-item={card.name} style={{ viewTransitionName: `simple-${card.key.replace(/[^a-zA-Z0-9_-]/g, '-')}` }}>
         {meta(card)}
-        <h3>{card.name}</h3>
+        <h3>{onOpenTrend ? <button type="button" className="simple-trend-open" onClick={() => onOpenTrend(card)}>{card.name}</button> : card.name}</h3>
         {card.description && <p>{card.description}</p>}
         {why(card)}
         {canDecide && <div className="simple-trend-actions">{yes(card, 16)}<button type="button" data-spot="trends.skip" data-spot-item={card.name} className="simple-skip" aria-label={`Skip ${card.name}`} {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'passed')}>Skip</button></div>}
@@ -399,7 +441,7 @@ function SimpleTrends({ board, waiting, approved, programs, program, programFilt
 
     {layout === 'list' && production.length > 0 && <section className="simple-section" aria-labelledby="simple-writing" data-spot="trends.writing">
       <h2 id="simple-writing">Being written</h2>
-      <ul className="simple-live">{production.map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; return <li key={card.key} className={card.needsAttention ? 'attention' : ''} data-spot="trends.ready-card" data-spot-item={card.name}>{card.needsAttention ? <X size={16} aria-hidden="true" /> : <LoaderCircle className="spin" size={16} aria-hidden="true" />}<span><strong>{card.name}</strong><small>{[showProgram ? card.programName : '', card.activity || 'Writing'].filter(Boolean).join(' · ')}</small></span>
+      <ul className="simple-live">{production.map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; return <li key={card.key} className={card.needsAttention ? 'attention' : ''} data-spot="trends.ready-card" data-spot-item={card.name}>{card.needsAttention ? <X size={16} aria-hidden="true" /> : <LoaderCircle className="spin" size={16} aria-hidden="true" />}<span><strong>{onOpenTrend ? <button type="button" className="simple-trend-open" onClick={() => onOpenTrend(card)}>{card.name}</button> : card.name}</strong><small>{[showProgram ? card.programName : '', card.activity || 'Writing'].filter(Boolean).join(' · ')}</small></span>
         {/* Reports already written (channel assets are what's being made) open here, as Ready's do. */}
         {report && <button type="button" className="simple-link" aria-label={`${card.name}: read the report`} onClick={() => onOpenReport(report.id)}>Read<ArrowRight size={14} aria-hidden="true" /></button>}
         {card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research', card.runId ? { runId: card.runId } : {})}>See why<ArrowRight size={14} aria-hidden="true" /></button>}</li>; })}</ul>

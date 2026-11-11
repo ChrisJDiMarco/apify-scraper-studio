@@ -261,7 +261,9 @@ export function DriveSaveButton({ api, studio = null, drive = null, asset = null
 // Docs option and the brand check; `linkOrigin` is the address share links use (deep-links.js shareOrigin; on the web
 // this page's own); `onOpenPrompt(promptId)` opens a prompt on the Prompts page. `drive` (state.driveSync) and
 // `onOpenDriveSettings` (only for people who may change Settings) are for Save to Drive.
-export function SimpleReports({ api, web, reports, selectedId, onSelect, backLabel = 'All reports', onCreateContent, action, busy, onAsk, onFindTrends, onMakeAssets, usesOf, tree, onOpenAssets, studio = null, linkOrigin, onOpenPrompt, drive = null, onOpenDriveSettings }) {
+export function SimpleReports({ api, web, reports, selectedId, onSelect, backLabel = 'All reports', onCreateContent, action, busy, onAsk, onFindTrends, onMakeAssets, usesOf, tree, onOpenAssets, studio = null, linkOrigin, onOpenPrompt, drive = null, onOpenDriveSettings, embedded = false }) {
+  // `embedded`: the reader inside a trend's page (trend-page.jsx), which has its own Back, tabs and place in the app,
+  // so the reader drops its Back button, its "filed under" line, its document switch and its previous/next pager.
   const can = useCan();
   const viewer = useViewer();
   // With the live report editor the reader is the editor: the report is edited in place and saved as people type.
@@ -354,6 +356,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, backLab
     if (!selected || editing) return undefined;
     const onKey = (event) => {
       if (event.target.closest?.('input, textarea, select, [contenteditable]') || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (embedded) return;
       if (event.key === 'ArrowLeft' && previous) withViewTransition(() => onSelect(openId(previous)));
       if (event.key === 'ArrowRight' && next) withViewTransition(() => onSelect(openId(next)));
     };
@@ -396,9 +399,9 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, backLab
     const where = pair ? [pair.groupTitle, pair.title, docLabel(selected)] : grouped ? [...pathTo(tree, tree.itemsByKey[`studio:${selected.id}`]?.location).map((node) => node.title), docLabel(selected)] : [];
     const assetsLink = (pair || scanRow) && (pair || scanRow).entry.channelAssets.kits > 0 && onOpenAssets ? (pair || scanRow).entry : null;
     const both = pair && pair.reportId && pair.toolkitId;
-    return <div className={`simple-page simple-reader${editing ? ' is-editing' : ''}`}>
+    return <div className={`simple-page simple-reader${editing ? ' is-editing' : ''}${embedded ? ' is-embedded' : ''}`}>
       {!editing && <div className="simple-reader-bar">
-        <button type="button" className="simple-back" title={`Back to ${backLabel === 'All reports' ? 'all reports' : backLabel}`} onClick={() => onSelect('')}><ArrowLeft size={15} aria-hidden="true" />{backLabel}</button>
+        {!embedded && <button type="button" className="simple-back" title={`Back to ${backLabel === 'All reports' ? 'all reports' : backLabel}`} onClick={() => onSelect('')}><ArrowLeft size={15} aria-hidden="true" />{backLabel}</button>}
         <div className="simple-reader-tools">
           {canEdit && !live && <button type="button" data-spot="report.edit" {...writeProps(viewer, !markdown || loading || Boolean(readError))} onClick={() => setEditing(true)}><PenLine size={15} aria-hidden="true" />Edit</button>}
           <button type="button" data-spot="report.copy" disabled={!markdown} onClick={copy}>{copied ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}{copied ? 'Copied' : 'Copy text'}</button>
@@ -412,7 +415,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, backLab
             <MoreMenu label="More questions for Ask AI" icon={ChevronDown} disabled={!markdown || viewer.preview} align="end" items={MARKETER_ASKS.map(([id, label, icon]) => ({ label, icon, onSelect: () => ask(id) }))} /></span>}
         </div>
       </div>}
-      {!editing && (where.length > 1 || both || assetsLink) && <div className="simple-reader-context">
+      {!editing && !embedded && (where.length > 1 || both || assetsLink) && <div className="simple-reader-context">
         {where.length > 1 && <p className="simple-crumbline"><span className="sr-only">Filed under </span>{where.map((part, at) => <React.Fragment key={at}>{at > 0 && <span aria-hidden="true">›</span>}<span>{part}</span></React.Fragment>)}</p>}
         <div className="simple-reader-switches">
           {both && <div className="simple-segment simple-doc-switch" role="tablist" aria-label="Document">{[[pair.reportId, 'Trends report', 'report'], [pair.toolkitId, 'Editorial toolkit', 'toolkit']].map(([id, label, tab]) => <button type="button" role="tab" key={id} id={`simple-doc-tab-${tab}`} aria-selected={selected.id === id} aria-controls="simple-reader-doc" onClick={() => { if (selected.id !== id) withViewTransition(() => onSelect(id)); }}>{label}</button>)}</div>}
@@ -441,7 +444,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, backLab
           <small>{[use.byName && `Marked by ${use.byName}`, formatDay(use.at)].filter(Boolean).join(' · ')}</small>
         </li>)}</ul>
       </section>}
-      {!editing && (previous || next) && <nav className="simple-pager" aria-label="More reports">
+      {!editing && !embedded && (previous || next) && <nav className="simple-pager" aria-label="More reports">
         {previous ? <button type="button" onClick={() => withViewTransition(() => onSelect(openId(previous)))}><ChevronLeft size={18} aria-hidden="true" /><span><small>{grouped ? 'Previous' : 'Newer'}</small><strong>{pagerLabel(previous)}</strong></span></button> : <span />}
         {next ? <button type="button" className="next" onClick={() => withViewTransition(() => onSelect(openId(next)))}><span><small>{grouped ? 'Next' : 'Older'}</small><strong>{pagerLabel(next)}</strong></span><ChevronRight size={18} aria-hidden="true" /></button> : <span />}
       </nav>}
