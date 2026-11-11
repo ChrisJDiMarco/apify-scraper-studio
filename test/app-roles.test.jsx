@@ -163,12 +163,12 @@ describe('One frame for every role', () => {
     fireEvent.click(within(primary).getByRole('button', { name: /^Research programs/ }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Research programs' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Run “AI search pulse” now' })).toBeInTheDocument();
-    // Edit opens the full editor in Workbench → Edit research program, with the schedule controls.
+    // Edit opens the program's own page on its first settings tab, still under Research programs.
     fireEvent.click(screen.getByRole('button', { name: 'Edit “AI search pulse”' }));
-    expect(await screen.findByRole('button', { name: /Save research program/ })).toBeInTheDocument();
-    expect(primary.querySelector('.sb-current')).toHaveTextContent('Name & focus'); // the Workbench says what's open inside it
-    fireEvent.click(within(primary).getByRole('button', { name: 'Workbench' }));
-    expect(within(primary).getByRole('button', { name: /^Name & focus/ })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('heading', { level: 1, name: 'AI search pulse' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Name & focus', selected: true })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Schedule' })).toBeInTheDocument();
+    expect(within(primary).getByRole('button', { name: /^Research programs/ })).toHaveAttribute('aria-current', 'page');
     expect(labels(within(primary).getByRole('group', { name: 'Studio' }))).toEqual(['Brand knowledge', 'Analytics', 'People & access', 'Settings']);
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
   });

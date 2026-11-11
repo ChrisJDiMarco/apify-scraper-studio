@@ -77,6 +77,9 @@ const ADMIN_PAGES = Object.fromEntries(STUDIO_PAGES.map((page) => [page.id, page
 const DATA_TOOL_SPOTS = new Set(['nav.data-tools', ...WORKBENCH.flatMap((set) => set.items.map((item) => item.spot || `nav.${item.id}`))]);
 // Whether Data tools is open, per person on this device. Storage can be missing or blocked (private windows, previews).
 const DATA_TOOLS_KEY = 'studio.nav.dataTools';
+// A key for a one-time request to a page: never the same twice, even within one millisecond.
+let requestSeq = 0;
+const requestKey = () => Date.now() * 1000 + (requestSeq = (requestSeq + 1) % 1000);
 function savedDataToolsOpen() {
   try { const value = window.localStorage?.getItem(DATA_TOOLS_KEY); return value === '1' ? true : value === '0' ? false : null; } catch { return null; }
 }
@@ -721,6 +724,8 @@ function StudioApp({ api }) {
     }
     const programs = list(studioState.programs).filter(inWorkspace);
     const program = defaultProgram(programs, { id: programId, lastId: lastProgramId(viewer) });
+    // A named program opens its page at that tab. (Workbench's section links name none; they open the older editor.)
+    if (programId && program && openProgramPage(program.id, section)) return;
     openStudioWith('research', () => { setProgramSection(section); setProgramRouteId(program?.id || ''); setProgramRequest(program ? { kind: 'edit', key: Date.now(), programId: program.id, section } : { kind: 'new', key: Date.now() }); });
   }
   // After a palette jump, bring the named card into view once its page has drawn it.
@@ -821,7 +826,7 @@ function StudioApp({ api }) {
       const card = exact || waitingCard || cards.find((row) => list(row.reportAssets).length) || cards[0] || null;
       // An address that names a tab (#/trend/<id>/overview) is the trend's page (trend-page.jsx) at that tab.
       if (card && target.tab && simpleAllowed('trends') && guard.confirmLeave()) {
-        setShellRequest({ key: Date.now(), kind: 'trend', themeId: id, runId: card.runId, tab: target.tab });
+        setShellRequest({ key: requestKey(), kind: 'trend', themeId: id, runId: card.runId, tab: target.tab });
         withViewTransition(() => { setPeek(false); setSimpleTab('trends'); });
         return;
       }
@@ -975,7 +980,17 @@ function StudioApp({ api }) {
   }
   // One saved research program (Ask AI's program card, its Open button, a [[Program]] link): Research programs opens
   // with that program selected, whether the page is opening or already showing. Anyone who can see the page can open one.
+  // A program's one page (program-page.jsx), on Research programs, for anyone who has that page: its runs, or the
+  // settings tab named. False when this person doesn't have the page, so the caller falls back.
+  function openProgramPage(programId, tab = 'runs') {
+    if (!programId || !simpleAllowed('programs')) return false;
+    if (!guard.confirmLeave()) return true;
+    setShellRequest({ key: requestKey(), kind: 'program', programId: String(programId), tab });
+    withViewTransition(() => { setPeek(false); setSimpleTab('programs'); });
+    return true;
+  }
   function openProgram(programId = '') {
+    if (programId && openProgramPage(programId, 'runs')) return;
     openStudioWith('research', () => { setProgramSection(''); setProgramRouteId(String(programId || '')); if (programId) setProgramRequest({ kind: 'open', key: Date.now(), programId: String(programId) }); });
   }
   // The page on screen as a route (deep-links.js): a Simple page (with the report open in its reader, the Assets folder
@@ -983,6 +998,7 @@ function StudioApp({ api }) {
   function screenRoute() {
     if (mode === 'channel') return { kind: 'page', page: ['assets', 'plan', 'inbox', 'ask', 'mychannel'].includes(channelTab) ? channelTab : 'trends' };
     if (mode === 'simple') {
+      if (simpleTab === 'programs' && simpleDetail.programPage) return { kind: 'page', page: 'program', id: simpleDetail.programPage, section: simpleDetail.programTab && simpleDetail.programTab !== 'runs' ? simpleDetail.programTab : '' };
       if (simpleTab === 'trends' && simpleDetail.trend) return { kind: 'trend', id: simpleDetail.trend, tab: simpleDetail.trendTab || 'overview', run: simpleDetail.trendRun || '' };
       if (simpleDetail.report) return { kind: 'report', id: simpleDetail.report };
       if (simpleTab === 'assets' && simpleDetail.folder) return { kind: 'assets', id: simpleDetail.folder };

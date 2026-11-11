@@ -174,3 +174,9 @@ A second reader checked this plan against the code. What changed, all my calls:
   point at Assets folders are reworked.
 - One test, `ask-store › caps messages per conversation`, failed once in a full run and passes alone and on `main`;
   it looks load-sensitive, not related to this work.
+- **Step 4, program page: done.** `#/programs/<id>` is the program's Runs tab and `#/programs/<id>/edit/<section>`
+  its settings tabs, on the Research programs page for anyone who has it. Edit, Runs and results, Ask AI's program
+  cards and links all open it. One draft, one save bar. Not done yet: Workbench's seven "Edit research program" links
+  still open the older editor (they name no program); they go away with the sidebar in step 9. A run's row opens the
+  older run detail (review, results, Open in Sheets), which has not moved. The quick-edit drawer on Home is unchanged
+  and duplicates the page's save logic; one of the two should go once Home is redone in step 6.

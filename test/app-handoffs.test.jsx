@@ -232,6 +232,8 @@ describe('Requests are spent once their page is left', () => {
     await h1('Research programs');
     fireEvent.click(screen.getByRole('button', { name: /^More for / }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Runs and results' }));
+    // The program's page lists its runs; a run opens with its results, where Open in Sheets is.
+    fireEvent.click(await screen.findByRole('button', { name: /^Open the run from / }));
     fireEvent.click(await screen.findByRole('button', { name: /Open in Sheets/ }));
     await waitFor(() => expect(readWorkbook).toHaveBeenCalledWith({ workbookId: 'r1' }));
     side('assets');

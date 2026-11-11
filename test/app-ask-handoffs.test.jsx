@@ -49,8 +49,10 @@ async function openStudio(uiMode) {
   return api;
 }
 const mainNav = () => within(screen.getByRole('navigation', { name: 'Main' }));
-const selectedProgram = () => document.querySelector('.cs-program-choice.selected')?.querySelector('strong')?.textContent || '';
-const pickProgram = (name) => fireEvent.click([...document.querySelectorAll('.cs-program-choice')].find((button) => button.querySelector('strong')?.textContent === name));
+// A program opens on its own page (program-page.jsx), named in the page title.
+const selectedProgram = () => document.querySelector('.program-page h1')?.textContent || '';
+// The older Research programs page (content-studio-view.jsx), which Workbench's section links still open.
+const classicProgram = () => document.querySelector('.cs-program-choice.selected')?.querySelector('strong')?.textContent || '';
 async function askInDrawer() {
   fireEvent.click(document.querySelector('[data-spot="nav.ask"]'));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Question about Golden Thread' }), { target: { value: 'Tell me about the older program' } });
@@ -60,40 +62,17 @@ async function askInDrawer() {
 
 describe('Ask AI opens the research program it is about', () => {
   it('in the Advanced layout: the card, the Open button and the link each select that program', async () => {
-    const api = await openStudio('classic');
+    await openStudio('classic');
     const answer = await askInDrawer();
     // The newest program is what the page would open on by itself.
     fireEvent.click(within(answer).getByRole('button', { name: /See the program/ }));
     await waitFor(() => expect(selectedProgram()).toBe('Older program'));
     expect(mainNav().getByRole('button', { name: /^Research programs/ })).toHaveAttribute('aria-current', 'page');
-    expect(within(document.querySelector('.cs-research-main')).getByRole('heading', { level: 3, name: 'Older program' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^Runs/, selected: true })).toBeInTheDocument();
 
-    // Already showing the page: the in-answer link still moves the selection. The Open button names the same program,
-    // so the answer shows the two as one reference chip.
-    pickProgram('Newer program');
-    expect(selectedProgram()).toBe('Newer program');
-    const refs = within(answer).getByRole('group', { name: 'In this answer' });
-    expect(within(refs).getAllByRole('button').map((button) => button.textContent)).toEqual(['Older program']);
-    expect(within(answer).queryByRole('button', { name: 'Open the older program' })).toBeNull();
-    fireEvent.click(within(refs).getByRole('button', { name: /^Older program/ }));
-    await waitFor(() => expect(selectedProgram()).toBe('Older program'));
-    // An answer whose text doesn't link it: its Open button is the chip, and runs through the shared runner.
-    pickProgram('Newer program');
-    api.askHelp.mockImplementationOnce(async () => ({ ...reply, answer: 'Here it is.' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Question about Golden Thread' }), { target: { value: 'Open it' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send question' }));
-    await waitFor(() => expect(screen.getAllByRole('article', { name: 'Answer' })).toHaveLength(2));
-    const second = screen.getAllByRole('article', { name: 'Answer' })[1];
-    fireEvent.click(await within(second).findByRole('button', { name: 'Open the older program' }));
-    await waitFor(() => expect(selectedProgram()).toBe('Older program'));
-
-    // A request is taken once: choosing another program, leaving and coming back keeps that choice.
-    pickProgram('Newer program');
-    fireEvent.click(mainNav().getByRole('button', { name: /^Create content/ }));
-    await waitFor(() => expect(document.querySelector('.cs-program-choice')).not.toBeInTheDocument());
-    // Coming back through Workbench › Edit research program opens the program chosen last, not the earlier request's.
-    fireEvent.click(mainNav().getByRole('button', { name: /^Sources/ }));
-    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Program to edit' })).toHaveDisplayValue('Newer program'));
+    // The program's page is a studio page, so the Workbench drawer this was asked in has closed with the Workbench page.
+    // (The in-answer link and the Open button run the same opener; the Simple layout test below covers the page.)
+    expect(document.querySelector('.studio-frame')).toHaveAttribute('data-mode', 'simple');
   });
 
   it('in the Simple layout: See the program opens Research programs on that program', async () => {
@@ -103,7 +82,7 @@ describe('Ask AI opens the research program it is about', () => {
     const answer = await screen.findByRole('article', { name: 'Answer' });
     fireEvent.click(within(answer).getByRole('button', { name: /See the program/ }));
     await waitFor(() => expect(selectedProgram()).toBe('Older program'));
-    expect(within(document.querySelector('.cs-research-main')).getByRole('heading', { level: 3, name: 'Older program' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^Runs/, selected: true })).toBeInTheDocument();
   });
 });
 
@@ -121,16 +100,16 @@ describe('a program request is taken once', () => {
         onProgramRequestHandled={(key) => { handled(key); setRequest((current) => (current?.key === key ? null : current)); }} />;
     }
     const { rerender } = render(<Studio workspaceId="semrush" />);
-    await waitFor(() => expect(selectedProgram()).toBe('Older program'));
+    await waitFor(() => expect(classicProgram()).toBe('Older program'));
     expect(handled).toHaveBeenCalledWith(1);
     rerender(<Studio workspaceId="other" />);
-    await waitFor(() => expect(selectedProgram()).toBe('Other program'));
+    await waitFor(() => expect(classicProgram()).toBe('Other program'));
     expect(onNotice).not.toHaveBeenCalledWith(expect.stringMatching(/isn’t in this workspace/));
   });
   it('says so when the program isn’t in this workspace', async () => {
     const onNotice = vi.fn();
     render(<ContentStudioView state={{ contentStudio: { activeWorkspaceId: 'semrush', workspaces, programs, researchRuns: [], contentRuns: [], assets: [], availableDatasets: [], availableReports: [], capabilities: {}, promptChanges: [] } }} api={{ contentCatalog: vi.fn(async () => ({ editions: [], deliverables: [] })), estimateResearchProgram: vi.fn(async () => ({})) }} initialView="research" programRequest={{ kind: 'open', key: 2, programId: 'p-gone' }} onNotice={onNotice} />);
     await waitFor(() => expect(onNotice).toHaveBeenCalledWith('That research program isn’t in this workspace. It may be in another workspace, or it was removed.'));
-    expect(selectedProgram()).toBe('Newer program');
+    expect(classicProgram()).toBe('Newer program');
   });
 });

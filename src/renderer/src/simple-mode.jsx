@@ -11,6 +11,7 @@ import { TrendYesButton, channelLabel, fitsFor, routingChannels } from './trend-
 import { WeeklyBriefing } from './weekly-briefing.jsx';
 import { ProgramsPage } from './programs-page.jsx';
 import { TrendPage, tabOfDoc } from './trend-page.jsx';
+import { ProgramPage, programTab } from './program-page.jsx';
 import { cardForTheme, stageOf } from './trend-stage.js';
 import { MondayChip, MondayStatusLine } from './monday-ui.jsx';
 import { LINK_COPIED, linkFor, shareOrigin } from './deep-links.js';
@@ -114,6 +115,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const [reportId, setReportId] = useState('');
   const [reportTab, setReportTab] = useState('trends'); // the page the open report is read on: 'trends' or 'assets'
   const [trendOpen, setTrendOpen] = useState(null); // the trend page open on Trends: { themeId, runId, tab }
+  const [programOpen, setProgramOpen] = useState(null); // the program page open on Research programs: { id, tab }
   const [tour, setTour] = useState(null); // an Ask AI "Show me" in progress
   const [lastTab, setLastTab] = useState('home'); // where the person was before Ask AI, for its context
   const [assetFolder, setAssetFolder] = useState(''); // the Assets folder open, for Ask AI's context
@@ -138,10 +140,10 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   useEffect(() => { if (tab !== 'ask') setLastTab(tab); }, [tab]);
   // Leaving the page a report is read on (other than for Ask AI, which keeps the report as its context) closes the reader,
   // so every way back (the sidebar, an Inbox or Next up page link) opens the page itself. Opening a report sets it again.
-  useEffect(() => { if (tab !== reportTab && tab !== 'ask') setReportId(''); if (tab !== 'trends' && tab !== 'ask') setTrendOpen(null); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tab !== reportTab && tab !== 'ask') setReportId(''); if (tab !== 'trends' && tab !== 'ask') setTrendOpen(null); if (tab !== 'programs' && tab !== 'ask') setProgramOpen(null); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   // The sidebar pressed for the page already open (`reopenKey`, from App): back to the page itself, out of a report or a
   // folder, as pressing a page in any app does.
-  useEffect(() => { if (!reopenKey) return; setReportId(''); setTrendOpen(null); if (tab === 'assets') setAssetRequest({ key: Date.now(), open: 'home' }); }, [reopenKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!reopenKey) return; setReportId(''); setTrendOpen(null); setProgramOpen(null); if (tab === 'assets') setAssetRequest({ key: Date.now(), open: 'home' }); }, [reopenKey]); // eslint-disable-line react-hooks/exhaustive-deps
   function ask(text, context = '', extra = {}) { setSeed({ text, context, ...(Array.isArray(extra?.attachments) ? { attachments: extra.attachments } : {}), key: Date.now() }); go('ask'); }
   function draftAsk(text) { setSeed({ draft: text, key: Date.now() }); go('ask'); }
   // Images load once and stay cached for the session, so returning to Assets is instant.
@@ -215,6 +217,8 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const inProgram = (row) => !shownProgram || row.programId === shownProgram;
   // What this page has open, for its address (App's useRoutes): the report being read, the Assets folder, Trends' program.
   const readingId = reportId && tab === reportTab ? reportId : '';
+  // The program page open on Research programs (program-page.jsx).
+  const openProgramRow = programOpen && tab === 'programs' ? programs.find((row) => row.id === programOpen.id) || null : null;
   // The trend page open. A trend that leaves the board while its page is open (the workspace was switched) stays on
   // screen as it was, as an open report always has, so an edit in progress is never thrown away; Back closes it.
   const lastTrendCard = useRef(null);
@@ -223,7 +227,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const trendCard = liveTrendCard || (trendOpen && tab === 'trends' && lastTrendCard.current?.themeId === trendOpen.themeId ? lastTrendCard.current : null);
   const trendRuns = trendCard ? board.cards.filter((card) => card.themeId === trendCard.themeId) : [];
   const trendTab = trendCard ? trendOpen.tab || 'overview' : '';
-  useEffect(() => { onRouteDetail?.({ report: readingId, folder: tab === 'assets' && !readingId ? assetFolderKey : '', program: shownProgram, trend: trendCard?.themeId || '', trendTab, trendRun: trendCard && trendRuns.length > 1 ? trendCard.runId : '' }); }, [readingId, tab, assetFolderKey, shownProgram, trendCard?.themeId, trendCard?.runId, trendTab, trendRuns.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onRouteDetail?.({ report: readingId, folder: tab === 'assets' && !readingId ? assetFolderKey : '', program: shownProgram, trend: trendCard?.themeId || '', trendTab, trendRun: trendCard && trendRuns.length > 1 ? trendCard.runId : '', programPage: openProgramRow?.id || '', programTab: openProgramRow ? programTab(programOpen.tab) : '' }); }, [readingId, tab, assetFolderKey, shownProgram, trendCard?.themeId, trendCard?.runId, trendTab, trendRuns.length, openProgramRow?.id, programOpen?.tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const programBoard = useMemo(() => (shownProgram ? { ...board, cards: board.cards.filter(inProgram), scouting: board.scouting.filter(inProgram), columns: Object.fromEntries(Object.entries(board.columns).map(([stage, cards]) => [stage, list(cards).filter(inProgram)])) } : board), [board, shownProgram]); // eslint-disable-line react-hooks/exhaustive-deps
   const retryRun = can('retryStudioRun') ? (runId) => Promise.resolve().then(() => runAiAction({ kind: 'retry-run', runId })).then((result) => { if (typeof result === 'string') onNotice?.(result); }, (failure) => onNotice?.(failure?.message || 'That run couldn’t be tried again.')) : undefined;
   // "Yes, with a note…": the sheet waits for the save and shows a refusal itself.
@@ -288,6 +292,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     else if (shellRequest.kind === 'ask' && shellRequest.text) ask(shellRequest.text, shellRequest.context || '', { attachments: shellRequest.attachments });
     else if (shellRequest.kind === 'ask' && shellRequest.draft) draftAsk(shellRequest.draft);
     else if (shellRequest.kind === 'trends') setTrendProgram(shellRequest.program || '');
+    else if (shellRequest.kind === 'program' && shellRequest.programId) { setProgramOpen({ id: shellRequest.programId, tab: programTab(shellRequest.tab) }); go('programs'); }
     else if (shellRequest.kind === 'trend') { const card = cardForTheme(board.cards, shellRequest.themeId, shellRequest.runId || ''); if (card) openTrend(card, shellRequest.tab || 'overview'); else go('trends'); }
     else if (shellRequest.kind === 'assets') { if (shellRequest.source || shellRequest.creator) makeAssetsInAssets(shellRequest.source); else if (shellRequest.folderKey) openFolderKey(shellRequest.folderKey, shellRequest.runId || ''); else go('assets'); }
   }, [shellRequest?.key]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -345,7 +350,11 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     <main className="simple-main" data-tab={tab}>
       {loading ? <div className="simple-loading" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><p>Opening your studio…</p></div>
         : tab === 'home' ? <WeeklyBriefing state={state} viewer={viewer} api={api} layout="simple" busy={busy} board={board} onNotice={onNotice} onOpenProgramPage={onOpenClassic ? (programId) => onOpenClassic('research', { programId }) : undefined} onOpenTarget={openTarget} onDecide={decideUndoable} onDecideWithNote={decideWithNote} onAsk={onAsk || undefined} onOpenTracker={can('readWorkbook') ? () => nav.openSheets('trend-tracker') : undefined} onStartResearch={startAndRemember} linkOrigin={linkOrigin} postsApi={postsApi} onWriteReports={canWriteReports(can) ? writeReports : undefined} onRetryRun={retryRun} onMakeAssets={can('planAssetKit') && can('createAssetKit') ? makeAssets : undefined} onCreate={shellNav.create} web={web} />
-        : tab === 'programs' ? <ProgramsPage state={state} api={api} busy={busy} needsSetup={needsSetup} onStartResearch={startAndRemember} onOpenTarget={openTarget} onNotice={onNotice} onEditProgram={shellNav.editProgram} onAddProgram={shellNav.newProgram} />
+        : tab === 'programs' ? (openProgramRow
+          ? <ProgramPage key={openProgramRow.id} program={openProgramRow} workspace={workspace} state={state} api={api} viewer={viewer} busy={busy} tab={programOpen.tab} onTab={(next) => withViewTransition(() => setProgramOpen((current) => (current ? { ...current, tab: next } : current)))}
+            runs={list(studio.researchRuns).filter(mine).filter((run) => run.programId === openProgramRow.id && run.origin !== 'quick-scan').sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))}
+            onOpenRun={(runId) => openTarget({ kind: 'run', id: runId, page: 'research' })} onStartResearch={startAndRemember} onBack={() => withViewTransition(() => setProgramOpen(null))} onNotice={onNotice} />
+          : <ProgramsPage state={state} api={api} busy={busy} needsSetup={needsSetup} onStartResearch={startAndRemember} onOpenTarget={openTarget} onNotice={onNotice} onEditProgram={shellNav.editProgram} onAddProgram={shellNav.newProgram} />)
         : trendPage ? trendPage
         : reportId && tab === reportTab ? reader(tab === 'trends' ? 'Trends' : 'Assets')
         : tab === 'trends' ? <SimpleTrends board={programBoard} waiting={waiting.filter(inProgram)} approved={approved.filter(inProgram)} programs={programs} program={shownProgram ? programs.find((row) => row.id === shownProgram) : program} programFilter={shownProgram} onProgramFilter={setTrendProgram} trendOf={trendOf} researchRuns={list(studio.researchRuns).filter(mine)} channels={channels} focusChannels={list(viewer.prefs?.focusChannels)} busy={busy} needsSetup={needsSetup} askAdmin={askAdmin} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk || undefined} onWriteReports={writeReports} onStartResearch={startAndRemember} onOpenReport={openReport} onOpenTrend={openTrend} onOpenClassic={onOpenClassic} onSettings={openSettings} stopped={stopped.filter(inProgram)} onRetry={retryRun} postsApi={postsApi} monday={state.monday} mondayApi={api} />
