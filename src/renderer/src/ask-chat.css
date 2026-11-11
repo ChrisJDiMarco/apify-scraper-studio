@@ -166,3 +166,6 @@
 .studio-frame .studio-sidebar .sb-ask-dot { flex: none; align-self: center; width: 7px; height: 7px; margin-left: -4px; border-radius: 50%; background: var(--s-accent); }
 .studio-frame .studio-sidebar.is-rail .sb-ask { position: relative; }
 .studio-frame .studio-sidebar.is-rail .sb-ask-dot { position: absolute; top: 8px; right: 8px; margin: 0; }
+/* The Ask AI page keeps one quiet line under the box (what a question costs). The key hints repeat what the box's own
+   placeholder and the / menu already say, so the page drops them; the narrower drawer never showed them. */
+.help-page .ask-hint { display: none; }

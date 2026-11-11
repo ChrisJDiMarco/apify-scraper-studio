@@ -216,16 +216,40 @@ describe('card names', () => {
     const memory = { type: 'memory', title: '', data: { items: [{ id: 'mem-1', text: 'Keep LinkedIn posts under 150 words.' }] } };
     const checklist = { type: 'checklist', title: 'Next steps', note: '', actionIndexes: [], data: { items: [{ text: 'Raise the cap', done: false }] } };
     render(<div className="help-drawer"><ChatCards cards={[memory, checklist]} actions={[]} actionState={{}} state={null} onNav={{}} api={{ forgetAskMemory: vi.fn() }} /></div>);
-    expect(screen.getByRole('article', { name: 'Remembered from this answer' })).toHaveTextContent('Keep LinkedIn posts under 150 words.');
+    // Two reference cards in one reply fold to a line each; opening one shows what it holds.
+    const remembered = screen.getByRole('article', { name: 'Remembered from this answer' });
+    expect(remembered).not.toHaveTextContent('Keep LinkedIn posts under 150 words.');
+    fireEvent.click(within(remembered).getByRole('button', { expanded: false }));
+    expect(remembered).toHaveTextContent('Keep LinkedIn posts under 150 words.');
     expect(screen.getByRole('article', { name: 'Next steps' })).toHaveClass('reply-card');
+  });
+  it('shows a reply’s only card in full, and folds reference cards beside a card that needs something', () => {
+    const metric = { type: 'metric', title: 'Your studio at a glance', note: '', actionIndexes: [], data: { items: [{ label: 'Trends ready', value: 6 }, { label: 'Reports', value: 14 }] } };
+    const draft = { type: 'draft', title: 'Update', note: '', actionIndexes: [], data: { kind: 'slack', subject: 'Update', text: 'Listicles are up.' } };
+    const alone = render(<div className="help-drawer"><ChatCards cards={[metric]} actions={[]} actionState={{}} state={null} onNav={{}} /></div>);
+    expect(screen.getByRole('article', { name: 'Your studio at a glance' })).toHaveTextContent('Trends ready');
+    expect(screen.queryByRole('button', { expanded: false })).toBeNull();
+    alone.unmount();
+    render(<div className="help-drawer"><ChatCards cards={[metric, draft]} actions={[]} actionState={{}} state={null} onNav={{}} onAsk={vi.fn()} /></div>);
+    const glance = screen.getByRole('article', { name: 'Your studio at a glance' });
+    // Folded, it still says what's inside in a few words.
+    expect(within(glance).getByRole('button', { expanded: false })).toHaveTextContent('6 Trends ready · 14 Reports');
+    expect(glance.querySelector('.cc-metrics')).toBeNull();
+    expect(document.querySelector('textarea.cc-draft')).not.toBeNull(); // a draft is there to be used: never folded
+    fireEvent.click(within(glance).getByRole('button', { expanded: false }));
+    expect(glance.querySelector('.cc-metrics')).not.toBeNull();
+    fireEvent.click(within(glance).getByRole('button', { expanded: true }));
+    expect(glance.querySelector('.cc-metrics')).toBeNull();
   });
   it('keeps every card on the one shell: its type is data, never a class a card part could share', () => {
     const compare = { type: 'compare', title: 'This week and last week', note: '', actionIndexes: [], data: { left: { title: 'This week', points: ['More listicles'] }, right: { title: 'Last week', points: ['More zero-click'] } } };
     const draft = { type: 'draft', title: 'Update', note: '', actionIndexes: [], data: { kind: 'slack', subject: 'Update', text: 'Listicles are up.' } };
     const { container } = render(<div className="help-drawer"><ChatCards cards={[compare, draft]} actions={[]} actionState={{}} state={null} onNav={{}} onAsk={vi.fn()} /></div>);
     const shells = [...container.querySelectorAll('article.reply-card')];
-    expect(shells.map((card) => [card.className, card.getAttribute('data-card')])).toEqual([['reply-card', 'compare'], ['reply-card', 'draft']]);
+    expect(shells.map((card) => [card.className.split(' ')[0], card.getAttribute('data-card')])).toEqual([['reply-card', 'compare'], ['reply-card', 'draft']]);
+    for (const card of shells) expect(card.className).not.toMatch(/\b(compare|draft)\b/);
     // The parts named after their card (.cc-compare's two columns, .cc-draft's text box) sit inside the shell.
+    fireEvent.click(shells[0].querySelector('.reply-card-toggle')); // a compare beside another card starts folded
     expect(shells[0].querySelector('.cc-compare')).not.toBeNull();
     expect(shells[1].querySelector('textarea.cc-draft')).not.toBeNull();
   });

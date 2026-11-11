@@ -29,7 +29,8 @@ const PROMPT_ACTIONS = Object.fromEntries(Object.entries(CATALOG).filter(([, row
 const methodsOf = (kind) => [].concat(CATALOG[kind]?.methods || []);
 // Older stored answers name kinds that are now one kind with a param (open-report is open with type=report).
 const ALIASES = ASK.aliases || {};
-const LOOKUP_KINDS = ['report', 'asset-folder', 'asset', 'run', 'trend', 'posts', 'find', 'conversation', 'memory'];
+const LOOKUP_KINDS = ['report', 'asset-folder', 'asset', 'run', 'trend', 'posts', 'find', 'conversation', 'memory', 'channel', 'brand'];
+const MODELS_LOOKUP = 'models'; // admins: model routing is a studio setting
 const PROMPT_LOOKUP = 'prompt'; // people who can open the Prompt Library
 const SPEND_LOOKUP = 'spend'; // people who can see costs
 // Cards the model may choose; the server fills them (memory cards come only from what was actually remembered, and the
@@ -107,9 +108,12 @@ const actionsFor = (rights = promptRights(), reach = reachOf(), role = 'admin') 
   const held = (method) => (reach.allowed ? reach.allowed.has(method) : !isEditor(role) || EDITOR_METHODS.has(method)) && (!isEditor(role) || !ADMIN_METHODS.has(method));
   return Object.fromEntries(Object.entries(CATALOG).filter(([kind, row]) => methodsOf(kind).every(held) && (!row.needs || NEEDS[row.needs]?.(rights, reach))).map(([kind, row]) => [kind, row.prompt]));
 };
-const lookupKindsFor = (rights = promptRights(), reach = reachOf(), role = 'admin') => (isChannel(role) ? [...CHANNEL_LOOKUPS] : [...LOOKUP_KINDS, ...(rights.view ? [PROMPT_LOOKUP] : []), ...(reach.costs ? [SPEND_LOOKUP] : [])]);
+const lookupKindsFor = (rights = promptRights(), reach = reachOf(), role = 'admin') => (isChannel(role) ? [...CHANNEL_LOOKUPS] : [...LOOKUP_KINDS, ...(isEditor(role) ? [] : [MODELS_LOOKUP]), ...(rights.view ? [PROMPT_LOOKUP] : []), ...(reach.costs ? [SPEND_LOOKUP] : [])]);
 const cardTypesFor = (rights = promptRights(), reach = reachOf(), role = 'admin') => (isChannel(role) ? [...CHANNEL_CARDS] : [...CARD_TYPES, ...(rights.edit ? [PROMPT_CARD] : []), ...(actionsFor(rights, reach, role)['edit-report'] ? [REPORT_CARD] : [])]);
 // One top-level edit object serves both proposals (a prompt part, a report section); present when either is offered.
+// "What you can change": the studio's saved setup this person may change from chat, named by the kinds they hold.
+const CHANGES = [['edit-program', 'a research program’s settings and schedule (edit-program)'], ['edit-sources', 'the accounts a program follows (edit-sources)'], ['edit-channel', 'a channel’s knowledge (edit-channel)'], ['edit-brand', 'the brand knowledge (edit-brand)'], ['set-model', 'which model an AI task uses (set-model)'], ['edit-prompt', 'a prompt’s text (edit-prompt)'], ['restore-prompt', 'an earlier version of a prompt (restore-prompt)']];
+const changeLine = (kinds) => { const held = CHANGES.filter(([kind]) => kinds[kind]).map(([, words]) => words); return held.length ? `- What you can change for them, each checked before it saves: ${held.join('; ')}. Read the current value with its lookup first, and say plainly what will change.\n` : ''; };
 const editsOn = (rights, reach, role) => !isChannel(role) && (rights.edit || Boolean(actionsFor(rights, reach, role)['edit-report']));
 const actionRule = (kind, role, rights, reach) => (isEditor(role) && kind === 'open-tab' ? 'target = home, trends, reports, assets, inbox, calendar or ask.' : actionsFor(rights, reach, role)[kind]);
 // The Studio group's pages this person has, for the sidebar lines ("" when none).
@@ -258,7 +262,7 @@ ACTIONS (do it for them)
 ${Object.keys(kinds).map((kind) => `  ${kind}: ${actionRule(kind, role, rights, reach)}`).join('\n')}
 - label examples: "Make assets for AI Citation Tracking", "Yes to Zero-click search, for Social". Links, email addresses and dates in params come only from their own messages; never invent one.
 - Offer actions they asked for. When the question is open, you may also offer up to 2 for ATTENTION items.
-- You never offer: changing settings, keys or connections; deleting anything for good; switching workspace; removing people or changing roles and access; sending a message or email. For those, explain who can do it and use Show me to point at the control.
+${changeLine(kinds)}- You never offer: saving keys or connections; deleting anything for good; switching workspace; removing people or changing roles and access; sending a message or email. For those, explain who can do it and use Show me to point at the control.
 - scan (top level) is the plan for the reply's one quick-scan action. With no quick-scan action, set topic "", depth "lite", platforms [], programId "" and every number to -1.${editsOn(rights, reach, role) ? `
 - edit (top level) is the change for the reply's one ${[rights.edit ? 'edit-prompt' : '', editReport ? 'edit-report' : ''].filter(Boolean).join(' or ')} action. With none, set ref, part, text and note to "".` : ''}
 
@@ -311,7 +315,10 @@ LOOKUPS (read before answering)
   posts: target = 2 to 5 keywords. The 12 most engaged collected posts that match, from this workspace's recent research runs and quick scans. Use it for "what are people saying about X", and quote or link real posts only from it.
   find: target = loose words ("the zero-click report from last week"). The best matches across reports, folders, trends, programs, runs, prompts, pages and earlier conversations, with the exact titles to use.
   conversation: target = keywords. Searches this person's earlier Ask AI conversations ("what did we decide about X last week").
-  memory: target = keywords. Searches older things you remember beyond WHAT YOU REMEMBER.${rights.view ? `
+  memory: target = keywords. Searches older things you remember beyond WHAT YOU REMEMBER.
+  channel: target = a channel's name from channels. What that channel's assets are told (audience, voice, format rules, always do, never do, examples, links), who saved it last, and the prompts that write its assets. Read it before suggesting a change to it.
+  brand: target = "". This workspace's brand knowledge: audience, positioning, ideal customer, voice, editorial rules, claims to avoid, product context and product names. Read it before suggesting a change to it.${isEditor(role) ? '' : `
+  models: target = "". Which model and effort every AI task uses, the studio's default model, and the models that can be chosen. Read it before offering set-model.`}${rights.view ? `
   prompt: target = a prompt's exact name or id from LIVE CONTEXT prompts. Its parts in order (fixed, data and editable, with each editable part's current text, the {{values}} it can use and what it must keep), the rules the studio enforces, its version, whether it is locked and its last 5 changes.` : ''}${reach.costs ? `
   spend: target = week, month or quarter, or a run title. What was spent and on what (from run receipts), the most expensive runs and how much ran on Codex (not metered). Answer cost questions only from it, a run lookup or LIVE CONTEXT; future costs only come from the estimate they see when they click.` : ''}
 - A claim about what people say needs a posts card with the posts it quotes. A claim from a report names the report as [[Title]].

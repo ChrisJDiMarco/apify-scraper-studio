@@ -162,7 +162,7 @@ refuses a grammar, `anthropic-runner.js` retries once with the schema written in
 the refused call); treat that as a fallback. That reply is read leniently (`src/shared/json-reply.js`); one that still
 can't be read leaves a file in `content-studio/diagnostics` (`ai-diagnostics.js`), and Ask AI keeps its answer field.
 
-**The action catalog.** `src/shared/ask-actions.json` lists 27 action kinds (plus 3 old names as aliases): label,
+**The action catalog.** `src/shared/ask-actions.json` lists 33 action kinds (plus 3 old names as aliases): label,
 target type, params, the methods a role must hold (all of them), `needs` (prompt view/edit, Google Drive), `spends`,
 `confirm` and the prompt line. Main (`help-assistant.js`) builds the prompt from it and gates buttons; the renderer
 (`studio-actions.js`) imports the same JSON to run them. `test/ask-actions-registry.test.js` checks it.

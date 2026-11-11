@@ -133,3 +133,22 @@ small.reply-muted { display: block; }
   .help-drawer :is(.reply-ref, .reply-suggest) { min-height: 36px; }
 }
 @media (prefers-reduced-motion: reduce) { .reply-progress > span { transition: none; } }
+
+/* ── Folded cards ── A reply with several cards shows its reference cards as one quiet line each (chat-cards.jsx):
+   icon, title, a few words of what's inside, and a chevron. Opening one draws the full card in place. */
+.reply-card-body { display: grid; gap: 10px; min-width: 0; }
+.reply-card.is-foldable { padding: 0; gap: 0; }
+.reply-card.is-foldable > .reply-card-body { padding: 2px 16px 14px; }
+.help-drawer .reply-card-toggle, .reply-card-toggle { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 0; padding: 10px 14px; font: inherit; text-align: left; color: var(--s-ink); background: none; border: 0; border-radius: 14px; box-shadow: none; cursor: pointer; }
+.help-drawer .reply-card-toggle:hover, .reply-card-toggle:hover { color: var(--s-ink); background: var(--s-bg); }
+.reply-card-toggle:focus-visible { outline: 2px solid var(--s-accent-strong); outline-offset: 2px; }
+.reply-card-toggle .reply-card-heading { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.reply-card-toggle .reply-card-title { flex: 0 1 auto; max-width: 72%; font-size: 14px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-card-summary { flex: 1 1 0; min-width: 0; font-size: 13px; font-weight: 400; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-card-chevron { flex: none; color: var(--s-muted); transition: transform 140ms ease; }
+.reply-card-toggle[aria-expanded="true"] .reply-card-chevron { transform: rotate(180deg); }
+.reply-card.is-folded { background: transparent; }
+.reply-card.is-foldable .reply-card-icon { width: 24px; height: 24px; border-radius: 7px; }
+/* Folded cards sit closer together, like rows of one list. */
+.chat-cards:has(> .reply-card.is-foldable) { gap: 6px; }
+@media (prefers-reduced-motion: reduce) { .reply-card-chevron { transition: none; } }

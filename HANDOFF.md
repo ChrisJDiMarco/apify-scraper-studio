@@ -229,7 +229,7 @@ Ask AI reads at runtime). This is the developer's view, with the code that owns 
   (conversations and memory per person). Server-stored conversations with a rolling summary, long-term memory (300
   items per person), lookups (reports, folders, files, runs, trends, posts, find, spend, conversations, memory,
   prompts), grounded cards hydrated from studio state, **quick scans** (`research-quick-scan.js`, `quick-scan.json`),
-  and 27 kinds of action buttons from one shared list (`src/shared/ask-actions.json`). Nothing runs without a click;
+  and 33 kinds of action buttons from one shared list (`src/shared/ask-actions.json`). Nothing runs without a click;
   paid work confirms with an estimate. See [ARCHITECTURE.md](ARCHITECTURE.md#ask-ai-pipeline).
 - **Ask AI for channel owners.** The same capability (`askAi`) on the channel base, with an Ask AI entry (⌘J / Ctrl+J)
   in the channel layout's sidebar and phone bar (`nav-model.js`, `channel-ask.jsx`). Its answers are built only from

@@ -8,6 +8,8 @@ import { routingChannels } from './trend-decision-sheet.jsx';
 import { linkFor, shareOrigin } from './deep-links.js';
 import { buildTrendBoard, generationPlan } from '../../shared/trend-board.js';
 import ASK_ACTIONS from '../../shared/ask-actions.json';
+import AI_TASKS from '../../shared/ai-tasks.json';
+import AI_MODELS from '../../shared/ai-models.json';
 
 // Ask AI's buttons and the studio work behind them, shared by both layouts (Simple and the Advanced drawer). Which
 // buttons exist, what each calls and whether it spends is src/shared/ask-actions.json, which the server's prompt reads
@@ -171,6 +173,8 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
   const run = action || (async (work) => work());
   // Ask AI's way: the work's own error comes back to the button (no banner), and the studio still refreshes after.
   const act = (work) => run(work, '', true);
+  // A name list from a card's one-line field ("a, b | c") or from Ask AI's params.
+  const namesOf = (value) => [...new Set((Array.isArray(value) ? value : String(value || '').split(/[|,\n]+/)).map((entry) => String(entry).trim()).filter(Boolean))];
   const [pending, setPending] = useState({}); // trend decisions shown the instant they are made
   const studio = state?.contentStudio || {};
   const workspaces = list(studio.workspaces);
@@ -467,6 +471,12 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
   }
 
   // Each kind's work (the catalog's kinds; test/ask-actions-registry.test.js checks every one has an entry here).
+  // The saved program a button names: by the id the server resolved, else by its exact name.
+  const programOf = (request) => {
+    const program = (request.programId && programs.find((row) => row.id === request.programId)) || programs.find((row) => same(row.name, request.target)) || null;
+    if (!program) throw new Error(`I couldn’t find a research program called “${request.target || ''}”.`);
+    return program;
+  };
   const executors = {
     'start-research': (request) => {
       const program = (request.programId && programs.find((row) => row.id === request.programId)) || programs.find((row) => same(row.name, request.target)) || (programs.length === 1 ? programs[0] : null);
@@ -683,6 +693,110 @@ export function useStudioActions({ api, state, action, viewer: viewerIn, can: ca
       return locked ? `Locked “${name}”.` : `Unlocked “${name}”.`;
     },
     'edit-prompt': (request) => savePromptEdit(request),
+    // Puts back an earlier version of a prompt (or the studio's default), after a dialog. The server refuses it when
+    // someone saved the prompt meanwhile.
+    'restore-prompt': async (request) => {
+      const id = request.promptId || ''; const name = request.title || request.target;
+      if (!id) throw new Error(`I couldn’t find a prompt called “${request.target}”.`);
+      const version = Number(request.params.version);
+      if (!Number.isInteger(version) || version < 0) throw new Error('Say which version to restore, or 0 for the studio’s default.');
+      const detail = await api.readPrompt({ id });
+      if (Number(detail?.version || 0) === version) return `“${name}” is already on ${version ? `version ${version}` : 'the studio’s default'}.`;
+      const ok = await confirm({ title: `Restore ${version ? `version ${version}` : 'the default'} of “${name}”?`, lines: ['Runs use the restored text from then on. The current version stays in its history.'], confirmLabel: 'Restore it' });
+      if (!ok) return false;
+      await act(() => api.revertPrompt({ id, toVersion: version, expectedVersion: Number(detail?.version || 0), note: version ? `Restored version ${version} from Ask AI` : 'Restored the default from Ask AI' }));
+      return `Restored ${version ? `version ${version}` : 'the default'} of “${name}”.`;
+    },
+    // A saved research program's settings, from the card the person checked. Only what the card holds changes; the save
+    // carries the version it started from, so someone else's newer save is refused rather than overwritten.
+    'edit-program': async (request) => {
+      const program = programOf(request);
+      const p = request.params || {}; const next = JSON.parse(JSON.stringify(program)); const said = [];
+      if (String(p.name || '').trim()) { next.name = String(p.name).trim().slice(0, 160); said.push(`named it “${next.name}”`); }
+      if (String(p.focus || '').trim()) { next.query = String(p.focus).trim().slice(0, 500); said.push('changed what it looks for'); }
+      const whole = (value, min, max, what) => { if (value === undefined || value === '') return null; const number = Number(value); if (!Number.isInteger(number) || number < min || number > max) throw new Error(`${what} needs a whole number from ${min} to ${max}.`); return number; };
+      const days = whole(p.days, 1, 90, 'Days it looks back');
+      if (days) { next.lookbackDays = days; next.schedule = { ...(next.schedule || {}), lookbackDays: days }; said.push(`set it to look back ${days} ${days === 1 ? 'day' : 'days'}`); }
+      const collection = whole(p.collection, 1, 1000, 'The collection cap'); const ai = whole(p.ai, 1, 1000, 'The AI cap');
+      if (collection || ai) { next.budgets = { ...(next.budgets || {}), ...(collection ? { collectionUsd: collection } : {}), ...(ai ? { aiUsd: ai } : {}) }; said.push(`set its caps to ${money(next.budgets.collectionUsd)} collection and ${money(next.budgets.aiUsd)} AI per run`); }
+      const schedule = String(p.schedule || '');
+      if (schedule) {
+        const now = { frequency: 'manual', enabled: false, ...(next.schedule || {}) };
+        if (schedule === 'on' && now.frequency === 'manual') throw new Error('It only runs when started, so there’s no schedule to resume. Choose Every day or Every week.');
+        const turnsOn = (schedule === 'on' || schedule === 'daily' || schedule === 'weekly') && !(now.enabled && now.frequency !== 'manual');
+        next.schedule = schedule === 'off' ? { ...now, enabled: false } : schedule === 'manual' ? { ...now, frequency: 'manual', enabled: false } : schedule === 'on' ? { ...now, enabled: true } : { ...now, frequency: schedule, enabled: true };
+        // A schedule turned on authorizes paid runs with nobody watching: say what each may spend, and ask.
+        if (turnsOn && !(await confirm({ title: `Turn on scheduled runs for “${next.name}”?`, lines: [`It will run ${next.schedule.frequency === 'daily' ? 'every day' : 'every week'} by itself.`, `Each run can spend up to ${money(next.budgets?.collectionUsd)} on collection and ${money(next.budgets?.aiUsd)} on AI.`, 'Keep the app or server running. Missed times don’t pile up.'], confirmLabel: 'Turn on schedule' }))) return false;
+        said.push(schedule === 'off' ? 'paused its schedule' : schedule === 'manual' ? 'set it to run only when started' : schedule === 'on' ? 'resumed its schedule' : `scheduled it ${schedule}`);
+      }
+      if (!said.length) throw new Error('Nothing to change: fill in at least one setting.');
+      await act(() => api.saveResearchProgram({ ...next, ...(program.updatedAt ? { baseUpdatedAt: program.updatedAt } : {}) }));
+      return `Saved “${next.name}”: ${said.join(', ')}.`;
+    },
+    // The accounts a program follows: add to a platform's list, or stop following some. Names are compared without
+    // their @, r/ or trailing slash, so "@handle" removes "handle".
+    'edit-sources': async (request) => {
+      const program = programOf(request);
+      const p = request.params || {}; const next = JSON.parse(JSON.stringify(program));
+      const key = (value) => String(value || '').trim().toLowerCase().replace(/^@|^\/?r\//, '').replace(/\/+$/, '');
+      const groupFor = { x: 'x', linkedin: 'linkedin-profile', reddit: 'reddit' };
+      let added = 0; let removed = 0;
+      next.sourceGroups = list(next.sourceGroups).map((group) => ({ ...group, targets: Array.isArray(group.targets) ? [...group.targets] : String(group.targets || '').split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean) }));
+      for (const [param, sourceId] of Object.entries(groupFor)) {
+        const names = namesOf(p[param]); if (!names.length) continue;
+        const group = next.sourceGroups.find((row) => row.sourceId === sourceId);
+        if (!group) throw new Error(`This program has no ${param === 'x' ? 'X' : param === 'linkedin' ? 'LinkedIn' : 'Reddit'} source to add to.`);
+        const have = new Set(group.targets.map(key));
+        for (const name of names) if (!have.has(key(name))) { group.targets.push(name); have.add(key(name)); added += 1; }
+        group.enabled = true;
+      }
+      const gone = new Set(namesOf(p.remove).map(key));
+      if (gone.size) for (const group of next.sourceGroups) { const kept = group.targets.filter((entry) => !gone.has(key(entry))); removed += group.targets.length - kept.length; group.targets = kept; }
+      if (!added && !removed) return namesOf(p.remove).length ? `None of those are in “${program.name}”, so nothing changed.` : `“${program.name}” already follows all of those.`;
+      await act(() => api.saveResearchProgram({ ...next, ...(program.updatedAt ? { baseUpdatedAt: program.updatedAt } : {}) }));
+      return `Saved “${program.name}”: ${[added ? `added ${added}` : '', removed ? `removed ${removed}` : ''].filter(Boolean).join(' and ')}. Its next run uses them.`;
+    },
+    // One channel's knowledge: the fields on the card replace those fields; the rest stay as they are.
+    'edit-channel': async (request) => {
+      const channelId = String(request.params.channel || '');
+      if (!channelId) throw new Error('Choose the channel first.');
+      const changes = Object.fromEntries(['audience', 'voice', 'format', 'dos', 'donts'].map((field) => [field, String(request.params[field] || '').trim()]).filter(([, text]) => text));
+      if (!Object.keys(changes).length) throw new Error('Nothing to save: fill in at least one field.');
+      const current = await api.readChannelSettings({ channelId });
+      await act(() => api.saveChannelKnowledge({ channelId, knowledge: { ...(current?.knowledge || {}), ...changes } }));
+      return `Saved ${current?.channelName || channelName(channelId)}’s channel knowledge (${Object.keys(changes).length} ${Object.keys(changes).length === 1 ? 'field' : 'fields'}). New assets for it use it.`;
+    },
+    // The workspace's brand knowledge: the fields on the card replace those fields; products and the rest are untouched.
+    'edit-brand': async (request) => {
+      const workspace = list(studio.workspaces).find((row) => row.id === studio.activeWorkspaceId);
+      if (!workspace) throw new Error('There’s no workspace open to save brand knowledge to.');
+      const map = { audience: 'audience', positioning: 'positioning', voice: 'voice', rules: 'editorialRules', avoid: 'forbiddenClaims' };
+      const changes = Object.fromEntries(Object.entries(map).map(([param, field]) => [field, String(request.params[param] || '').trim()]).filter(([, text]) => text));
+      if (!Object.keys(changes).length) throw new Error('Nothing to save: fill in at least one field.');
+      await act(() => api.saveContentWorkspace({ id: workspace.id, name: workspace.name, editionId: workspace.editionId, knowledge: { ...(workspace.knowledge || {}), ...changes, name: workspace.name, editionId: workspace.editionId }, products: list(workspace.products) }));
+      return `Saved the brand knowledge (${Object.keys(changes).length} ${Object.keys(changes).length === 1 ? 'field' : 'fields'}). Reports and assets written from now on use it.`;
+    },
+    // Which model an AI task uses (or the studio's default text model). The routing page's own save, with the version
+    // it read, so a change made there meanwhile is refused rather than overwritten.
+    'set-model': async (request) => {
+      const models = [...list(AI_MODELS.text), ...list(AI_MODELS.openaiText)];
+      const wanted = String(request.params.model || '').trim();
+      const model = models.find((row) => row.id === wanted) || models.find((row) => same(row.label, wanted)) || models.find((row) => norm(row.label).includes(norm(wanted)) && norm(wanted).length > 3);
+      if (!model) throw new Error(`“${wanted || 'That'}” isn’t a model the studio lists. Choose one of: ${models.map((row) => row.label).join(', ')}.`);
+      const effort = String(request.params.effort || '');
+      if (effort && list(model.efforts).length && !model.efforts.includes(effort)) throw new Error(`${model.label} doesn’t take ${effort} effort.`);
+      const target = String(request.target || '').trim();
+      const tasks = list(AI_TASKS.tasks).filter((row) => row.kind === 'text');
+      const task = /^(default|the default|studio default|everything)$/i.test(target) || !target ? null : tasks.find((row) => row.id === target) || tasks.find((row) => same(row.label, target)) || tasks.find((row) => norm(row.label).includes(norm(target)) && norm(target).length > 3);
+      if (target && !/^(default|the default|studio default|everything)$/i.test(target) && !task) throw new Error(`I couldn’t find an AI task called “${target}”.`);
+      const { routing } = await api.previewAiRouting({});
+      const draft = JSON.parse(JSON.stringify(routing));
+      if (task) draft.tasks = { ...(draft.tasks || {}), [task.id]: { ...(draft.tasks?.[task.id] || {}), model: model.id, ...(effort ? { effort } : {}) } };
+      else draft.defaults = { ...(draft.defaults || {}), text: { ...(draft.defaults?.text || {}), model: model.id } };
+      draft.preset = 'custom';
+      await act(() => api.saveAiRouting({ routing: draft, baseUpdatedAt: routing.updatedAt || '' }));
+      return `${task ? `“${task.label}”` : 'The studio’s default'} now uses ${model.label}${effort ? ` at ${effort} effort` : ''}. Later runs cost what that model costs.`;
+    },
   };
 
   // Buttons Ask AI offers, and the ones its cards draw. The server sends the item's ids (runId + themeId, assetId,

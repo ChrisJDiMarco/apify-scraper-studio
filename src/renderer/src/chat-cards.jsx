@@ -119,8 +119,15 @@ export function ChatCards({ cards, actions = [], actionState = {}, onAction, onR
   if (!rows.length) return null;
   const shared = { actions: list(actions), actionState: actionState || {}, onAction, onRunAction, onOutcome, onAsk, onNav: onNav || {}, api, state, conversationId, messageId };
   const lead = primary ? primaryCard(rows, shared.actions, shared.actionState, state, { canAct: Boolean(onAction), canRunAction: Boolean(onRunAction), canAsk: Boolean(onAsk), can, api }) : -1;
-  return <div className="chat-cards">{rows.map((card, index) => { const Card = RENDERERS[card.type]; return <PrimaryContext.Provider key={`${card.type}-${index}`} value={index === lead}><Card card={card} {...shared} /></PrimaryContext.Provider>; })}</div>;
+  // A reply with several cards keeps the page calm: the cards that are there to look something up (numbers, a table,
+  // a folder, a report, posts) fold to one line each and open on a click. The card that holds the reply's next step, a
+  // chart someone asked for, anything to fill in or decide, and a reply's only card always show in full.
+  const folds = (card, index) => rows.length > 1 && index !== lead && FOLDABLE.has(card.type);
+  return <div className="chat-cards">{rows.map((card, index) => { const Card = RENDERERS[card.type]; return <FoldContext.Provider key={`${card.type}-${index}`} value={folds(card, index)}><PrimaryContext.Provider value={index === lead}><Card card={card} {...shared} /></PrimaryContext.Provider></FoldContext.Provider>; })}</div>;
 }
+// Reference cards: what they hold is already summed up in the answer's own words.
+const FOLDABLE = new Set(['metric', 'table', 'compare', 'checklist', 'posts', 'asset-folder', 'report', 'program', 'memory']);
+const FoldContext = createContext(false);
 
 // Every card is one shell (ask-reply.css): a 28px icon tile tinted by family, an eyebrow and a title, the body, and the
 // card's own buttons in a footer row. Families: research and trends are mint, assets and reports soft, questions and
@@ -129,12 +136,25 @@ const FAMILY = { trend: 'mint', run: 'mint', program: 'mint', posts: 'mint', 'sc
 // `label` names the card for screen readers when its title alone wouldn't (the memory card: "Remembered from this
 // answer"); otherwise the card is named by its title. The card's type is data-card, never a class: chat-cards.css names
 // parts after their card (.cc-compare is the two columns, .cc-draft the text box), and a class would restyle the shell.
-export function ReplyCard({ type, family = '', kicker, title, label = '', icon: Icon, note, aside, children }) {
-  const id = useId();
-  return <article className="reply-card" data-card={type} aria-labelledby={label ? undefined : id} aria-label={label || undefined} data-spot={type === 'scan-plan' ? 'ask.scan-plan' : undefined}>
-    <header className="reply-card-head">{Icon && <span className={`reply-card-icon is-${family || FAMILY[type] || 'neutral'}`} aria-hidden="true"><Icon size={15} /></span>}<div className="reply-card-heading">{kicker && <span className="reply-card-eyebrow">{kicker}</span>}<h4 id={id} className="reply-card-title">{title || kicker}</h4></div>{aside}</header>
-    {note && <p className="reply-body">{note}</p>}
-    {children}
+// `summary`: the card in a few words, shown beside its title while it is folded (else its note).
+export function ReplyCard({ type, family = '', kicker, title, label = '', icon: Icon, note, summary = '', aside, children }) {
+  const id = useId(); const bodyId = useId();
+  const folds = useContext(FoldContext);
+  const [open, setOpen] = useState(false);
+  const shown = !folds || open;
+  const line = summary || note || '';
+  return <article className={`reply-card${folds ? ' is-foldable' : ''}${folds && !open ? ' is-folded' : ''}`} data-card={type} aria-labelledby={label ? undefined : id} aria-label={label || undefined} data-spot={type === 'scan-plan' ? 'ask.scan-plan' : undefined}>
+    {folds
+      ? <button type="button" className="reply-card-head reply-card-toggle" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((value) => !value)}>
+        {Icon && <span className={`reply-card-icon is-${family || FAMILY[type] || 'neutral'}`} aria-hidden="true"><Icon size={15} /></span>}
+        <span className="reply-card-heading"><span id={id} className="reply-card-title">{title || kicker}</span>{!open && line && <span className="reply-card-summary">{line}</span>}</span>
+        <ChevronDown size={15} aria-hidden="true" className="reply-card-chevron" />
+      </button>
+      : <header className="reply-card-head">{Icon && <span className={`reply-card-icon is-${family || FAMILY[type] || 'neutral'}`} aria-hidden="true"><Icon size={15} /></span>}<div className="reply-card-heading">{kicker && <span className="reply-card-eyebrow">{kicker}</span>}<h4 id={id} className="reply-card-title">{title || kicker}</h4></div>{aside}</header>}
+    {shown && <div id={bodyId} className="reply-card-body">
+      {note && <p className="reply-body">{note}</p>}
+      {children}
+    </div>}
   </article>;
 }
 const CardShell = ReplyCard;
@@ -290,7 +310,7 @@ export function ReportCard({ card, actions, actionState, onAction, onNav }) {
   const data = card.data || {};
   const kind = DOC_KIND[data.kind] || (data.kind ? sentence(data.kind) : 'Report');
   const opens = Boolean(data.assetId) && typeof onNav.openReport === 'function'; // else a reply's own Open button stays
-  return <CardShell type="report" kicker={kind} title={card.title || data.title || 'Report'} icon={FileText} note={card.note}>
+  return <CardShell type="report" kicker={kind} title={card.title || data.title || 'Report'} icon={FileText} note={card.note} summary={[kind, data.trendName && data.trendName !== (card.title || data.title) ? data.trendName : '', formatDay(data.date)].filter(Boolean).join(' · ')}>
     {(data.trendName || data.date) && <p className="reply-muted">{[data.trendName && `Trend: ${data.trendName}`, formatDay(data.date)].filter(Boolean).join(' · ')}</p>}
     {data.excerpt && <p className="reply-body cc-clamp">{data.excerpt}</p>}
     <CardActions card={card} actions={actions} actionState={actionState} onAction={onAction} skip={(row) => opensAs(row, 'report') && opens}>
@@ -309,7 +329,7 @@ export function AssetFolderCard({ card, actions, actionState, onAction, onNav, s
   const status = live?.status || data.status;
   const channels = list(data.channels).filter((row) => row?.name);
   const opens = Boolean(data.sourceKey) && typeof onNav.openFolder === 'function';
-  return <CardShell type="asset-folder" kicker="Channel assets" title={card.title || data.title || 'Asset folder'} icon={FolderOpen} note={card.note}>
+  return <CardShell type="asset-folder" kicker="Channel assets" title={card.title || data.title || 'Asset folder'} icon={FolderOpen} note={card.note} summary={['Channel assets', FOLDER_STATUS[status] || sentence(status), total ? `${ready} of ${total} ready` : ''].filter(Boolean).join(' · ')}>
     <p className="reply-muted">{ACTIVE.has(status) && <LoaderCircle className="spin" size={12} aria-hidden="true" />}{[FOLDER_STATUS[status] || sentence(status), total ? `${ready} of ${total} ready` : ''].filter(Boolean).join(' · ')}</p>
     {total > 0 && <Progress done={ready} total={total} label={`${card.title || data.title || 'Folder'}: ${ready} of ${total} assets ready`} />}
     {channels.length > 0 && <ul className="reply-chips" aria-label="Channels">{channels.slice(0, 12).map((row) => <li key={row.name} className="reply-chip">{row.name}{finite(row.count) && <span className="reply-chip-count">{row.count}</span>}</li>)}</ul>}
@@ -424,7 +444,7 @@ const TONE_ICON = { up: TrendingUp, down: TrendingDown, flat: Minus };
 export function MetricCard({ card, actions, actionState, onAction }) {
   const items = list(card.data?.items).filter((row) => row && (row.label || row.value)).slice(0, 4);
   if (!items.length) return null;
-  return <CardShell type="metric" kicker="At a glance" title={card.title} icon={Gauge} note={card.note}>
+  return <CardShell type="metric" kicker="At a glance" title={card.title} icon={Gauge} note={card.note} summary={items.map((row) => [text(row.value), row.label].filter(Boolean).join(' ')).join(' · ')}>
     <dl className="cc-metrics" data-count={items.length}>{items.map((row, index) => { const Icon = TONE_ICON[row.tone]; return <div key={index} className="cc-metric">
       <dt>{row.label}</dt><dd><strong>{text(row.value)}</strong>{row.delta && <span className={`cc-delta is-${row.tone || 'flat'}`}>{Icon && <Icon size={12} aria-hidden="true" />}{row.delta}</span>}</dd>
     </div>; })}</dl>

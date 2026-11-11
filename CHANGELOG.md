@@ -71,7 +71,7 @@ Design record: [docs/design-review/SPEC-3.md](docs/design-review/SPEC-3.md).
   `scripts/studio-restore.cjs`) with a SHA-256 manifest, live-safe passes, checks and an undo copy.
 - **Deploy kit** (`deploy/`): Docker Compose with Caddy and oauth2-proxy, systemd service and nightly backup timer.
 - **Studio-wide AI limits** (`src/main/ai-limits.js`): `STUDIO_AI_CONCURRENCY` and `STUDIO_DAILY_AI_BUDGET_USD`.
-- **Ask AI reach**: one shared action list (`src/shared/ask-actions.json`, 27 kinds) for the server prompt and the
+- **Ask AI reach**: one shared action list (`src/shared/ask-actions.json`, 33 kinds) for the server prompt and the
   renderer; server-side target resolution with a choice card for ambiguous names; new actions (undo a decision, say
   yes to several trends, set a file's status, mark a trend used, suggest a report change, open anything, copy links
   and text, export, send to Google Docs, draft a program, invite people, View as, lock a prompt); new cards (Check

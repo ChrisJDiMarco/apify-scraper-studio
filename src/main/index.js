@@ -2898,6 +2898,32 @@ function helpLookup({ kind, target }, scope = {}) {
     const items = askStore.searchMemory(scope.identityId, { workspaceId: scope.workspaceId || '', query: target, exclude: scope.recalled || [], limit: 12 });
     return { kind, target, found: items.length > 0, title: target, items: items.map((item) => ({ kind: item.kind, text: item.text, scope: item.scope, updatedAt: item.updatedAt })) };
   }
+  // A channel's knowledge and the prompts that write its assets (never for a channel role: theirs is its own lookup set).
+  if (kind === 'channel') {
+    const channel = helpPick(helpChannels(), (row) => row.name, target) || helpChannels().find((row) => row.id === String(target || '').trim() || helpNorm(row.short) === helpNorm(target));
+    if (!channel || typeof contentWorkspace.readChannelSettings !== 'function') return { kind, target, found: false };
+    return Promise.resolve(contentWorkspace.readChannelSettings({ channelId: channel.id })).then((detail) => ({ kind, target, found: true, title: detail.channelName,
+      knowledge: Object.fromEntries((detail.fields || []).map((field) => [field.id, String(detail.knowledge?.[field.id] || '').slice(0, 3000)])), empty: !(detail.fields || []).some((field) => String(detail.knowledge?.[field.id] || '').trim()),
+      updatedAt: detail.updatedAt || '', updatedBy: detail.updatedBy?.name || '', prompts: (detail.prompts || []).map((row) => ({ name: row.prompt?.name || '', version: row.version || 0 })) }));
+  }
+  // The workspace's brand knowledge, as its fields.
+  if (kind === 'brand') {
+    const workspace = helpSafe(() => contentWorkspace.state().workspaces.find((row) => row.id === contentWorkspace.state().activeWorkspaceId), null);
+    if (!workspace) return { kind, target, found: false };
+    const knowledge = workspace.knowledge || {};
+    return { kind, target, found: true, title: workspace.name, knowledge: Object.fromEntries(['audience', 'positioning', 'icp', 'voice', 'editorialRules', 'forbiddenClaims', 'productContext'].map((key) => [key, String(knowledge[key] || '').slice(0, 3000)])),
+      products: (workspace.products || []).slice(0, 40).map((row) => row?.name || row?.title || '').filter(Boolean) };
+  }
+  // Which model and effort each AI task uses (admins: it is a studio setting), and the models that can be chosen.
+  if (kind === 'models') {
+    if (scope.role !== 'admin') return { kind, target, found: false, error: 'Model routing is an admin setting.' };
+    const routing = helpSafe(() => aiRouting.current(), null); if (!routing) return { kind, target, found: false };
+    const tasks = require('../shared/ai-tasks.json').tasks.filter((task) => task.kind === 'text');
+    const catalog = require('../shared/ai-models.json');
+    return { kind, target, found: true, title: 'AI models', default: routing.defaults?.text?.model || '',
+      tasks: tasks.map((task) => ({ id: task.id, name: task.label, model: routing.tasks?.[task.id]?.model || routing.defaults?.text?.model || '', effort: routing.tasks?.[task.id]?.effort || '', own: Boolean(routing.tasks?.[task.id]) })),
+      models: [...catalog.text, ...(catalog.openaiText || [])].map((row) => ({ id: row.id, name: row.label, inputUsdPerMTok: scope.costs === false ? undefined : row.inputUsdPerMTok, outputUsdPerMTok: scope.costs === false ? undefined : row.outputUsdPerMTok })) };
+  }
   // One prompt from this workspace's Prompt Library (a promise: readPrompt checks the AI route for "Runs on").
   if (kind === 'prompt') {
     if (!scope.promptAccess?.view || typeof contentWorkspace.readPrompt !== 'function') return { kind, target, found: false, error: 'The Prompt Library isn’t open to this person.' };
@@ -3117,10 +3143,16 @@ function helpNeedsForm(action) {
   return Object.keys(params).some((key) => !['run', 'type', 'what'].includes(key)) || Boolean(action.problems?.length);
 }
 const HELP_FIELD_LABELS = { note: 'Note for the channels', channels: 'Channels', channel: 'Channel', status: 'Status', link: 'Live link', date: 'Planned date' };
-const HELP_FIELD_KIND_LABELS = { 'pass-trend': { note: 'Why you’re skipping it' }, 'mark-used': { note: 'Note', status: 'Answer' } };
-const HELP_OPTION_LABELS = { draft: 'Draft', 'in-review': 'In review', approved: 'Approved', scheduled: 'Scheduled', published: 'Published', using: 'Using it', 'not-using': 'Not for us', clear: 'Clear the answer' };
+const HELP_FIELD_KIND_LABELS = { 'pass-trend': { note: 'Why you’re skipping it' }, 'mark-used': { note: 'Note', status: 'Answer' },
+  'edit-program': { name: 'Program name', focus: 'Research focus', days: 'Days it looks back', collection: 'Collection cap per run (USD)', ai: 'AI cap per run (USD)', schedule: 'Schedule' },
+  'edit-sources': { x: 'X accounts to add', linkedin: 'LinkedIn URLs to add', reddit: 'Subreddits to add', remove: 'Stop following' },
+  'edit-channel': { channel: 'Channel', audience: 'Who this channel speaks to', voice: 'Voice and tone', format: 'Format rules', dos: 'Always do', donts: 'Never do' },
+  'edit-brand': { audience: 'Audience', positioning: 'Positioning', voice: 'Brand voice', rules: 'Editorial rules', avoid: 'Claims to avoid' },
+  'set-model': { model: 'Model', effort: 'Effort' } };
+const HELP_OPTION_LABELS = { on: 'Resume the schedule', off: 'Pause the schedule', manual: 'Only when started', daily: 'Every day', weekly: 'Every week', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', draft: 'Draft', 'in-review': 'In review', approved: 'Approved', scheduled: 'Scheduled', published: 'Published', using: 'Using it', 'not-using': 'Not for us', clear: 'Clear the answer' };
 // The action form card: what Ask AI filled in, as fields the person can change ({ key, type, label, value, options,
 // max }), with anything the cleaner left out (problems). Its button runs the same action with the edited params.
+const HELP_SPARSE_FORMS = new Set(['edit-program', 'edit-sources', 'edit-channel', 'edit-brand', 'set-model']);
 function helpActionCard(action, index) {
   const spec = helpAssistant.CATALOG[action.kind]; const params = action.params || {};
   const channels = helpChannels().map(({ id, name }) => ({ value: id, label: name }));
@@ -3129,8 +3161,12 @@ function helpActionCard(action, index) {
     const [kind, ...rest] = String(type).split(':');
     const options = kind === 'channels' || kind === 'channel' ? channels : kind === 'enum' ? rest.join(':').split('|').map((value) => ({ value, label: HELP_OPTION_LABELS[value] || value })) : [];
     const fallback = kind === 'channels' ? [] : kind === 'enum' && action.kind === 'mark-used' && key === 'status' ? 'using' : '';
-    return { key, type: kind, label: labels[key], value: params[key] ?? fallback, options, ...(kind === 'text' ? { max: Number(rest[0]) || 280 } : {}) };
-  });
+    // A list of names is shown as one line the person can edit; a number as its digits. Only what Ask AI filled in is
+    // listed for the kinds that change a few of many settings, so the card shows the change and nothing else.
+    const given = params[key];
+    const value = kind === 'names' ? (Array.isArray(given) ? given.join(', ') : '') : given ?? fallback;
+    return { key, type: kind === 'names' || kind === 'int' ? 'line' : kind, label: labels[key], value: value === undefined || value === null ? '' : value, options, ...(kind === 'text' ? { max: Number(rest[0]) || 280 } : {}) };
+  }).filter((field) => !HELP_SPARSE_FORMS.has(action.kind) || field.key === 'channel' || (Array.isArray(field.value) ? field.value.length : String(field.value) !== ''));
   return { type: 'action', title: action.label, note: '', actionIndexes: [index], data: { kind: action.kind, title: action.title || action.target || '', fields, problems: action.problems || [], spends: Boolean(spec.spends), confirm: spec.confirm } };
 }
 // Two or more items matched a button's target: the person picks one, and the button runs with its ids. No AI call.
