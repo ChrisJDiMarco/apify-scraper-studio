@@ -11,6 +11,7 @@ const copies = [
   ['src/shared/text-decode.js', 'out/shared/text-decode.js'],
   ['src/main/image-provider.js', 'out/main/image-provider.js'],
   ['src/main/ai-limits.js', 'out/main/ai-limits.js'], // STUDIO_AI_CONCURRENCY and STUDIO_DAILY_AI_BUDGET_USD
+  ['src/main/run-recovery.js', 'out/main/run-recovery.js'], // a lost scraper run is picked up, not paid for twice
   ['src/main/local-image-key.js', 'out/main/local-image-key.js'],
   ['src/main/google-delivery.js', 'out/main/google-delivery.js'],
   ['src/main/bridge-delivery.js', 'out/main/bridge-delivery.js'],

@@ -11,6 +11,7 @@ import { useConfirm } from './confirm-dialog.jsx';
 import { useHelpImages } from './help-images.js';
 import { KitCreator, kitSourcesFrom } from './kit-creator.jsx';
 import { formatDay, useCan, useViewer, writeProps } from './viewer.js';
+import { thumbnailOf } from './thumb-cache.js';
 import { readJsonChoice, saveJsonChoice } from './choices.js';
 import { formatDate, number, withViewTransition } from './ui.jsx';
 import { VideoPlayer, VideoTile } from './video-preview.jsx';
@@ -151,7 +152,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
         const item = queue.shift();
         try {
           const url = item.source === 'help' ? (await api.readHelpImage({ id: item.id }))?.dataUrl : (await api.readStudioAsset({ assetId: item.id }))?.imageDataUrl;
-          if (!cancelled && typeof url === 'string' && url.startsWith('data:image/')) onCache(item.key, url);
+          if (!cancelled && typeof url === 'string' && url.startsWith('data:image/')) { const small = await thumbnailOf(url); if (!cancelled) onCache(item.key, small); }
         } catch { /* the card keeps its placeholder and still opens the file */ }
       }
     }
@@ -427,6 +428,16 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
 // Esc closes it and focus goes back to the card that opened it.
 function PictureLightbox({ api, picture, cache, busy, web, saved, viewer, onClose, onDownload, onVariation }) {
   const panel = useRef(null);
+  // The grid holds small copies; the open picture is read at full size (and let go when the lightbox closes).
+  const [full, setFull] = useState({ key: '', url: '' });
+  useEffect(() => {
+    if (picture.kind === 'video') return undefined;
+    let live = true;
+    Promise.resolve().then(() => (picture.source === 'help' ? api.readHelpImage({ id: picture.id }) : api.readStudioAsset({ assetId: picture.id })))
+      .then((result) => { const url = picture.source === 'help' ? result?.dataUrl : result?.imageDataUrl; if (live && typeof url === 'string' && url.startsWith('data:image/')) setFull({ key: picture.key, url }); }, () => {});
+    return () => { live = false; };
+  }, [picture.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownUrl = full.key === picture.key ? full.url : cache[picture.key];
   useModalFocus(panel);
   useEffect(() => {
     const onKey = (event) => { if (event.key === 'Escape') onClose(); };
@@ -435,7 +446,7 @@ function PictureLightbox({ api, picture, cache, busy, web, saved, viewer, onClos
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return <div className="simple-lightbox" role="dialog" aria-modal="true" aria-label={picture.title} ref={panel} tabIndex={-1} onKeyDown={(event) => trapTab(event, panel.current)} onClick={onClose}>
     <div className="simple-lightbox-card" onClick={(event) => event.stopPropagation()}>
-      <div className="simple-lightbox-media">{picture.kind === 'video' ? (picture.asset ? <VideoPlayer asset={picture.asset} api={api} /> : <span className="simple-asset-placeholder"><Clapperboard size={34} aria-hidden="true" /><small>Open the file to play this video.</small></span>) : cache[picture.key] ? <img src={cache[picture.key]} alt={picture.title} /> : <span className="simple-asset-placeholder shimmer" />}</div>
+      <div className="simple-lightbox-media">{picture.kind === 'video' ? (picture.asset ? <VideoPlayer asset={picture.asset} api={api} /> : <span className="simple-asset-placeholder"><Clapperboard size={34} aria-hidden="true" /><small>Open the file to play this video.</small></span>) : shownUrl ? <img src={shownUrl} alt={picture.title} /> : <span className="simple-asset-placeholder shimmer" />}</div>
       <aside className="simple-lightbox-side">
         <button type="button" className="simple-lightbox-close" aria-label="Close" onClick={onClose}><X size={18} /></button>
         <small className="simple-doc-meta">{[picture.label, formatDate(picture.createdAt)].filter(Boolean).join(' · ')}</small>

@@ -17,7 +17,10 @@ const { fieldStreamer } = require('../shared/structured-stream');
 
 const INVALID_RESULT = new Set(['CLAUDE_INVALID_RESULT', 'AI_INVALID_RESULT']);
 
-function createTextRouter({ routing, connections, runners, catalog = null, writeJson, apiRequests = new Map(), maxBudgetUsd: defaultBudget = () => 1, onInvalidResult = null } = {}) {
+// isCancelled(jobId): true when the call's run or job was cancelled after the call was asked for (index.js). Checked
+// after every wait that comes before the call is sent, so a cancel never misses a call that was still getting ready.
+function createTextRouter({ routing, connections, runners, catalog = null, writeJson, apiRequests = new Map(), maxBudgetUsd: defaultBudget = () => 1, onInvalidResult = null, isCancelled = () => false } = {}) {
+  const stopIfCancelled = (jobId) => { if (jobId && isCancelled(jobId)) throw Object.assign(new Error('Job cancelled.'), { code: 'cancelled', costUsd: 0 }); };
   function invalidResult(error, { taskId, route, model }) {
     if (!error || typeof error !== 'object' || !INVALID_RESULT.has(error.code) || typeof error.rawText !== 'string') return;
     for (const [key, value] of Object.entries({ taskId: taskId || null, route, model: model || '' })) if (error[key] === undefined) error[key] = value;
@@ -39,6 +42,7 @@ function createTextRouter({ routing, connections, runners, catalog = null, write
     if (resolved.problem) throw Object.assign(new Error(`${resolved.problem} Nothing was started.`), { code: 'AI_ROUTING_PROBLEM', costUsd: 0 });
     const streamer = fieldStreamer(onStream, streamField);
     const route = await connections.require(resolved.route);
+    stopIfCancelled(jobId);
     const runner = runners[route];
     if (!runner) throw Object.assign(new Error('That AI connection can’t write answers on this studio. Nothing was started.'), { code: 'AI_NOT_CONNECTED' });
     streamer?.status(`Writing with ${resolved.modelLabel || resolved.model || 'the default model'} · ${routing.routeLabel(route)}`);
@@ -60,6 +64,7 @@ function createTextRouter({ routing, connections, runners, catalog = null, write
           const call = route === 'claude-api'
             ? { schema, prompt, ...(cachePrefix ? { cachePrefix } : {}), model: resolved.model, effort: resolved.effort || undefined, maxBudgetUsd: budget, timeoutMs, signal: controller.signal, ...(streamer ? { onDelta: streamer.push } : {}) }
             : { ...common, signal: controller.signal, profile, price };
+          stopIfCancelled(jobId);
           const { output, receipt } = await runner.run(call);
           if (outputPath) writeJson(outputPath, output);
           result = { output, receipt, stdout: '' };

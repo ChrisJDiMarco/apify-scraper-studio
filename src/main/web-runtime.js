@@ -162,6 +162,48 @@ function zipFolder(folder, saveDir) {
   fs.writeFileSync(target, require('../shared/xlsx-writer').zip(entries, new Date()));
   return target;
 }
+// The same zip, built on a worker thread. Reading and compressing up to 300 MB on the server's one thread stalled
+// every other person's requests and live updates until it finished; a worker leaves the server answering meanwhile.
+const ZIP_WORKER = `
+const { parentPort, workerData } = require('node:worker_threads');
+const fs = require('node:fs'); const path = require('node:path');
+try {
+  const { folder, target, maxBytes, zipModule } = workerData;
+  const entries = []; let total = 0;
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile()) { const data = fs.readFileSync(full); total += data.length; if (total > maxBytes) throw new Error('This export is too large to download from the browser. Ask for it from the studio server.'); entries.push({ name: path.relative(folder, full).split(path.sep).join('/'), data }); }
+    }
+  };
+  walk(folder);
+  fs.writeFileSync(target, require(zipModule).zip(entries, new Date()));
+  parentPort.postMessage({ ok: true });
+} catch (error) { parentPort.postMessage({ error: String(error && error.message || error) }); }
+`;
+function zipFolderInWorker(folder, saveDir) {
+  const target = path.join(saveDir, `${safeName(path.basename(folder))}.zip`);
+  return new Promise((resolve, reject) => {
+    let settled = false; const settle = (run) => { if (!settled) { settled = true; run(); } };
+    const { Worker } = require('node:worker_threads');
+    const worker = new Worker(ZIP_WORKER, { eval: true, workerData: { folder, target, maxBytes: MAX_ZIP_BYTES, zipModule: require.resolve('../shared/xlsx-writer') } });
+    worker.once('message', (message) => settle(() => (message?.error ? reject(new Error(message.error)) : resolve(target))));
+    worker.once('error', (error) => settle(() => reject(error)));
+    worker.once('exit', (code) => settle(() => (code === 0 ? resolve(target) : reject(new Error('The export could not be zipped.')))));
+  });
+}
+// An export folder as a download, zipped off the server's thread. The same checks as offerFile's folder branch; '' when
+// the .zip was added to this call's downloads, else the reason it wasn't.
+async function offerFolder(target) {
+  const call = calls.getStore(); if (!call) return 'This action needs the studio page.';
+  let real; try { real = fs.realpathSync(String(target || '')); } catch { return 'That file no longer exists.'; }
+  if (![settings.dataDir, settings.transferDir].some((root) => inside(real, fs.realpathSync(root)))) return 'That file is outside the studio folder.';
+  if (!fs.statSync(real).isDirectory()) return offerFile(real);
+  const parts = path.relative(fs.realpathSync(settings.dataDir), real).split(path.sep);
+  if (!call.saveDir || inside(real, fs.realpathSync(settings.dataDir)) === false || !parts.slice(0, -1).includes('exports')) return 'Folders stay on the server in the web version. Open a file to download it.';
+  call.files.push(await zipFolderInWorker(real, call.saveDir)); return '';
+}
 const dialog = {
   showOpenDialog(_window, options = {}) {
     const uploads = calls.getStore()?.uploads || [];
@@ -182,6 +224,8 @@ const shell = {
   openExternal(url) { const call = calls.getStore(); if (call) call.opens.push(String(url)); return Promise.resolve(); },
   openPath: (target) => Promise.resolve(offerFile(target)),
   showItemInFolder: (target) => { offerFile(target); },
+  // Not Electron's: the browser studio's way to hand over a whole export folder without blocking (index.js offerBrowserFolder).
+  offerFolder,
 };
 
 const electron = { app, BrowserWindow, Menu, ipcMain, safeStorage, dialog, shell };

@@ -498,9 +498,25 @@ function emit(channel, payload) {
 // stream through the people provider's view(), which projects it per person; nothing goes to a browser unprojected.
 function emitState() {
   mondayEngine?.noteChange(); // Monday.com 'As changes happen': a push 15 s after the first change
+  if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+  pushedAt = Date.now();
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const base = publicState();
   emit('state-changed', WEB_RUNTIME ? base : access.project(base, access.currentViewer()));
+}
+// The studio's own saves (content-workspace.js) come many times a second while a run works, and building the public
+// state copies every list and sends it whole. Those pushes are spaced: the first goes out at once, and saves within the
+// next 100 ms share one push at the end of it, so a busy run costs at most ten builds and sends a second. Everything
+// else (a click's own result, a role or preview change, a settings save) still calls emitState and is pushed at once,
+// which also clears a push that was waiting.
+const PUSH_GAP_MS = 100;
+let pushedAt = 0; let pushTimer = null;
+function emitStateSoon() {
+  if (pushTimer) return;
+  const wait = PUSH_GAP_MS - (Date.now() - pushedAt);
+  if (wait <= 0 || typeof setTimeout !== 'function') { emitState(); return; }
+  pushTimer = setTimeout(() => { pushTimer = null; emitState(); }, wait);
+  pushTimer.unref?.();
 }
 
 function configureAutoUpdates() {
@@ -678,14 +694,15 @@ function exportAssetPack(payload = {}) {
   return WEB_RUNTIME ? offerBrowserFolder(result, dir) : result;
 }
 
+const { UNFINISHED_RUN, resumableRun, resumableAfterFailure } = require('./run-recovery');
 function recoverInterruptedJobs() {
   const data = loadData();
   let changed = false;
   for (const key of ['runs', 'analyses', 'intentRuns', 'conversations']) {
     data[key] = (data[key] || []).map((record) => {
-      if (record.status !== 'running') return record;
+      if (key === 'runs' ? !UNFINISHED_RUN.has(record.status) : record.status !== 'running') return record;
       changed = true;
-      return { ...record, status: 'failed', error: 'App restarted before this job finished.', finishedAt: now() };
+      return { ...record, status: 'failed', error: 'App restarted before this job finished.', finishedAt: now(), ...(key === 'runs' && record.apifyRunId ? { resumable: true } : {}) };
     });
   }
   if (changed) saveData();
@@ -1283,8 +1300,12 @@ async function runRecipe(recipeId) {
   // Scrapers saved before every recipe carried limits get the defaults ($5, 15 minutes); the studio stops the run itself
   // a little after Apify's own timeout.
   const runOptions = recipe.runOptions || { ...DEFAULT_RUN_OPTIONS };
+  // The scraper's last run may have been lost by the studio (the connection dropped while it waited, or its rows couldn't
+  // be downloaded) while the run itself carried on, or finished, at Apify. Starting again would pay for it twice, so
+  // this picks that same run up: it waits for it if it is still going, and downloads what it collected.
+  const lost = resumableRun(data.runs, recipeId);
   const localRunId = toId('run');
-  const job = startJob({ id: localRunId, kind: 'run', status: 'running', title: recipe.name, cancellable: true, startedAt: now() });
+  const job = startJob({ id: localRunId, kind: 'run', status: 'running', title: lost ? `${recipe.name} (picking up its last run)` : recipe.name, cancellable: true, startedAt: now() });
 
   const runRecord = {
     id: localRunId,
@@ -1296,7 +1317,9 @@ async function runRecipe(recipeId) {
     status: 'running',
     runLimits: runOptions,
     startedAt: job.startedAt,
+    ...(lost ? { apifyRunId: lost.apifyRunId, resumedFrom: lost.id } : {}),
   };
+  if (lost) upsertById(data.runs, { ...lost, resumable: false, resumedBy: localRunId });
   upsertById(data.runs, runRecord);
   saveData();
   emitState();
@@ -1307,6 +1330,7 @@ async function runRecipe(recipeId) {
     const result = await runner.runRecipe({ ...recipe, runOptions }, {
       maxItems: recipe.searchContext?.maxResultItems || recipe.searchContext?.maxItems || Number(data.settings.maxItems) || 1000,
       abortAfterMs: abortAfterMs(runOptions), salvage: true,
+      ...(lost ? { resumeRunId: lost.apifyRunId } : {}),
       isCancelled: () => cancelledJobs.has(localRunId),
       onRunStarted: (run) => {
         if (!run?.id) return;
@@ -1386,7 +1410,10 @@ async function runRecipe(recipeId) {
     return datasetRecord;
   } catch (error) {
     const status = wasCancelled(localRunId) ? 'cancelled' : 'failed';
-    upsertById(data.runs, { ...runRecord, ...data.runs.find((run) => run.id === localRunId), status, error: safeServiceError(error), finishedAt: now() });
+    const saved = data.runs.find((run) => run.id === localRunId) || {};
+    // Failed after Apify started the run (and not because Apify said the run itself is gone): the next Run picks it up.
+    const resumable = status === 'failed' && resumableAfterFailure({ ...runRecord, ...saved }, error);
+    upsertById(data.runs, { ...runRecord, ...saved, status, error: safeServiceError(error), finishedAt: now(), ...(resumable ? { resumable: true } : {}) });
     if (status === 'cancelled') finishJob(localRunId, { status: 'cancelled', error: error.message });
     else failJob(localRunId, error);
     apifyRunControllers.delete(localRunId);
@@ -1415,6 +1442,7 @@ function spawnCodex(command, args, cwd, options = {}) {
     const environment = cliEnv();
     if (command === 'claude') Object.assign(environment, CLAUDE_CLI_ENV);
     let child;
+    if (options.jobId && cancelledSinceAsked(options.jobId)) { reject(cancelledError()); return; }
     try { child = spawnCliProcess(command, args, { cwd, env: environment }); } catch (error) { reject(error); return; }
     if (options.stdin != null) { child.stdin.on('error', () => {}); child.stdin.end(options.stdin); }
     if (options.jobId) jobProcesses.set(options.jobId, child);
@@ -1643,7 +1671,8 @@ async function searchSources(payload) {
 const aiRoutes = createAiRoutes({
   platform: process.platform, // PowerShell or Terminal in the sign-in hints; index.js's own value, so test harnesses can set it
   shared: WEB_RUNTIME, // the browser studio: "auto" is the API key; the Claude app only when an admin chooses it
-  spawn: async (command, args, { cwd, stdin, timeoutMs } = {}) => { await loginShellPathReady; return spawnCodex(command, args, cwd || app.getPath('userData'), { stdin, timeoutMs, providerLabel: 'Claude' }); },
+  spawn: async (command, args, { cwd, stdin, timeoutMs, jobId } = {}) => { await loginShellPathReady; return spawnCodex(command, args, cwd || app.getPath('userData'), { stdin, timeoutMs, providerLabel: 'Claude', ...(jobId ? { jobId } : {}) }); },
+  onSpend: (usd) => aiLimits.record(usd), checkBudget: () => aiLimits.checkBudget(),
   getKey, getSettings: () => loadData().settings, dataDir: () => dataRoot(), describeError: safeServiceError,
   // New API keys sit on low rate limits; large discovery batches can draw a 429, so retry a little more.
   createRunner: ({ apiKey }) => require('../shared/anthropic-runner').createAnthropicRunner({ apiKey, maxRetries: 4 }),
@@ -1688,7 +1717,25 @@ function codexSupport() {
 // concurrency limit a call may wait for a slot; while it waits it sits in apiRequests under its job id, so the tray's
 // Cancel, a run's Cancel and quitting stop it there too.
 // `onWait(position)` and `onStart()` (optional) let a caller show that a call is waiting its turn (content-workspace runs).
+// Cancel reaches a call that hasn't started its process or request yet. Until then the call is in neither jobProcesses
+// nor apiRequests (it is checking the connection, which can take seconds), so a cancel in that gap used to miss it and
+// it ran to the end after its run showed Cancelled. Each call records when it was asked for; cancelling a run or a job
+// records when; the spawn and the request check "was this cancelled after it was asked for?" just before they go.
+const callAskedAt = new Map(); // jobId → ms
+const cancelledAt = new Map(); // run or job id → ms
+function noteCancelled(id) { if (!id) return; cancelledAt.set(String(id), Date.now()); if (cancelledAt.size > 500) for (const [key, at] of cancelledAt) if (Date.now() - at > 3600000) cancelledAt.delete(key); }
+function cancelledSinceAsked(jobId) {
+  const asked = callAskedAt.get(jobId); if (asked === undefined) return false;
+  const id = String(jobId); const run = id.includes('::') ? id.slice(0, id.indexOf('::')) : id;
+  return [id, run].some((key) => (cancelledAt.get(key) ?? -1) >= asked);
+}
+const cancelledError = () => Object.assign(new Error('Job cancelled.'), { code: 'cancelled', costUsd: 0 });
 async function generateStructuredOutput(args) {
+  const tracked = args?.jobId && !callAskedAt.has(args.jobId) ? args.jobId : null;
+  if (tracked) callAskedAt.set(tracked, Date.now());
+  try { return await generateStructuredOutputLimited(args); } finally { if (tracked) callAskedAt.delete(tracked); }
+}
+async function generateStructuredOutputLimited(args) {
   if (!aiLimits.enabled) return generateStructuredOutputNow(args);
   const { jobId, onWait, onStart } = args; let waiting = null; let waited = false;
   try {
@@ -1696,7 +1743,7 @@ async function generateStructuredOutput(args) {
       if (jobId && waiting && apiRequests.get(jobId) === waiting) apiRequests.delete(jobId);
       if (waited) { try { onStart?.(); } catch (_) { /* a message is a courtesy */ } }
       return generateStructuredOutputNow(args);
-    }, { onWait: (position) => { waited = true; onWait?.(position); }, register: (cancel) => { if (jobId && !apiRequests.has(jobId)) { waiting = { abort: cancel }; apiRequests.set(jobId, waiting); } } });
+    }, { reserveUsd: Number.isFinite(Number(args.maxBudgetUsd)) ? Number(args.maxBudgetUsd) : aiRouting.current().maxBudgetUsd, onWait: (position) => { waited = true; onWait?.(position); }, register: (cancel) => { if (jobId && !apiRequests.has(jobId)) { waiting = { abort: cancel }; apiRequests.set(jobId, waiting); } } });
   } finally { if (jobId && waiting && apiRequests.get(jobId) === waiting) apiRequests.delete(jobId); }
 }
 
@@ -1728,7 +1775,7 @@ const cliRunners = require('./cli-runners');
 // paid call.
 const aiDiagnostics = require('./ai-diagnostics').createAiDiagnostics({ dir: () => dataPath('content-studio', 'diagnostics') });
 const textRouter = require('./text-router').createTextRouter({
-  routing: aiRouting, connections: aiConnections, catalog: aiCatalog, writeJson, apiRequests,
+  routing: aiRouting, connections: aiConnections, catalog: aiCatalog, writeJson, apiRequests, isCancelled: (jobId) => cancelledSinceAsked(jobId),
   maxBudgetUsd: () => aiRouting.current().maxBudgetUsd,
   onInvalidResult: (event) => aiDiagnostics.record(event),
   runners: {
@@ -1860,13 +1907,15 @@ let workflowEngine = null;
 // the editor (editStudioAsset, restoreStudioAsset) reaches the editor through hooks.onAssetEdited.
 let reportDocs = null; let reportNotes = null;
 const contentWorkspace = createContentWorkspace({
+  // A burst of saves during a run shares one write of the state file every quarter second (content-workspace.js save).
+  saveCoalesceMs: 250,
   // A first launch opens in the edition this build is packaged for; saved state always wins after that.
   defaultWorkspaceId: packageConfig.studioDefaultWorkspace || 'general',
   // Single mode keeps one workspace, Main, and hides the others without deleting them (workspace-policy.js).
   workspacePolicy,
   // Who started a run, decided a trend or edited a report: the person making this call (read once at each method's entry).
   actor: () => actingAs.getStore() || access.actorForCall(),
-  root: dataPath('content-studio'), emit: () => { emitState(); workflowEngine?.poke(); },
+  root: dataPath('content-studio'), emit: () => { emitStateSoon(); workflowEngine?.poke(); },
   isWorkflowCall, hooks: {
     onResearchRunStarted: (run) => workflowEngine?.onResearchRunStarted(run), onAssetEdited: (event) => reportDocs?.outsideEdit(event),
     onRunEnded: (event) => runAlerts.runEnded(event),
@@ -1886,7 +1935,7 @@ const contentWorkspace = createContentWorkspace({
   routing: { resolve: (taskId, context) => aiRouting.resolve(taskId, context), snapshot: (taskIds, context) => aiRouting.snapshot(taskIds, context), current: () => aiRouting.current(), taskIdForPrompt: (entry) => aiRouting.taskIdForPrompt(entry), priceFor: (route, model, kind, options) => aiCatalog.priceFor(route, model, kind, options), unitsFor: (price, request) => aiCatalog.unitsFor(price, request), mediaProblem: (taskId) => mediaRouter.problem(taskId) },
   getDatasets: () => [...loadData().datasets, ...studioHost.getDatasets()],
   readDataset: datasetId => loadData().datasets.some(d => d.id === datasetId) ? readDatasetPayload(datasetId) : studioHost.readDataset(datasetId),
-  cancelProvider: async runId => { for (const [key, child] of jobProcesses) if (key === runId || key.startsWith(`${runId}::`)) killCliTree(child); for (const [key, controller] of apiRequests) if (key === runId || key.startsWith(`${runId}::`)) controller.abort(); await studioHost.cancelProvider(runId); },
+  cancelProvider: async runId => { noteCancelled(runId); for (const [key, child] of jobProcesses) if (key === runId || key.startsWith(`${runId}::`)) killCliTree(child); for (const [key, controller] of apiRequests) if (key === runId || key.startsWith(`${runId}::`)) controller.abort(); await studioHost.cancelProvider(runId); },
   openFile: openPathOrThrow,
   publishCampaign: request => publishCampaignVia(request, googleDelivery), // the Sheets bridge when connected, else the Drive token
   // The AI route a quick scan's cost check names ('auto' resolved to the Claude app or the API key), so Codex's
@@ -2183,8 +2232,12 @@ function browserDownloadFolder() { return WEB_RUNTIME ? require('./web-runtime')
 // Browser studio: an export folder downloads as one .zip (built into this call's own download folder, which
 // studio-server sweeps after ten minutes), and the folder itself is removed straight away, so a download leaves nothing
 // on the server. `folder` defaults to the result's path; an export lives in its own exports/<id>/ folder, removed whole.
-function offerBrowserFolder(result, folder = result?.path) {
-  try { return forBrowser(result, folder); }
+async function offerBrowserFolder(result, folder = result?.path) {
+  try {
+    // Zipped on a worker thread (web-runtime.js offerFolder), so a large export doesn't stall everyone else's requests.
+    if (WEB_RUNTIME && folder && typeof shell.offerFolder === 'function') { await shell.offerFolder(folder); return forBrowser(result); }
+    return forBrowser(result, folder);
+  }
   finally {
     const exportsRoot = [dataPath('content-studio', 'exports'), dataPath('exports')].find((root) => folder && isPathInside(root, folder) && path.resolve(folder) !== path.resolve(root));
     if (exportsRoot) fs.rmSync(path.join(exportsRoot, path.relative(exportsRoot, folder).split(path.sep)[0]), { recursive: true, force: true });
@@ -3353,7 +3406,7 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
   const helpBudgetUsd = Math.min(100, Math.round(0.75 * Math.max(1, inputPrice / modelPrice(DEFAULT_CLAUDE_MODEL).input) * 100) / 100);
   const dir = dataPath('help', 'calls', randomUUID()); fs.mkdirSync(dir, { recursive: true });
   const calls = new Set(); const used = [];
-  const stop = { aborted: false, abort() { if (stop.aborted) return; stop.aborted = true; for (const key of calls) { cancelledJobs.add(key); const child = jobProcesses.get(key); if (child) killCliTree(child); apiRequests.get(key)?.abort(); } } };
+  const stop = { aborted: false, abort() { if (stop.aborted) return; stop.aborted = true; for (const key of calls) { cancelledJobs.add(key); noteCancelled(key); const child = jobProcesses.get(key); if (child) killCliTree(child); apiRequests.get(key)?.abort(); } } };
   apiRequests.set(jobId, stop);
   startJob({ id: jobId, kind: 'chat', title: 'Ask AI answer', cancellable: true, status: 'running', startedAt: now(), ownerId: identityId });
   if (cancelledJobs.has(jobId)) stop.abort(); // Stop arrived before the job did (help:cancel)
@@ -4064,7 +4117,7 @@ handle('cancel-job', async (_, jobId) => {
   const apiRequest = apiRequests.get(validJobId);
   if (!child && !apifyRun && !apiRequest) throw new Error('Job cannot be cancelled.');
   if (apiRequest) { apiRequest.abort(); apiRequests.delete(validJobId); }
-  cancelledJobs.add(validJobId);
+  cancelledJobs.add(validJobId); noteCancelled(validJobId);
   if (child) {
     killCliTree(child);
     jobProcesses.delete(validJobId);
@@ -4169,7 +4222,7 @@ function stopAllWork() {
   for (const run of apifyRunControllers.values()) Promise.resolve().then(() => run.abort?.()).catch(() => { /* already settled */ });
 }
 // The browser studio stops with its server process (no quit dialog there): stop schedules and in-flight AI work.
-if (WEB_RUNTIME) app.once('quit', () => { contentWorkspace.stopResearchScheduler(); workflowEngine?.stop(); mondayEngine?.stop(); driveSync?.stop(); stopAllWork(); });
+if (WEB_RUNTIME) app.once('quit', () => { contentWorkspace.stopResearchScheduler(); workflowEngine?.stop(); mondayEngine?.stop(); driveSync?.stop(); stopAllWork(); contentWorkspace.flushSave(); });
 // Asks before quitting stops the work in `busy` (activeWorkSummary). True to quit anyway. The title is the Windows
 // caption (the Mac shows none), which would otherwise be the internal app name.
 function confirmQuitDuringWork(busy, parent) {
@@ -4194,6 +4247,7 @@ app.on('before-quit', (event) => {
   mondayEngine?.stop();
   driveSync?.stop();
   stopAllWork();
+  contentWorkspace.flushSave();
 });
 
 app.on('window-all-closed', () => {

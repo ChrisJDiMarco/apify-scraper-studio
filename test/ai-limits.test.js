@@ -58,6 +58,29 @@ describe('studio-wide AI limits', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it('sets a running call’s allowance aside, so a burst can’t overshoot the day’s budget by everything in flight', async () => {
+    const limits = createAiLimits({ env: { STUDIO_DAILY_AI_BUDGET_USD: '10' }, log: quiet });
+    const finish = {};
+    const call = (name, reserveUsd, costUsd) => limits.run(() => new Promise((resolve) => { finish[name] = () => resolve({ receipt: { costUsd } }); }), { reserveUsd });
+    const first = call('first', 6, 2); await tick();
+    const second = call('second', 6, 1); await tick(); // $0 spent, $6 in progress: still under the cap, so it starts
+    expect(limits.status()).toMatchObject({ spentTodayUsd: 0, inProgressUsd: 12 });
+    // Nothing has finished, but what is in flight could already use the whole day: the third call is refused.
+    await expect(limits.run(async () => ({ receipt: { costUsd: 1 } }), { reserveUsd: 1 })).rejects.toMatchObject({ code: 'dailyAiBudget', message: expect.stringMatching(/already in progress/) });
+    finish.first(); await first; finish.second(); await second;
+    // They cost $3 between them, so the reservations are gone and work can start again.
+    expect(limits.status()).toMatchObject({ spentTodayUsd: 3, inProgressUsd: 0 });
+    await expect(limits.run(async () => ({ receipt: { costUsd: 1 } }), { reserveUsd: 5 })).resolves.toBeTruthy();
+  });
+  it('gives a reservation back when the call fails, and holds none without a daily budget', async () => {
+    const limits = createAiLimits({ env: { STUDIO_DAILY_AI_BUDGET_USD: '10' }, log: quiet });
+    await expect(limits.run(async () => { throw Object.assign(new Error('boom'), { costUsd: 0.5 }); }, { reserveUsd: 9 })).rejects.toThrow('boom');
+    expect(limits.status()).toMatchObject({ spentTodayUsd: 0.5, inProgressUsd: 0 });
+    const open = createAiLimits({ env: { STUDIO_AI_CONCURRENCY: '1' }, log: quiet });
+    await open.run(async () => ({ receipt: { costUsd: 99 } }), { reserveUsd: 500 });
+    expect(open.status().inProgressUsd).toBeNull();
+  });
+
   it('ignores a setting that isn’t a positive number, and says so', () => {
     const lines = [];
     const limits = createAiLimits({ env: { STUDIO_AI_CONCURRENCY: 'many', STUDIO_DAILY_AI_BUDGET_USD: '-5' }, log: (line) => lines.push(line) });

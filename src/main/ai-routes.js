@@ -16,7 +16,8 @@ const PING_SCHEMA = { type: 'object', properties: { ok: { type: 'boolean' } }, r
 
 // `platform` is index.js's process.platform (tests pass their own); Windows is told to use Command Prompt (PowerShell
 // runs npm's .ps1 shim, which a stock PC's execution policy refuses), the Mac Terminal.
-function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, describeError = (error) => error?.message || String(error), now = Date.now, platform = process.platform, shared = false }) {
+function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, describeError = (error) => error?.message || String(error), now = Date.now, platform = process.platform, shared = false, onSpend = null, checkBudget = null }) {
+  let pings = 0; // preflight job ids
   const shellName = platform === 'win32' ? 'Command Prompt' : 'Terminal';
   // provider → a working route, reused for ten minutes. Kept per provider: 'auto' (a connection check) and 'claude' (the
   // Claude Code runner asking whether the CLI streams) alternate on every Ask AI call and must not re-detect each time.
@@ -47,9 +48,19 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
   }
 
   // { provider, route, cli, keySaved, problem }; route is '' when nothing works. Only working routes are cached.
-  async function resolve(provider = getSettings().aiProvider || 'auto', { fresh = false } = {}) {
+  // Calls that ask at the same moment share one answer: a pool of AI calls starting together used to spawn three
+  // probes of the Claude app each, and wait for all of them.
+  const resolving = new Map();
+  function resolve(provider = getSettings().aiProvider || 'auto', { fresh = false } = {}) {
     const hit = cached.get(provider);
-    if (!fresh && hit && now() - hit.at < AI_ROUTE_TTL_MS) return hit;
+    if (!fresh && hit && now() - hit.at < AI_ROUTE_TTL_MS) return Promise.resolve(hit);
+    const key = `${provider}|${fresh ? 'fresh' : ''}`;
+    if (resolving.has(key)) return resolving.get(key);
+    const pending = resolveNow(provider).finally(() => resolving.delete(key));
+    resolving.set(key, pending);
+    return pending;
+  }
+  async function resolveNow(provider) {
     const keySaved = Boolean(getKey('ANTHROPIC_API_KEY'));
     let resolved;
     if (provider === 'codex') resolved = { provider, route: 'codex', problem: '' };
@@ -82,8 +93,12 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
   async function pingCli(model) {
     const dir = path.join(dataDir(), 'preflight'); fs.mkdirSync(dir, { recursive: true });
     const invocation = buildClaudeCommand({ model, maxBudgetUsd: 0.25, effort: 'low', prompt: 'Return {"ok": true}.', schema: PING_SCHEMA });
-    const result = await spawn(invocation.command, invocation.args, { cwd: dir, stdin: invocation.stdin, timeoutMs: 120000 });
+    // A paid call like any other: refused once the day's AI cap is reached, tracked under a job id so quitting or
+    // stopping all work ends it, and its cost counted against the cap.
+    checkBudget?.();
+    const result = await spawn(invocation.command, invocation.args, { cwd: dir, stdin: invocation.stdin, timeoutMs: 120000, jobId: `preflight::${++pings}` });
     const parsed = parseClaudeResult(result.stdout);
+    try { onSpend?.(parsed.costUsd); } catch (_) { /* the ledger is the limits' own business */ }
     if (!modelMatches(model, parsed.actualModels)) throw new Error(`Claude answered with ${parsed.actualModels.join(', ') || 'an unreported model'} instead of ${model}.`);
   }
 

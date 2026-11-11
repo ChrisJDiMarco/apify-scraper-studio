@@ -60,6 +60,18 @@ describe('web runtime stands in for Electron on the server', () => {
     expect(await open(report)).toMatchObject({ result: { error: '' }, files: [fs.realpathSync(report)] });
     const zipped = await open(exportDir); expect(zipped.result.error).toBe('');
     expect(path.basename(zipped.files[0])).toBe('asset-pack-1.zip'); expect(fs.readFileSync(zipped.files[0]).subarray(0, 2).toString()).toBe('PK');
+    // The same folder through offerFolder, which zips on a worker thread so the server keeps answering meanwhile.
+    ipcMain.handle('fixture:folder', async (_, target) => ({ error: await shell.offerFolder(target) }));
+    const offer = (target) => runtime.invoke('fixture:folder', target, { saveDir: saveDir() });
+    let ticks = 0; const beat = setInterval(() => { ticks += 1; }, 1);
+    const worked = await offer(exportDir); clearInterval(beat);
+    expect(worked.result.error).toBe('');
+    expect(path.basename(worked.files[0])).toBe('asset-pack-1.zip'); expect(fs.readFileSync(worked.files[0]).subarray(0, 2).toString()).toBe('PK');
+    expect(fs.statSync(worked.files[0]).size).toBe(fs.statSync(zipped.files[0]).size); // the same archive either way
+    expect(ticks).toBeGreaterThan(0); // the event loop kept turning while it zipped
+    expect((await offer(outside)).result.error).toMatch(/outside the studio folder/);
+    expect((await offer(path.join(dataDir, 'workspaces'))).result.error).toMatch(/Folders stay on the server/);
+    expect(await offer(report)).toMatchObject({ result: { error: '' }, files: [fs.realpathSync(report)] }); // a file is still just offered
     expect((await open(outside)).result.error).toMatch(/outside the studio folder/);
     expect((await open(path.join(dataDir, 'workspaces'))).result.error).toMatch(/Folders stay on the server/);
     expect((await open(path.join(dataDir, 'exports'))).result.error).toMatch(/Folders stay on the server/);

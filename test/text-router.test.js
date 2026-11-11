@@ -77,3 +77,22 @@ describe('text router streaming contract', () => {
     await expect(harness().router.run({ taskId: 'no.such-task', schema, prompt: 'Q' })).rejects.toThrow('Unknown AI job');
   });
 });
+
+describe('a cancel that lands while a call is still getting ready', () => {
+  it('stops the call before anything is sent, on an API route and on a CLI route', async () => {
+    for (const route of ['claude-api', 'codex']) {
+      const settings = { aiRouting: { version: 1, defaults: { text: { route, model: route === 'codex' ? '' : 'claude-opus-5-5' } }, tasks: {} } };
+      const routes = createAiRouting({ getSettings: () => settings, catalog });
+      let cancelled = false;
+      // The connection check is the wait a cancel used to slip past: the run is cancelled while it is in progress.
+      const connections = { require: vi.fn(async (asked) => { cancelled = true; return asked; }) };
+      const runner = { run: vi.fn(async () => ({ output: ANSWER, receipt: { costUsd: 0.01 } })) };
+      const router = createTextRouter({ routing: routes, connections, runners: { [route]: runner }, catalog, writeJson: () => {}, isCancelled: (jobId) => jobId === 'run-1::step' && cancelled });
+      await expect(router.run({ schema, prompt: 'x', jobId: 'run-1::step' })).rejects.toMatchObject({ message: 'Job cancelled.', code: 'cancelled', costUsd: 0 });
+      expect(runner.run, route).not.toHaveBeenCalled();
+      // A call with no job id, or one that wasn't cancelled, runs as before.
+      cancelled = false; connections.require.mockImplementation(async (asked) => asked);
+      await expect(router.run({ schema, prompt: 'x', jobId: 'run-2::step' })).resolves.toMatchObject({ output: ANSWER });
+    }
+  });
+});

@@ -70,6 +70,27 @@ describe('Claude routes', () => {
     expect(apiOnly.spawn).not.toHaveBeenCalled();
     expect((await routes({ provider: 'codex' }).api.resolve()).route).toBe('codex');
   });
+  it('shares one check between calls that ask at the same moment', async () => {
+    const spawn = cli();
+    const routes = createAiRoutes({ spawn, getKey: () => '', getSettings: () => ({ aiProvider: 'auto' }), dataDir: () => os.tmpdir() });
+    const answers = await Promise.all([routes.resolve(), routes.resolve(), routes.resolve(), routes.resolve()]);
+    expect(answers.every((row) => row.route === 'claude')).toBe(true);
+    expect(spawn).toHaveBeenCalledTimes(3); // --version, --help and auth status, once: not three probes per caller
+  });
+  it('counts a preflight check against the day’s budget, refuses it when the budget is gone, and runs it under a job id', async () => {
+    const spawn = cli(); const onSpend = vi.fn(); let allowed = true;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'routes-')); dirs.push(dir);
+    const routes = createAiRoutes({ spawn, getKey: () => '', getSettings: () => ({ aiProvider: 'claude' }), dataDir: () => dir, onSpend, checkBudget: () => { if (!allowed) throw Object.assign(new Error('The studio’s daily AI budget is used up.'), { code: 'dailyAiBudget' }); } });
+    const [first] = await routes.checkModels('claude', ['claude-opus-5-5'], { fresh: true });
+    expect(first).toMatchObject({ id: 'claude-opus-5-5', available: true });
+    expect(onSpend).toHaveBeenCalledWith(0.01);
+    const ping = spawn.mock.calls.find(([, args]) => args.includes('--print'));
+    expect(ping[2].jobId).toMatch(/^preflight::\d+$/);
+    allowed = false; const before = spawn.mock.calls.length;
+    const [refused] = await routes.checkModels('claude', ['claude-sonnet-5-5'], { fresh: true });
+    expect(refused.available).toBe(false);
+    expect(spawn.mock.calls.length).toBe(before); // nothing was spawned once the budget was gone
+  });
   it('caches a working route for ten minutes, never a failure, and re-checks after invalidation', async () => {
     let time = 1_000_000;
     const working = routes({ clock: () => time });

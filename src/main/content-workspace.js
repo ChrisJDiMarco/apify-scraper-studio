@@ -81,7 +81,7 @@ const LEGACY_SEMRUSH_BRAND_FIELDS = Object.freeze({
 // onRunEvent (optional) hears when a run started from an Ask AI conversation reaches a point worth posting there (a quick
 // scan's trends report, trends waiting for an OK, reports written, a stop): { type, key, identityId, conversationId, run,
 // report?, error?, attempt? } → { messageId } | null (src/main/ask-followups.js). It never fails a run.
-function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, getCallerPrograms, trackJob, onRunEvent, routing: routingHost = null, generateVideo = null, hooks = {}, isWorkflowCall = () => false, workspacePolicy = null } = {}) {
+function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, getCallerPrograms, trackJob, onRunEvent, routing: routingHost = null, generateVideo = null, hooks = {}, isWorkflowCall = () => false, workspacePolicy = null, saveCoalesceMs = 0 } = {}) {
   if (!root || typeof runAI !== 'function') throw new Error('Studio storage and AI host are required.');
   // One workspace or several (src/main/workspace-policy.js). Single mode keeps one workspace of the package's edition,
   // shown as policy.name (Main); the others are hidden (archived), never deleted. See migrateWorkspacePolicy below.
@@ -111,7 +111,25 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   function writeBytes(target, data) { writeFileDurable(target, data); }
   function write(target, data) { writeBytes(target, JSON.stringify(data, null, 2)); }
   function read(target) { return JSON.parse(fs.readFileSync(target, 'utf8')); }
-  function save() { write(stateFile, state); emit(); }
+  // Every change is in memory at once and pushed at once; the file follows. A run in progress calls save() many times a
+  // second (each progress message, each batch), and each one used to pretty-print the whole state, write it and fsync
+  // the file and its folder. With saveCoalesceMs set (the app sets it; tests and scripts leave it at 0 and write every
+  // time), the first save in a quiet spell is written at once, and saves within the next saveCoalesceMs share one write
+  // at the end of it, so a single action is on disk before its call returns and a burst costs one write per spell.
+  // flushSave() writes anything pending now: the app calls it before it quits, and the process does as it exits.
+  let writtenAt = 0; let pendingWrite = null;
+  function writeState() { if (pendingWrite) { clearTimeout(pendingWrite); pendingWrite = null; } writtenAt = Date.now(); write(stateFile, state); }
+  function flushSave() { if (pendingWrite) writeState(); }
+  if (saveCoalesceMs > 0) process.once('exit', () => { try { flushSave(); } catch (_) { /* nothing left to do while exiting */ } });
+  function save() {
+    if (!(saveCoalesceMs > 0)) write(stateFile, state);
+    else if (!pendingWrite) {
+      const wait = saveCoalesceMs - (Date.now() - writtenAt);
+      if (wait <= 0) writeState();
+      else { pendingWrite = setTimeout(() => { pendingWrite = null; try { writeState(); } catch (error) { console.warn(`The studio's state could not be saved: ${error?.message || error}`); } }, wait); pendingWrite.unref?.(); }
+    }
+    emit();
+  }
   function staleSave(existing, base, what) {
     if (typeof base !== 'string' || !existing || (existing.updatedAt || '') === base) return;
     throw Object.assign(new Error(`Someone saved ${what} at ${when(existing.updatedAt)}, after you opened it. Reopen it to see their changes, then make yours again.`), { status: 409, code: 'saveConflict' });
@@ -1844,7 +1862,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     return { bundle, target, ...lib.summarizeSetupBundle(bundle, context) };
   }
   const api = {
-    publicState, recoverInterrupted, checkDueResearchSchedules, startResearchScheduler, stopResearchScheduler,
+    publicState, flushSave, recoverInterrupted, checkDueResearchSchedules, startResearchScheduler, stopResearchScheduler,
     // Create content offers every deliverable but the kit-only short video.
     contentCatalog: () => ({ editions: copy(content.CONTENT_EDITIONS), deliverables: copy(content.CONTENT_DELIVERABLES.filter(d => !d.kitOnly)) }),
     selectContentWorkspace(workspaceId) {

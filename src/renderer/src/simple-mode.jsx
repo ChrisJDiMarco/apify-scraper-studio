@@ -12,6 +12,7 @@ import { WeeklyBriefing } from './weekly-briefing.jsx';
 import { ProgramsPage } from './programs-page.jsx';
 import { TrendPage, tabOfDoc } from './trend-page.jsx';
 import { ProgramPage, programTab } from './program-page.jsx';
+import { rememberThumb, thumbSnapshot } from './thumb-cache.js';
 import { cardForTheme, stageOf } from './trend-stage.js';
 import { MondayChip, MondayStatusLine } from './monday-ui.jsx';
 import { LINK_COPIED, linkFor, shareOrigin } from './deep-links.js';
@@ -147,7 +148,17 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   function ask(text, context = '', extra = {}) { setSeed({ text, context, ...(Array.isArray(extra?.attachments) ? { attachments: extra.attachments } : {}), key: Date.now() }); go('ask'); }
   function draftAsk(text) { setSeed({ draft: text, key: Date.now() }); go('ask'); }
   // Images load once and stay cached for the session, so returning to Assets is instant.
-  const [imageCache, setImageCache] = useState({});
+  // Thumbnails are kept for the session outside this component (thumb-cache.js), so they survive a visit to a Workbench
+  // page; arrivals within a moment of each other are added in one render instead of one each.
+  const [imageCache, setImageCache] = useState(thumbSnapshot);
+  const thumbBatch = useRef({ pending: {}, timer: null });
+  const cacheThumb = (id, url) => {
+    rememberThumb(id, url);
+    const batch = thumbBatch.current; batch.pending[id] = url;
+    if (batch.timer) return;
+    batch.timer = setTimeout(() => { const pending = batch.pending; batch.pending = {}; batch.timer = null; setImageCache((current) => ({ ...current, ...pending })); }, 120);
+  };
+  useEffect(() => () => clearTimeout(thumbBatch.current.timer), []);
   const [assetRequest, setAssetRequest] = useState(null); // open the asset dialog, a folder, or Assets itself
   // Make channel assets ({ kind: 'report', assetId, channels? }) inside Assets: the dialog on that report, its `channels`
   // pre-ticked (else the person's own); without a source it opens on its source step. After Make, Assets opens the folder.
@@ -322,7 +333,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const onAsk = can('askHelp') && api.askHelp ? ask : null;
   // Assets, as its own page and (`extra.embedded`) as a trend's Channel assets tab.
   const openTrendFolder = (assetId, kitRunId = '') => { const card = assetId ? board.cards.find((row) => list(row.reportAssets).some((asset) => asset.id === assetId)) : null; if (!card || !tabs.includes('trends')) return false; openTrend(card, 'assets', kitRunId); return true; };
-  const assetsView = (extra = {}) => <SimpleAssets onOpenTrendPage={openTrendFolder} api={api} web={web} tree={libraryTree} programs={programs} editionId={workspace?.editionId || 'general'} contentRuns={list(studio.contentRuns).filter(mine)} kitRuns={kitRuns} assets={list(studio.assets).filter(mine)} studioImages={studioImages} sources={kitSourcesFrom(reports, list(studio.contentRuns).filter(mine))} request={assetRequest} onRequestDone={() => setAssetRequest(null)} cache={imageCache} onCache={(id, url) => setImageCache((current) => ({ ...current, [id]: url }))} action={action} busy={busy} imagesReady={imagesReady} googleReady={Boolean(studio.capabilities?.googlePublishConfigured)} askAdmin={askAdmin} onDraft={draftAsk} onAsk={ask} onSettings={openSettings} onOpenReport={(id) => openReport(id, 'assets')} onOpenTrends={() => go('trends')} onViewChange={(title, key = '') => { setAssetFolder(title); setAssetFolderKey(key); }} workspace={workspace} promptChanges={list(studio.promptChanges)} {...extra} />;
+  const assetsView = (extra = {}) => <SimpleAssets onOpenTrendPage={openTrendFolder} api={api} web={web} tree={libraryTree} programs={programs} editionId={workspace?.editionId || 'general'} contentRuns={list(studio.contentRuns).filter(mine)} kitRuns={kitRuns} assets={list(studio.assets).filter(mine)} studioImages={studioImages} sources={kitSourcesFrom(reports, list(studio.contentRuns).filter(mine))} request={assetRequest} onRequestDone={() => setAssetRequest(null)} cache={imageCache} onCache={cacheThumb} action={action} busy={busy} imagesReady={imagesReady} googleReady={Boolean(studio.capabilities?.googlePublishConfigured)} askAdmin={askAdmin} onDraft={draftAsk} onAsk={ask} onSettings={openSettings} onOpenReport={(id) => openReport(id, 'assets')} onOpenTrends={() => go('trends')} onViewChange={(title, key = '') => { setAssetFolder(title); setAssetFolderKey(key); }} workspace={workspace} promptChanges={list(studio.promptChanges)} {...extra} />;
   // A trend's page: the header's next step does what the same button does on Trends, Home and Assets.
   function trendNext(card, next) {
     if (next.id === 'write-reports') return writeReports({ runId: next.runId || card.runId });

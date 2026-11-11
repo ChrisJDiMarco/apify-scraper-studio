@@ -48,9 +48,14 @@ function createAiLimits({ env = process.env, file = '', now = () => Date.now(), 
     const entry = today(); entry.usd = Math.round((entry.usd + cost) * 1e6) / 1e6; entry.calls++;
     saveLedger();
   }
+  // What calls in flight may still spend (each one's own allowance), held from the moment a call starts until its cost
+  // is known. Without it, a burst started just under the cap could overshoot by the sum of everything in flight; with
+  // it, the most the day can run over is one call's allowance.
+  let reservedUsd = 0;
   function checkBudget() {
     if (!dailyBudgetUsd) return;
     const entry = today();
+    if (entry.usd + 1e-9 < dailyBudgetUsd && entry.usd + reservedUsd + 1e-9 >= dailyBudgetUsd) throw refusal(`The rest of today’s AI budget (${money(dailyBudgetUsd)}) is set aside for AI work already in progress (${money(entry.usd)} spent, up to ${money(reservedUsd)} in progress). Try again when it finishes, or an admin can raise STUDIO_DAILY_AI_BUDGET_USD.`, 'dailyAiBudget');
     if (entry.usd + 1e-9 >= dailyBudgetUsd) throw refusal(`The studio’s daily AI budget of ${money(dailyBudgetUsd)} is used up for today (${money(entry.usd)} so far). New AI work can start after midnight UTC, or an admin can raise STUDIO_DAILY_AI_BUDGET_USD.`, 'dailyAiBudget');
   }
 
@@ -79,21 +84,24 @@ function createAiLimits({ env = process.env, file = '', now = () => Date.now(), 
   }
 
   // One AI call under both limits: the budget is checked before waiting and again once a slot is free.
-  async function run(task, { register, onWait, cost = (result) => result?.receipt?.costUsd } = {}) {
+  // `reserveUsd`: the most this call may spend (its allowance), set aside against the day's cap while it runs.
+  async function run(task, { register, onWait, cost = (result) => result?.receipt?.costUsd, reserveUsd = 0 } = {}) {
     checkBudget();
     const done = await acquire({ register, onWait });
+    let held = 0;
     try {
       checkBudget();
+      if (dailyBudgetUsd && Number.isFinite(Number(reserveUsd)) && Number(reserveUsd) > 0) { held = Number(reserveUsd); reservedUsd += held; }
       const result = await task();
       record(cost(result));
       return result;
     } catch (error) {
       record(error?.costUsd);
       throw error;
-    } finally { done(); }
+    } finally { reservedUsd = Math.max(0, Math.round((reservedUsd - held) * 1e6) / 1e6); done(); }
   }
 
-  const status = () => ({ concurrency: concurrency || null, running, waiting: waiting.length, dailyBudgetUsd: dailyBudgetUsd || null, spentTodayUsd: dailyBudgetUsd ? Math.round(today().usd * 100) / 100 : null, day: today().day });
+  const status = () => ({ concurrency: concurrency || null, running, waiting: waiting.length, dailyBudgetUsd: dailyBudgetUsd || null, spentTodayUsd: dailyBudgetUsd ? Math.round(today().usd * 100) / 100 : null, inProgressUsd: dailyBudgetUsd ? Math.round(reservedUsd * 100) / 100 : null, day: today().day });
   return { enabled: Boolean(concurrency || dailyBudgetUsd), concurrency: concurrency || null, dailyBudgetUsd: dailyBudgetUsd || null, acquire, run, record, checkBudget, status };
 }
 
