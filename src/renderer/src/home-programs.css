@@ -2,22 +2,33 @@
 /* The card is its own container: in Home's narrow side column a program's buttons sit under its details instead of
    squeezing its name; on the Research programs page (wide) they stay beside it. */
 .hp-card { container: hp-card / inline-size; }
-.hp-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-.hp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--s-line, #e3e8e4); }
-.hp-row:first-child { border-top: 0; padding-top: 2px; }
-.hp-copy { display: grid; gap: 4px; min-width: 0; }
+.hp-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+/* Each program is a tile: its name, state and buttons on top, then a strip of labelled facts. */
+.hp-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 16px 18px; background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: 18px; transition: border-color 140ms ease, box-shadow 140ms ease; }
+.hp-row:hover { border-color: var(--s-line-strong, #cfd6d0); box-shadow: 0 1px 2px rgba(24, 30, 21, .04), 0 8px 22px rgba(24, 30, 21, .05); }
+.hp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; }
+.hp-title { display: grid; gap: 4px; min-width: 0; }
+.hp-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 1px; margin: 0; overflow: hidden; background: var(--s-line, #e3e8e4); border: 1px solid var(--s-line, #e3e8e4); border-radius: 14px; }
+.hp-fact { display: grid; align-content: start; gap: 3px; min-width: 0; padding: 12px 14px; background: var(--s-bg, #f4f6f5); }
+.hp-fact dt { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--s-muted, #62685e); }
+.hp-fact dd { margin: 0; min-width: 0; }
+.hp-value { display: flex; align-items: center; gap: 7px; font-size: 14.5px; font-weight: 650; line-height: 1.35; letter-spacing: -.1px; color: var(--s-ink, #181e15); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.hp-sub { font-size: 12.5px; line-height: 1.45; color: var(--s-muted, #62685e); font-variant-numeric: tabular-nums; }
+.hp-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--s-muted, #62685e); }
+.hp-dot.tone-ok { background: #2f9e6e; }
+.hp-dot.tone-warn { background: #d99a1c; }
+.hp-dot.tone-bad { background: var(--s-danger, #8a2f1c); }
 .hp-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
-.wb-page button.hp-name { min-height: 0; padding: 0; box-shadow: none; font: inherit; font-size: 14.5px; font-weight: 650; line-height: 1.35; text-align: left; color: var(--s-ink, #181e15); background: none; border: 0; cursor: pointer; overflow-wrap: anywhere; }
+.wb-page button.hp-name { min-height: 0; padding: 0; box-shadow: none; font: inherit; font-size: 17px; font-weight: 700; letter-spacing: -.2px; line-height: 1.3; text-align: left; color: var(--s-ink, #181e15); background: none; border: 0; cursor: pointer; overflow-wrap: anywhere; }
 .wb-page button.hp-name:hover { text-decoration: underline; text-underline-offset: 2px; }
 .hp-chip { display: inline-flex; align-items: center; min-height: 22px; padding: 1px 8px; font: inherit; font-size: 11.5px; font-weight: 650; border: 0; border-radius: 999px; white-space: nowrap; }
 .hp-chip.tone-active { gap: 5px; color: #fff; background: var(--s-soft-ink, #5a2fa0); }
 /* A program whose run is going: a thin border whose colors travel around the row. Still for reduced motion. */
 @property --hp-turn { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 @keyframes hp-turn { to { --hp-turn: 360deg; } }
-.hp-row.is-running, .hp-row.is-running:first-child { margin: 6px -12px; padding: 12px; border: 2px solid transparent; border-radius: 16px;
+.hp-row.is-running { padding: 15px 17px; border: 2px solid transparent;
   background: linear-gradient(var(--s-card, #fff), var(--s-card, #fff)) padding-box, conic-gradient(from var(--hp-turn), #c190ff, #5fd3c4, #ffc857, #ff7a9c, #6ea8ff, #c190ff) border-box;
   animation: hp-turn 3.5s linear infinite; }
-.hp-row.is-running + .hp-row { border-top-color: transparent; }
 @media (prefers-reduced-motion: reduce) { .hp-row.is-running { animation: none; } }
 .hp-doing { font-weight: 600; color: var(--s-ink, #181e15); }
 .wb-page .hp-actions .hp-cancel { color: var(--s-danger, #8a2f1c); border-color: currentColor; }
@@ -30,17 +41,20 @@
 .hp-when svg { margin-top: 2px; }
 .hp-when span { min-width: 0; }
 .hp-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 0; padding: 0; list-style: none; }
-.hp-chips li { padding: 1px 8px; font-size: 12px; font-weight: 600; color: var(--s-muted, #62685e); background: var(--s-bg, #f4f6f5); border-radius: 999px; }
+.hp-chips li { padding: 1px 8px; font-size: 12px; font-weight: 600; color: var(--s-ink, #181e15); background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: 999px; }
+.hp-chips li.is-empty { color: var(--s-muted, #62685e); }
 .hp-chips li.is-empty { font-weight: 500; }
 .hp-problem { margin: 2px 0 0; padding: 6px 10px; font-size: 12.5px; color: var(--s-danger, #8a2f1c); background: var(--s-danger-soft, #fbe7df); border-radius: var(--s-radius-control, 12px); }
-.hp-actions { display: flex; align-items: center; gap: 6px; align-self: start; }
+.hp-actions { flex: none; display: flex; align-items: center; gap: 6px; }
 .wb-page .hp-actions :is(.wb-primary, .wb-quiet) { min-height: 32px; padding: 5px 12px; }
 .hp-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
 @media (max-width: 560px) {
-  .hp-row { grid-template-columns: minmax(0, 1fr); }
+  .hp-head { flex-direction: column; }
   .hp-actions { flex-wrap: wrap; }
 }
 @container hp-card (max-width: 560px) {
-  .hp-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .hp-row { padding: 14px; }
+  .hp-head { flex-direction: column; }
   .hp-actions { flex-wrap: wrap; }
+  .hp-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

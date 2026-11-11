@@ -38,11 +38,17 @@ describe('Home → Research programs', () => {
   it('lists each program’s schedule, next and last run, sources and budgets', () => {
     renderPanel();
     const item = row('AI search pulse');
-    expect(item).toHaveTextContent('Every Monday at 09:00 · UTC · Schedule on');
-    expect(item).toHaveTextContent(/Next: Mon, Oct 19/);
-    expect(item).toHaveTextContent('Last: Oct 13 · Succeeded');
-    expect(within(item).getByRole('list', { name: 'Sources for AI search pulse' })).toHaveTextContent('X 2Reddit 1');
-    expect(item).toHaveTextContent('$10.00 collection + $25.00 AI per run · last run $3.20');
+    const fact = (label) => within(item).getByText(label).closest('.hp-fact');
+    expect(fact('Schedule')).toHaveTextContent('Every Monday at 09:00 · UTC'); expect(fact('Schedule')).toHaveTextContent(/Schedule on · Next: Mon, Oct 19/);
+    expect(fact('Last run')).toHaveTextContent('Oct 13 · Succeeded'); expect(fact('Last run')).toHaveTextContent('Cost $3.20'); expect(fact('Last run').querySelector('.hp-dot')).toHaveClass('tone-ok');
+    expect(fact('Sources')).toHaveTextContent('3 followed'); expect(within(item).getByRole('list', { name: 'Sources for AI search pulse' })).toHaveTextContent('X 2Reddit 1');
+    expect(fact('Budget per run')).toHaveTextContent('Up to $35.00'); expect(fact('Budget per run')).toHaveTextContent('$10.00 collection + $25.00 AI');
+  });
+  it('says so plainly for a program that runs on demand, has no sources and has never run', () => {
+    renderPanel({ state: state([empty], { researchRuns: [] }) });
+    const item = row('Empty program'); const fact = (label) => within(item).getByText(label).closest('.hp-fact');
+    expect(fact('Schedule')).toHaveTextContent('On demand'); expect(fact('Schedule')).toHaveTextContent('Runs when you press Run now');
+    expect(fact('Last run')).toHaveTextContent('No runs yet'); expect(fact('Sources')).toHaveTextContent('None yet');
   });
 
   it('keeps money from someone without See costs', () => {
