@@ -2170,6 +2170,18 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       else { run.decisions[themeId] = decision; run.decisionsBy[themeId] = { ...by, at: run.decidedAt, ...(words ? { note: words } : {}), ...(routed.length && routed.length < known.length ? { channels: routed } : {}), ...(monday ? { via: 'monday' } : {}) }; }
       save(); return publicRun(run);
     },
+    // File a finished trend away, or bring it back. Trends shows it under Archived instead of Ready or Skipped; its
+    // reports and assets stay where they are. Only once its research run has finished deciding: a trend still waiting
+    // for a yes or skip is decided, not archived.
+    setTrendArchived({ runId, themeId, archived } = {}) {
+      const run = runRecord(runId);
+      if (!run || run.type !== 'research') throw new Error('Record not found in the selected workspace.');
+      if (!(run.discoveredThemes || run.themes || []).some(t => t.id === themeId)) throw new Error('That trend isn’t in this research run.');
+      if (archived !== false && ['queued', 'running', 'awaiting-review'].includes(run.status)) throw new Error('This research run is still going. Archive its trends once it has finished.');
+      const next = { ...(run.archivedThemes || {}) };
+      if (archived === false) delete next[themeId]; else next[themeId] = { at: stamp(), by: who() };
+      run.archivedThemes = next; save(); return publicRun(run);
+    },
     continueResearchRun({ runId }) { const run = runRecord(runId); if (!run.approvedAt || run.type !== 'research') throw new Error('Approve the research themes first.'); return launch(run, () => performClassification(run)); },
     createContentRun(payload) { const by = who(); const run = newContentRun(payload, null, by); return launch(run, () => performContent(run)); },
     // Asset kits: what a kit from this source would make and cost, before anything is spent.

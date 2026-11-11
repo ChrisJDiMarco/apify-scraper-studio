@@ -9,6 +9,7 @@
     "startResearchRun": "studio:startResearchRun",
     "approveResearchThemes": "studio:approveResearchThemes",
     "decideResearchTheme": "studio:decideResearchTheme",
+    "setTrendArchived": "studio:setTrendArchived",
     "continueResearchRun": "studio:continueResearchRun",
     "createContentRun": "studio:createContentRun",
     "cancelStudioRun": "studio:cancelStudioRun",

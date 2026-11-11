@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, Check, CircleCheck, LayoutList, LoaderCircle, Radar, RotateCcw, SquareKanban, TrendingUp, TriangleAlert, Undo2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowRight, Check, CircleCheck, LayoutList, LoaderCircle, Radar, RotateCcw, SquareKanban, TrendingUp, TriangleAlert, Undo2, X } from 'lucide-react';
 import { HelpAssistant } from './help-assistant.jsx';
 import { SimpleAssets } from './simple-assets.jsx';
 import { kitSourcesFrom } from './kit-creator.jsx';
@@ -18,12 +18,13 @@ import { MondayChip, MondayStatusLine } from './monday-ui.jsx';
 import { LINK_COPIED, linkFor, shareOrigin } from './deep-links.js';
 import { copyText, useToast } from './role-screens.jsx';
 import { useAnnouncingApi } from './help-images.js';
-import { defaultProgram, lastProgramId, readChoice, rememberProgram, saveChoice } from './choices.js';
+import { defaultProgram, lastProgramId, readChoice, readJsonChoice, rememberProgram, saveChoice, saveJsonChoice } from './choices.js';
+import { ShowMore, TrendKanban, TrendsToolbar, useTrendMove } from './trend-kanban.jsx';
+import { PAGE, activeCount, cleanFilters, filterBoard, filterChoices } from './trend-filters.js';
 import { canWriteReports, useStudioActions } from './studio-actions.js';
 import { adminNames, useCan, useViewer, writeProps } from './viewer.js';
 import { number, withViewTransition } from './ui.jsx';
 import { requestNoteFocus } from './report-editor/events.js';
-import { PASSED_STAGE, TREND_STAGES } from '../../shared/trend-board.js';
 import { buildLibraryTree } from '../../shared/library-tree.js';
 import './simple-mode.css';
 
@@ -219,6 +220,14 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     if (decision !== 'pending') Promise.resolve(sent).then((ok) => { if (ok) showUndo(decision === 'passed' ? `Skipped “${card.name}”.` : `Approved “${card.name}”.`, { actionLabel: 'Undo', onAction: () => decide(card, 'pending') }); }, () => {});
     return sent;
   };
+  // File a finished trend away, or bring it back, with a few seconds to take it back.
+  const sendArchive = (card, archived) => action(() => api.setTrendArchived({ runId: card.runId, themeId: card.themeId, archived }), '');
+  const archiveTrend = async (card, archived) => {
+    if (typeof api.setTrendArchived !== 'function') return false;
+    const done = await sendArchive(card, archived);
+    if (done) showUndo(archived ? `Archived “${card.name}”.` : `Brought back “${card.name}”.`, { actionLabel: 'Undo', onAction: () => sendArchive(card, !archived) });
+    return done;
+  };
   const stopped = board.scouting.filter((scout) => scout.status === 'failed');
   // Trends shows one research program's trends, or all of them (remembered for this person on this device). Picking one
   // also makes it the program Find new trends runs.
@@ -341,6 +350,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     if (next.id === 'make-assets') return makeAssets({ kind: 'report', assetId: next.assetId });
     if (next.id === 'open-assets') return setTrendOpen((current) => (current ? { ...current, tab: 'assets' } : current));
     if (next.id === 'restore') return decideUndoable(card, 'pending');
+    if (next.id === 'unarchive') return archiveTrend(card, false);
     return undefined;
   }
   const trendPage = trendCard ? <TrendPage card={trendCard} runs={trendRuns} stage={stageOf(trendCard, { can })} tab={trendTab} busy={busy} viewer={viewer} api={api}
@@ -378,7 +388,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
           : <ProgramsPage state={state} api={api} busy={busy} needsSetup={needsSetup} onStartResearch={startAndRemember} onOpenTarget={openTarget} onNotice={onNotice} onEditProgram={shellNav.editProgram} onAddProgram={shellNav.newProgram} />)
         : trendPage ? trendPage
         : reportId && tab === reportTab ? reader(tab === 'trends' ? 'Trends' : 'Assets')
-        : tab === 'trends' ? <SimpleTrends board={programBoard} waiting={waiting.filter(inProgram)} approved={approved.filter(inProgram)} programs={programs} program={shownProgram ? programs.find((row) => row.id === shownProgram) : program} programFilter={shownProgram} onProgramFilter={setTrendProgram} trendOf={trendOf} researchRuns={list(studio.researchRuns).filter(mine)} channels={channels} focusChannels={list(viewer.prefs?.focusChannels)} busy={busy} needsSetup={needsSetup} askAdmin={askAdmin} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk || undefined} onWriteReports={writeReports} onStartResearch={startAndRemember} onOpenReport={openReport} onOpenTrend={openTrend} onOpenClassic={onOpenClassic} onSettings={openSettings} stopped={stopped.filter(inProgram)} onRetry={retryRun} postsApi={postsApi} monday={state.monday} mondayApi={api} />
+        : tab === 'trends' ? <SimpleTrends board={programBoard} waiting={waiting.filter(inProgram)} approved={approved.filter(inProgram)} programs={programs} program={shownProgram ? programs.find((row) => row.id === shownProgram) : program} programFilter={shownProgram} onProgramFilter={setTrendProgram} trendOf={trendOf} researchRuns={list(studio.researchRuns).filter(mine)} channels={channels} focusChannels={list(viewer.prefs?.focusChannels)} busy={busy} needsSetup={needsSetup} askAdmin={askAdmin} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk || undefined} onWriteReports={writeReports} onArchive={typeof api.setTrendArchived === 'function' ? archiveTrend : undefined} onStartResearch={startAndRemember} onOpenReport={openReport} onOpenTrend={openTrend} onOpenClassic={onOpenClassic} onSettings={openSettings} stopped={stopped.filter(inProgram)} onRetry={retryRun} postsApi={postsApi} monday={state.monday} mondayApi={api} />
         : tab === 'assets' ? assetsView()
         : tab === 'settings' ? setup(<div className="simple-page simple-settings"><div className="simple-page-head"><div><h1>Settings</h1><p>{settingsAllowed ? 'Connections, AI, pictures and brand knowledge for the whole studio.' : 'Brand knowledge for the whole studio.'}</p></div></div>{page('settings')}</div>)
         : SHELL_PAGES.has(tab) ? setup(page(tab))
@@ -400,11 +410,25 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
 // waits for the save); `onAsk(text)` adds "What people are saying" to a card that needs an OK, and `postsApi` (an api with
 // readTrendPosts) shows two real posts in place. `stopped` are research runs that failed before finding trends, each
 // with Try again (`onRetry(runId)`, behind its cost confirmation) and See why.
-function SimpleTrends({ board, waiting, approved, programs, program, programFilter = '', onProgramFilter, trendOf = () => null, researchRuns = [], channels = [], focusChannels = [], busy, needsSetup, askAdmin, onDecide, onDecideWithNote, onAsk, onWriteReports, onStartResearch, onOpenReport, onOpenTrend, onOpenClassic, onSettings, stopped = [], onRetry, postsApi = null, monday = null, mondayApi = null }) {
+function SimpleTrends({ board, waiting, approved, programs, program, programFilter = '', onProgramFilter, trendOf = () => null, researchRuns = [], channels = [], focusChannels = [], busy, needsSetup, askAdmin, onDecide, onDecideWithNote, onAsk, onWriteReports, onArchive, onStartResearch, onOpenReport, onOpenTrend, onOpenClassic, onSettings, stopped = [], onRetry, postsApi = null, monday = null, mondayApi = null }) {
   const can = useCan();
   const viewer = useViewer();
-  const production = board.columns.production || [];
-  const ready = board.columns.ready || [];
+  // The filter bar narrows both layouts, and is remembered for this person on this device (trend-filters.js).
+  const [filters, setFilterState] = useState(() => cleanFilters(readJsonChoice(viewer, 'trends.filters', null)));
+  const setFilters = (next) => { const clean = cleanFilters(next); setFilterState(clean); saveJsonChoice(viewer, 'trends.filters', clean); };
+  const view = useMemo(() => filterBoard(board, filters), [board, filters]);
+  const choices = useMemo(() => filterChoices(board.cards), [board.cards]);
+  const narrowed = activeCount(filters) > 0;
+  const allWaiting = waiting; const allApproved = approved;
+  const shownWaiting = view.columns.potential || []; const shownApproved = view.columns.approved || [];
+  const production = view.columns.production || [];
+  const ready = view.columns.ready || [];
+  const archived = view.columns.archived || [];
+  // A long section shows its first trends, then "Show more".
+  const [limits, setLimits] = useState({});
+  const cut = (id, rows, size = PAGE) => rows.slice(0, limits[id] || size);
+  const more = (id, rows, size = PAGE) => <ShowMore left={rows.length - cut(id, rows, size).length} onMore={() => setLimits((current) => ({ ...current, [id]: (current[id] || size) + PAGE * 2 }))} />;
+  const [moveNote, setMoveNote] = useState('');
   const empty = !board.cards.length && !board.scouting.length;
   const canDecide = can('decideResearchTheme');
   const canWrite = canWriteReports(can);
@@ -413,7 +437,10 @@ function SimpleTrends({ board, waiting, approved, programs, program, programFilt
   // List or Board, remembered for this person on this device (the older shared key still counts until they choose).
   const [layout, setLayout] = useState(() => { const saved = readChoice(viewer, 'trends.layout', ''); if (saved) return saved === 'board' ? 'board' : 'list'; try { return localStorage.getItem('simple.trends.layout') === 'board' ? 'board' : 'list'; } catch { return 'list'; } });
   const chooseLayout = (next) => { setLayout(next); saveChoice(viewer, 'trends.layout', next); };
-  const skipped = (board.columns.passed || []).filter((card) => card.canDecide);
+  const skipped = (view.columns.passed || []).filter((card) => card.canDecide);
+  // The List's Archive and Bring back go through the same rules (and the same questions) as a drag on the Board.
+  const move = useTrendMove({ viewer, can, handlers: { onDecide, onWriteReports, onArchive }, onRefuse: setMoveNote });
+  const canArchive = can('setTrendArchived') && Boolean(onArchive);
   // Which research program a trend came from, on every card, unless the page shows one program only.
   const showProgram = !programFilter;
   // Why research can't start yet, in words (the same reasons as Home's Find new trends).
@@ -447,66 +474,57 @@ function SimpleTrends({ board, waiting, approved, programs, program, programFilt
         newer run finds trends, so it's a status, not an alert read out on every visit. */}
     {stopped.map((scout) => <div className="simple-scouting attention" key={scout.runId} role="status"><TriangleAlert size={16} aria-hidden="true" /><span><strong>Research stopped · {scout.title}</strong><small>{scout.message || scout.error || 'It stopped before any trends were found.'}</small></span>{onRetry ? <button type="button" className="simple-skip" {...writeProps(viewer, busy)} onClick={() => onRetry(scout.runId)}>Try again</button> : <small className="simple-scouting-ask">Ask {askAdmin} to try it again.</small>}{onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research', scout.runId ? { runId: scout.runId } : {})}>See why<ArrowRight size={14} aria-hidden="true" /></button>}</div>)}
 
-    {layout === 'board' && !empty && <SimpleKanban board={board} approved={approved} busy={busy} canDecide={canDecide} canWrite={canWrite} viewer={viewer} meta={meta} why={why} decided={decided} yes={yes} onDecide={onDecide} onWriteReports={onWriteReports} onOpenReport={onOpenReport} onOpenClassic={onOpenClassic} />}
-    {layout === 'list' && !empty && !waiting.length && !approved.length && !stopped.length && !board.scouting.some((scout) => ACTIVE.has(scout.status)) && <div className="simple-caught-up"><CircleCheck size={20} aria-hidden="true" /><span><strong>You’re all caught up</strong><small>Every trend has been decided. Find new ones whenever you like.</small></span></div>}
+    {board.cards.length > 0 && <TrendsToolbar filters={filters} onChange={setFilters} choices={choices} shown={view.cards.length} total={board.cards.length} />}
+    {narrowed && board.cards.length > 0 && !view.cards.length && <div className="simple-empty"><p>No trends match these filters.</p><button type="button" className="simple-quiet" onClick={() => setFilters({ sort: filters.sort })}>Clear filters</button></div>}
+    {layout === 'list' && moveNote && <p className="trend-move-note" role="status"><span>{moveNote}</span><button type="button" aria-label="Dismiss" onClick={() => setMoveNote('')}><X size={14} aria-hidden="true" /></button></p>}
+    {layout === 'board' && !empty && <TrendKanban board={view} approved={allApproved} busy={busy} canDecide={canDecide} canWrite={canWrite} viewer={viewer} can={can} meta={meta} why={why} decided={decided} yes={yes} onDecide={onDecide} onWriteReports={onWriteReports} onArchive={onArchive} onOpenReport={onOpenReport} onOpenTrend={onOpenTrend} onOpenClassic={onOpenClassic} />}
+    {layout === 'list' && !empty && !narrowed && !allWaiting.length && !allApproved.length && !stopped.length && !board.scouting.some((scout) => ACTIVE.has(scout.status)) && <div className="simple-caught-up"><CircleCheck size={20} aria-hidden="true" /><span><strong>You’re all caught up</strong><small>Every trend has been decided. Find new ones whenever you like.</small></span></div>}
     {empty && <div className="simple-empty big"><TrendingUp size={30} aria-hidden="true" /><h2>No trends yet</h2><p>A research run reads the posts your program follows and brings every trend it finds here for a simple yes or skip. Nothing is written or spent on reports until you say yes.</p>{emptyAction}</div>}
 
-    {layout === 'list' && waiting.length > 0 && <section className="simple-section" aria-labelledby="simple-waiting" data-spot="trends.waiting">
-      <h2 id="simple-waiting">Needs your OK <span className="simple-pill">{waiting.length}</span></h2>
-      <div className="simple-trend-grid">{waiting.map((card) => <article className="simple-trend" key={card.key} data-spot="trends.card" data-spot-item={card.name} style={{ viewTransitionName: `simple-${card.key.replace(/[^a-zA-Z0-9_-]/g, '-')}` }}>
+    {layout === 'list' && shownWaiting.length > 0 && <section className="simple-section" aria-labelledby="simple-waiting" data-spot="trends.waiting">
+      <h2 id="simple-waiting">Needs your OK <span className="simple-pill">{shownWaiting.length}</span></h2>
+      <div className="simple-trend-grid">{cut('waiting', shownWaiting, 12).map((card) => <article className="simple-trend" key={card.key} data-spot="trends.card" data-spot-item={card.name} style={{ viewTransitionName: `simple-${card.key.replace(/[^a-zA-Z0-9_-]/g, '-')}` }}>
         {meta(card)}
         <h3>{onOpenTrend ? <button type="button" className="simple-trend-open" onClick={() => onOpenTrend(card)}>{card.name}</button> : card.name}</h3>
         {card.description && <p>{card.description}</p>}
         {why(card)}
         {canDecide && <div className="simple-trend-actions">{yes(card, 16)}<button type="button" data-spot="trends.skip" data-spot-item={card.name} className="simple-skip" aria-label={`Skip ${card.name}`} {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'passed')}>Skip</button></div>}
       </article>)}</div>
+      {more('waiting', shownWaiting, 12)}
     </section>}
 
-    {layout === 'list' && canDecide && approved.length > 0 && <ul className="simple-decided-list" aria-label="Approved trends" data-spot="trends.approved">{approved.map((card) => <li key={card.key} data-spot="trends.ready-card" data-spot-item={card.name}><span>{card.name}</span>{mondayChip(card)}<button type="button" className="simple-link" aria-label={`Undo the yes for ${card.name}`} {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'pending')}><Undo2 size={14} aria-hidden="true" />Undo</button></li>)}</ul>}
-    {layout === 'list' && approved.length > 0 && <div className="simple-ready-bar"><span><strong>{plural(approved.length, 'trend')} approved</strong>{!canDecide && <small>{approved.map((card) => card.name).slice(0, 3).join(' · ')}{approved.length > 3 ? ' …' : ''}</small>}{canDecide && <small>Take one back with Undo until the reports are written.</small>}</span>{canWrite && <button type="button" data-spot="trends.write" className="simple-primary" {...writeProps(viewer, busy)} onClick={onWriteReports}>Write reports<ArrowRight size={15} aria-hidden="true" /></button>}</div>}
+    {layout === 'list' && canDecide && shownApproved.length > 0 && <ul className="simple-decided-list" aria-label="Approved trends" data-spot="trends.approved">{shownApproved.map((card) => <li key={card.key} data-spot="trends.ready-card" data-spot-item={card.name}><span>{card.name}</span>{mondayChip(card)}<button type="button" className="simple-link" aria-label={`Undo the yes for ${card.name}`} {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'pending')}><Undo2 size={14} aria-hidden="true" />Undo</button></li>)}</ul>}
+    {layout === 'list' && allApproved.length > 0 && <div className="simple-ready-bar"><span><strong>{plural(allApproved.length, 'trend')} approved</strong>{!canDecide && <small>{allApproved.map((card) => card.name).slice(0, 3).join(' · ')}{allApproved.length > 3 ? ' …' : ''}</small>}{canDecide && <small>Take one back with Undo until the reports are written.</small>}</span>{canWrite && <button type="button" data-spot="trends.write" className="simple-primary" {...writeProps(viewer, busy)} onClick={() => onWriteReports()}>Write reports<ArrowRight size={15} aria-hidden="true" /></button>}</div>}
 
     {/* Skipped trends stay reachable while their run still takes decisions, "in case you change your mind". */}
     {layout === 'list' && canDecide && skipped.length > 0 && <details className="simple-skipped" data-spot="trends.skipped"><summary>Skipped <span className="simple-pill">{skipped.length}</span></summary>
-      <ul className="simple-decided-list">{skipped.map((card) => <li key={card.key} data-spot="trends.ready-card" data-spot-item={card.name}><span>{card.name}</span>{decided(card)}{mondayChip(card)}<button type="button" className="simple-link" aria-label={`Reconsider ${card.name}`} {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'pending')}><RotateCcw size={14} aria-hidden="true" />Reconsider</button></li>)}</ul>
+      <ul className="simple-decided-list">{cut('skipped', skipped).map((card) => <li key={card.key} data-spot="trends.ready-card" data-spot-item={card.name}><span>{card.name}</span>{decided(card)}{mondayChip(card)}<button type="button" className="simple-link" aria-label={`Reconsider ${card.name}`} {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'pending')}><RotateCcw size={14} aria-hidden="true" />Reconsider</button></li>)}</ul>
+      {more('skipped', skipped)}
     </details>}
 
     {layout === 'list' && production.length > 0 && <section className="simple-section" aria-labelledby="simple-writing" data-spot="trends.writing">
       <h2 id="simple-writing">Being written</h2>
-      <ul className="simple-live">{production.map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; return <li key={card.key} className={card.needsAttention ? 'attention' : ''} data-spot="trends.ready-card" data-spot-item={card.name}>{card.needsAttention ? <X size={16} aria-hidden="true" /> : <LoaderCircle className="spin" size={16} aria-hidden="true" />}<span><strong>{onOpenTrend ? <button type="button" className="simple-trend-open" onClick={() => onOpenTrend(card)}>{card.name}</button> : card.name}</strong><small>{[showProgram ? card.programName : '', card.activity || 'Writing'].filter(Boolean).join(' · ')}</small></span>
+      <ul className="simple-live">{cut('production', production, 12).map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; return <li key={card.key} className={card.needsAttention ? 'attention' : ''} data-spot="trends.ready-card" data-spot-item={card.name}>{card.needsAttention ? <X size={16} aria-hidden="true" /> : <LoaderCircle className="spin" size={16} aria-hidden="true" />}<span><strong>{onOpenTrend ? <button type="button" className="simple-trend-open" onClick={() => onOpenTrend(card)}>{card.name}</button> : card.name}</strong><small>{[showProgram ? card.programName : '', card.activity || 'Writing'].filter(Boolean).join(' · ')}</small></span>
         {/* Reports already written (channel assets are what's being made) open here, as Ready's do. */}
         {report && <button type="button" className="simple-link" aria-label={`${card.name}: read the report`} onClick={() => onOpenReport(report.id)}>Read<ArrowRight size={14} aria-hidden="true" /></button>}
         {card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research', card.runId ? { runId: card.runId } : {})}>See why<ArrowRight size={14} aria-hidden="true" /></button>}</li>; })}</ul>
+      {more('production', production, 12)}
     </section>}
 
     {layout === 'list' && ready.length > 0 && <section className="simple-section" aria-labelledby="simple-done" data-spot="trends.ready">
-      <h2 id="simple-done">Ready</h2>
-      <div className="simple-report-cards">{ready.map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; const trend = trendOf(card); return <button type="button" key={card.key} data-spot="trends.ready-card" data-spot-item={card.name} disabled={!report} onClick={() => report && onOpenReport(report.id)}><span className="simple-doc-icon done"><Check size={18} aria-hidden="true" /></span><strong>{card.name}</strong><small>{[showProgram ? card.programName : '', MOMENTUM_COPY[trend?.momentum]?.label, card.reportAssets?.length === 2 ? 'Trends report + editorial toolkit' : plural(card.reportAssets?.length || 0, 'report')].filter(Boolean).join(' · ')}</small>{mondayChip(card, false)}<span className="simple-read">Read<ArrowRight size={14} aria-hidden="true" /></span></button>; })}</div>
+      <h2 id="simple-done">Ready <span className="simple-pill">{ready.length}</span></h2>
+      <div className="simple-report-cards">{cut('ready', ready, 9).map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; const trend = trendOf(card); return <div className="simple-report-card" key={card.key}><button type="button" data-spot="trends.ready-card" data-spot-item={card.name} disabled={!report} onClick={() => report && onOpenReport(report.id)}><span className="simple-doc-icon done"><Check size={18} aria-hidden="true" /></span><strong>{card.name}</strong><small>{[showProgram ? card.programName : '', MOMENTUM_COPY[trend?.momentum]?.label, card.reportAssets?.length === 2 ? 'Trends report + editorial toolkit' : plural(card.reportAssets?.length || 0, 'report')].filter(Boolean).join(' · ')}</small>{mondayChip(card, false)}<span className="simple-read">Read<ArrowRight size={14} aria-hidden="true" /></span></button>
+        {canArchive && <button type="button" className="trend-file" aria-label={`Archive ${card.name}`} title="Archive: done with this trend" {...writeProps(viewer, busy)} onClick={() => move(card, 'archived')}><Archive size={15} aria-hidden="true" /></button>}</div>; })}</div>
+      {more('ready', ready, 9)}
     </section>}
+
+    {/* Filed away: out of Ready and Skipped, still one click from coming back. */}
+    {layout === 'list' && archived.length > 0 && <details className="simple-skipped" data-spot="trends.archived"><summary>Archived <span className="simple-pill">{archived.length}</span></summary>
+      <ul className="simple-decided-list">{cut('archived', archived).map((card) => { const report = card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0]; return <li key={card.key} data-spot="trends.ready-card" data-spot-item={card.name}><span>{onOpenTrend ? <button type="button" className="simple-trend-open" onClick={() => onOpenTrend(card)}>{card.name}</button> : card.name}</span>
+        {report && <button type="button" className="simple-link" aria-label={`${card.name}: read the report`} onClick={() => onOpenReport(report.id)}>Read<ArrowRight size={14} aria-hidden="true" /></button>}
+        {canArchive && <button type="button" className="simple-link" aria-label={`Bring back ${card.name}`} {...writeProps(viewer, busy)} onClick={() => move(card, card.homeStage)}><ArchiveRestore size={14} aria-hidden="true" />Bring back</button>}</li>; })}</ul>
+      {more('archived', archived)}
+    </details>}
   </div>;
 }
 
-// The same trends as a board: one column per stage, left to right, with each stage's next step on its cards. An
-// empty column says what comes next.
-function SimpleKanban({ board, approved, busy, canDecide, canWrite, viewer, meta, why, decided, yes, onDecide, onWriteReports, onOpenReport, onOpenClassic }) {
-  const columns = [...TREND_STAGES, PASSED_STAGE];
-  const reportOf = (card) => card.reportAssets?.find((asset) => asset.deliverableId === 'evidence-report') || card.reportAssets?.[0];
-  return <div className="simple-kanban" data-spot="trends.kanban" role="list" aria-label="Trend board">
-    {columns.map((stage) => { const cards = board.columns[stage.id] || []; return <section key={stage.id} role="listitem" className={`simple-kanban-col stage-${stage.id}`} aria-labelledby={`kanban-${stage.id}`}>
-      <header><h2 id={`kanban-${stage.id}`}>{stage.label}<span className="simple-kanban-count">{cards.length}</span></h2><p>{stage.hint}</p>
-        {stage.id === 'approved' && canWrite && approved.length > 0 && <button type="button" data-spot="trends.write" className="simple-primary simple-kanban-action" {...writeProps(viewer, busy)} onClick={onWriteReports}>Write reports<ArrowRight size={14} aria-hidden="true" /></button>}</header>
-      <div className="simple-kanban-cards">
-        {!cards.length && <p className="simple-kanban-empty">{stage.empty || 'Nothing here yet.'}</p>}
-        {cards.map((card) => { const report = stage.id === 'ready' ? reportOf(card) : null; return <article key={card.key} className={`simple-kanban-card${card.needsAttention ? ' attention' : ''}`} data-spot="trends.card" data-spot-item={card.name} style={{ viewTransitionName: `kanban-${card.key.replace(/[^a-zA-Z0-9_-]/g, '-')}` }}>
-          {meta(card)}
-          <h3>{card.name}</h3>
-          {card.description && stage.id !== 'passed' && <p>{card.description}</p>}
-          {stage.id === 'potential' ? why(card) : decided(card)}
-          {stage.id === 'potential' && canDecide && card.canDecide && <div className="simple-kanban-buttons">{yes(card, 14)}<button type="button" data-spot="trends.skip" data-spot-item={card.name} className="simple-skip" aria-label={`Skip ${card.name}`} {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'passed')}>Skip</button></div>}
-          {(stage.id === 'approved' || stage.id === 'passed') && canDecide && card.canDecide && <div className="simple-kanban-buttons"><button type="button" className="simple-skip" aria-label={`${stage.id === 'passed' ? 'Reconsider' : 'Undo the yes for'} ${card.name}`} {...writeProps(viewer, busy)} onClick={() => onDecide(card, 'pending')}>{stage.id === 'passed' ? <RotateCcw size={13} aria-hidden="true" /> : <Undo2 size={13} aria-hidden="true" />}{stage.id === 'passed' ? 'Reconsider' : 'Undo'}</button></div>}
-          {stage.id === 'production' && <div className="simple-kanban-status">{card.needsAttention ? <X size={14} aria-hidden="true" /> : <LoaderCircle className="spin" size={14} aria-hidden="true" />}<span>{card.activity || 'Writing'}</span>{card.needsAttention && onOpenClassic && <button type="button" className="simple-link" onClick={() => onOpenClassic('research', card.runId ? { runId: card.runId } : {})}>See why</button>}</div>}
-          {stage.id === 'ready' && <button type="button" className="simple-kanban-read" disabled={!report} onClick={() => report && onOpenReport(report.id)}>{plural(card.reportAssets?.length || 0, 'report')}<span>Read<ArrowRight size={13} aria-hidden="true" /></span></button>}
-        </article>; })}
-      </div>
-    </section>; })}
-  </div>;
-}

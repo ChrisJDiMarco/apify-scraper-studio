@@ -835,7 +835,7 @@ function StudioApp({ api }) {
         withViewTransition(() => { setPeek(false); setSimpleTab('trends'); });
         return;
       }
-      const reportAssets = card?.stage === 'ready' || card?.stage === 'production' ? list(card.reportAssets) : [];
+      const reportAssets = ['ready', 'production', 'archived'].includes(card?.stage) ? list(card.reportAssets) : [];
       const report = reportAssets.find((asset) => asset.deliverableId === 'evidence-report') || reportAssets[0];
       if (report && list(studioState.assets).some((asset) => asset.id === report.id) && simpleAllowed('trends')) { openReport(report.id); return; }
       const name = card?.name || trendNameOf(id);

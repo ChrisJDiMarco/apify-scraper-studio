@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   startResearchRun: (payload) => invoke('studio:startResearchRun', payload),
   approveResearchThemes: (payload) => invoke('studio:approveResearchThemes', payload),
   decideResearchTheme: (payload) => invoke('studio:decideResearchTheme', payload),
+  setTrendArchived: (payload) => invoke('studio:setTrendArchived', payload),
   continueResearchRun: (payload) => invoke('studio:continueResearchRun', payload),
   createContentRun: (payload) => invoke('studio:createContentRun', payload),
   cancelStudioRun: (payload) => invoke('studio:cancelStudioRun', payload),

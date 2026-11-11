@@ -168,6 +168,8 @@
 .confirm-body p { margin: 0; overflow-wrap: anywhere; }
 .confirm-body ul { display: grid; gap: 2px; margin: 0; padding-left: 1.2em; }
 .confirm-note { font-size: 12px; color: var(--cd-muted); }
+.confirm-remember { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--cd-muted); cursor: pointer; }
+.confirm-remember input { width: 16px; height: 16px; margin: 0; accent-color: currentColor; }
 .confirm-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .confirm-dialog .confirm-buttons button { min-height: 36px; padding: 7px 16px; font-size: 13px; font-weight: 650; border-radius: 999px; box-shadow: none; transform: none; }
 .confirm-dialog .confirm-cancel { color: var(--cd-ink); background: var(--cd-surface); border: 1px solid var(--cd-line); }

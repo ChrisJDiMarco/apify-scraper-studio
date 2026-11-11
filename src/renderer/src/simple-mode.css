@@ -514,7 +514,40 @@
 .simple-layout-switch { flex-wrap: nowrap; }
 /* Five columns share the row when it can give each 200px (a 1440px window with the sidebar open); narrower, they keep
    200px and the board scrolls sideways. */
-.simple-kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(clamp(200px, calc((100% - 56px) / 5), 250px), 1fr); gap: 14px; align-items: start; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
+/* Trends: the filter bar, a note for a move that can't be made, and "Show more". */
+.trend-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.trend-tools .trend-tools-search { width: min(280px, 100%); min-height: 40px; }
+.simple-shell .trend-tools-pick { min-height: 40px; max-width: 100%; padding: 0 32px 0 14px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--s-ink); background-color: var(--s-card); border: 1px solid var(--s-line); border-radius: 999px; }
+.simple-shell .trend-tools-pick[data-on] { border-color: var(--s-accent-strong); background-color: var(--s-soft); }
+.trend-tools-count { display: flex; align-items: center; gap: 10px; margin: 0 0 0 auto; font-size: 13px; color: var(--s-muted); }
+.trend-move-note { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; background: var(--s-warn); border-radius: 14px; }
+.trend-move-note span { flex: 1; }
+.simple-shell .trend-move-note button { display: grid; place-items: center; width: 24px; height: 24px; min-height: 24px; padding: 0; color: inherit; background: transparent; border: 0; border-radius: 50%; }
+.simple-shell .trend-more { justify-self: start; display: inline-flex; align-items: baseline; gap: 8px; min-height: 36px; padding: 0 14px; font-size: 13px; }
+.trend-more small { font-weight: 500; color: var(--s-muted); }
+.simple-kanban-cards .trend-more { justify-self: stretch; justify-content: center; flex-wrap: wrap; padding: 6px 10px; }
+/* The Board: columns scroll on their own; a card lifts while dragged and the column under it says yes or no. */
+.simple-kanban-cards { max-height: max(420px, calc(100vh - 360px)); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; scrollbar-width: thin; }
+.simple-kanban-card[draggable="true"] { cursor: grab; }
+.simple-kanban-card.is-dragged { opacity: .45; }
+.simple-kanban-col.drop-ok { border-color: var(--s-accent-strong); background: var(--s-soft); }
+.simple-kanban-col.drop-no { border-style: dashed; opacity: .6; }
+.simple-kanban-top { display: flex; align-items: flex-start; gap: 6px; }
+.simple-kanban-top > .simple-trend-meta { flex: 1; min-width: 0; }
+.simple-shell .simple-kanban-move { display: grid; place-items: center; width: 26px; height: 26px; min-height: 26px; padding: 0; color: var(--s-muted); background: transparent; border: 0; border-radius: 8px; }
+.simple-shell .simple-kanban-move:hover { color: var(--s-ink); background: var(--s-bg); }
+.simple-kanban-col.stage-archived { opacity: .88; }
+.stage-archived .simple-kanban-buttons { flex-wrap: wrap; }
+.simple-shell .stage-archived .simple-kanban-buttons button { flex: 1 1 100%; white-space: nowrap; }
+.simple-kanban-drop { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0; font-size: 12.5px; color: var(--s-muted); }
+.simple-kanban-card .simple-trend-open { text-align: left; }
+/* List → Ready: the card's Archive button sits in its corner. */
+.simple-report-card { position: relative; display: grid; }
+.simple-shell .simple-report-cards button.trend-file { position: absolute; top: 12px; right: 12px; display: grid; place-items: center; width: 32px; height: 32px; min-height: 32px; padding: 0; color: var(--s-muted); background: var(--s-bg); border: 0; border-radius: 10px; opacity: 0; transition: opacity 120ms ease; }
+.simple-report-card:hover .trend-file, .simple-shell .simple-report-cards button.trend-file:focus-visible { opacity: 1; }
+.simple-shell .simple-report-cards button.trend-file:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--s-ink); background: var(--s-line); }
+@media (hover: none) { .simple-shell .simple-report-cards button.trend-file { opacity: 1; } }
+.simple-kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(clamp(200px, calc((100% - 70px) / 6), 250px), 1fr); gap: 14px; align-items: start; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
 .simple-kanban-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; min-width: 0; min-height: 220px; padding: 12px 10px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 20px; scroll-snap-align: start; }
 .simple-kanban-col > header { display: grid; gap: 4px; padding: 2px 4px 6px; }
 .simple-kanban-col h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14.5px; font-weight: 700; letter-spacing: -.1px; }

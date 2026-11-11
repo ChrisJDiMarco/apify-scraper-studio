@@ -11,6 +11,9 @@ export const TREND_STAGES = [
   { id: 'production', label: 'Being written', hint: 'Reports, or assets made from them, being written.', empty: 'Nothing is being written. Write reports for approved trends to start.' },
   { id: 'ready', label: 'Ready', hint: 'Reports done. Create assets any time.', empty: 'Finished trends reports and editorial toolkits appear here.' },
 ];
+// Filed away by a person once it's done with (run.archivedThemes): a Ready or Skipped trend of a finished run. Its reports
+// and assets stay in Assets. `homeStage` on the card is where Bring back returns it.
+export const ARCHIVED_STAGE = { id: 'archived', label: 'Archived', hint: 'Done with. Reports and assets stay in Assets.', empty: 'Drag a finished trend here to file it away.' };
 export const PASSED_STAGE = { id: 'passed', label: 'Skipped', hint: 'Not taken forward.', empty: 'Skipped trends stay here in case you change your mind.' };
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -97,10 +100,16 @@ export function buildTrendBoard({ researchRuns = [], contentRuns = [], assets = 
       cards.push({ ...card, stage: 'production', activity: stuck ? 'Needs attention' : activity, needsAttention: stuck, reportRunId: report?.id || '' });
     }
   }
+  // Archived wins over Ready and over Skipped in a finished run; a trend still being decided or written is never archived.
+  const archivedBy = new Map(list(researchRuns).map((run) => [run.id, run.archivedThemes || {}]));
+  for (const card of cards) {
+    const filed = archivedBy.get(card.runId)?.[card.themeId];
+    if (filed && (card.stage === 'ready' || (card.stage === 'passed' && !card.canDecide))) { card.homeStage = card.stage; card.stage = 'archived'; card.archivedAt = filed.at || ''; }
+  }
   const tierRank = (card) => ({ 'FAST-TRACK': 0, STRONG: 1, MONITOR: 2, LOW: 3 }[card.priorityTier] ?? 4);
   const order = (a, b) => String(b.discoveredAt).localeCompare(String(a.discoveredAt)) || tierRank(a) - tierRank(b) || b.evidenceCount - a.evidenceCount || a.name.localeCompare(b.name);
   cards.sort(order);
-  const columns = Object.fromEntries([...TREND_STAGES, PASSED_STAGE].map((stage) => [stage.id, cards.filter((card) => card.stage === stage.id)]));
+  const columns = Object.fromEntries([...TREND_STAGES, PASSED_STAGE, ARCHIVED_STAGE].map((stage) => [stage.id, cards.filter((card) => card.stage === stage.id)]));
   return { columns, cards, scouting: scouting.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) };
 }
 

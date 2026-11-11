@@ -27,7 +27,7 @@ export const tabOfDoc = (asset) => (asset?.deliverableId === 'editorial-toolkit'
 // Why a tab has nothing yet, '' when it can be opened.
 export function tabBlocked(card, tab) {
   if (tab === 'overview') return '';
-  const waiting = card.stage === 'potential' || card.stage === 'approved' ? 'Reports are written after a trend is approved.' : card.stage === 'passed' ? 'This trend was skipped, so no reports were written.' : 'The reports are still being written.';
+  const waiting = card.stage === 'potential' || card.stage === 'approved' ? 'Reports are written after a trend is approved.' : card.stage === 'passed' || card.homeStage === 'passed' ? 'This trend was skipped, so no reports were written.' : 'The reports are still being written.';
   if (tab === 'assets') return list(card.reportAssets).length ? '' : waiting;
   return docOf(card, tab) ? '' : waiting;
 }
@@ -75,7 +75,7 @@ export function TrendPage({ card, runs = [], stage, tab = 'overview', onTab, onR
           {onCopyLink && <button type="button" className="simple-quiet" onClick={onCopyLink}><Link2 size={15} aria-hidden="true" />Copy link</button>}
           {next?.id === 'decide' && onSkip && <button type="button" className="simple-skip" aria-label={`Skip ${card.name}`} {...writeProps(viewer, busy)} onClick={onSkip}>Skip</button>}
           {next?.id === 'decide' && yes ? yes
-            : next && onNext ? <button type="button" className={next.id === 'restore' || next.id === 'open-assets' ? 'simple-quiet' : 'simple-primary'} data-spot="trend.next" {...(next.id === 'open-assets' ? { disabled: false } : writeProps(viewer, busy))} onClick={() => onNext(next)}>{next.label}</button> : null}
+            : next && onNext ? <button type="button" className={['restore', 'unarchive', 'open-assets'].includes(next.id) ? 'simple-quiet' : 'simple-primary'} data-spot="trend.next" {...(next.id === 'open-assets' ? { disabled: false } : writeProps(viewer, busy))} onClick={() => onNext(next)}>{next.label}</button> : null}
         </div>
       </div>
       <div className="simple-segment trend-page-tabs" role="tablist" aria-label="This trend">

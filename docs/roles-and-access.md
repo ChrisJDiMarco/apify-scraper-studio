@@ -70,7 +70,7 @@ the No access screen.
    `costsOptional` (Ask AI). A channel base never needs costs.
 
 The methods are the union of the capabilities' methods (a channel base: intersected with `channelSafeMethods`). With
-no policy edits this is exactly the old fixed matrix plus Ask AI for channel owners: admin 195 methods, editor 122, channel owner 39
+no policy edits this is exactly the old fixed matrix plus Ask AI for channel owners: admin 196 methods, editor 123, channel owner 39
 (`test/roles.test.js` and `test/docs-consistency.test.js` check these numbers).
 
 Channels are the ten asset-kit folders in `src/shared/kit-folders.json` `folders` (main reads them through

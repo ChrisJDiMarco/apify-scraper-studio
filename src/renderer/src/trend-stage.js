@@ -13,9 +13,10 @@
 //     make-assets    { assetId } the Make channel assets dialog on that report
 //     open-assets    open the trend's channel assets
 //     restore        bring a skipped trend back (only while its run is still under review)
+//     unarchive      bring an archived trend back to Ready or Skipped
 const list = (value) => (Array.isArray(value) ? value : []);
 
-export const TREND_STAGE_IDS = Object.freeze(['needs-ok', 'approved', 'writing', 'report-ready', 'making-assets', 'assets-ready', 'attention', 'skipped']);
+export const TREND_STAGE_IDS = Object.freeze(['needs-ok', 'approved', 'writing', 'report-ready', 'making-assets', 'assets-ready', 'attention', 'skipped', 'archived']);
 export const STAGE_LABELS = Object.freeze({
   'needs-ok': 'Needs your OK',
   approved: 'Approved',
@@ -25,8 +26,9 @@ export const STAGE_LABELS = Object.freeze({
   'assets-ready': 'Assets ready',
   attention: 'Needs attention',
   skipped: 'Skipped',
+  archived: 'Archived',
 });
-const TONES = Object.freeze({ 'needs-ok': 'action', approved: 'action', writing: 'working', 'report-ready': 'action', 'making-assets': 'working', 'assets-ready': 'done', attention: 'attention', skipped: 'muted' });
+const TONES = Object.freeze({ 'needs-ok': 'action', approved: 'action', writing: 'working', 'report-ready': 'action', 'making-assets': 'working', 'assets-ready': 'done', attention: 'attention', skipped: 'muted', archived: 'muted' });
 
 // The trends report first, then the toolkit, as every reader opens them.
 export const reportOf = (card) => list(card?.reportAssets).find((asset) => asset.deliverableId === 'evidence-report') || list(card?.reportAssets)[0] || null;
@@ -36,6 +38,7 @@ export const reportOf = (card) => list(card?.reportAssets).find((asset) => asset
 export function stageIdOf(card = {}) {
   if (card.stage === 'potential') return 'needs-ok';
   if (card.stage === 'approved') return 'approved';
+  if (card.stage === 'archived') return 'archived';
   if (card.stage === 'passed') return 'skipped';
   if (card.stage === 'production') return card.needsAttention ? 'attention' : card.activity === 'Creating assets' ? 'making-assets' : 'writing';
   if (card.stage === 'ready') return Number(card.assetCount) > 0 ? 'assets-ready' : 'report-ready';
@@ -51,6 +54,7 @@ export function stageOf(card = {}, { can = () => false } = {}) {
   if (id === 'attention') return { ...base, detail: 'This stopped before it finished. Finished work is kept.', next: can('retryStudioRun') ? { id: 'retry', runId: card.reportRunId || card.runId, label: 'Try again' } : null };
   if (id === 'making-assets') return { ...base, detail: 'Channel assets are being made from the report.', next: { id: 'open-assets', label: 'See progress' } };
   if (id === 'report-ready') { const report = reportOf(card); return { ...base, next: report && can('planAssetKit') && can('createAssetKit') ? { id: 'make-assets', assetId: report.id, label: 'Make channel assets' } : null }; }
+  if (id === 'archived') return { ...base, detail: 'Filed away. Its reports and assets are still in Assets.', next: can('setTrendArchived') ? { id: 'unarchive', label: 'Bring back' } : null };
   if (id === 'assets-ready') return { ...base, detail: `${card.assetCount} ${Number(card.assetCount) === 1 ? 'asset' : 'assets'} made.`, next: { id: 'open-assets', label: 'Open channel assets' } };
   return { ...base, next: card.canDecide && can('decideResearchTheme') ? { id: 'restore', label: 'Bring back' } : null };
 }

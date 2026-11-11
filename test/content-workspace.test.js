@@ -260,4 +260,14 @@ describe('persistent content workspace orchestration', () => {
     expect(collect).toHaveBeenCalledOnce(); expect(h.api.readStudioRun({ runId: run.id })).toMatchObject({ status: 'awaiting-review', collectionReceipt: { jobCount: 1, succeededJobs: 1 }, counts: { retained: 6 } });
     const persisted = JSON.parse(fs.readFileSync(path.join(h.root, 'state.json'), 'utf8')); expect(persisted.datasetOwners['new-source']).toBe('general');
   });
+  it('archives a trend of a finished run and brings it back, and refuses one still being decided', async () => {
+    const h = harness(); const waiting = await discover(h); const themeId = waiting.themes[0].id;
+    expect(() => h.api.setTrendArchived({ runId: waiting.id, themeId, archived: true })).toThrow('still going');
+    const done = await approveAndContinue(h, waiting);
+    expect(() => h.api.setTrendArchived({ runId: done.id, themeId: 'theme-made-up', archived: true })).toThrow('isn’t in this research run');
+    const filed = h.api.setTrendArchived({ runId: done.id, themeId, archived: true });
+    expect(Object.keys(filed.archivedThemes)).toEqual([themeId]); expect(filed.archivedThemes[themeId].at).toBeTruthy();
+    expect(JSON.parse(fs.readFileSync(path.join(h.root, 'state.json'), 'utf8')).researchRuns.find(run => run.id === done.id).archivedThemes[themeId]).toBeTruthy();
+    expect(h.api.setTrendArchived({ runId: done.id, themeId, archived: false }).archivedThemes).toEqual({});
+  });
 });

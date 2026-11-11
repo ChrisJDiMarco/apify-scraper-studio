@@ -6,6 +6,7 @@ import './chat-cards.css';
 // The in-app confirmation that replaces window.confirm, so the person reads what will happen (and what it costs) in the
 // studio's own type and answers with a button, and the caller awaits the answer instead of blocking the window.
 // const confirm = useConfirm(); if (!(await confirm({ title, lines, items, note, confirmLabel, cancelLabel, tone }))) return false;
+// `remember` (a label, e.g. "Don’t ask me this again") adds a tick box; on Continue with it ticked, onRemember() runs first.
 // confirm('Stop it?') works too. It resolves true or false; one dialog shows at a time and later requests wait their turn.
 // Without a ConfirmProvider above it (old mounts, tests) useConfirm falls back to window.confirm with the same words.
 const ConfirmContext = createContext(null);
@@ -20,6 +21,7 @@ export function confirmOptions(options) {
   return {
     title: String(value.title || 'Are you sure?').trim(), lines, items: textList(value.items).slice(0, 20), note: String(value.note || '').trim(),
     confirmLabel: String(value.confirmLabel || 'Continue'), cancelLabel: String(value.cancelLabel || 'Cancel'), tone: value.tone === 'danger' ? 'danger' : 'default',
+    remember: String(value.remember || '').trim(), onRemember: typeof value.onRemember === 'function' ? value.onRemember : null,
   };
 }
 
@@ -60,6 +62,8 @@ function ConfirmDialog({ request, onAnswer }) {
   const titleId = useId(); const bodyId = useId();
   const panelRef = useRef(null); const confirmRef = useRef(null); const cancelRef = useRef(null);
   const danger = request.tone === 'danger';
+  const [remembered, setRemembered] = useState(false);
+  const yes = () => { if (remembered) { try { request.onRemember?.(); } catch { /* the answer still counts */ } } onAnswer(true); };
   useEffect(() => {
     const before = document.activeElement;
     // Something that deletes starts on Cancel; everything else starts on the button that does what was clicked.
@@ -86,9 +90,10 @@ function ConfirmDialog({ request, onAnswer }) {
         {request.items.length > 0 && <ul>{request.items.map((item, index) => <li key={index}>{item}</li>)}</ul>}
         {request.note && <p className="confirm-note">{request.note}</p>}
       </div>
+      {request.remember && <label className="confirm-remember"><input type="checkbox" checked={remembered} onChange={(event) => setRemembered(event.target.checked)} /><span>{request.remember}</span></label>}
       <div className="confirm-buttons">
         <button type="button" ref={cancelRef} className="confirm-cancel" onClick={() => onAnswer(false)}>{request.cancelLabel}</button>
-        <button type="button" ref={confirmRef} className="confirm-ok" onClick={() => onAnswer(true)}>{request.confirmLabel}</button>
+        <button type="button" ref={confirmRef} className="confirm-ok" onClick={yes}>{request.confirmLabel}</button>
       </div>
     </div>
   </div>;
