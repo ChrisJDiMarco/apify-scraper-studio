@@ -71,6 +71,33 @@ function download(text, name) {
   return true;
 }
 
+// Scheduled research on the calendar: for each week shown, the programs with a schedule turned on that run in it. The
+// next run is exact (schedule.nextRunAt); later weeks are worked out from how often it runs, and a monthly program
+// shows in the week holding its day. { [weekKey]: [{ key, name, when }] }
+export function researchByWeek(programs, weeks) {
+  const out = {};
+  for (const week of list(weeks)) {
+    const start = dayKey(week); const end = dayKey(addDays(week, 6)); const rows = [];
+    for (const program of list(programs)) {
+      const schedule = program?.schedule || {};
+      if (!schedule.enabled || !schedule.frequency || schedule.frequency === 'manual') continue;
+      const next = schedule.nextRunAt ? dayKey(new Date(schedule.nextRunAt)) : '';
+      if (next && next > end) continue; // it hasn't started running by this week
+      const time = schedule.time || '';
+      let when = '';
+      if (next && next >= start && next <= end) when = [weekdayDate(next), time].filter(Boolean).join(' · ');
+      else if (!next || next < start) {
+        if (schedule.frequency === 'daily') when = ['Every day', time].filter(Boolean).join(' · ');
+        else if (schedule.frequency === 'weekly') when = [weekdayDate(dayKey(addDays(week, ((Number(schedule.weekday) || 0) + 6) % 7))), time].filter(Boolean).join(' · ');
+        else if (schedule.frequency === 'monthly') { const day = Array.from({ length: 7 }, (_, index) => addDays(week, index)).find((date) => date.getDate() === (Number(schedule.dayOfMonth) || 1)); if (day) when = [weekdayDate(dayKey(day)), time].filter(Boolean).join(' · '); }
+      }
+      if (when) rows.push({ key: `${program.id}:${start}`, name: program.name || 'Research program', when });
+    }
+    out[start] = rows;
+  }
+  return out;
+}
+
 export function CalendarView({ state = {}, viewer: viewerIn, api = {}, mode = 'team' }) {
   const contextViewer = useViewer(); const viewer = viewerIn || contextViewer;
   const narrow = useNarrow();
@@ -88,8 +115,14 @@ export function CalendarView({ state = {}, viewer: viewerIn, api = {}, mode = 't
   const undated = entries.filter((entry) => !entry.plannedFor);
   const view = state.contentStudio?.channelView;
   const workspace = (state.contentStudio?.workspaces || []).find((row) => row.id === state.contentStudio?.activeWorkspaceId);
+  // The team's grid always shows every channel, planned or not: an empty row is somewhere to plan into.
+  const teamChannels = channelMode ? [] : routingChannels(workspace?.editionId || 'general').map((channel) => ({ id: channel.id, name: channel.name }));
   const rows = channelMode ? [{ id: view?.channel?.id || '', name: view?.channel?.name || 'Your channel' }]
-    : [...new Map(inRange.map((entry) => [entry.channelId, { id: entry.channelId, name: entry.channel }])).values()].sort((a, b) => a.name.localeCompare(b.name));
+    : [...new Map([...teamChannels, ...inRange.map((entry) => ({ id: entry.channelId, name: entry.channel }))].map((row) => [row.id, row])).values()];
+  const grid = !narrow && !channelMode;
+  const mine = (row) => !workspace || !row?.workspaceId || row.workspaceId === workspace.id;
+  const research = useMemo(() => (grid ? researchByWeek(list(state.contentStudio?.programs).filter(mine), weeks) : {}), [state.contentStudio?.programs, grid, offset, workspace?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hasResearch = Object.values(research).some((cell) => cell.length);
   const inWeek = (entry, week) => entry.plannedFor >= dayKey(week) && entry.plannedFor <= dayKey(addDays(week, 6));
   const flash = (text) => { setNote(text); setTimeout(() => setNote((current) => (current === text ? '' : current)), 2600); };
   async function copyWeek(week) {
@@ -127,16 +160,18 @@ export function CalendarView({ state = {}, viewer: viewerIn, api = {}, mode = 't
     </div>
     <p className="cal-note" role="status">{note}</p>
     {problem && <p className="studio-error" role="alert">{problem}</p>}
-    {!entries.length && <div className="studio-empty big"><CalendarDays size={28} aria-hidden="true" /><p>Nothing planned yet. When {channelMode ? 'you say' : 'a channel says'} it’s using a trend, add a date and it shows up here.</p></div>}
-    {entries.length > 0 && !inRange.length && <div className="studio-empty"><p>Nothing planned these weeks. When {channelMode ? 'you say' : 'a channel says'} it’s using a trend, add a date and it shows up here.</p>{offset !== 0 && <button type="button" className="studio-quiet small" onClick={() => setOffset(0)}>Back to this week</button>}</div>}
-    {inRange.length > 0 && (narrow || channelMode
+    {grid && !inRange.length && <p className="studio-hint cal-hint">{entries.length ? 'Nothing is planned these weeks.' : 'Nothing is planned yet.'} A channel’s plan appears in its row when its owner says it’s using a trend and adds a date.</p>}
+    {!grid && !entries.length && <div className="studio-empty big"><CalendarDays size={28} aria-hidden="true" /><p>Nothing planned yet. When {channelMode ? 'you say' : 'a channel says'} it’s using a trend, add a date and it shows up here.</p></div>}
+    {!grid && entries.length > 0 && !inRange.length && <div className="studio-empty"><p>Nothing planned these weeks. When {channelMode ? 'you say' : 'a channel says'} it’s using a trend, add a date and it shows up here.</p>{offset !== 0 && <button type="button" className="studio-quiet small" onClick={() => setOffset(0)}>Back to this week</button>}</div>}
+    {(grid || inRange.length > 0) && (!grid
       ? <div className="cal-weeks">{weeks.map((week) => { const rowsIn = inRange.filter((entry) => inWeek(entry, week)); return <section key={dayKey(week)} className="cal-week" aria-label={`Week of ${short(week)}`}>
         <header><h2>Week of {short(week)}</h2><button type="button" className="studio-link" aria-label={`Copy the week of ${short(week)} as a table`} onClick={() => copyWeek(week)}><ClipboardCopy size={13} aria-hidden="true" />Copy</button></header>
         {rowsIn.length ? <ul className="cal-entries">{rowsIn.sort((a, b) => a.plannedFor.localeCompare(b.plannedFor)).map((entry) => <React.Fragment key={entry.key}>{!channelMode && <li className="cal-channel-label">{entry.short}</li>}{entryCard(entry)}</React.Fragment>)}</ul> : <p className="cal-empty">Nothing planned.</p>}
       </section>; })}</div>
       : <div className="cal-grid-scroll" role="region" aria-label={`${title}, weeks by channel`} tabIndex={0}><table className="cal-grid">
         <thead><tr><th scope="col">Channel</th>{weeks.map((week) => <th key={dayKey(week)} scope="col"><span>Week of {short(week)}</span><button type="button" className="studio-icon-button cal-copy" aria-label={`Copy the week of ${short(week)} as a table`} onClick={() => copyWeek(week)}><ClipboardCopy size={13} aria-hidden="true" /></button></th>)}</tr></thead>
-        <tbody>{rows.map((row) => <tr key={row.id}><th scope="row">{row.name}</th>{weeks.map((week) => { const cell = inRange.filter((entry) => entry.channelId === row.id && inWeek(entry, week)).sort((a, b) => a.plannedFor.localeCompare(b.plannedFor)); return <td key={dayKey(week)}>{cell.length ? <ul className="cal-entries">{cell.map(entryCard)}</ul> : <span className="sr-only">Nothing planned</span>}</td>; })}</tr>)}</tbody>
+        <tbody>{hasResearch && <tr className="cal-research-row"><th scope="row">Research runs</th>{weeks.map((week) => <td key={dayKey(week)}>{list(research[dayKey(week)]).length ? <ul className="cal-entries">{research[dayKey(week)].map((run) => <li key={run.key} className="cal-entry is-research"><strong>{run.name}</strong><small>{run.when}</small></li>)}</ul> : <span className="sr-only">No scheduled run</span>}</td>)}</tr>}
+          {rows.map((row) => <tr key={row.id}><th scope="row">{row.name}</th>{weeks.map((week) => { const cell = inRange.filter((entry) => entry.channelId === row.id && inWeek(entry, week)).sort((a, b) => a.plannedFor.localeCompare(b.plannedFor)); return <td key={dayKey(week)}>{cell.length ? <ul className="cal-entries">{cell.map(entryCard)}</ul> : <span className="sr-only">Nothing planned</span>}</td>; })}</tr>)}</tbody>
       </table></div>)}
     {undated.length > 0 && <section className="cal-undated" aria-labelledby="cal-undated-title">
       <h2 id="cal-undated-title">Using, no date yet <span className="studio-count">{undated.length}</span></h2>

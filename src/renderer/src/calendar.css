@@ -42,3 +42,6 @@
 .cal-plan input { min-height: 36px; padding: 6px 10px; font: inherit; font-size: 13px; color: var(--s-ink, #181e15); background: var(--s-card, #fff); border: 1px solid var(--s-line-strong, #cfd6d0); border-radius: var(--s-radius-control, 12px); }
 .cal-hint { display: inline-flex; align-items: center; gap: 6px; }
 @media (pointer: coarse) { .cal-plan input { min-height: 44px; } }
+/* Scheduled research runs, in their own row above the channels. */
+.cal-entry.is-research { background: var(--s-card, #fff); border: 1px dashed var(--s-line-strong, #cfd6d0); }
+.cal-research-row th { color: var(--s-muted, #62685e); }

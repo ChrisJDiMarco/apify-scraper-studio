@@ -192,3 +192,6 @@ A second reader checked this plan against the code. What changed, all my calls:
   "Recent" is the Inbox's newest five rows with the unread count and Mark all read. Not done: Inbox is still a sidebar
   item and a page (it leaves the sidebar in step 9); "this week's trends" does not use the shared trend card yet.
   The new setup line and Recent block have no tests of their own yet.
+- **Step 8, Calendar: done.** The team's Calendar always draws four weeks with a row for every channel, and a
+  Research runs row when a program has its schedule on. Planning by dragging is not part of this work. The phone
+  layout and a channel owner's My plan are unchanged.
