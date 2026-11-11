@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, ClipboardCopy, Download, ExternalLink, LoaderCircle } from 'lucide-react';
+import { ArrowRight, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, ClipboardCopy, Download, ExternalLink, LoaderCircle } from 'lucide-react';
 import { copyText, useNarrow } from './role-screens.jsx';
 import { useViewer, writeProps } from './viewer.js';
 import { routingChannels } from './trend-decision-sheet.jsx';
@@ -98,7 +98,18 @@ export function researchByWeek(programs, weeks) {
   return out;
 }
 
-export function CalendarView({ state = {}, viewer: viewerIn, api = {}, mode = 'team' }) {
+// "Nov 9 – 15", or "Nov 30 – Dec 6" across a month end.
+export function weekRange(week) {
+  const end = addDays(week, 6);
+  return week.getMonth() === end.getMonth() ? `${short(week)} – ${end.getDate()}` : `${short(week)} – ${short(end)}`;
+}
+// How far a week is from this one, in words: "This week", "Next week", "In 3 weeks", "Last week", "2 weeks ago".
+export function weekDistance(week, now = new Date()) {
+  const weeks = Math.round((week.getTime() - mondayOf(now).getTime()) / (7 * 86400000));
+  return weeks === 0 ? 'This week' : weeks === 1 ? 'Next week' : weeks === -1 ? 'Last week' : weeks > 0 ? `In ${weeks} weeks` : `${-weeks} weeks ago`;
+}
+
+export function CalendarView({ state = {}, viewer: viewerIn, api = {}, mode = 'team', onOpenTarget }) {
   const contextViewer = useViewer(); const viewer = viewerIn || contextViewer;
   const narrow = useNarrow();
   const [offset, setOffset] = useState(0);
@@ -152,15 +163,23 @@ export function CalendarView({ state = {}, viewer: viewerIn, api = {}, mode = 't
   </li>;
   const title = channelMode ? 'My plan' : 'Calendar';
   return <div className="studio-screen studio-page cal-page" data-mode={mode}>
-    <div className="studio-page-head"><div><h1>{title}</h1><p>{channelMode ? `When ${view?.channel?.name || 'your channel'} runs the trends it’s using.` : 'When each channel plans to run the trends it’s using.'} Dates come from “Planned for” after “Yes, I’m using this trend”.</p></div>
+    <div className="studio-page-head"><div><h1>{title}</h1><p>{channelMode ? `When ${view?.channel?.name || 'your channel'} runs the trends it’s using.` : 'When each channel plans to run the trends it’s using.'}{!grid && ' Dates come from “Planned for” after “Yes, I’m using this trend”.'}</p></div>
       <div className="studio-head-actions"><button type="button" className="studio-quiet" onClick={() => copyWeek(first)}><ClipboardCopy size={15} aria-hidden="true" />Copy week as a table</button><button type="button" className="studio-quiet" onClick={downloadIcs}><Download size={15} aria-hidden="true" />Download .ics</button></div></div>
     <div className="cal-toolbar">
-      <div className="cal-nav" role="group" aria-label="Weeks"><button type="button" className="studio-icon-button" aria-label="Earlier weeks" onClick={() => setOffset((value) => value - 1)}><ChevronLeft size={17} aria-hidden="true" /></button><button type="button" className="studio-quiet small" disabled={offset === 0} onClick={() => setOffset(0)}>This week</button><button type="button" className="studio-icon-button" aria-label="Later weeks" onClick={() => setOffset((value) => value + 1)}><ChevronRight size={17} aria-hidden="true" /></button></div>
-      <p className="cal-range">{short(first)} – {short(addDays(weeks.at(-1), 6))}</p>
+      <div className="cal-nav" role="group" aria-label="Weeks">
+        <button type="button" className="studio-icon-button" aria-label="Earlier weeks" onClick={() => setOffset((value) => value - 1)}><ChevronLeft size={17} aria-hidden="true" /></button>
+        <p className="cal-range" aria-live="polite">{short(first)} – {short(addDays(weeks.at(-1), 6))}</p>
+        <button type="button" className="studio-icon-button" aria-label="Later weeks" onClick={() => setOffset((value) => value + 1)}><ChevronRight size={17} aria-hidden="true" /></button>
+        {offset !== 0 && <button type="button" className="studio-quiet small" onClick={() => setOffset(0)}>Back to this week</button>}
+      </div>
+      {grid && <p className="cal-summary">{inRange.length ? `${inRange.length} planned` : 'Nothing planned'} · {rows.length} {rows.length === 1 ? 'channel' : 'channels'}{undated.length > 0 && ` · ${undated.length} without a date`}</p>}
     </div>
     <p className="cal-note" role="status">{note}</p>
     {problem && <p className="studio-error" role="alert">{problem}</p>}
-    {grid && !inRange.length && <p className="studio-hint cal-hint">{entries.length ? 'Nothing is planned these weeks.' : 'Nothing is planned yet.'} A channel’s plan appears in its row when its owner says it’s using a trend and adds a date.</p>}
+    {grid && !inRange.length && <div className="cal-callout" role="note"><span className="cal-callout-icon" aria-hidden="true"><CalendarDays size={18} /></span>
+      <div><strong>{entries.length ? 'Nothing is planned in these weeks' : 'Nothing is planned yet'}</strong><p>A channel’s plan appears in its row when its owner answers “Yes, I’m using this trend” and adds a “Planned for” date.</p></div>
+      {offset !== 0 && entries.length > 0 ? <button type="button" className="studio-quiet small" onClick={() => setOffset(0)}>Back to this week</button>
+        : onOpenTarget && <button type="button" className="studio-quiet small" onClick={() => onOpenTarget({ kind: 'page', page: 'trends' })}>Go to Trends<ArrowRight size={14} aria-hidden="true" /></button>}</div>}
     {!grid && !entries.length && <div className="studio-empty big"><CalendarDays size={28} aria-hidden="true" /><p>Nothing planned yet. When {channelMode ? 'you say' : 'a channel says'} it’s using a trend, add a date and it shows up here.</p></div>}
     {!grid && entries.length > 0 && !inRange.length && <div className="studio-empty"><p>Nothing planned these weeks. When {channelMode ? 'you say' : 'a channel says'} it’s using a trend, add a date and it shows up here.</p>{offset !== 0 && <button type="button" className="studio-quiet small" onClick={() => setOffset(0)}>Back to this week</button>}</div>}
     {(grid || inRange.length > 0) && (!grid
@@ -169,9 +188,11 @@ export function CalendarView({ state = {}, viewer: viewerIn, api = {}, mode = 't
         {rowsIn.length ? <ul className="cal-entries">{rowsIn.sort((a, b) => a.plannedFor.localeCompare(b.plannedFor)).map((entry) => <React.Fragment key={entry.key}>{!channelMode && <li className="cal-channel-label">{entry.short}</li>}{entryCard(entry)}</React.Fragment>)}</ul> : <p className="cal-empty">Nothing planned.</p>}
       </section>; })}</div>
       : <div className="cal-grid-scroll" role="region" aria-label={`${title}, weeks by channel`} tabIndex={0}><table className="cal-grid">
-        <thead><tr><th scope="col">Channel</th>{weeks.map((week) => <th key={dayKey(week)} scope="col"><span>Week of {short(week)}</span><button type="button" className="studio-icon-button cal-copy" aria-label={`Copy the week of ${short(week)} as a table`} onClick={() => copyWeek(week)}><ClipboardCopy size={13} aria-hidden="true" /></button></th>)}</tr></thead>
-        <tbody>{hasResearch && <tr className="cal-research-row"><th scope="row">Research runs</th>{weeks.map((week) => <td key={dayKey(week)}>{list(research[dayKey(week)]).length ? <ul className="cal-entries">{research[dayKey(week)].map((run) => <li key={run.key} className="cal-entry is-research"><strong>{run.name}</strong><small>{run.when}</small></li>)}</ul> : <span className="sr-only">No scheduled run</span>}</td>)}</tr>}
-          {rows.map((row) => <tr key={row.id}><th scope="row">{row.name}</th>{weeks.map((week) => { const cell = inRange.filter((entry) => entry.channelId === row.id && inWeek(entry, week)).sort((a, b) => a.plannedFor.localeCompare(b.plannedFor)); return <td key={dayKey(week)}>{cell.length ? <ul className="cal-entries">{cell.map(entryCard)}</ul> : <span className="sr-only">Nothing planned</span>}</td>; })}</tr>)}</tbody>
+        <thead><tr><th scope="col">Channel</th>{weeks.map((week) => { const now = dayKey(week) === dayKey(mondayOf()); return <th key={dayKey(week)} scope="col" className={now ? 'is-now' : undefined} aria-label={`Week of ${short(week)}${now ? ', this week' : ''}`}>
+          <span className="cal-week-head"><span><strong>{weekRange(week)}</strong><small>{weekDistance(week)}</small></span>
+            <button type="button" className="studio-icon-button cal-copy" title="Copy this week as a table" aria-label={`Copy the week of ${short(week)} as a table`} onClick={() => copyWeek(week)}><ClipboardCopy size={13} aria-hidden="true" /></button></span></th>; })}</tr></thead>
+        <tbody>{hasResearch && <tr className="cal-research-row"><th scope="row">Research runs</th>{weeks.map((week) => <td key={dayKey(week)} className={dayKey(week) === dayKey(mondayOf()) ? 'is-now' : undefined}>{list(research[dayKey(week)]).length ? <ul className="cal-entries">{research[dayKey(week)].map((run) => <li key={run.key} className="cal-entry is-research"><strong>{run.name}</strong><small>{run.when}</small></li>)}</ul> : <span className="sr-only">No scheduled run</span>}</td>)}</tr>}
+          {rows.map((row) => <tr key={row.id}><th scope="row">{row.name}</th>{weeks.map((week) => { const cell = inRange.filter((entry) => entry.channelId === row.id && inWeek(entry, week)).sort((a, b) => a.plannedFor.localeCompare(b.plannedFor)); return <td key={dayKey(week)} className={dayKey(week) === dayKey(mondayOf()) ? 'is-now' : undefined}>{cell.length ? <ul className="cal-entries">{cell.map(entryCard)}</ul> : <span className="sr-only">Nothing planned</span>}</td>; })}</tr>)}</tbody>
       </table></div>)}
     {undated.length > 0 && <section className="cal-undated" aria-labelledby="cal-undated-title">
       <h2 id="cal-undated-title">Using, no date yet <span className="studio-count">{undated.length}</span></h2>

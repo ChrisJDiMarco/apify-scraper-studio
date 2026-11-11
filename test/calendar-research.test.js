@@ -25,3 +25,15 @@ describe('researchByWeek', () => {
     expect(weeks.every((week) => out[key(week)].length === 0)).toBe(true);
   });
 });
+
+describe('week labels', async () => {
+  const { weekDistance, weekRange } = await import('../src/renderer/src/calendar-view.jsx');
+  it('names a week by its dates, across a month end too', () => {
+    expect(weekRange(new Date(2026, 10, 9))).toBe('Nov 9 – 15');
+    expect(weekRange(new Date(2026, 10, 30))).toBe('Nov 30 – Dec 6');
+  });
+  it('says how far a week is from this one', () => {
+    const now = new Date(2026, 10, 11);
+    expect([0, 7, 14, -7, -21].map((days) => weekDistance(new Date(2026, 10, 9 + days), now))).toEqual(['This week', 'Next week', 'In 2 weeks', 'Last week', '3 weeks ago']);
+  });
+});

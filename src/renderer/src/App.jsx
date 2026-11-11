@@ -1296,7 +1296,7 @@ function StudioApp({ api }) {
   // Prompts. Their links go through openTarget and openPrompt (read through refs: the Advanced page is memoized).
   function renderSharedPage(id) {
     if (id === 'inbox') return <InboxView state={state} viewer={viewer} api={api} onOpenTarget={(target) => openTargetRef.current(target)} onMarkRead={() => setInboxSeen((value) => value + 1)} />;
-    if (id === 'calendar') return <CalendarView state={state} viewer={viewer} api={api} mode="team" />;
+    if (id === 'calendar') return <CalendarView state={state} viewer={viewer} api={api} mode="team" onOpenTarget={(target) => openTargetRef.current(target)} />;
     if (id === 'plan') return <ChannelPlan state={state} api={api} viewer={viewer} />;
     if (id === 'prompts' && typeof api.listPrompts === 'function') return <PromptLibrary api={api} state={state} viewer={viewer} can={can} request={promptRequest} onAsk={askAllowed ? (text, context) => openAskAiRef.current(text, { context }) : undefined} onNotice={setNotice} linkOrigin={linkOrigin} />;
     return <PagePlaceholder id={id} />;
