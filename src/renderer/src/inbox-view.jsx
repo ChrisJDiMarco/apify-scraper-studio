@@ -83,3 +83,33 @@ export function InboxView({ state = {}, viewer: viewerIn, api = {}, onOpenTarget
       </li>; })}</ul>}
   </div>;
 }
+
+// Home's "Recent": the newest Inbox rows on the page, so what changed is one glance away, with the same unread dot,
+// Mark all read, and a way to the whole Inbox (the older ones, and its filters).
+export function InboxRecent({ state = {}, viewer: viewerIn, api = {}, limit = 5, onOpenTarget, onOpenInbox, onMarkRead }) {
+  const contextViewer = useViewer(); const viewer = viewerIn || contextViewer;
+  const [seenLocal, setSeenLocal] = useState(readLocal);
+  const [saving, setSaving] = useState(false);
+  const seenAt = later(viewer.prefs?.inboxSeenAt, seenLocal);
+  const { items, unread } = useMemo(() => buildInbox({ state, viewer, seenAt }), [state.contentStudio, state.activity, viewer, seenAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!items.length) return null;
+  async function markAllRead() {
+    if (saving || viewer.preview) return;
+    const now = new Date().toISOString();
+    setSaving(true); setSeenLocal(now);
+    try { await markInboxRead(api, now); } catch { /* this browser's copy still counts */ }
+    finally { setSaving(false); onMarkRead?.(now); }
+  }
+  return <section className="wb-card wb-recent" aria-labelledby="wb-recent-title" data-spot="home.recent">
+    <header className="wb-card-head"><span className="wb-icon tone-ink" aria-hidden="true"><Bell size={17} /></span><h2 id="wb-recent-title"><span className="wb-title-text">Recent</span>{unread > 0 && <> <span className="wb-count">{unread} new</span></>}</h2>
+      {unread > 0 && <button type="button" className="wb-link" {...writeProps(viewer, saving)} onClick={markAllRead}>Mark all read</button>}</header>
+    <ul className="ib-list is-compact" aria-label="Recent">{items.slice(0, limit).map((item) => { const Icon = ICONS[item.kind] || TARGET_ICONS[item.target?.kind] || Bell; return <li key={item.id}>
+      <button type="button" className={`ib-row${item.unread ? ' is-unread' : ''} kind-${item.kind}`} onClick={() => onOpenTarget?.(item.target)}>
+        <span className="ib-icon" aria-hidden="true"><Icon size={16} /></span>
+        <span className="ib-copy"><strong>{item.title}</strong>{item.detail && <small>{item.detail}</small>}</span>
+        <span className="ib-meta"><time dateTime={item.at}>{whenLabel(item.at)}</time>{item.unread && <span className="ib-dot"><span className="sr-only">Unread</span></span>}</span>
+      </button>
+    </li>; })}</ul>
+    {onOpenInbox && items.length > limit && <button type="button" className="wb-link" onClick={onOpenInbox}>See all {items.length}<ArrowRight size={13} aria-hidden="true" /></button>}
+  </section>;
+}

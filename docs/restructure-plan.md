@@ -187,3 +187,8 @@ A second reader checked this plan against the code. What changed, all my calls:
   a line saying how many are empty or ownerless; a row opens the channel. Not done: a channel's own prompts and
   adoption numbers on its page, and `#/setup/…` addresses (the existing `#/studio/…` ones were kept instead).
   The sidebar still lists the six pages separately until step 9.
+- **Step 6, Home: done.** Order is now: Ask bar, setup (one line once two steps are done, with the next step and
+  Show all), Next up, the cards (trends needing an OK, latest briefs, Recent, programs), then the week's numbers.
+  "Recent" is the Inbox's newest five rows with the unread count and Mark all read. Not done: Inbox is still a sidebar
+  item and a page (it leaves the sidebar in step 9); "this week's trends" does not use the shared trend card yet.
+  The new setup line and Recent block have no tests of their own yet.

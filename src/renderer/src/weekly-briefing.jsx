@@ -9,6 +9,7 @@ import { buildTrendBoard } from '../../shared/trend-board.js';
 import { linkFor } from './deep-links.js';
 import { nextSteps, setupChecklist } from './next-steps.js';
 import { ProgramsPanel } from './home-programs.jsx';
+import { InboxRecent } from './inbox-view.jsx';
 import { AutomationsCard } from './workflows-view.jsx';
 import { defaultProgram, lastProgramId, readChoice, rememberProgram, saveChoice } from './choices.js';
 import './weekly-briefing.css';
@@ -118,7 +119,7 @@ export function briefingMarkdown(data, { changes = null, origin = '' } = {}) {
   return parts.length > 1 ? [...parts, studio].filter(Boolean).join('\n\n') : [`${title}\n\nQuiet week so far. New trends show up here after the next research run.`, studio].filter(Boolean).join('\n\n');
 }
 
-export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout = 'simple', busy = false, board = null, now = null, onOpenTarget, onDecide, onDecideWithNote, onAsk, onOpenTracker, onStartResearch, linkOrigin = '', postsApi = null, onWriteReports, onRetryRun, onMakeAssets, onCreate, web: webIn, onNotice, onOpenProgramPage }) {
+export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout = 'simple', busy = false, board = null, now = null, onInboxRead, onOpenTarget, onDecide, onDecideWithNote, onAsk, onOpenTracker, onStartResearch, linkOrigin = '', postsApi = null, onWriteReports, onRetryRun, onMakeAssets, onCreate, web: webIn, onNotice, onOpenProgramPage }) {
   const contextViewer = useViewer(); const viewer = viewerIn || contextViewer;
   const can = (method) => canCall(viewer, method); const canRun = (method) => canRunCall(viewer, method);
   const data = useMemo(() => briefingData({ state, viewer, now: now || new Date(), board }), [state.contentStudio, viewer, board, now]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -176,6 +177,10 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
     Promise.resolve().then(() => api.getTeam()).then((result) => { if (live) setTeam(result || null); }, () => {});
     return () => { live = false; };
   }, [showSetup, web]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Once setup is under way the checklist is one line (what's done and what's next); Show all opens the whole list.
+  const [setupOpen, setSetupOpen] = useState(false);
+  const setupNext = setup.items.find((item) => !item.done && !item.optional) || setup.items.find((item) => !item.done) || null;
+  const setupLine = showSetup && setup.done >= 2 && !setupOpen;
   const hideSetup = () => { setSetupHidden(true); saveChoice(viewer, 'setup.hidden', '1'); };
   const decide = (card, decision) => {
     setProblem('');
@@ -230,24 +235,16 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
       <button type="submit" aria-label="Ask" {...writeProps(viewer, !draft.trim())}><ArrowUp size={17} aria-hidden="true" /></button>
     </form>}
 
-    {showSetup && <section className="wb-card wb-setup-card" aria-labelledby="wb-setup-title" data-spot="home.setup">
-      <header className="wb-card-head"><span className="wb-icon tone-purple" aria-hidden="true"><ListChecks size={17} /></span><h2 id="wb-setup-title"><span className="wb-title-text">Get the studio ready</span> <span className="wb-count">{number(setup.done)} of {number(setup.total)}</span></h2><button type="button" className="wb-link" onClick={hideSetup}>Hide</button></header>
+    {setupLine && <div className="wb-setup-line" data-spot="home.setup"><ListChecks size={15} aria-hidden="true" /><span><strong>Setup: {number(setup.done)} of {number(setup.total)} done</strong>{setupNext && <> · Next: {setupNext.label}</>}</span>
+      {setupNext && (setupNext.action.kind === 'create' ? Boolean(onCreate) : Boolean(onOpenTarget)) && <button type="button" className="wb-link" onClick={() => (setupNext.action.kind === 'create' ? onCreate(setupNext.action.create) : open(setupNext.action.target))}>{setupNext.action.label}</button>}
+      <button type="button" className="wb-link" aria-expanded="false" onClick={() => setSetupOpen(true)}>Show all</button></div>}
+    {showSetup && !setupLine && <section className="wb-card wb-setup-card" aria-labelledby="wb-setup-title" data-spot="home.setup">
+      <header className="wb-card-head"><span className="wb-icon tone-purple" aria-hidden="true"><ListChecks size={17} /></span><h2 id="wb-setup-title"><span className="wb-title-text">Get the studio ready</span> <span className="wb-count">{number(setup.done)} of {number(setup.total)}</span></h2><span className="wb-setup-head-actions">{setup.done >= 2 && <button type="button" className="wb-link" onClick={() => setSetupOpen(false)}>Show less</button>}<button type="button" className="wb-link" onClick={hideSetup}>Hide</button></span></header>
       <span className="wb-progress" role="progressbar" aria-label="Setup done" aria-valuemin={0} aria-valuemax={setup.total} aria-valuenow={setup.done}><span style={{ width: `${Math.max(4, Math.round((setup.done / Math.max(1, setup.total)) * 100))}%` }} /></span>
       <ul className="wb-setup-list">{setup.items.map((item) => { const doable = item.action.kind === 'create' ? Boolean(onCreate) : Boolean(onOpenTarget); return <li key={item.id} className={item.done ? 'is-done' : ''}>
         <span className="wb-setup-mark" aria-hidden="true">{item.done ? <Check size={13} /> : null}</span>
         <span className="wb-setup-copy"><strong>{item.label}{item.optional && !item.done ? <em> (optional)</em> : null}</strong><small>{item.done ? 'Done.' : item.detail}</small><span className="sr-only">{item.done ? ', done' : ', to do'}</span></span>
         {!item.done && doable && <button type="button" className="wb-quiet" onClick={() => (item.action.kind === 'create' ? onCreate(item.action.create) : open(item.action.target))}>{item.action.label}</button>}
-      </li>; })}</ul>
-    </section>}
-
-    {!quiet && <section className="wb-glance" aria-label="This week at a glance" data-spot="home.glance">
-      <ul className="wb-glance-list">{tiles.map((tile) => { const Icon = tile.icon; return <li key={tile.id}>
-        <button type="button" className={`wb-tile${tile.hot ? ' is-hot' : ''}`} data-tile={tile.id} onClick={() => open(tile.target)}>
-          <span className="wb-tile-label">{tile.label}</span>
-          <span className={`wb-tile-icon tone-${tile.tone}`} aria-hidden="true"><Icon size={15} /></span>
-          <strong className="wb-tile-value">{tile.value}</strong>
-          <small className="wb-tile-hint">{tile.hint}</small>
-        </button>
       </li>; })}</ul>
     </section>}
 
@@ -304,6 +301,7 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
           </li>)}</ul>
         </section>}
 
+        {onOpenTarget && <InboxRecent state={state} viewer={viewer} api={api} onOpenTarget={onOpenTarget} onOpenInbox={() => open({ kind: 'page', page: 'inbox' })} onMarkRead={onInboxRead} />}
         {historyOn && <div className="wb-changes" data-spot="home.changes"><WhatChanged changes={history === undefined ? undefined : changes} error={historyError} onOpenTrend={openTrend} onOpenTracker={onOpenTracker} onStartResearch={startResearch} limit={3} /></div>}
       </div>
 
@@ -328,6 +326,18 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
         </section>}
       </div>
     </div>
+
+    {/* The week in numbers, after the work it counts. */}
+    {!quiet && <section className="wb-glance" aria-label="This week at a glance" data-spot="home.glance">
+      <ul className="wb-glance-list">{tiles.map((tile) => { const Icon = tile.icon; return <li key={tile.id}>
+        <button type="button" className={`wb-tile${tile.hot ? ' is-hot' : ''}`} data-tile={tile.id} onClick={() => open(tile.target)}>
+          <span className="wb-tile-label">{tile.label}</span>
+          <span className={`wb-tile-icon tone-${tile.tone}`} aria-hidden="true"><Icon size={15} /></span>
+          <strong className="wb-tile-value">{tile.value}</strong>
+          <small className="wb-tile-hint">{tile.hint}</small>
+        </button>
+      </li>; })}</ul>
+    </section>}
   </div>;
 }
 

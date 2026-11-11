@@ -176,3 +176,21 @@
 .wb-research-why { flex: 1 1 100%; font-size: 12.5px; color: var(--s-muted, #62685e); text-align: right; }
 .wb-page .wb-research-why button { padding: 0; font: inherit; color: var(--s-accent-ink, #4b2a8c); background: none; border: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .wb-research { justify-content: flex-end; }
+
+/* Home: the setup checklist as one line, and the Inbox's newest rows. */
+.wb-setup-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 16px; font-size: 14px; color: var(--s-ink, #181e15); background: var(--s-card, #fff); border: 1px solid var(--s-line, #e3e8e4); border-radius: 14px; }
+.wb-setup-line > span { flex: 1 1 260px; min-width: 0; color: var(--s-muted, #62685e); }
+.wb-setup-line strong { color: var(--s-ink, #181e15); }
+.wb-recent { display: grid; gap: 10px; }
+.wb-recent .wb-card-head { margin-bottom: 0; }
+.wb-recent .ib-list.is-compact { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.wb-page .wb-recent button.ib-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; justify-content: stretch; gap: 10px; width: 100%; min-height: 0; padding: 9px 6px; font: inherit; text-align: left; color: var(--s-ink, #181e15); background: none; border: 0; border-radius: 10px; box-shadow: none; cursor: pointer; }
+.wb-page .wb-recent button.ib-row:hover:not(:disabled) { color: var(--s-ink, #181e15); background: var(--s-bg, #f4f6f5); }
+.wb-recent .ib-copy { display: grid; gap: 2px; min-width: 0; }
+.wb-recent .ib-copy strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-recent .ib-row.is-unread .ib-copy strong { font-weight: 700; }
+.wb-recent .ib-copy small { font-size: 12.5px; color: var(--s-muted, #62685e); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-recent .ib-icon { display: inline-flex; color: var(--s-muted, #62685e); }
+.wb-recent .ib-meta { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--s-muted, #62685e); white-space: nowrap; }
+.wb-recent .ib-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--s-accent-strong, #8b4dff); }
+.wb-setup-head-actions { display: inline-flex; gap: 14px; }
