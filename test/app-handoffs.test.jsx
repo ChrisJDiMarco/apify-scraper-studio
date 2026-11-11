@@ -276,7 +276,8 @@ describe('Links and openers land on what they name', () => {
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'Working now' })).getByRole('button', { name: 'Open Local packs shrink' }));
     await h1('Local packs shrink');
     expect(mode()).toBe('simple');
-    expect(screen.getByRole('navigation', { name: 'Folder path' })).toHaveTextContent('Assets');
+    // A trend's folder is the Channel assets tab of the trend's page.
+    expect(await screen.findByRole('tab', { name: /Channel assets/, selected: true })).toBeInTheDocument();
   });
 
   it('Needs your OK on a recurring trend opens its card waiting for an OK, not last run’s report', async () => {

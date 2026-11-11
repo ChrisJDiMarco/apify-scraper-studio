@@ -113,7 +113,8 @@ describe('Advanced hand-offs between studio pages', () => {
     const palette = await screen.findByRole('dialog', { name: 'Command palette' });
     fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'folder' } });
     fireEvent.click(await within(palette).findByRole('button', { name: new RegExp(`Open folder: ${TREND}`) }));
-    expect(await screen.findByRole('navigation', { name: 'Folder path' })).toBeInTheDocument();
+    // A trend's folder is the Channel assets tab of the trend's page.
+    expect(await screen.findByRole('tab', { name: /Channel assets/, selected: true })).toBeInTheDocument();
     sidebar('Trends');
     fireEvent.click((await screen.findAllByRole('button', { name: new RegExp(`^${OTHER}`) }))[0]);
     expect(await screen.findByText('Body text for asset-report-2.')).toBeInTheDocument();

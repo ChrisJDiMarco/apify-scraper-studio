@@ -158,3 +158,19 @@ A second reader checked this plan against the code. What changed, all my calls:
     load on demand with `readTrendPosts`; the channels table loads channel settings in one batch on open.
     Home shows "Needs you" (things to act on) and below it "Recent" (finished runs, edits, answers) with the unread dot.
     "Ask AI about this" on the trend page uses the existing drawer until step 7.
+
+## Progress
+
+- **Step 1, stage module: done.** `next-steps.js` keeps its own cross-trend rules (it ranks work across trends; the
+  stage module describes one trend), so it was not switched over.
+- **Step 2, trend page: done.** Differences from the plan: the page's address always names its tab
+  (`#/trend/<id>/overview`); the bare `#/trend/<id>` share link keeps today's behaviour (the report when there is
+  one, else Trends), because that link's handling of skipped and re-found trends is covered by tests worth keeping.
+  Trends still lists trends in its sections; the stage chips with counts and the single card are not built yet.
+  The embedded reader keeps its full toolbar (Make channel assets appears there and in the header).
+- **Step 3, files: done as "All files"** on Assets (a third choice beside By trend and By research run, remembered per
+  person). A trend's folder anywhere in Assets opens the trend page's Channel assets tab. Not done yet: making All
+  files the default and renaming the sidebar item to Files; both wait for step 9 and 10, when the Ask AI tours that
+  point at Assets folders are reworked.
+- One test, `ask-store › caps messages per conversation`, failed once in a full run and passes alone and on `main`;
+  it looks load-sensitive, not related to this work.

@@ -40,7 +40,8 @@ export function StageChip({ stage }) {
 export function TrendPage({ card, runs = [], stage, tab = 'overview', onTab, onRun, onBack, backLabel = 'Trends', busy = false, viewer = {}, momentum = null, yes = null, onNext, onSkip, why = null, decided = null, uses = [], onCopyLink, api = {}, renderDoc, renderAssets }) {
   const shown = tabBlocked(card, tab) ? 'overview' : tab;
   const report = docOf(card, 'report'); const toolkit = docOf(card, 'toolkit');
-  const next = stage?.next || null;
+  // On the Channel assets tab, a button that opens the Channel assets tab says nothing.
+  const next = stage?.next && !(stage.next.id === 'open-assets' && shown === 'assets') ? stage.next : null;
   const facts = [
     ['Research program', card.programName],
     ['Found', card.discoveredAt ? formatDate(card.discoveredAt) : ''],

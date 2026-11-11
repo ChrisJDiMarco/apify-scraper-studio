@@ -621,3 +621,17 @@
   .trend-overview { grid-template-columns: minmax(0, 1fr); }
   .trend-page-title h1 { font-size: 26px; }
 }
+
+/* Assets › All files: one table of every file. */
+.simple-file-table-wrap { overflow-x: auto; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 18px; }
+.simple-file-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.simple-file-table th, .simple-file-table td { padding: 11px 16px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--s-line); }
+.simple-file-table tbody tr:last-child th, .simple-file-table tbody tr:last-child td { border-bottom: 0; }
+.simple-file-table thead th { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.4px; color: var(--s-muted); white-space: nowrap; }
+.simple-file-table tbody th { font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; min-width: 220px; max-width: 420px; }
+.simple-file-table td { color: var(--s-muted); }
+.simple-file-table tbody tr:hover { background: var(--s-bg); }
+.simple-file-date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.simple-shell .simple-file-open { padding: 0; font: inherit; font-weight: 600; color: var(--s-ink); text-align: left; background: none; border: 0; cursor: pointer; overflow-wrap: anywhere; }
+.simple-shell .simple-file-open.is-quiet { font-weight: 500; color: var(--s-muted); }
+.simple-shell .simple-file-open:hover { text-decoration: underline; text-underline-offset: 3px; }

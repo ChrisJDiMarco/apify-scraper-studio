@@ -39,6 +39,7 @@ const KINDS = [['', 'All types'], ['reports', 'Reports'], ['channel-asset', 'Cha
 const KIND_TYPES = { reports: ['trend-report', 'toolkit', 'scan-report'], 'channel-asset': ['channel-asset'], pictures: ['picture', 'video'], draft: ['draft'] };
 // Files that open in the report reader (everything written that isn't part of a channel-asset set).
 const READ_TYPES = new Set(['trend-report', 'toolkit', 'scan-report', 'draft']);
+const FILE_ROWS = 200; // the All files table shows the newest; search and filters reach the rest
 const NO_FILTERS = Object.freeze({ range: 'all', from: '', to: '', program: '', channel: '', kind: '', group: 'trend' });
 const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 
@@ -61,7 +62,9 @@ function jobLine(job, asset, live = true) {
 // runs every set files under Other sources. `workspace` (optional) gives the editor's brand check its Claims to avoid.
 // The person's own channels (prefs.focusChannels, from My channels) open first in a set and are pre-ticked in Make
 // channel assets.
-export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, themes = [], programs = [], editionId = '', adoptionsByTheme = {}, kitRuns, assets, studioImages, sources, request, onRequestDone, cache, onCache, action, busy, imagesReady, googleReady, askAdmin = 'an admin', onDraft, onAsk, onSettings, onOpenReport, onOpenTrends, onViewChange, workspace = null, promptChanges = [], embedded = null }) {
+export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, themes = [], programs = [], editionId = '', adoptionsByTheme = {}, kitRuns, assets, studioImages, sources, request, onRequestDone, cache, onCache, action, busy, imagesReady, googleReady, askAdmin = 'an admin', onDraft, onAsk, onSettings, onOpenReport, onOpenTrends, onViewChange, workspace = null, promptChanges = [], embedded = null, onOpenTrendPage }) {
+  // `onOpenTrendPage(assetId, runId)`: a trend's folder is the Channel assets tab of that trend's page. When the page
+  // can open it (it returns true), Assets hands the trend over and stays on its own list.
   // `embedded` ({ reportAssetId }): a trend's channel assets inside its page (trend-page.jsx): this opens on that trend's
   // folder and stays there, without the page title, Back, folder path or the documents list (the trend page has those).
   const can = useCan();
@@ -124,6 +127,11 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
     } else setCreating(request);
     onRequestDone?.();
   }, [request?.key]);
+  const handedOver = !embedded && current?.type === 'trend' && typeof onOpenTrendPage === 'function';
+  useEffect(() => {
+    if (!handedOver) return;
+    if (onOpenTrendPage(current.meta.reportAssetId || current.meta.toolkitAssetId || '', runId)) setPlace({ node: '', key: '', reportAssetId: '', runId: '' });
+  }, [handedOver, current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { onViewChange?.(current ? current.title : '', current ? current.id : ''); }, [current?.id]);
   useEffect(() => { document.querySelector('.simple-main')?.scrollTo?.({ top: 0 }); }, [current?.id]);
   const kitFolderOf = useMemo(() => new Map(kitRuns.flatMap((run) => list(run.jobs).map((job) => [`${run.id}:${job.id}`, job.folder]))), [kitRuns]);
@@ -335,7 +343,9 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
   const span = rangeWindow(filters.range, filters);
   const programIds = filters.program && programs.some((row) => row.id === filters.program) ? [filters.program] : [];
   const searching = Boolean(query.trim() || filters.kind || filters.channel);
-  const results = searching ? filterLibrary(library, { query, types: KIND_TYPES[filters.kind] || [], channels: filters.channel ? [filters.channel] : [], programs: programIds, ...span }).items.filter((item) => item.source !== 'legacy') : [];
+  // "All files": every file in one table, whatever trend or run it came from, narrowed by the same search and filters.
+  const filesView = filters.group === 'files';
+  const results = searching || filesView ? filterLibrary(library, { query, types: KIND_TYPES[filters.kind] || [], channels: filters.channel ? [filters.channel] : [], programs: programIds, ...span }).items.filter((item) => item.source !== 'legacy') : [];
   const trends = trendFolders(library, { ...span, programs: programIds });
   const scans = scanFolders(library, { ...span, programs: programIds });
   const inWindow = (value) => { const at = Date.parse(value || ''); return (!span.from || at >= new Date(`${span.from}T00:00:00`).getTime()) && (!span.to || at <= new Date(`${span.to}T23:59:59.999`).getTime()); };
@@ -343,7 +353,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
   const narrowed = filters.range !== 'all' || programIds.length > 0;
   const outside = ['other-sources', 'loose-drafts', 'other-files'].filter((id) => library.nodes[id]);
   const pictures = shown.filter((item) => !narrowed || inWindow(item.createdAt));
-  const clear = () => { setQuery(''); setFilters(NO_FILTERS); };
+  const clear = () => { setQuery(''); setFilters({ ...NO_FILTERS, group: filters.group }); };
   const channelChoices = libraryChannels(editionId || 'general');
   const toolbar = <div className="simple-asset-tools" data-spot="assets.filters">
     <label className="simple-search" data-spot="assets.search"><Search size={16} aria-hidden="true" /><input aria-label="Search assets" placeholder="Search reports, assets and pictures" value={query} onChange={(event) => setQuery(event.target.value)} />{query && <button type="button" aria-label="Clear search" onClick={() => setQuery('')}><X size={14} /></button>}</label>
@@ -352,7 +362,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
     {programs.length > 1 && <select aria-label="Research program" value={programIds[0] || ''} onChange={(event) => setFilters({ program: event.target.value })}><option value="">All programs</option>{programs.map((row) => <option key={row.id} value={row.id}>{row.name || 'Untitled program'}</option>)}</select>}
     <select aria-label="Channel" value={filters.channel} onChange={(event) => setFilters({ channel: event.target.value })}><option value="">All channels</option>{channelChoices.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
     <select aria-label="Type" value={filters.kind} onChange={(event) => setFilters({ kind: event.target.value })}>{KINDS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-    {!searching && <div className="simple-segment" role="group" aria-label="Group folders by">{[['trend', 'By trend'], ['run', 'By research run']].map(([value, label]) => <button type="button" key={value} aria-pressed={filters.group === value} onClick={() => setFilters({ group: value })}>{label}</button>)}</div>}
+    {(!searching || filesView) && <div className="simple-segment" role="group" aria-label="Group folders by">{[['trend', 'By trend'], ['run', 'By research run'], ['files', 'All files']].map(([value, label]) => <button type="button" key={value} aria-pressed={filters.group === value} onClick={() => setFilters({ group: value })}>{label}</button>)}</div>}
     {(searching || narrowed) && <button type="button" className="simple-link" onClick={clear}>Clear filters</button>}
   </div>;
   return <>
@@ -363,7 +373,22 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
       {toolbar}
       {pending.length > 0 && <p className="simple-pending" role="status">{pending.some((run) => ACTIVE.has(run.status)) ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Radar size={15} aria-hidden="true" />}<span>{plural(pending.length, 'research run')} in progress or waiting for review. {pending.length === 1 ? 'Its trends appear' : 'Their trends appear'} once reports are written.</span>{onOpenTrends && <button type="button" className="simple-link" onClick={onOpenTrends}>Go to Trends<ArrowRight size={14} aria-hidden="true" /></button>}</p>}
 
-      {searching ? <section className="simple-section" aria-labelledby="simple-asset-results" data-spot="assets.results">
+      {filesView ? <section className="simple-section" aria-labelledby="simple-asset-files" data-spot="assets.files">
+        <div className="simple-section-head"><h2 id="simple-asset-files">{results.length ? plural(results.length, 'file') : 'No files'}</h2>{results.length > FILE_ROWS && <small className="simple-section-note">Showing the newest {number(FILE_ROWS)}. Search or filter to find older ones.</small>}</div>
+        {results.length ? <div className="simple-file-table-wrap"><table className="simple-file-table">
+          <thead><tr><th scope="col">File</th><th scope="col">Type</th><th scope="col">Channel</th><th scope="col">Status</th><th scope="col">Trend</th><th scope="col">Made</th></tr></thead>
+          <tbody>{[...results].sort(newest).slice(0, FILE_ROWS).map((item) => { const trend = library.nodes[item.trendNodeId]; const live = assets.find((asset) => asset.id === item.id) || item.asset; return <tr key={item.key}>
+            <th scope="row"><button type="button" className="simple-file-open" onClick={() => openItem(item)}>{cleanTitle(item.title) || 'Untitled'}</button></th>
+            <td>{TYPE_LABEL[item.type] || item.label || ''}</td>
+            <td>{item.channelName || ''}</td>
+            <td>{live && item.source === 'studio' && item.kind !== 'image' && item.kind !== 'video' ? <span className={`studio-status status-${statusOf(live)}`}><span className="studio-status-dot" aria-hidden="true" />{statusLabel(statusOf(live))}</span> : ''}</td>
+            <td>{trend ? <button type="button" className="simple-file-open is-quiet" onClick={() => go({ node: trend.id })}>{trend.title}</button> : ''}</td>
+            <td className="simple-file-date">{item.createdAt ? formatDate(item.createdAt) : ''}</td>
+          </tr>; })}</tbody>
+        </table></div>
+          : <div className="simple-empty"><p>{searching || narrowed ? `Nothing matches${query.trim() ? ` “${query.trim()}”` : ''} with these filters.` : 'No files yet. A trend’s reports and channel assets are listed here as they’re made.'}</p>{(searching || narrowed) && <button type="button" className="simple-quiet" onClick={clear}>Clear filters</button>}</div>}
+      </section>
+        : searching ? <section className="simple-section" aria-labelledby="simple-asset-results" data-spot="assets.results">
         <div className="simple-section-head"><h2 id="simple-asset-results">{results.length ? `${number(results.length)} ${results.length === 1 ? 'match' : 'matches'}` : 'No matches'}</h2></div>
         {results.length ? byPeriod(results, (item) => item.createdAt).map((group) => <div className="simple-group-bucket" key={group.label}><h3 className="simple-group-sublabel">{group.label}</h3>{fileList(group.rows)}</div>)
           : <div className="simple-empty"><p>Nothing matches{query.trim() ? ` “${query.trim()}”` : ''} with these filters.</p><button type="button" className="simple-quiet" onClick={clear}>Clear filters</button></div>}
