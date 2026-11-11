@@ -171,3 +171,8 @@
 }
 .wb-next > .wb-empty { font-size: 13.5px; }
 @media (max-width: 560px) { .wb-setup-list > li { grid-template-columns: auto minmax(0, 1fr); } .wb-setup-list > li > button { grid-column: 2; justify-self: start; } }
+
+/* Why Find new trends is off, in words beside it (a tooltip never reaches keyboard or touch). */
+.wb-research-why { flex: 1 1 100%; font-size: 12.5px; color: var(--s-muted, #62685e); text-align: right; }
+.wb-page .wb-research-why button { padding: 0; font: inherit; color: var(--s-accent-ink, #4b2a8c); background: none; border: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.wb-research { justify-content: flex-end; }

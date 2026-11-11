@@ -517,7 +517,7 @@ function validateTrendReport(raw, context = {}, { final = false } = {}) {
   for (const platform of ['x', 'linkedin']) { const needed = Math.min(2, shownCount(platform)); const have = quotes.filter(quote => quote.platform === platform).length; if (have < needed) warnings.push(`Only ${have} ${PLATFORM_LABELS[platform]} quote${have === 1 ? '' : 's'} (target at least 2).`); }
   if (evidenceLinks.length < 8) warnings.push(`Only ${evidenceLinks.length} evidence link${evidenceLinks.length === 1 ? '' : 's'} (target 8–10).`);
   for (const platform of PLATFORM_ORDER) { const needed = Math.min(2, shownCount(platform)); const have = evidenceLinks.filter(link => link.platform === platform).length; if (have < needed) warnings.push(`Only ${have} ${PLATFORM_LABELS[platform]} evidence link${have === 1 ? '' : 's'} although that platform has data (target at least 2).`); }
-  if (int(coverage.omittedCount) > 0) warnings.push(`${fmt(coverage.omittedCount)} lower-ranked matched posts were counted in the metrics but not shown to the model (n8n's ${fmt(coverage.maxPosts || MAX_POSTS)}-post limit).`);
+  if (int(coverage.omittedCount) > 0) warnings.push(`${fmt(coverage.omittedCount)} lower-ranked matched posts were counted in the metrics but not shown to the model (the ${fmt(coverage.maxPosts || MAX_POSTS)}-post limit).`);
 
   const cited = [...new Set([...quotes.map(quote => quote.evidenceId), ...evidenceLinks.map(link => link.evidenceId), ...(topPerformingContent.evidenceId ? [topPerformingContent.evidenceId] : [])])];
   return {

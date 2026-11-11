@@ -159,9 +159,9 @@ describe('Save to Drive’s tooltip', () => {
     fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
     expect(onSelect).not.toHaveBeenCalled();
-    // With the tip hidden, Esc goes back to the list as before.
+    // With the tip hidden, Esc still stays on the report: only the Back button leaves it.
     fireEvent.keyDown(document.body, { key: 'Escape' });
-    expect(onSelect).toHaveBeenCalledWith('');
+    expect(onSelect).not.toHaveBeenCalled();
     // Pointing at it again shows it again.
     fireEvent.mouseLeave(wrap); fireEvent.mouseEnter(wrap);
     expect(screen.getByRole('tooltip')).toBeInTheDocument();

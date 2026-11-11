@@ -26,6 +26,7 @@ import { SetupShare } from './setup-share.jsx';
 import { ProgramEstimate, ThemeScore } from './research-program-fields.jsx';
 import { emptySchedule, programWindowLabel, scheduleSummary, scheduledDate } from './program-summary.js';
 import { ProgramEditorFields, emptyProgram, programDraft, programPayload } from './program-editor.jsx';
+import { revealSection } from './section-spy.js';
 import './content-studio.css';
 import semrushWordmark from './assets/semrush-2026-logo.svg';
 
@@ -332,7 +333,8 @@ function ResearchPrograms({ workflows = [], workspace, capabilities = {}, gates 
     if (!focusSection || !editing) return undefined;
     const timer = setTimeout(() => {
       const heading = document.getElementById(`cs-group-${focusSection.id}-title`);
-      heading?.closest('section')?.scrollIntoView?.({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      // revealSection scrolls the page's own scroll area only; scrollIntoView also shifted the frame up under the top bar.
+      revealSection(heading?.closest('section'));
       if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
     }, 40);
     return () => clearTimeout(timer);

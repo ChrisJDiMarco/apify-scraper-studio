@@ -14,7 +14,7 @@ describe('Google Drive folder settings', () => {
     render(<SettingsView state={state({ keys: { GOOGLE_SHEETS_WEBHOOK_URL: true }, settings: { maxItems: 1000, sheets: { archiveFolderId: 'archive_1', docsFolderId: 'docs_1' } } })} meta={{}} onSaveSettings={onSaveSettings} />);
     fireEvent.click(screen.getAllByText('Google Sheets').find((element) => element.tagName === 'SUMMARY')); // the nav has a same-named link
     expect(screen.getByRole('textbox', { name: 'Default Docs folder' })).toHaveValue('docs_1');
-    expect(screen.getByText('Folder where new trend reports are created, like n8n’s ‘New Trends Output’.')).toBeInTheDocument();
+    expect(screen.getByText('Folder where new trend reports are created.')).toBeInTheDocument();
     expect(screen.getByText(/This bridge creates native Google Docs with no access token/)).toBeInTheDocument();
     expect(screen.getByText(/To add every report to Drive automatically, use Settings → Google Drive/)).toBeInTheDocument();
     expect(screen.getByText(/this token is only needed for imports/)).toBeInTheDocument();

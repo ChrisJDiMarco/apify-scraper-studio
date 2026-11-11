@@ -568,3 +568,9 @@
 .simple-skipped > summary:focus-visible { outline: 2px solid var(--s-focus, var(--s-ink)); outline-offset: 2px; border-radius: 8px; }
 /* The asset dialog over any page (KitCreatorHost): the Simple sheet's look without a Simple column around it. */
 .simple-shell.kit-creator-host { display: contents; }
+
+/* The reader's one column takes the page's width, never its longest unbroken line: on a phone the "filed under" line
+   used to set the column to 750px, so the title, the text and the toolbar all ran off the right edge. */
+.simple-reader { grid-template-columns: minmax(0, 1fr); }
+.simple-reader .simple-crumbline { min-width: 0; flex-wrap: wrap; white-space: normal; overflow-wrap: anywhere; }
+.simple-reader .simple-reader-tools { min-width: 0; }

@@ -207,13 +207,13 @@ describe('Simple mode', () => {
     expect(api.decideResearchTheme).toHaveBeenCalledWith({ runId: 'run-1', themeId: 't1', decision: 'approved' });
   });
 
-  it('asks about the open report with its text, and Esc returns to Assets', async () => {
+  it('asks about the open report with its text, and Esc never leaves the report', async () => {
     const api = await openSimple();
     await findReport();
     expect(await screen.findByText('People want answers.')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(await screen.findByRole('heading', { level: 1, name: 'Assets' })).toBeInTheDocument();
-    await findReport();
+    expect(screen.getByText('People want answers.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Assets' })).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Ask AI about this' }));
     await waitFor(() => expect(api.askHelp).toHaveBeenCalled());
     const request = api.askHelp.mock.calls[0][0];

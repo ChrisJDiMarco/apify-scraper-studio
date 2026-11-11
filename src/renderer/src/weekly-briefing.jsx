@@ -211,8 +211,9 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
       <div className="wb-head-actions">
         <button type="button" className="wb-quiet" onClick={copyBriefing}>{copied && copied.startsWith('Copied') ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}Copy briefing for Slack</button>
         {can('startResearchRun') && onStartResearch && <span className="wb-research" data-spot="home.research">
-          {programs.length > 1 && <select aria-label="Research program" value={program?.id || ''} onChange={(event) => setProgramId(event.target.value)}>{programs.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select>}
-          <button type="button" data-spot="home.start-research" className="wb-primary" title={needsSetup ? 'Connect Apify first' : undefined} {...writeProps(viewer, busy || needsSetup)} onClick={() => onStartResearch(program)}><Radar size={15} aria-hidden="true" />{program || !can('saveResearchProgram') ? 'Find new trends' : 'Set up research'}</button>
+          {programs.length > 1 && <select aria-label="Research program" title="Research program to run" value={program?.id || ''} onChange={(event) => setProgramId(event.target.value)}>{programs.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select>}
+          <button type="button" data-spot="home.start-research" className="wb-primary" aria-describedby={needsSetup ? 'wb-research-why' : undefined} {...writeProps(viewer, busy || needsSetup)} onClick={() => onStartResearch(program)}><Radar size={15} aria-hidden="true" />{program || !can('saveResearchProgram') ? 'Find new trends' : 'Set up research'}</button>
+          {needsSetup && <small className="wb-research-why" id="wb-research-why">{can('saveSettings') ? <button type="button" onClick={() => open({ kind: 'page', id: 'settings', page: 'settings', section: 'sources' })}>Connect Apify to run research</button> : `Research is off until ${askAdmin} connects Apify`}</small>}
         </span>}
       </div>
     </header>

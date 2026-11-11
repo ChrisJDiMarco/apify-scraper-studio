@@ -38,7 +38,7 @@ function WebAddressSection({ settings = {}, busy, onSaveSettings }) {
 
 // Where the Sheets bridge creates Google Docs and Google Sheets. Each accepts a folder link or ID; blank means My Drive.
 const DRIVE_FOLDERS = [
-  { key: 'trendReportsFolderId', label: 'Trend reports folder', hint: 'Folder where new trend reports are created, like n8n’s ‘New Trends Output’.' },
+  { key: 'trendReportsFolderId', label: 'Trend reports folder', hint: 'Folder where new trend reports are created.' },
   { key: 'toolkitsFolderId', label: 'Editorial toolkits folder', hint: 'Folder where new editorial toolkits are created. Blank uses the default Docs folder.' },
   { key: 'docsFolderId', label: 'Default Docs folder', hint: 'Every other published report goes here. Blank means your My Drive.' },
   { key: 'sheetsExportFolderId', label: 'Google Sheets exports folder', hint: 'Where Sheets → Export → Create Google Sheet saves new spreadsheets. Blank means your My Drive.' },

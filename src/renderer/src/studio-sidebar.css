@@ -269,3 +269,8 @@
   .app-shell.studio-frame .studio-sidebar { transition: none; }
 }
 @media (prefers-contrast: more) { .studio-frame { --sb-hover: rgba(24, 30, 21, .09); } }
+
+/* Workbench closed with one of its pages open: the row names that page in full (the wrench and chevron still say it is
+   the Workbench) instead of squeezing it into a clipped chip beside the word. */
+.studio-frame .sb-group-toggle:has(> .sb-current) > .sb-text { display: none; }
+.studio-frame .sb-group-toggle > .sb-current { flex: 0 1 auto; min-width: 0; max-width: none; margin-right: auto; font-size: 12.5px; }

@@ -134,3 +134,18 @@ button.ai-link:hover:not(:disabled) { color: var(--s-soft-ink, #5a2fa0); backgro
 .brand-set-uses dd { margin: 0; }
 .cs-reference-note { margin: 4px 0 0; font-size: 12px; color: var(--s-muted, #62685e); }
 .cs-reference-note.is-empty { color: var(--s-warn-ink, #6b5413); }
+
+/* Fixed column shares: the connection menu used to take the room, leaving the job name one word per line and the model
+   picker showing only its icon. */
+@media (min-width: 761px) {
+  .ai-route-table { table-layout: fixed; }
+  .ai-route-table th:nth-child(1) { width: 20%; }
+  .ai-route-table th:nth-child(2) { width: 16%; }
+  .ai-route-table th:nth-child(3) { width: 18%; }
+  .ai-route-table th:nth-child(4) { width: 12%; }
+  .ai-route-table th:nth-child(5) { width: 9%; }
+  .ai-route-table th:nth-child(7) { width: 100px; }
+  .ai-route-table select { width: 100%; }
+  .ai-route-table .ai-route-cost { white-space: normal; }
+  .ai-route-table :is(.ai-route-job, .ai-route-status) { overflow-wrap: break-word; }
+}

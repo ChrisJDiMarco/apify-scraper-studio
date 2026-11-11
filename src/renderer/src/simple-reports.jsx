@@ -348,12 +348,12 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, backLab
   // (The live editor is the saved text itself, so it never reloads under the person typing.)
   useEffect(() => { if (!live && !editing && !loading && stale()) setReloadKey((value) => value + 1); }, [liveEdit]);
   function stopEditing() { setEditing(false); if (stale()) setReloadKey((value) => value + 1); }
-  // Esc returns to the list; the arrow keys page through the rows, unless someone is typing or editing.
+  // The arrow keys page through the rows, unless someone is typing or editing. Esc only closes what is open on the
+  // page (a menu, notes, a dialog): it never leaves the report.
   useEffect(() => {
     if (!selected || editing) return undefined;
     const onKey = (event) => {
       if (event.target.closest?.('input, textarea, select, [contenteditable]') || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === 'Escape') { onSelect(''); return; }
       if (event.key === 'ArrowLeft' && previous) withViewTransition(() => onSelect(openId(previous)));
       if (event.key === 'ArrowRight' && next) withViewTransition(() => onSelect(openId(next)));
     };
@@ -398,7 +398,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, backLab
     const both = pair && pair.reportId && pair.toolkitId;
     return <div className={`simple-page simple-reader${editing ? ' is-editing' : ''}`}>
       {!editing && <div className="simple-reader-bar">
-        <button type="button" className="simple-back" title={`Back to ${backLabel === 'All reports' ? 'all reports' : backLabel} (Esc)`} onClick={() => onSelect('')}><ArrowLeft size={15} aria-hidden="true" />{backLabel}</button>
+        <button type="button" className="simple-back" title={`Back to ${backLabel === 'All reports' ? 'all reports' : backLabel}`} onClick={() => onSelect('')}><ArrowLeft size={15} aria-hidden="true" />{backLabel}</button>
         <div className="simple-reader-tools">
           {canEdit && !live && <button type="button" data-spot="report.edit" {...writeProps(viewer, !markdown || loading || Boolean(readError))} onClick={() => setEditing(true)}><PenLine size={15} aria-hidden="true" />Edit</button>}
           <button type="button" data-spot="report.copy" disabled={!markdown} onClick={copy}>{copied ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}{copied ? 'Copied' : 'Copy text'}</button>

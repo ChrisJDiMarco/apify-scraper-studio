@@ -10,8 +10,8 @@ const MIN_BRAND_IMAGE_SIDE = 16;
 const MAX_BRAND_IMAGE_SIDE = 8192;
 const BRAND_IMAGE_FAMILIES = Object.freeze([
   { id: 'campaign', deliverableId: 'brand-image', editions: ['general', 'semrush'], labels: { semrush: 'Semrush campaign graphics', general: 'Campaign graphics' }, hints: { semrush: 'Social Team — Hero Graphic. Campaign style examples and the approved Semrush lockup.', general: 'The brand campaign graphic. Style examples and your approved logo.' } },
-  { id: 'sel-editorial', deliverableId: 'sel-image', editions: ['semrush'], labels: { semrush: 'Search Engine Land editorial heroes' }, hints: { semrush: 'Search Engine Land — Editorial Hero. n8n sent five SEL style examples and the 2026 SEL logo.' } },
-  { id: 'sel-social', deliverableId: 'sel-social-image', editions: ['semrush'], labels: { semrush: 'Search Engine Land social graphics' }, hints: { semrush: 'Search Engine Land — Social Hero. n8n sent the SEL style example, the brand sheet and the SEL lockup.' } },
+  { id: 'sel-editorial', deliverableId: 'sel-image', editions: ['semrush'], labels: { semrush: 'Search Engine Land editorial heroes' }, hints: { semrush: 'Search Engine Land — Editorial Hero. Add five SEL style examples and the 2026 SEL logo.' } },
+  { id: 'sel-social', deliverableId: 'sel-social-image', editions: ['semrush'], labels: { semrush: 'Search Engine Land social graphics' }, hints: { semrush: 'Search Engine Land — Social Hero. Add the SEL style example, the brand sheet and the SEL lockup.' } },
 ].map((family) => Object.freeze(family)));
 
 // Where each set goes, per edition (Settings → Brand reference images lists these under "Used for").

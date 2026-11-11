@@ -621,12 +621,13 @@ function StudioApp({ api }) {
   function openSettings(section = '', { confirmed = false } = {}) {
     if (!settingsAllowed || (!confirmed && !guard.confirmLeave())) return;
     setSettingsRequest({ key: Date.now(), section: typeof section === 'string' ? section : '' }); // click handlers pass an event
-    if (mode === 'simple') withViewTransition(() => setSimpleTab('settings'));
+    // One frame for Settings: from a Workbench page it closes that page too, so the top bar never comes and goes.
+    if (mode === 'simple' || (mode === 'classic' && simpleAllowed('settings'))) withViewTransition(() => { setPeek(false); setSimpleTab('settings'); });
     else navigate('settings', {}, { confirmed: true });
   }
   function openAdminPage(id) {
     if (!adminPages.includes(id)) return;
-    if (mode === 'simple') goSimple(id);
+    if (mode === 'simple' || (mode === 'classic' && simpleAllowed(id))) goSimple(id);
     else navigate(id);
   }
   function toggleDataTools() {

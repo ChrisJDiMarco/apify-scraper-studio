@@ -127,9 +127,11 @@ function useIndicator(navRef, key) {
     measure();
     // Keep the current page clear of the nav's edges when it scrolls.
     const current = nav.querySelector('.sb-item[aria-current="page"]');
-    if (current && nav.scrollHeight > nav.clientHeight) {
-      const item = current.getBoundingClientRect(); const view = nav.getBoundingClientRect();
-      if (item.bottom > view.bottom - 24) nav.scrollBy?.({ top: item.bottom - view.bottom + 36, behavior: 'smooth' });
+    if (nav.scrollHeight > nav.clientHeight) {
+      const view = nav.getBoundingClientRect(); const item = current && current.offsetWidth > 0 ? current.getBoundingClientRect() : null;
+      // The list rests at its top (Home in view) unless the current page would be cut off there.
+      if (!item || item.bottom - view.top + nav.scrollTop <= nav.clientHeight - 24) { if (nav.scrollTop > 0) nav.scrollTo?.({ top: 0, behavior: 'smooth' }); }
+      else if (item.bottom > view.bottom - 24) nav.scrollBy?.({ top: item.bottom - view.bottom + 36, behavior: 'smooth' });
       else if (item.top < view.top + 12) nav.scrollBy?.({ top: item.top - view.top - 24, behavior: 'smooth' });
     }
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
