@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ClipboardCopy, FileText, Folder, Image as ImageIcon, Link2, LoaderCircle, Search, Sparkles, Upload, X, Clapperboard } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ClipboardCopy, FileText, Folder, Image as ImageIcon, ImagePlus, Link2, LoaderCircle, Search, Sparkles, Upload, X, Clapperboard } from 'lucide-react';
 import { trapTab, useModalFocus, useToast } from './role-screens.jsx';
 import { useViewer, writeProps } from './viewer.js';
 import { formatDate, friendlyMessage, number } from './ui.jsx';
@@ -21,8 +21,9 @@ export const MAX_SOURCE_CHARS = 250000;
 const referenceTitle = (references) => (references?.style || references?.logo ? `Sends ${[references.style ? plural(references.style, 'style example') : '', references.logo ? 'the approved logo' : ''].filter(Boolean).join(' and ')}` : 'No brand reference images yet');
 // The seconds and model of a set's short video, for the chip and the estimate.
 const videoName = (item) => `Short video · ${item.video?.seconds || 8} s`;
-function referenceHint(items) {
+function referenceHint(items, attached = 0) {
   const sets = items.filter((item) => item.kind === 'image');
+  if (attached) return `Every picture set is drawn from the ${attached === 1 ? 'picture' : `${attached} pictures`} you added here${sets.some((item) => item.references?.style || item.references?.logo) ? ', with its brand reference images' : ''}.`;
   const using = sets.filter((item) => item.references?.style || item.references?.logo).length; const logos = sets.filter((item) => item.references?.logo).length;
   return using ? `Brand reference images: ${using} of ${plural(sets.length, 'picture set')}${logos ? `, ${logos} with the approved logo` : ''}.` : 'No brand reference images yet, so pictures follow the brand colors and leave the footer clean.';
 }
@@ -63,6 +64,13 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
   const [planning, setPlanning] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startProblem, setStartProblem] = useState(''); // why Make was refused, shown under the plan so it can be retried
+  // Pictures attached to this set alone ({ id, name, dataUrl }): the studio keeps each until Make, then sends them with
+  // every picture in the set, ahead of the brand's own reference images.
+  const [refs, setRefs] = useState([]);
+  const [adding, setAdding] = useState(false);
+  const [refProblem, setRefProblem] = useState('');
+  const refIds = refs.map((ref) => ref.id);
+  const maxRefs = plan?.maxSetReferences ?? 4; // the studio's limit (brand-images.js)
   const first = useRef(null);
   const panel = useRef(null);
   useModalFocus(panel, first);
@@ -81,9 +89,14 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
   useEffect(() => {
     if (step !== 'review' || !source) return undefined;
     let cancelled = false; setPlanning(true); setProblem('');
-    Promise.resolve().then(() => api.planAssetKit({ source, ...(chosen ? { deliverableIds: [...chosen] } : {}) })).then((result) => { if (!cancelled) { setPlan(result); setPlanning(false); } }).catch((failure) => { if (!cancelled) { setProblem(failure?.message || 'This report can’t be used. Try another one.'); setPlanning(false); } });
+    Promise.resolve().then(() => api.planAssetKit({ source, ...(chosen ? { deliverableIds: [...chosen] } : {}), ...(refIds.length ? { referenceIds: refIds } : {}) })).then((result) => { if (!cancelled) { setPlan(result); setPlanning(false); } }).catch((failure) => {
+      if (cancelled) return;
+      // An attached picture the studio no longer holds (a day old, or a restart): drop them and plan again without.
+      if (refIds.length && (failure?.code === 'referenceGone' || /reference picture/i.test(failure?.message || ''))) { setRefs([]); setRefProblem('The pictures you added are no longer saved. Add them again.'); return; }
+      setProblem(failure?.message || 'This report can’t be used. Try another one.'); setPlanning(false);
+    });
     return () => { cancelled = true; };
-  }, [step, chosen ? [...chosen].sort().join('|') : 'all']);
+  }, [step, chosen ? [...chosen].sort().join('|') : 'all', refIds.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
   // My channels (or the channels asked for): the first plan pre-ticks only those channels' assets (more can be ticked).
   const [focused, setFocused] = useState(false);
   useEffect(() => {
@@ -106,6 +119,14 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
     try { const result = await api.importStudioSource(); if (result?.text) { setFile(result); setText(result.text); if (!title.trim()) setTitle(result.title || ''); } }
     catch (failure) { setProblem(failure?.message || 'That document could not be read.'); }
   }
+  async function addReference() {
+    setRefProblem(''); setAdding(true);
+    try {
+      const result = await api.stageKitReference({});
+      if (result?.reference) setRefs((current) => (current.some((ref) => ref.sha256 === result.reference.sha256) || current.length >= maxRefs ? current : [...current, { ...result.reference, dataUrl: result.dataUrl }]));
+    } catch (failure) { setRefProblem(friendlyMessage(failure) || 'That picture could not be added.'); }
+    finally { setAdding(false); }
+  }
   function toggle(id) {
     const all = list(plan?.folders).flatMap((folder) => folder.items).filter((item) => item.available);
     const current = new Set(chosen || all.filter((item) => item.selected).map((item) => item.id));
@@ -118,7 +139,7 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
     if (!plan || !source) return;
     setStarting(true); setStartProblem('');
     try {
-      const run = await action(() => api.createAssetKit({ source, ...(chosen ? { deliverableIds: [...chosen] } : {}), maxBudgetUsd: plan.estimate.capUsd }), `Making ${plural(plan.estimate.calls, 'asset')}. They’ll fill this folder as they’re ready.`, true);
+      const run = await action(() => api.createAssetKit({ source, ...(chosen ? { deliverableIds: [...chosen] } : {}), ...(refIds.length && pictures > 0 ? { referenceIds: refIds } : {}), maxBudgetUsd: plan.estimate.capUsd }), `Making ${plural(plan.estimate.calls, 'asset')}. They’ll fill this folder as they’re ready.`, true);
       setStarting(false);
       if (run) onCreated(run, plan);
     } catch (failure) {
@@ -167,8 +188,16 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
             </div>)}</div>
             {focused && focusNames.length > 0 && <p className="simple-hint">{list(preset?.channels).length ? 'Ticked for' : 'Ticked for your channels'}: {focusNames.join(', ')}. Tick more if you need them.</p>}
             {!plan.imagesReady && (onSettings ? <p className="simple-hint">Pictures are off. <button type="button" className="simple-link" onClick={onSettings}>Turn them on in Settings</button> to add the hero graphics.</p> : <p className="simple-hint">{picturesOff} Only the written drafts are made until then.</p>)}
-            {plan.imagesReady && pictures > 0 && <p className="simple-hint" data-spot="kit-dialog.references">{referenceHint(selected)}{onSettings && <> <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>{selected.some((item) => item.references?.style || item.references?.logo) ? 'Change them in Settings' : 'Add style examples and logos in Settings'}</button></>}</p>}
-            {plan.imagesReady && selected.filter((item) => item.kind === 'image' && !item.references?.style && !item.references?.logo).map((item) => <p key={`refs-${item.id}`} className="simple-hint">{sentence(item.label.replace(/^[^—]+—\s*/, ''))} has no reference images yet, so its pictures follow the brand colors only.</p>)}
+            {plan.imagesReady && pictures > 0 && api.stageKitReference && <div className="kit-refs" data-spot="kit-dialog.set-references">
+              <div className="kit-refs-head"><strong>Reference pictures for this set</strong><small>Optional. Pictures to base this set’s graphics on: a screenshot, a past design, a mood image. Up to {maxRefs}, PNG, JPEG or WebP.</small></div>
+              <ul className="kit-refs-list" aria-label="Reference pictures for this set">
+                {refs.map((ref) => <li key={ref.id}><img src={ref.dataUrl} alt={ref.name} title={ref.name} /><button type="button" aria-label={`Remove ${ref.name}`} disabled={starting} onClick={() => { setRefs((current) => current.filter((row) => row.id !== ref.id)); setRefProblem(''); }}><X size={12} aria-hidden="true" /></button></li>)}
+                {refs.length < maxRefs && <li><button type="button" className="kit-refs-add" disabled={adding || starting} onClick={addReference}>{adding ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <ImagePlus size={16} aria-hidden="true" />}<span>{adding ? 'Adding…' : 'Add a picture'}</span></button></li>}
+              </ul>
+              {refProblem && <p className="simple-error" role="alert">{refProblem}</p>}
+            </div>}
+            {plan.imagesReady && pictures > 0 && <p className="simple-hint" data-spot="kit-dialog.references">{referenceHint(selected, refs.length)}{onSettings && <> <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>{selected.some((item) => item.references?.style || item.references?.logo) ? 'Change them in Settings' : 'Add style examples and logos in Settings'}</button></>}</p>}
+            {plan.imagesReady && !refs.length && selected.filter((item) => item.kind === 'image' && !item.references?.style && !item.references?.logo).map((item) => <p key={`refs-${item.id}`} className="simple-hint">{sentence(item.label.replace(/^[^—]+—\s*/, ''))} has no reference images yet, so its pictures follow the brand colors only.</p>)}
             {selected.some((item) => item.kind === 'video') && <p className="simple-hint">Words in AI video often come out garbled, so the clip has none; the on-screen lines are saved beside it to add in your editor.</p>}
             {list(plan.folders).flatMap((folder) => folder.items).some((item) => item.kind === 'video' && !item.available) && !selected.some((item) => item.kind === 'video') && <p className="simple-hint">{onSettings ? <>Short videos need fal.ai. <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>Connect it in Settings</button> to add one.</> : 'Videos are off. Ask an admin to turn them on.'}</p>}
             <div className="simple-kit-estimate" data-spot="kit-dialog.estimate">

@@ -421,6 +421,18 @@
 .simple-paste-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .simple-paste-foot small { font-size: 12px; color: var(--s-faint); font-variant-numeric: tabular-nums; }
 .simple-paste-foot small.over { color: #b4471f; font-weight: 650; }
+/* Make channel assets: pictures attached to this set alone. */
+.kit-refs { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--s-line, rgba(0, 0, 0, .1)); border-radius: 16px; }
+.kit-refs-head { display: grid; gap: 2px; }
+.kit-refs-head strong { font-size: 14px; }
+.kit-refs-head small { font-size: 13px; line-height: 1.45; color: var(--s-muted); }
+.kit-refs-list { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.kit-refs-list li { position: relative; width: 84px; height: 84px; }
+.kit-refs-list img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; background: var(--s-bg); display: block; }
+.kit-refs-list li > button:not(.kit-refs-add) { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; width: 22px; height: 22px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: var(--s-ink, #111); color: #fff; cursor: pointer; }
+.kit-refs-add { display: grid; place-items: center; align-content: center; gap: 4px; width: 100%; height: 100%; padding: 4px; border: 1px dashed var(--s-muted); border-radius: 12px; background: transparent; color: var(--s-muted); font: inherit; font-size: 12px; line-height: 1.2; cursor: pointer; }
+.kit-refs-add:hover:not(:disabled) { color: inherit; border-color: currentColor; }
+.kit-refs-add:disabled { opacity: .6; cursor: default; }
 .simple-source-card { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--s-bg); border-radius: 16px; }
 .simple-source-card > span:nth-child(2) { flex: 1; display: grid; gap: 2px; min-width: 0; }
 .simple-source-card strong { font-size: 15px; }

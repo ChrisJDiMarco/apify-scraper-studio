@@ -6,6 +6,9 @@ const BRAND_IMAGE_ROLES = Object.freeze(['style', 'logo']);
 // n8n's Search Engine Land hero sent the most: five style examples and the logo.
 const MAX_BRAND_IMAGES = 6;
 const MAX_BRAND_IMAGE_BYTES = 10 * 1024 * 1024;
+// Pictures someone attaches to one set of channel assets, on top of the brand's own (six plus four stays within the
+// ten images the smallest reference-taking picture model accepts).
+const MAX_KIT_REFERENCES = 4;
 const MIN_BRAND_IMAGE_SIDE = 16;
 const MAX_BRAND_IMAGE_SIDE = 8192;
 const BRAND_IMAGE_FAMILIES = Object.freeze([
@@ -111,4 +114,4 @@ function checkBrandImage(bytes) {
   return info;
 }
 
-module.exports = { ASK_IMAGE_FAMILIES, referenceNumbers, numberList, referencePromptLines, referenceOwner, BRAND_IMAGE_ROLES, BRAND_IMAGE_FAMILIES, MAX_BRAND_IMAGES, MAX_BRAND_IMAGE_BYTES, brandImageFamilies, brandImageFamily, familyForDeliverable, orderedReferences, referenceSummary, sniffImage, checkBrandImage };
+module.exports = { ASK_IMAGE_FAMILIES, referenceNumbers, numberList, referencePromptLines, referenceOwner, BRAND_IMAGE_ROLES, BRAND_IMAGE_FAMILIES, MAX_BRAND_IMAGES, MAX_BRAND_IMAGE_BYTES, MAX_KIT_REFERENCES, brandImageFamilies, brandImageFamily, familyForDeliverable, orderedReferences, referenceSummary, sniffImage, checkBrandImage };

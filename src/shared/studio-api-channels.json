@@ -95,6 +95,7 @@
     "setThemeStatus": "studio:setThemeStatus",
     "planAssetKit": "studio:planAssetKit",
     "createAssetKit": "studio:createAssetKit",
+    "stageKitReference": "studio:stageKitReference",
     "saveAssetKitFolder": "studio:saveAssetKitFolder",
     "addBrandImage": "studio:addBrandImage",
     "readBrandImage": "studio:readBrandImage",

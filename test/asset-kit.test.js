@@ -271,6 +271,33 @@ describe('brand reference images in kit pictures', () => {
     const retried = sent('sel-image')[1];
     expect(retried.variantPrompts).toEqual(editorial.variantPrompts); expect(retried.references.map(ref => Buffer.from(ref.data))).toEqual([...styles, logo]);
   });
+  it('sends pictures attached to one set with every picture in it, ahead of the brand set, and keeps them for a retry', async () => {
+    const h = harness({ generateImage: failOnce('sel-image') }); const source = { kind: 'report', assetId: 'asset-toolkit' };
+    const logo = picture(331, 60, 7); const brandStyle = picture(1200, 630, 1); const mood = picture(800, 600, 21); const shot = picture(640, 480, 22);
+    h.api.addBrandImage({ workspaceId: 'semrush', family: 'sel-editorial', role: 'logo', name: 'logo.png', data: logo }); h.api.addBrandImage({ workspaceId: 'semrush', family: 'sel-editorial', role: 'style', name: 'style.png', data: brandStyle });
+    const first = h.api.stageKitReference({ name: 'mood board.png', data: mood });
+    expect(first.reference).toMatchObject({ name: 'mood board.png', width: 800, height: 600, bytes: mood.length }); expect(first.reference.id).toMatch(/^kit-reference-/); expect(first.dataUrl).toBe(`data:image/png;base64,${mood.toString('base64')}`);
+    const second = h.api.stageKitReference({ name: 'screenshot.png', data: shot }); const same = h.api.stageKitReference({ name: 'style-again.png', data: brandStyle });
+    expect(() => h.api.stageKitReference({ name: 'notes.txt', data: Buffer.from('not a picture at all') })).toThrow('Choose a PNG, JPEG or WebP picture.');
+    const ids = [first.reference.id, second.reference.id, same.reference.id]; const deliverableIds = ['brand-image', 'sel-image'];
+    const price = extra => h.api.planAssetKit({ source, deliverableIds, ...extra }).folders.flatMap(folder => folder.items).find(item => item.id === 'sel-image').usd;
+    // Two new pictures are priced on each of the set's three pictures; the one the brand set already holds is sent once.
+    expect(price({ referenceIds: ids }) - price({})).toBeCloseTo(3 * 2 * kit.KIT_REFERENCE_USD, 1);
+    expect(() => h.api.planAssetKit({ source, referenceIds: [...ids, ids[0]] })).toThrow('Attach up to 4 reference pictures to a set.');
+    expect(() => h.api.planAssetKit({ source, referenceIds: ['kit-reference-00000000-0000-4000-8000-000000000000'] })).toThrow('no longer saved');
+    expect(() => h.api.planAssetKit({ source, referenceIds: ['../state'] })).toThrow('no longer saved');
+    const run = await made(h, { source, deliverableIds, referenceIds: ids });
+    expect(run.status).toBe('partial'); expect(run.kit.attachedReferences).toBe(3); expect(run.kit.references).toEqual({ 'brand-image': { style: 3, logo: 0 }, 'sel-image': { style: 3, logo: 1 } });
+    const sent = id => h.generateImage.mock.calls.map(([request]) => request.deliverable).filter(deliverable => deliverable.id === id);
+    expect(sent('brand-image')[0].references.map(ref => Buffer.from(ref.data))).toEqual([mood, shot, brandStyle]);
+    // Used pictures leave the staging folder; the run keeps its own copies, so a retry sends the same ones.
+    expect(fs.readdirSync(path.join(h.root, 'kit-references'))).toEqual([]);
+    expect(() => h.api.planAssetKit({ source, referenceIds: [ids[0]] })).toThrow('no longer saved');
+    h.api.retryStudioRun({ runId: run.id }); await h.api.waitForIdle();
+    const [editorial] = sent('sel-image');
+    expect(editorial.references.map(ref => [ref.role, Buffer.from(ref.data)])).toEqual([['style', mood], ['style', shot], ['style', brandStyle], ['logo', logo]]);
+    for (const prompt of editorial.variantPrompts) expect(prompt).toContain('images 1–3 are approved Search Engine Land style examples; image 4 is the approved Search Engine Land logo.');
+  });
   it('stops a picture set before any spend when a reference image saved with its run is damaged, leaving Settings intact', async () => {
     const h = harness({ generateImage: failOnce('sel-image') }); const logo = picture(331, 60, 7);
     const saved = h.api.addBrandImage({ workspaceId: 'semrush', family: 'sel-editorial', role: 'logo', name: 'logo.png', data: logo }).image;

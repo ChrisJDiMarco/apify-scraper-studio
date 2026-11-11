@@ -590,8 +590,11 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     const input = { editionId: w.editionId, source: picked.source, brandKnowledge: brand.brandKnowledge, productRegistry: brand.productRegistry, deliverableIds, imageVariants: 3, prompts: pickPrompts(promptsAll, assetPromptIds(deliverableIds, { kit: true })), ...(teamNotes ? { teamNotes } : {}), ...channelKnowledgeInput(w, deliverableIds) };
     const plan = content.buildContentPlan(input);
     const ai = kitAiNow(w);
+    const extras = stagedReferences(w, payload.referenceIds);
     const references = kitReferenceCounts(w);
-    return { w, picked, input, plan, ai, imagesReady, videoReady, offered, references, promptsAll, estimate: kit().estimateKit({ plan, ai, references, tasks: kitEstimateTasks(plan.deliverables, undefined, references) }) };
+    // Pictures attached to this set are priced with every picture it draws (fewer where the brand set already holds one).
+    if (extras.length) for (const d of plan.deliverables.filter(d => d.kind === 'image')) { const family = brandImages().familyForDeliverable(d.id); const brand = (w.brandImages || []).filter(image => image.family === family?.id); references[d.id] = (references[d.id] || 0) + extras.filter(extra => !brand.some(image => image.sha256 === extra.sha256)).length; }
+    return { w, picked, input, plan, ai, imagesReady, videoReady, offered, references, extras, promptsAll, estimate: kit().estimateKit({ plan, ai, references, tasks: kitEstimateTasks(plan.deliverables, undefined, references) }) };
   }
   // Every channel asset's model and effort (Model routing's assets.default), and how many a kit writes at once (the newest
   // program's batches at once, as before).
@@ -622,6 +625,31 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     if (!image) throw new Error('That reference image is no longer in this workspace.');
     return image;
   }
+  // ---------- Reference pictures for one set of channel assets ----------
+  // Pictures someone attaches in the Make channel assets dialog, for that set only. Each waits in a staging folder (a
+  // day at most) until Make copies it into the run folder with the brand set; every picture in the set then receives it
+  // as a style example, ahead of the brand's own, so a model that takes fewer images keeps these first.
+  const KIT_REFERENCE_KEEP_MS = 24 * 60 * 60 * 1000;
+  const stagedDir = () => { const dir = path.join(root, 'kit-references'); fs.mkdirSync(dir, { recursive: true }); return dir; };
+  function stagedReferences(w, ids) {
+    if (ids == null) return [];
+    const max = brandImages().MAX_KIT_REFERENCES;
+    if (!Array.isArray(ids) || ids.length > max || new Set(ids).size !== ids.length) throw new Error(`Attach up to ${max} reference pictures to a set.`);
+    return ids.map(refId => {
+      const gone = () => Object.assign(new Error('A reference picture you attached is no longer saved. Remove it and add it again.'), { status: 410, code: 'referenceGone' });
+      if (typeof refId !== 'string' || !/^kit-reference-[a-f0-9-]{36}$/.test(refId)) throw gone();
+      let meta; try { meta = read(path.join(stagedDir(), `${refId}.json`)); } catch (_) { throw gone(); }
+      if (meta.workspaceId !== w.id || !['png', 'jpg', 'webp'].includes(meta.extension)) throw gone();
+      const source = path.join(stagedDir(), `${refId}.${meta.extension}`);
+      if (!fs.existsSync(source)) throw gone();
+      return { ...meta, role: 'style', source };
+    });
+  }
+  function dropStagedReferences(extras) { for (const extra of extras) for (const ending of ['json', extra.extension]) { try { fs.rmSync(path.join(stagedDir(), `${extra.id}.${ending}`), { force: true }); } catch (_) { /* swept later */ } } }
+  function sweepStagedReferences() {
+    const dir = stagedDir(); const cutoff = Date.now() - KIT_REFERENCE_KEEP_MS;
+    for (const name of fs.readdirSync(dir)) { try { if (fs.statSync(path.join(dir, name)).mtimeMs < cutoff) fs.rmSync(path.join(dir, name), { force: true }); } catch (_) { /* next sweep */ } }
+  }
   // How many reference images each picture deliverable would send now, e.g. { 'sel-image': 6 }.
   function kitReferenceCounts(w) {
     return Object.fromEntries(brandImages().brandImageFamilies(w.editionId).map(family => [family.deliverableId, (w.brandImages || []).filter(image => image.family === family.id).length]));
@@ -630,20 +658,23 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // the run folder, so a retry sends the same pictures and its saved variants still match, whatever changes in Settings
   // later. Copy-on-write clones take no extra space where the disk supports them (APFS). Never hard links: the run
   // folder is the Codex CLI's writable workspace, and a write there must not reach Settings or other runs.
-  function snapshotKitReferences(run, w, deliverables) { return snapshotRunReferences(run, w, deliverables).summary; }
+  function snapshotKitReferences(run, w, deliverables, extras = []) { return snapshotRunReferences(run, w, deliverables, extras).summary; }
   // Any run's copy of its pictures' reference images: { summary: { [id]: { style, logo } }, roles: { [id]: [{ role }] } }.
-  function snapshotRunReferences(run, w, deliverables) {
+  // `extras` (stagedReferences): pictures attached to this set alone, sent first; one the brand set already holds is sent once.
+  function snapshotRunReferences(run, w, deliverables, extras = []) {
     const sets = {};
     for (const deliverable of deliverables.filter(d => d.kind === 'image')) {
       const family = brandImages().familyForDeliverable(deliverable.id);
-      const chosen = family ? brandImages().orderedReferences((w.brandImages || []).filter(image => image.family === family.id)) : [];
+      const brand = family ? brandImages().orderedReferences((w.brandImages || []).filter(image => image.family === family.id)) : [];
+      const chosen = [...extras.filter(extra => !brand.some(image => image.sha256 === extra.sha256)), ...brand];
       if (!chosen.length) continue;
       sets[deliverable.id] = chosen.map((image, index) => {
-        const source = brandImageFile(w.id, image); const name = `reference-${safeId(deliverable.id)}-${index + 1}.${image.extension}`; const target = file(run.id, name);
-        if (!fs.existsSync(source)) throw new Error(`The reference image “${image.name}” is missing from the studio’s data folder. Remove it in Settings → Brand reference images and add it again.`);
+        const source = image.source || brandImageFile(w.id, image); const name = `reference-${safeId(deliverable.id)}-${index + 1}.${image.extension}`; const target = file(run.id, name);
+        const fix = image.source ? 'Remove it from this set and add it again.' : 'Remove it in Settings → Brand reference images and add it again.';
+        if (!fs.existsSync(source)) throw new Error(`The reference image “${image.name}” is missing from the studio’s data folder. ${fix}`);
         fs.rmSync(target, { force: true });
         fs.copyFileSync(source, target, fs.constants.COPYFILE_FICLONE); // a plain copy where cloning isn't supported
-        if (sha256(fs.readFileSync(target)) !== image.sha256) throw new Error(`The reference image “${image.name}” changed on disk. Remove it in Settings → Brand reference images and add it again.`);
+        if (sha256(fs.readFileSync(target)) !== image.sha256) throw new Error(`The reference image “${image.name}” changed on disk. ${fix}`);
         return { role: image.role, name: image.name, mime: image.mime, extension: image.extension, bytes: image.bytes, width: image.width, height: image.height, sha256: image.sha256, file: name };
       });
     }
@@ -1929,6 +1960,19 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     },
     readReferenceDoc({ workspaceId, docId } = {}) { const w = workspace(workspaceId); const doc = (w.referenceDocs || []).find(entry => entry.id === safeId(docId)); if (!doc) throw new Error('Reference document not found.'); return copy(doc); },
     deleteReferenceDoc({ workspaceId, docId } = {}) { const w = workspace(workspaceId); w.referenceDocs = (w.referenceDocs || []).filter(entry => entry.id !== safeId(docId)); w.updatedAt = stamp(); save(); return publicState(); },
+    // A reference picture for one set of channel assets (the Make channel assets dialog). The host reads the picked file;
+    // this checks what the bytes really are and keeps it until Make uses it. Returns what the dialog shows.
+    stageKitReference({ workspaceId, name, data } = {}) {
+      const w = workspace(workspaceId);
+      if (!(data instanceof Uint8Array)) throw new Error('Choose a PNG, JPEG or WebP picture.');
+      const info = brandImages().checkBrandImage(data);
+      sweepStagedReferences();
+      const label = path.basename(String(name || '')).replace(/[\u0000-\u001f\u007f]+/g, '').trim().slice(0, 120) || `Reference.${info.extension}`;
+      const reference = { id: id('kit-reference'), workspaceId: w.id, name: label, mime: info.mime, extension: info.extension, bytes: data.length, width: info.width, height: info.height, sha256: sha256(data), addedAt: stamp(), addedBy: who().id };
+      writeBytes(path.join(stagedDir(), `${reference.id}.${reference.extension}`), Buffer.from(data));
+      write(path.join(stagedDir(), `${reference.id}.json`), reference);
+      return { reference: { id: reference.id, name: reference.name, bytes: reference.bytes, width: reference.width, height: reference.height, sha256: reference.sha256 }, dataUrl: `data:${reference.mime};base64,${Buffer.from(data).toString('base64')}` };
+    },
     // Brand reference images (Settings): style examples and one approved logo per picture set. The host reads the
     // picked file; this checks what the bytes really are and keeps a copy in the studio's data folder.
     addBrandImage({ workspaceId, family, role, name, data } = {}) {
@@ -2151,7 +2195,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         route: writer.route === 'codex' ? 'codex' : 'claude',
         routes: { writes: labelOf(writer), draws: labelOf(tasks['pictures.kit-image'] || routing.resolve('pictures.kit-image')), films: labelOf(tasks['video.social-clip'] || routing.resolve('video.social-clip')) },
         uncappedTasks: [...new Set(Object.values(tasks).filter(task => task.metered === false).map(task => task.label))],
-        estimate, imagesReady, videosReady: videoReady, warnings: plan.warnings, edited: picked.edited || null,
+        estimate, imagesReady, videosReady: videoReady, maxSetReferences: brandImages().MAX_KIT_REFERENCES, warnings: plan.warnings, edited: picked.edited || null,
         // About 3 minutes per written asset at the report model's effort, a few at a time; pictures run alongside.
         minutes: Math.max(5, Math.round(Math.max(Math.ceil(text / ai.concurrency) * 3, Math.ceil(sets / 2) * 4))),
       };
@@ -2160,7 +2204,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // same files is queued or running, so a double tap or two owners of one channel don't pay twice. The check and the
     // new run happen in one synchronous step, so two calls can't both pass it.
     createAssetKit(payload = {}) {
-      const by = who(); const { w, picked, input, plan, ai, estimate } = kitPlan(payload); const createdAt = stamp();
+      const by = who(); const { w, picked, input, plan, ai, estimate, extras } = kitPlan(payload); const createdAt = stamp();
       if (payload.onlyIfIdle === true) {
         const wanted = new Set(plan.deliverables.map(d => d.id));
         const busy = state.contentRuns.find(run => run.workspaceId === w.id && run.kit?.sourceKey === picked.key && (active.has(run.id) || ['queued', 'running'].includes(run.status)) && (run.jobs || []).some(job => wanted.has(job.id)));
@@ -2175,9 +2219,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       // Only the workflow engine (its runs act as the workflow) may link a set to a workflow run.
       if (payload.workflow !== undefined) { if (!isWorkflowCall()) throw Object.assign(new Error('Only a workflow can link a set of channel assets to its run.'), { status: 403 }); run.workflow = workflowLink(payload.workflow); }
       const keyframeSet = run.ai.routing['video.keyframe'] && !plan.deliverables.some(d => d.id === 'brand-image') ? [{ id: 'brand-image', kind: 'image' }] : [];
-      try { const references = Object.fromEntries(Object.entries(snapshotKitReferences(run, w, [...plan.deliverables, ...keyframeSet])).filter(([deliverableId]) => plan.deliverables.some(d => d.id === deliverableId))); if (Object.keys(references).length) run.kit.references = references; }
+      try { const references = Object.fromEntries(Object.entries(snapshotKitReferences(run, w, [...plan.deliverables, ...keyframeSet], extras)).filter(([deliverableId]) => plan.deliverables.some(d => d.id === deliverableId))); if (Object.keys(references).length) run.kit.references = references; if (extras.length) run.kit.attachedReferences = extras.length; }
       catch (error) { try { fs.rmSync(path.join(root, 'runs', run.id), { recursive: true, force: true }); } catch (_) { /* the error that stopped the set is the one to report */ } throw error; }
       write(file(run.id, 'input.json'), input); state.contentRuns.unshift(run); save();
+      dropStagedReferences(extras); // the run folder has its own copies now
       return launch(run, () => performContent(run));
     },
     // A kit run as the folder n8n left in Drive: "<run folder>/<channel folder>/<n8n file name>", plus the source.

@@ -9,6 +9,7 @@ export const FILE_PICKERS = {
   pickImportFile: () => '.csv,.json,.jsonl,.ndjson',
   openSetupFile: () => '.json',
   addBrandImage: () => '.png,.jpg,.jpeg,.webp',
+  stageKitReference: () => '.png,.jpg,.jpeg,.webp',
 };
 
 // Which build this tab runs: the hashed bundle names its index.html loaded (studio-server.js buildIdFrom reads the same

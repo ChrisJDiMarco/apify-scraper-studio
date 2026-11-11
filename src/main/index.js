@@ -2254,6 +2254,15 @@ handle('studio:addBrandImage', async (_, payload = {}) => {
   return contentWorkspace.addBrandImage({ workspaceId: payload?.workspaceId, family: payload?.family, role: payload?.role, name: path.basename(filePath), data: fs.readFileSync(filePath) });
 });
 
+// A reference picture for one set of channel assets, picked in the Make channel assets dialog (an upload in the browser studio).
+handle('studio:stageKitReference', async (_, payload = {}) => {
+  const result = await dialog.showOpenDialog(mainWindow, { title: 'Add a reference picture', buttonLabel: 'Add', properties: ['openFile'], filters: [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+  if (result.canceled || !result.filePaths.length) return { cancelled: true };
+  const filePath = result.filePaths[0];
+  if (fs.statSync(filePath).size > require('../shared/brand-images').MAX_BRAND_IMAGE_BYTES) throw new Error('Choose a picture under 10 MB.');
+  return contentWorkspace.stageKitReference({ workspaceId: payload?.workspaceId, name: path.basename(filePath), data: fs.readFileSync(filePath) });
+});
+
 // A channel asset kit's folder: the browser downloads it as a .zip; the desktop app copies it into Downloads and shows it (on Windows, names fitted to its path limit).
 // A channel owner's folder holds only their own channel, taken from who they are, never from the request.
 handle('studio:saveAssetKitFolder', async (_, payload = {}) => {

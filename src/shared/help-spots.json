@@ -135,6 +135,7 @@
     { "id": "kit-dialog.plan", "tab": "assets", "item": "kit-review", "where": "Make channel assets dialog, step 2", "what": "The channel folders and assets that will be made; untick any you don't need (item: report title)" },
     { "id": "kit-dialog.estimate", "tab": "assets", "item": "kit-review", "where": "Make channel assets dialog, step 2", "what": "What it will cost, its cap, and how long it takes (item: report title)" },
     { "id": "kit-dialog.references", "tab": "assets", "item": "kit-review", "where": "Make channel assets dialog, step 2", "what": "Which picture sets send brand reference images, with a link to Settings (item: report title)" },
+    { "id": "kit-dialog.set-references", "tab": "assets", "item": "kit-review", "where": "Make channel assets dialog, step 2", "what": "Reference pictures for this set alone: Add a picture attaches up to 4 that every picture in the set is based on (item: report title)" },
     { "id": "kit-dialog.make", "tab": "assets", "item": "kit-review", "where": "Make channel assets dialog, step 2", "what": "Make N assets: starts the run (item: report title)" },
     { "id": "ask.box", "tab": "ask", "where": "Ask AI", "what": "The question box (Stop, beside the answer being written, stops a question)" },
     { "id": "ask.conversations", "tab": "ask", "where": "Ask AI: the left rail, or Conversations on a narrow window (in the drawer beside a Workbench page: the clock button in its header)", "what": "Saved conversations, for you only: New conversation, search, and each one's menu to pin, rename or delete" },

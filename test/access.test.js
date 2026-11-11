@@ -328,7 +328,7 @@ describe('capabilities at the gate', () => {
     expect(access.canUpload(CHRIS, { viewAs: null })).toBe(true);
     expect(access.canUpload(RILEY, { viewAs: null })).toBe(true);
     expect(access.canUpload(SAM_VIEWER, { viewAs: null })).toBe(false); // no method of theirs reads a file
-    expect(access.canUpload(ALEX, { viewAs: null })).toBe(false);
+    expect(access.canUpload(ALEX, { viewAs: null })).toBe(true); // a reference picture for their own set of channel assets
     expect(access.canUpload(CHRIS, { viewAs: { role: 'editor' } })).toBe(false); // never in a preview
     expect(access.effectiveFor(CHRIS, { viewAs: { role: 'role-reviewers-cd34', channelId: 'social' } })).toEqual({ role: 'channel', roleId: 'role-reviewers-cd34', channelId: 'social', preview: true });
     expect(access.viewKeyFor(CHRIS, { viewAs: { role: 'editor' } })).not.toBe(access.viewKeyFor(CHRIS, { viewAs: { role: 'role-viewer-ab12' } }));

@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   // Asset kits: every channel asset from one report, filed in folders per run.
   planAssetKit: (payload) => invoke('studio:planAssetKit', payload),
   createAssetKit: (payload) => invoke('studio:createAssetKit', payload),
+  stageKitReference: (payload) => invoke('studio:stageKitReference', payload),
   saveAssetKitFolder: (payload) => invoke('studio:saveAssetKitFolder', payload),
   // Brand reference images: style examples and an approved logo per picture set, sent with kit pictures.
   addBrandImage: (payload) => invoke('studio:addBrandImage', payload),

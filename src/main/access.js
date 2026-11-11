@@ -39,9 +39,9 @@ const AUDITED = new Set(['saveMember', 'removeMember', 'createSignInLink', 'revo
 // answers from the channel projection only (src/main/ask-channel.js), in that person's channel space of conversations
 // and memory (ask-store.js), with pictures only for a role that makes channel assets.
 const ASK_METHODS = Object.freeze(['readAskProgress', 'cancelAsk', 'askHelp', 'listAskConversations', 'readAskConversation', 'renameAskConversation', 'deleteAskConversation', 'recordAskOutcome', 'listAskMemory', 'saveAskMemory', 'forgetAskMemory', 'createHelpImage', 'saveHelpImage', 'listHelpImages', 'readHelpImage']);
-const SCOPE_METHODS = Object.freeze({ channel: Object.freeze(['planAssetKit', 'createAssetKit', 'readStudioAsset', 'openStudioAsset', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption', 'setViewPrefs', 'openReportDoc', 'closeReportDoc', 'listReportNotes', 'saveReportNote', 'resolveReportNote', 'deleteReportNote', 'readChannelSettings', 'saveChannelKnowledge', 'saveChannelInstructions', 'revertChannelInstructions', ...ASK_METHODS]), editor: Object.freeze(['saveResearchReview']) });
+const SCOPE_METHODS = Object.freeze({ channel: Object.freeze(['planAssetKit', 'createAssetKit', 'stageKitReference', 'readStudioAsset', 'openStudioAsset', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption', 'setViewPrefs', 'openReportDoc', 'closeReportDoc', 'listReportNotes', 'saveReportNote', 'resolveReportNote', 'deleteReportNote', 'readChannelSettings', 'saveChannelKnowledge', 'saveChannelInstructions', 'revertChannelInstructions', ...ASK_METHODS]), editor: Object.freeze(['saveResearchReview']) });
 // The methods that read a file the browser uploads first (web-api.js FILE_PICKERS), for studio-server's upload check.
-const UPLOAD_METHODS = Object.freeze(['importStudioSource', 'importWorkbook', 'pickImportFile', 'openSetupFile', 'applySetup', 'addBrandImage']);
+const UPLOAD_METHODS = Object.freeze(['importStudioSource', 'importWorkbook', 'pickImportFile', 'openSetupFile', 'applySetup', 'addBrandImage', 'stageKitReference']);
 const osName = () => { try { return os.userInfo().username || 'You'; } catch (_) { return 'You'; } };
 
 // notes: report-notes.js (optional), for each person's mentions and replies in their projected state.
@@ -133,7 +133,8 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
       const assetId = trendBrief(payload); const deliverableIds = channelDeliverables(viewer);
       if (!deliverableIds.length) throw fail('Nothing for your channel can be made from this trend right now.', 409);
       // No maxBudgetUsd: the server uses the plan's own cap.
-      return { source: { kind: 'report', assetId }, deliverableIds, ...(create ? { onlyIfIdle: true } : {}) };
+      // referenceIds (pictures the owner attached to this set) are checked by the workspace like anyone else's.
+      return { source: { kind: 'report', assetId }, deliverableIds, ...(Array.isArray(payload.referenceIds) && payload.referenceIds.length ? { referenceIds: payload.referenceIds } : {}), ...(create ? { onlyIfIdle: true } : {}) };
     };
   }
   function channelFile(payload, viewer) {
@@ -166,6 +167,8 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
   const SCOPES = {
     planAssetKit: { channel: channelKit(false) },
     createAssetKit: { channel: channelKit(true) },
+    // A picture for the set they are about to make, in the workspace they are in; nothing of the request is kept.
+    stageKitReference: { channel: () => ({}) },
     readStudioAsset: { channel: channelFile },
     openStudioAsset: { channel: channelFile },
     saveAssetKitFolder: { channel: (payload, viewer) => ({ runId: channelRun(payload, viewer).id }) },
