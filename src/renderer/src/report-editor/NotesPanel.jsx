@@ -161,7 +161,7 @@ function Thread({ note, active, changed, members, me, isAdmin, canNote, mentions
 
 // `notes` are in document order; `changedIds` holds the notes whose text is gone; `draft` is the note being written
 // ({ anchor }), shown first with its composer.
-export function NotesPanel({ notes = [], changedIds = new Set(), draft = null, activeId = '', canNote = false, mentionsOn = false, members = [], me = '', isAdmin = false, loading = false, problem = '', colorOf = () => '', onClose, onActivate, onAdd, onCancelDraft, onReply, onEdit, onDelete, onResolve, overlay = false }) {
+export function NotesPanel({ notes = [], changedIds = new Set(), draft = null, activeId = '', canNote = false, mentionsOn = false, members = [], me = '', isAdmin = false, loading = false, problem = '', colorOf = () => '', onClose, onActivate, onAdd, onCancelDraft, onReply, onEdit, onDelete, onResolve, overlay = false, dialog = null }) {
   const [showResolved, setShowResolved] = useState(false);
   const titleId = useId();
   const panel = useRef(null);
@@ -176,8 +176,10 @@ export function NotesPanel({ notes = [], changedIds = new Set(), draft = null, a
     return () => { if (previous?.isConnected) previous.focus?.({ preventScroll: true }); };
   }, [overlay]);
   // As an overlay the panel is drawn at the app frame's top level: inside the reader, the sticky toolbar's backdrop blur
-  // made its own stacking layer and painted over the panel's corner.
-  const node = <aside ref={panel} className={`rd-notes${overlay ? ' is-overlay' : ''}`} aria-labelledby={titleId} onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); onClose(); } }}>
+  // made its own stacking layer and painted over the panel's corner. A report read inside a dialog (`dialog`, that
+  // dialog's element) keeps its panel in the dialog instead, docked on the right: the dialog's backdrop sits above the
+  // app frame and its Tab trap only reaches what is inside it, so a panel drawn outside could be neither seen nor used.
+  const node = <aside ref={panel} className={`rd-notes${overlay ? ' is-overlay' : ''}${overlay && dialog ? ' in-dialog' : ''}`} aria-labelledby={titleId} onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); onClose(); } }}>
     <header className="rd-notes-head">
       <h2 id={titleId}><MessageSquareText size={16} aria-hidden="true" />Notes</h2>
       <div className="rd-segment" role="group" aria-label="Show notes">
@@ -197,6 +199,6 @@ export function NotesPanel({ notes = [], changedIds = new Set(), draft = null, a
         : shown.map((note) => <Thread key={note.id} note={note} active={note.id === activeId} changed={changedIds.has(note.id)} members={members} me={me} isAdmin={isAdmin} canNote={canNote} mentionsOn={mentionsOn} colorOf={colorOf} onActivate={onActivate} onReply={onReply} onEdit={onEdit} onDelete={onDelete} onResolve={(value) => onResolve({ noteId: note.id, resolved: value })} />)}
     </div>
   </aside>;
-  const host = overlay && typeof document !== 'undefined' ? (document.querySelector('.app-shell') || document.body) : null;
+  const host = overlay && typeof document !== 'undefined' ? (dialog || document.querySelector('.app-shell') || document.body) : null;
   return host ? createPortal(<div className="rd-portal">{node}</div>, host) : node;
 }

@@ -657,8 +657,12 @@ function ChannelSet({ api, run, assets, web, cache, saving, onCard = false, mayS
 }
 
 // A written draft, read in place: copy it, download or open the file, and ← → through the set.
+// On a studio with the live report editor a written draft opens read-only in it, so the owner can leave notes on its text
+// for the editors (and @mention them in the browser studio), as on the brief.
 function ChannelFileReader({ api, web, file, label, onClose, onMove, onFile }) {
   const { asset } = file;
+  const viewer = useViewer();
+  const live = liveDocsOn(api, viewer) && asset.kind !== 'video' && asset.kind !== 'image';
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -681,7 +685,7 @@ function ChannelFileReader({ api, web, file, label, onClose, onMove, onFile }) {
         </div>
       </header>
       <div className="studio-dialog-body studio-reading">
-        {asset.kind === 'video' ? <VideoPlayer asset={asset} api={api} /> : error ? <p className="studio-error" role="alert">{error}</p> : !payload ? <div className="studio-skeleton" role="status" aria-label="Opening the file"><span /><span /><span /><span /></div> : markdown ? <MarkdownContent onOpenSourceUrl={api.openSourceUrl ? (url) => api.openSourceUrl(url) : undefined}>{markdown}</MarkdownContent> : <p className="studio-hint">This file has no readable text. Try {web ? 'Download' : 'Open'}.</p>}
+        {asset.kind === 'video' ? <VideoPlayer asset={asset} api={api} /> : error ? <p className="studio-error" role="alert">{error}</p> : !payload ? <div className="studio-skeleton" role="status" aria-label="Opening the file"><span /><span /><span /><span /></div> : markdown && live ? <ReportDocument key={asset.id} api={api} asset={{ id: asset.id, title: asset.title || label || 'Draft' }} markdown={markdown} web={webHost()} editable={false} variant="brief" label={asset.title || label || 'Draft'} /> : markdown ? <MarkdownContent onOpenSourceUrl={api.openSourceUrl ? (url) => api.openSourceUrl(url) : undefined}>{markdown}</MarkdownContent> : <p className="studio-hint">This file has no readable text. Try {web ? 'Download' : 'Open'}.</p>}
       </div>
   </Dialog>;
 }

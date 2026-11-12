@@ -554,7 +554,7 @@ export const ReportDocument = forwardRef(function ReportDocument({ api = {}, ass
           </li>; })}
         </ul>}
       </div>
-      {panelOpen && notesOn && <NotesPanel notes={placed.order} changedIds={placed.changedIds} draft={draft} activeId={activeId} canNote={canNote} mentionsOn={mentionsOn} members={members} me={me} isAdmin={viewer?.base === 'admin' || viewer?.role === 'admin'} loading={notesLoading} problem={notesProblem} colorOf={colorOf} overlay={overlay}
+      {panelOpen && notesOn && <NotesPanel notes={placed.order} changedIds={placed.changedIds} draft={draft} activeId={activeId} canNote={canNote} mentionsOn={mentionsOn} members={members} me={me} isAdmin={viewer?.base === 'admin' || viewer?.role === 'admin'} loading={notesLoading} problem={notesProblem} colorOf={colorOf} overlay={overlay} dialog={overlay ? rootRef.current?.closest?.('[role="dialog"]') || null : null}
         onClose={() => { setPanelOpen(false); setDraft(null); setActiveId(''); }} onActivate={showNote} onAdd={addNote} onCancelDraft={() => setDraft(null)} onReply={replyNote} onEdit={editNote} onDelete={deleteNote} onResolve={resolveNote} />}
     </div>
   </div>;

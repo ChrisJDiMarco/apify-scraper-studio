@@ -17,7 +17,7 @@
 .rd-bar-space { flex: 1 1 auto; }
 .rd-tool { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 11px; font: inherit; font-size: 13px; font-weight: 600; color: var(--rd-muted); background: transparent; border: 1px solid transparent; border-radius: 999px; cursor: pointer; transition: background-color .16s var(--rd-ease), color .16s var(--rd-ease), border-color .16s var(--rd-ease); }
 .rd-tool:hover { color: var(--rd-ink); background: var(--rd-bg); }
-.rd-tool[aria-pressed="true"], .rd-tool[aria-expanded="true"] { color: var(--rd-soft-ink); background: var(--rd-soft); }
+.rd-root .rd-tool[aria-pressed="true"], .rd-root .rd-tool[aria-expanded="true"], .rd-root .rd-tool[aria-pressed="true"]:hover:not(:disabled), .rd-root .rd-tool[aria-pressed="true"]:focus-visible { color: var(--rd-soft-ink); background: var(--rd-soft); border-color: transparent; }
 .rd-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; font-size: 11px; font-weight: 700; color: var(--s-on-accent, #181e15); background: var(--rd-accent); border-radius: 999px; }
 .rd-status { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 0 6px; font-size: 12.5px; color: var(--rd-faint); white-space: nowrap; }
 .rd-status.is-error { color: var(--rd-danger); }
@@ -131,6 +131,13 @@
 .rd-notes { display: flex; flex-direction: column; min-width: 0; min-height: 0; color: var(--rd-ink); background: var(--rd-card); border: 1px solid var(--rd-line); border-radius: 18px; }
 .rd-root.is-wide.has-notes .rd-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; align-items: start; }
 .rd-root.is-wide .rd-notes { position: sticky; top: 12px; max-height: calc(100dvh - 140px); animation: rd-fade .2s var(--rd-ease); }
+/* In a dialog (a channel owner's brief or draft) the panel docks on the dialog's right edge, and the dialog widens so
+   the text beside it stays readable. */
+[role="dialog"]:has(> .rd-portal) { position: relative; }
+[role="dialog"] > .rd-portal { position: static; }
+.studio-dialog.wide:has(> .rd-portal) { width: min(1280px, 100%); }
+@media (min-width: 1000px) { .studio-dialog:has(> .rd-portal) > :is(.studio-dialog-head, .studio-dialog-body, .channel-brief-notes) { padding-right: 404px; } }
+.rd-notes.is-overlay.in-dialog { position: absolute; top: 0; right: 0; bottom: 0; left: auto; z-index: 6; width: min(380px, 100%); height: auto; border-radius: 0; border-width: 0 0 0 1px; box-shadow: -18px 0 40px rgba(0, 0, 0, .08); }
 .rd-notes.is-overlay { position: fixed; top: 12px; right: 12px; bottom: 12px; z-index: 70; width: min(380px, calc(100vw - 24px)); box-shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 30px 80px rgba(0, 0, 0, .22); animation: rd-slide .24s var(--rd-ease); }
 .rd-notes-head { display: flex; align-items: center; gap: 8px; padding: 14px 12px 10px 16px; border-bottom: 1px solid var(--rd-line); }
 .rd-notes-head h2 { display: inline-flex; align-items: center; gap: 7px; flex: 1 1 auto; margin: 0; font-size: 15px; letter-spacing: -.1px; }
