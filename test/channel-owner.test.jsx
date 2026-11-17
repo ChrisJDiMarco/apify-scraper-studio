@@ -16,7 +16,7 @@ const day = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short
 const channel = { id: 'blog', name: 'Semrush Blog', short: 'Blog', deliverables: [{ id: 'blogshort', label: 'Blog — Short News Update', kind: 'text' }, { id: 'bloglong', label: 'Blog — Long-form Article', kind: 'text' }] };
 const trend = (over = {}) => ({ themeId: 'theme-1', name: 'AI Overviews', description: 'Answers at the top of search.', priority: 'top', category: 'Search', evidenceCount: 12, readyAt: now, primaryReportId: 'asset-toolkit-1', reportAssets: [], adoption: null, isNew: true, earlier: false, briefEditedAt: '', latestRun: null, runCount: 0, assetCount: 0, ...over });
 const run = (over = {}) => ({ id: 'kit-1', title: 'AI Overviews', status: 'running', message: '', progress: { done: 1, total: 2 }, createdAt: '2026-10-12T10:00:00.000Z', finishedAt: '', kit: { sourceTitle: 'AI Overviews', themeId: 'theme-1', folderName: 'Golden Thread — AI Overviews', reportAssetId: 'asset-report-1' }, shared: false, jobs: [{ id: 'blogshort', label: 'Blog — Short News Update', kind: 'text', status: 'succeeded', assetId: 'asset-short', assetIds: [] }, { id: 'bloglong', label: 'Blog — Long-form Article', kind: 'text', status: 'running', assetId: '', assetIds: [] }], ...over });
-const viewer = (over = {}) => ({ id: 'member-alex', name: 'Alex Smith', role: 'channel', realRole: 'channel', channelId: 'blog', channelName: 'Semrush Blog', via: 'link', preview: false, memberSince: '2026-09-01T00:00:00.000Z', prefs: { welcomedAt: '2026-10-01T00:00:00.000Z' }, ...over });
+const viewer = (over = {}) => ({ id: 'member-alex', name: 'Alex Smith', role: 'channel', realRole: 'channel', channelId: 'blog', channelName: 'Semrush Blog', via: 'link', preview: false, memberSince: '2026-09-01T00:00:00.000Z', prefs: { welcomedAt: '2026-10-01T00:00:00.000Z', channelTrendView: 'list' }, ...over });
 const api = (over = {}) => ({
   setTrendAdoption: vi.fn(async () => ({ adoption: null })), planAssetKit: vi.fn(async () => ({ title: 'AI Overviews', folder: { id: 'blog', name: 'Semrush Blog', items: [{ id: 'blogshort', label: 'Blog — Short News Update', kind: 'text', pictures: 0 }, { id: 'bloglong', label: 'Blog — Long-form Article', kind: 'text', pictures: 0 }] }, minutes: 4, imagesReady: true, edited: { byName: 'Riley', at: '2026-10-14T15:00:00.000Z' }, earlierSets: [] })),
   createAssetKit: vi.fn(async () => run({ id: 'kit-new', status: 'queued', progress: { done: 0, total: 2 }, createdAt: now })), cancelStudioRun: vi.fn(async () => ({})), retryStudioRun: vi.fn(async () => run({ status: 'queued' })),
@@ -26,6 +26,35 @@ const api = (over = {}) => ({
 });
 const view = (trends, extra = {}) => ({ channel, counts: { newTrends: trends.filter((row) => row.isNew).length }, trends, runs: [], assets: [], ...extra });
 const card = (name) => screen.getByRole('article', { name });
+
+describe('the channel board and Assets generation', () => {
+  it('starts with a board of shared channel decisions and moves a card without workspace approval', async () => {
+    const services = api();
+    render(<ChannelTrends api={services} view={view([trend(), trend({ themeId: 'theme-using', name: 'Using already', adoption: { status: 'using', byName: 'Riley', byMe: false } }), trend({ themeId: 'theme-skip', name: 'Passed over', adoption: { status: 'not-using', byName: 'Sam', byMe: false } }), trend({ themeId: 'theme-other', name: 'Other channel only', offered: false })])} viewer={viewer({ prefs: { welcomedAt: now } })} />);
+    const ready = screen.getByRole('region', { name: 'Ready to review' });
+    expect(within(ready).getByRole('article', { name: 'AI Overviews' })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Using' })).getByRole('article', { name: 'Using already' })).toHaveTextContent('Riley');
+    expect(within(screen.getByRole('region', { name: 'Not for us' })).getByRole('article', { name: 'Passed over' })).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'Other channel only' })).not.toBeInTheDocument();
+    fireEvent.click(within(ready).getByRole('button', { name: 'Yes, I’m using this trend' }));
+    await waitFor(() => expect(services.setTrendAdoption).toHaveBeenCalledWith({ themeId: 'theme-1', status: 'using', link: '', note: '' }));
+    expect(within(screen.getByRole('region', { name: 'Using' })).getByRole('article', { name: 'AI Overviews' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Approve/ })).not.toBeInTheDocument();
+  });
+
+  it('starts generation from Assets only after choosing a trend and reviewing the sheet', async () => {
+    const services = api();
+    render(<ChannelAssets api={services} view={view([trend()])} viewer={viewer()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Generate assets' }));
+    const picker = screen.getByRole('dialog', { name: 'Generate assets for Semrush Blog' });
+    fireEvent.change(within(picker).getByRole('combobox', { name: 'Trend' }), { target: { value: 'theme-1' } });
+    fireEvent.click(within(picker).getByRole('button', { name: 'Review generation' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Generate drafts for “AI Overviews”' });
+    expect(services.createAssetKit).not.toHaveBeenCalled();
+    fireEvent.click(await within(confirm).findByRole('button', { name: 'Generate 2 drafts' }));
+    await waitFor(() => expect(services.createAssetKit).toHaveBeenCalledWith({ source: { kind: 'report', assetId: 'asset-toolkit-1' }, deliverableIds: ['blogshort', 'bloglong'] }));
+  });
+});
 
 describe('ChannelTrends: the make slot', () => {
   it('offers Generate for my channel with the channel’s files when nothing was made yet', () => {
@@ -250,7 +279,7 @@ describe('ChannelTrends: preview, groups and empty states', () => {
     expect(writes).toHaveLength(5);
     for (const button of writes) { expect(button).toBeDisabled(); expect(button).toHaveAttribute('title', PREVIEW_TITLE); }
     // Reading and the filters stay on.
-    expect(screen.getByRole('button', { name: /^All/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Board' })).toBeEnabled();
     expect(screen.getAllByRole('button', { name: /Read the brief/ })[0]).toBeEnabled();
     expect(screen.getByRole('button', { name: /Open my assets/ })).toBeEnabled();
   });
@@ -375,7 +404,7 @@ describe('ChannelAssets', () => {
     rerender(<ChannelAssets api={api()} view={view([trend()], { runs: [done, other], assets })} viewer={viewer()} focusThemeId="theme-1" />);
     expect(screen.getByRole('heading', { level: 1, name: 'My assets · Semrush Blog' })).toHaveFocus();
     rerender(<ChannelAssets api={api()} view={view([trend()])} viewer={viewer()} />);
-    expect(screen.getByText('No drafts yet. On Trends, open a trend’s brief and press Generate for my channel. Your drafts land here, grouped by trend, and you can download each set as a folder.')).toBeInTheDocument();
+    expect(screen.getByText('No drafts yet. Choose Generate assets to start from an approved trend. Your drafts land here, grouped by trend, and you can download each set as a folder.')).toBeInTheDocument();
   });
 
   it('loads picture thumbnails once and opens them in a lightbox', async () => {
@@ -426,7 +455,7 @@ describe('ChannelTrends: routing and plans', () => {
     expect(card('AI Overviews')).toBeInTheDocument();
     expect(screen.queryByRole('article', { name: 'Local packs' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^All/ }));
-    expect(within(card('Local packs')).getByText('Suggested for Semrush Social Team and Semrush PR by Riley')).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'Local packs' })).not.toBeInTheDocument();
   });
 
   it('adds the date a trend in use goes out, and only then sends plannedFor', async () => {

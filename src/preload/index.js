@@ -9,6 +9,7 @@ const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args).catch(
 contextBridge.exposeInMainWorld('apifyStudio', {
   publishStudioRun: payload => invoke('studio:publishStudioRun', payload),
   contentCatalog: (payload) => invoke('studio:contentCatalog', payload),
+  saveWorkspaceMembership: (payload) => invoke('team:workspace-membership', payload),
   selectContentWorkspace: (payload) => invoke('studio:selectContentWorkspace', payload),
   saveContentWorkspace: (payload) => invoke('studio:saveContentWorkspace', payload),
   saveResearchProgram: (payload) => invoke('studio:saveResearchProgram', payload),
@@ -29,6 +30,10 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   saveReferenceDoc: (payload) => invoke('studio:saveReferenceDoc', payload),
   readReferenceDoc: (payload) => invoke('studio:readReferenceDoc', payload),
   readChannelSettings: (payload) => invoke('studio:readChannelSettings', payload),
+  addChannelReference: (payload) => invoke('studio:addChannelReference', payload),
+  saveChannelReference: (payload) => invoke('studio:saveChannelReference', payload),
+  readChannelReference: (payload) => invoke('studio:readChannelReference', payload),
+  removeChannelReference: (payload) => invoke('studio:removeChannelReference', payload),
   estimateProgramSetup: (payload) => invoke('setup:estimate', payload),
   suggestProgramSetup: (payload) => invoke('setup:suggest', payload),
   saveChannelKnowledge: (payload) => invoke('studio:saveChannelKnowledge', payload),

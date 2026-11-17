@@ -16,10 +16,11 @@ const NO_SET = Object.freeze({ family: 'none', label: '', images: [] });
 
 // references(family) → { family, label, images: [{ id, name, role, mime, sha256, data }] } for the active workspace;
 // edition() → its edition id; workspaceId() → its id. problem() (optional) → why pictures can't be made now ('' when they can).
-function createHelpImages({ generateImage, dir, isConfigured = () => true, problem = null, references = () => NO_SET, edition = () => 'general', workspaceId = () => '', now = () => new Date() }) {
+function createHelpImages({ generateImage, dir, isConfigured = () => true, problem = null, references = () => NO_SET, channelReferences = () => NO_SET, edition = () => 'general', workspaceId = () => '', now = () => new Date() }) {
   const file = (id, extension) => path.join(dir, `${id}.${extension}`);
   // ownerId: who asked for it (their identity id), kept in the receipt so a channel owner lists and opens only their own.
   async function create({ prompt, size = HELP_IMAGE_SIZES[0], title = '', family = 'none', ownerId = '' } = {}) {
+    const imageWorkspaceId = workspaceId();
     const text = String(prompt || '').trim();
     if (!text) throw new Error('Describe the picture first.');
     if (text.length > MAX_PROMPT_CHARS) throw new Error('Keep the picture description under 4,000 characters.');
@@ -29,9 +30,10 @@ function createHelpImages({ generateImage, dir, isConfigured = () => true, probl
     const chosen = ASK_IMAGE_FAMILIES.includes(family) ? family : 'none';
     // The set is read (and each file's checksum verified) before anything is paid for.
     const set = chosen === 'none' ? NO_SET : references(chosen) || NO_SET;
-    const images = Array.isArray(set.images) ? set.images : [];
+    const examples = channelReferences() || NO_SET;
+    const images = [...(Array.isArray(set.images) ? set.images : []), ...(Array.isArray(examples.images) ? examples.images : [])];
     const lines = referencePromptLines(images, { owner: referenceOwner(set.family, edition()), sel: String(set.family).startsWith('sel-'), dataRule: true });
-    const full = lines.length ? `${text}\n${lines.join('\n')}` : text;
+    const full = [text, lines.join('\n'), examples.prompt || ''].filter(Boolean).join('\n');
     const id = `help-image-${randomUUID()}`; const label = String(title || '').trim().slice(0, 120) || 'Ask AI picture';
     fs.mkdirSync(dir, { recursive: true });
     const [image] = await generateImage({
@@ -44,7 +46,7 @@ function createHelpImages({ generateImage, dir, isConfigured = () => true, probl
     });
     const receipt = image?.receipt || {};
     const summary = { label: set.label || '', ...referenceSummary(images) };
-    fs.writeFileSync(file(id, 'json'), JSON.stringify({ id, title: label, prompt: text, size, family: set.family || 'none', referenceSet: set.label || '', references: images.map(({ id: imageId, name, role, sha256 }) => ({ id: imageId, name, role, sha256 })), workspaceId: workspaceId(), ...(ownerId ? { ownerId: String(ownerId) } : {}), createdAt: now().toISOString(), receipt }, null, 2));
+    fs.writeFileSync(file(id, 'json'), JSON.stringify({ id, title: label, prompt: text, size, family: set.family || 'none', referenceSet: set.label || '', references: images.map(({ id: imageId, name, role, sha256 }) => ({ id: imageId, name, role, sha256 })), workspaceId: imageWorkspaceId, ...(ownerId ? { ownerId: String(ownerId) } : {}), createdAt: now().toISOString(), receipt }, null, 2));
     return {
       id, title: label, size, prompt: text, family: set.family || 'none', references: summary,
       dataUrl: `data:image/png;base64,${Buffer.from(image.png).toString('base64')}`,
@@ -61,7 +63,7 @@ function createHelpImages({ generateImage, dir, isConfigured = () => true, probl
     if (typeof id !== 'string' || !ID.test(id)) throw new Error('That picture is no longer available.');
     const target = file(id, 'png'); if (!fs.existsSync(target)) throw new Error('That picture is no longer available.');
     const meta = metaOf(id);
-    if (ownerId && meta.ownerId !== ownerId) throw new Error('That picture is no longer available.');
+    if (meta.workspaceId !== workspaceId() || (ownerId && meta.ownerId !== ownerId)) throw new Error('That picture is no longer available.');
     return { path: target, title: meta.title || 'Ask AI picture' };
   }
   // Every saved picture, newest first, for Simple mode's Assets tab (metadata only; read() loads one image). `ownerId`
@@ -71,7 +73,7 @@ function createHelpImages({ generateImage, dir, isConfigured = () => true, probl
     try { names = fs.readdirSync(dir); } catch { return []; }
     return names.filter((name) => ID.test(name.replace(/\.json$/, '')) && name.endsWith('.json') && !name.endsWith('.request.json'))
       .map((name) => { try { return JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')); } catch { return null; } })
-      .filter((meta) => meta && fs.existsSync(file(meta.id, 'png')) && (!ownerId || meta.ownerId === ownerId))
+      .filter((meta) => meta && meta.workspaceId === workspaceId() && fs.existsSync(file(meta.id, 'png')) && (!ownerId || meta.ownerId === ownerId))
       .map((meta) => ({ id: meta.id, title: meta.title || 'Ask AI picture', prompt: meta.prompt || '', size: meta.size || HELP_IMAGE_SIZES[0], createdAt: meta.createdAt || '', costUsd: Number.isFinite(meta.receipt?.costUsd) ? meta.receipt.costUsd : null, family: meta.family || 'none', references: summaryOf(meta) }))
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   }

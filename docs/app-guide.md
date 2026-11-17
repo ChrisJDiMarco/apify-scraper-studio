@@ -15,9 +15,9 @@ The research pipeline reproduces the team's earlier n8n workflow (same sources, 
 - A **workspace** holds its own brand knowledge, approved products, taxonomy, reference documents, research programs, runs, trend history and assets. Workspaces share nothing.
 - Each workspace has an **edition**, fixed at creation. **Semrush workspace** has Semrush branding, prompts tuned to SEO and search marketing, starter brand knowledge, and Semrush editorial formats (Backlinko, Exploding Topics, Search Engine Land). **General** (listed as **Your brand**) runs the same pipeline for any brand.
 - A fresh install has **Semrush workspace** and **Your workspace** (General). The Mac app opens in the Semrush workspace, where the sidebar shows the Semrush wordmark and "Research & content studio": the Semrush edition of Golden Thread.
-- Admins switch workspaces with the workspace switcher at the top of the left sidebar (the workspace's name, with your role under it). Its list ends with **New workspace**, which opens a **Create a workspace** form in Brand knowledge; **New → Workspace** does the same. Editors and channel owners see the workspace name there and follow the studio's active workspace.
+- Open the workspace name at the top of the left sidebar to switch between workspaces you belong to. Switching affects only your own browser session. A **Super Admin** can create a **New workspace**, or open **People & access → Add existing person** to add an existing account without another invitation. Their role and channel can differ in each workspace. A workspace **Admin** manages only that workspace.
 - Some builds, like the Semrush package, have one workspace, **Main** (Semrush edition): the sidebar shows only its name, with no switcher and no **New workspace**, and its name can't be changed. Settings → **Files & workspace** says so.
-- Settings (keys, the Claude connection, Google and Monday.com) apply to every workspace on the Mac; a Monday.com board is linked per workspace. Only admins see Settings.
+- Workspace settings, saved connections and data are scoped to the selected workspace. A Monday.com board is linked per workspace. Only admins see Settings.
 
 ### The flow, end to end
 
@@ -55,7 +55,7 @@ A **quick scan**, started from Ask AI, is the short version: a few hours of post
 
 One left sidebar serves everyone. There is no Simple or Advanced layout any more, and no switch between them. Top to bottom:
 
-- **The head**: the studio's wordmark, the collapse button (⌘\) and the workspace switcher, which shows the workspace with your role under its name. Admins open it to switch workspaces or start a **New workspace**; for everyone else it's a label. It's turned off while an admin previews someone.
+- **The head**: the studio's wordmark, the collapse button (⌘\) and the workspace switcher, which shows the workspace with your role under its name. Every member opens it to switch between their accessible workspaces. Only Super Admins can start a **New workspace**. It's turned off while an admin previews someone.
 - **New** (⌥⌘N), **Search…** (⌘K) and **Ask AI** (⌘J). **New** lists what you can start: **Find new trends** (with a list of programs when there are several), **Quick scan**, **Channel assets**, **Content from a report** and **Picture**; admins also get **Research program** (the guided setup), **Playbook**, **Person** and **Workspace** below a line. Paid work still shows its estimate before it starts. **Quick scan** and **Picture** open Ask AI with the first words typed; **Channel assets** opens its dialog over the page you're on; **Content from a report** opens Create content; **Person** opens the invite dialog. **Ask AI** opens the Ask AI page; while a Workbench page is open it opens the Ask AI drawer beside that page instead (press it again to close the drawer).
 - **Home**, which carries the Inbox's unread count; the Inbox opens from **Recent** on Home or from Search. A role without Home has **Inbox** here instead.
 - **Pipeline**, in the order work happens: **Research programs** (admins, or a role with **Manage research programs**), **Trends**, **Assets** and **Calendar**.
@@ -357,14 +357,15 @@ On the Mac (and the Windows app), People & access has no invitations or sign-in 
 
 ## For channel owners
 
-A channel owner's studio is their channel. Their sidebar has **Inbox**, a **Pipeline** of **Trends**, **Assets** (the **My assets** page) and **Calendar** (the **My plan** page), **My channel** in the **Studio** group, and **Ask AI**. What each page does:
+Your studio shows only your workspace, assigned research programs and channel. The sidebar includes Inbox, Research programs, Trends, Assets, Calendar, My channel and Ask AI, according to your access.
 
-- **Trends** lists each trend offered to their channel whose brief is written, newest first, with a count of new ones next to **Trends**. A trend sent to some channels only is offered to those; one approved with a plain **Yes** goes to every channel. Filters: **New**, **For us** (sent to this channel, when there are any), **Using**, **Not for us** and **All**. Trends from before they joined sit under **Earlier**. A trend sent with a note shows it: "Suggested for Social by Riley: “…”". Each card says who approved it.
-- **Read the brief** opens the trend's report (with **Copy link** when share links are on). **Generate for my channel** makes this channel's drafts from it (the card shows progress; **Stop** stops it, and **Finish the rest** retries files that didn't finish). **Open my assets** jumps to the drafts, whichever set made them; **Generate a new set** makes another set after asking. A set made with other channels that didn't finish this channel's files says to ask an editor, and the card keeps showing an earlier set of yours that did finish. When only an admin can fix what stopped a set (a key, a sign-in, the account's credit), the card says "Ask an admin: the AI connection needs attention." instead of offering **Finish the rest**.
-- **Yes, I’m using this trend** or **Not for us** answers for the channel (a role without **Mark trends used** sees the answers but can't change them); **Add the link when it’s live** saves where it was used, and **Planned for** adds the day it goes out (it shows in **My plan** and the team's **Calendar**). Owners of the same channel share one answer per trend, shown as "Answered by …".
-- **My assets** (**Assets** in the sidebar) groups the channel's drafts by trend: text opens in a reader with **Copy text**, pictures open full size, each file shows its status, and each set has **Save folder** (Mac) or **Download folder** (browser). A set made with other channels says **Made with other channels**; ask an editor to stop or finish it.
-- **My plan** (**Calendar** in the sidebar) and **Inbox**: see [Calendar and My plan](#calendar-and-my-plan) and [Inbox](#inbox).
-- **My channel** (for roles with **Edit channel settings**) has two tabs. **Channel knowledge**: who the channel speaks to, its voice and tone, format rules, what to always and never do, examples that worked and reference links. The AI reads it when it writes this channel's assets, after the studio's brand knowledge; **Save channel knowledge** applies it to new assets. **Asset instructions**: the editable text of the prompts that write this channel's assets, each with **Save instructions**, a **Note for the history** and **Earlier versions** to **Restore**; one an admin locked is read-only ("Locked by an admin"). Admins and editors edit any channel on **Channels**, in the Studio group.
+- **Research programs** shows read-only focus, sources and schedule for programs available to you. Open a program to see details; **Contact admin** helps compose and copy a change request for your usual work chat or email.
+- **Trends** offers Board and List. The shared channel board has **Ready to review**, **Using** and **Not for us**. These are approved trends offered to your channel, with completed briefs. Your decision never changes workspace approval or another channel's answer. Other owners of your channel see the same decision and who answered.
+- **Read the brief** opens a trend report. **Generate for my channel** shows the proposed files before generation; **Stop**, **Finish the rest** and **Generate a new set** apply to your channel's set. A set shared with other channels needs an editor to stop or finish it. If a connection needs attention, ask an admin.
+- **Yes, I’m using this trend** or **Not for us** saves your channel's answer. **Add the link when it’s live** records where it was used; **Planned for** puts it in your Calendar and the team's Calendar. Your role needs decision access to change an answer.
+- **Assets** groups channel drafts by trend. **Generate assets** chooses an available trend and opens the same confirmation as generation from Trends. Text has **Copy text**, pictures open full size, and **Save folder** (Mac) or **Download folder** (browser) exports a set.
+- **My channel** has **Channel knowledge** (audience, voice, rules, examples and links), **Image examples** (up to four described PNG/JPEG/WebP references), and **Asset instructions** (editable prompts, history and restore; an admin-locked prompt stays read-only). Saved notes and examples guide new channel assets. Admins and editors manage channels through **Channels**.
+- **Calendar** shows your channel's plan; **Inbox** shows work needing attention.
 
 ### Ask AI for channel owners
 
@@ -394,7 +395,7 @@ Use this list for a new Mac install (on Windows, step 1 is in [On Windows](#on-w
 
 ## Research programs
 
-A research program is a saved listening brief: sources, date rules, budgets and AI settings. Each start creates a separate run with its own evidence snapshot.
+Research programs are the starting point for the pipeline. A workspace can have multiple saved listening briefs, each with its own focus, sources, date rules, budgets and AI settings. Each run collects its own evidence and generates trends for review. Channel owners can browse the programs assigned to them, with focus, sources and schedule shown read-only; **Contact admin** helps compose a request to add or edit one. Costs and model settings are not shown to channel owners.
 
 **The Research programs page** (first in the sidebar's Pipeline, for admins or any role with **Manage research programs**) shows every program at a glance: its schedule (**Schedule on**, **Paused** or **On demand**), next and last run, sources and per-run budgets. **Run now** starts it after the usual estimate. **Edit** opens the program's own page (see **A program's page** below). The **…** menu has **Pause schedule** / **Resume schedule**, **People who see it**, **Quick edit** (the same settings in a panel beside the page) and **Runs and results**. **Add program** starts the guided setup. Home shows the same cards (see [Weekly briefing](#weekly-briefing)).
 
@@ -1011,3 +1012,7 @@ Ask AI first. Then send the team: what you did and expected; a screenshot of the
 - **Research collections don't appear in Datasets or Ask your datasets.** Use Sheets, or ask Ask AI.
 - **The app doesn't track blog coverage on its own.** Priority scoring uses the taxonomy you import.
 - **Images need your own OpenAI key.** Windows is not yet tested.
+
+## Workspace and role walkthrough
+
+A first-use tour explains your current workspace and role. **Take the guided tour** in the account menu replays it. Completion is saved per person, workspace and role; previews do not change it. Channel image examples must be PNG, JPEG or WebP, under 10 MB and 16–8,192 pixels per side. Saved pixels and descriptions guide channel generation and Ask AI pictures; runs keep their starting examples for retries.

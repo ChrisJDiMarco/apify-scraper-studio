@@ -10,7 +10,7 @@ const os = require('os');
 const roles = require('./roles');
 const kit = require('../shared/asset-kit');
 const content = require('../shared/content-studio');
-const { kitChannelIds, publicKitRun, channelOf } = require('./channel-view');
+const { kitChannelIds, publicKitRun, channelOf, readyTrends } = require('./channel-view');
 const programScope = require('./program-scope');
 
 const SYSTEM = Object.freeze({ id: 'system', name: 'Automatic' });
@@ -39,9 +39,9 @@ const AUDITED = new Set(['saveMember', 'removeMember', 'createSignInLink', 'revo
 // answers from the channel projection only (src/main/ask-channel.js), in that person's channel space of conversations
 // and memory (ask-store.js), with pictures only for a role that makes channel assets.
 const ASK_METHODS = Object.freeze(['readAskProgress', 'cancelAsk', 'askHelp', 'listAskConversations', 'readAskConversation', 'renameAskConversation', 'deleteAskConversation', 'recordAskOutcome', 'listAskMemory', 'saveAskMemory', 'forgetAskMemory', 'createHelpImage', 'saveHelpImage', 'listHelpImages', 'readHelpImage']);
-const SCOPE_METHODS = Object.freeze({ channel: Object.freeze(['planAssetKit', 'createAssetKit', 'stageKitReference', 'readStudioAsset', 'openStudioAsset', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption', 'setViewPrefs', 'openReportDoc', 'closeReportDoc', 'listReportNotes', 'saveReportNote', 'resolveReportNote', 'deleteReportNote', 'readChannelSettings', 'saveChannelKnowledge', 'saveChannelInstructions', 'revertChannelInstructions', ...ASK_METHODS]), editor: Object.freeze(['saveResearchReview']) });
+const SCOPE_METHODS = Object.freeze({ channel: Object.freeze(['addChannelReference', 'saveChannelReference', 'readChannelReference', 'removeChannelReference', 'planAssetKit', 'createAssetKit', 'stageKitReference', 'readStudioAsset', 'openStudioAsset', 'saveAssetKitFolder', 'cancelStudioRun', 'retryStudioRun', 'setTrendAdoption', 'setViewPrefs', 'openReportDoc', 'closeReportDoc', 'listReportNotes', 'saveReportNote', 'resolveReportNote', 'deleteReportNote', 'readChannelSettings', 'saveChannelKnowledge', 'saveChannelInstructions', 'revertChannelInstructions', ...ASK_METHODS]), editor: Object.freeze(['saveResearchReview']) });
 // The methods that read a file the browser uploads first (web-api.js FILE_PICKERS), for studio-server's upload check.
-const UPLOAD_METHODS = Object.freeze(['importStudioSource', 'importWorkbook', 'pickImportFile', 'openSetupFile', 'applySetup', 'addBrandImage', 'stageKitReference']);
+const UPLOAD_METHODS = Object.freeze(['importStudioSource', 'importWorkbook', 'pickImportFile', 'openSetupFile', 'applySetup', 'addBrandImage', 'addChannelReference', 'stageKitReference']);
 const osName = () => { try { return os.userInfo().username || 'You'; } catch (_) { return 'You'; } };
 
 // notes: report-notes.js (optional), for each person's mentions and replies in their projected state.
@@ -60,6 +60,30 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
   // The team's compiled role policy (memoised by the team store until its next change); older stores have none.
   const policyNow = () => (typeof teamStore.accessPolicy === 'function' ? teamStore.accessPolicy() : policy.DEFAULT_POLICY);
   function viewerFor(identity, session) {
+    if (teamStore.workspaceScoped && typeof workspace.listWorkspaces === 'function') {
+      const superAdmin = teamStore.isSuperIdentity(identity);
+      const memberships = superAdmin ? null : teamStore.memberWorkspaces(identity?.id);
+      const available = workspace.listWorkspaces().filter((row) => superAdmin || memberships.some((entry) => entry.workspaceId === row.id));
+      const call = currentCall();
+      const useCall = call?.user?.id === identity?.id && call?.session === session;
+      const requested = useCall && call.workspaceId ? call.workspaceId : session?.workspaceId || workspace.activeWorkspaceId();
+      const selected = available.find((row) => row.id === requested) || (useCall && call.workspaceResolved ? null : available[0]) || null;
+      const key = selected?.id || '';
+      if (session && !(useCall && call.workspaceResolved)) session.workspaceId = key;
+      if (useCall && !call.workspaceResolved) { call.workspaceId = key; call.workspaceResolved = true; }
+      return teamStore.inWorkspace(key, () => {
+        const member = superAdmin ? null : teamStore.memberById(identity?.id);
+        const scopedIdentity = superAdmin ? { ...identity, role: 'admin', roleId: 'admin', channelId: null } : { ...identity, role: member?.role || null, roleId: member?.role || null, channelId: member?.channelId || null, disabled: Boolean(identity?.disabled || member?.disabled), memberSince: member?.createdAt || identity?.memberSince || null };
+        const memberId = session?.viewAs?.memberId;
+        const viewer = policy.buildViewer({ identity: scopedIdentity, session, prefs: identity?.id ? teamStore.prefsFor(identity.id) : null, editionId: selected?.editionId || 'general', web, admins: teamStore.admins(), policy: policyNow(), access: member ? teamStore.accessFor(member.id) : null, previewMember: memberId ? teamStore.memberById(memberId) : null });
+        viewer.workspaceId = key;
+        viewer.isSuperAdmin = superAdmin;
+        viewer.workspaces = available;
+        if (superAdmin && !viewer.preview) viewer.roleLabel = 'Super Admin';
+        if (!superAdmin) viewer.allowed = viewer.allowed.filter((method) => !['saveWorkspaceMembership', 'createSignInLink', 'revokeSignInLink'].includes(method));
+        return viewer;
+      });
+    }
     const memberId = session?.viewAs && typeof session.viewAs === 'object' ? session.viewAs.memberId : '';
     return policy.buildViewer({
       identity, session, prefs: identity?.id ? teamStore.prefsFor(identity.id) : null, editionId: workspace.activeEditionId(), web, admins: teamStore.admins(),
@@ -69,6 +93,16 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     });
   }
   const currentViewer = () => viewerFor(identityForCall(), sessionForCall());
+  function selectWorkspace(workspaceId) {
+    const viewer = currentViewer();
+    if (viewer.preview || !list(viewer.workspaces).some((entry) => entry.id === workspaceId)) throw policy.refusal('outOfScope');
+    const session = sessionForCall();
+    if (session) { session.workspaceId = workspaceId; session.viewAs = null; }
+    const call = currentCall();
+    if (call) call.workspaceId = workspaceId;
+    if (!web) workspace.selectContentWorkspace(workspaceId);
+    return workspaceId;
+  }
   // Who content-workspace credits for a run, decision or edit: read once at a public method's entry.
   function actorForCall() { const identity = identityForCall(); return identity?.id ? { id: identity.id, name: identity.name || '' } : SYSTEM; }
 
@@ -87,6 +121,13 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     if (web && !viewer?.id) throw deny(fail('Sign in to use the studio.', 403, 'forbidden'), viewer, method);
     const identityMethod = IDENTITY.has(method);
     const base = baseOf(viewer, identityMethod);
+    if (viewer.workspaceId !== undefined) {
+      if (['saveWorkspaceMembership', 'createSignInLink', 'revokeSignInLink'].includes(method) && (!viewer.isSuperAdmin || viewer.preview)) throw fail('Only a Super Admin can manage workspace assignments and account sign-in links.', 403, 'superAdminOnly');
+      if (method === 'saveContentWorkspace' && !record(payload).id && !viewer.isSuperAdmin) throw fail('Only a Super Admin can create a workspace.', 403, 'superAdminOnly');
+      if (method === 'selectContentWorkspace' && viewer.preview) throw policy.refusal('preview', { who: policy.previewWho(viewer) });
+      if (method !== 'saveWorkspaceMembership' && record(payload).workspaceId && record(payload).workspaceId !== viewer.workspaceId) throw policy.refusal('outOfScope');
+      if (method === 'saveContentWorkspace' && record(payload).id && record(payload).id !== viewer.workspaceId) throw policy.refusal('outOfScope');
+    }
     // A preview is read-only. Checked first so an admin previewing is told why, not "Only an admin can do that."
     if (viewer.preview && !identityMethod && !READS.has(method)) throw deny(policy.refusal('preview', { who: policy.previewWho(viewer) }), viewer, method);
     if (typeof method !== 'string' || !method || !mayCall(viewer, method, base)) {
@@ -121,16 +162,20 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     // A short video is opt-in and costs dollars, so a channel owner's set never includes one.
     return list(folder?.deliverableIds).filter((id) => offered.has(id) && kindOf(id) !== 'video' && (pictures || kindOf(id) !== 'image'));
   }
-  function trendBrief(payload) {
+  function isOfferedReport(asset, viewer) {
+    if (typeof workspace.trendSource !== 'function') return true;
+    return readyTrends(workspace.trendSource()).some((trend) => trend.reportAssets.some((row) => row.id === asset.id) && (!list(trend.decidedBy?.channels).length || trend.decidedBy.channels.includes(viewer.channelId)));
+  }
+  function trendBrief(payload, viewer) {
     const source = record(payload.source);
     const assetId = source.kind === 'report' ? text(source.assetId) || text(source.id) : '';
     const found = assetId ? workspace.findAsset(assetId) : null;
-    if (!found || !workspace.isTrendReport(found.asset)) throw policy.refusal('outOfScope');
+    if (!found || !workspace.isTrendReport(found.asset) || !isOfferedReport(found.asset, viewer)) throw policy.refusal('outOfScope');
     return assetId;
   }
   function channelKit(create) {
     return (payload, viewer) => {
-      const assetId = trendBrief(payload); const deliverableIds = channelDeliverables(viewer);
+      const assetId = trendBrief(payload, viewer); const deliverableIds = channelDeliverables(viewer);
       if (!deliverableIds.length) throw fail('Nothing for your channel can be made from this trend right now.', 409);
       // No maxBudgetUsd: the server uses the plan's own cap.
       // referenceIds (pictures the owner attached to this set) are checked by the workspace like anyone else's.
@@ -141,7 +186,7 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     const assetId = text(payload.assetId); const found = workspace.findAsset(assetId);
     if (!found) throw fail('That file isn’t in this workspace anymore.', 404);
     const ownFile = Boolean(found.run?.kit) && channelOf(found.asset.deliverableId, edition()) === viewer.channelId;
-    if (!ownFile && !workspace.isTrendReport(found.asset)) throw policy.refusal('outOfScope');
+    if (!ownFile && (!workspace.isTrendReport(found.asset) || !isOfferedReport(found.asset, viewer))) throw policy.refusal('outOfScope');
     return { assetId };
   }
   function channelRun(payload, viewer) {
@@ -165,6 +210,10 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     return (payload, viewer) => ({ ...channelFile(payload, viewer), ...Object.fromEntries(fields.filter((key) => payload[key] !== undefined).map((key) => [key, payload[key]])) });
   }
   const SCOPES = {
+    addChannelReference: { channel: (payload, viewer) => ({ channelId: viewer.channelId, description: text(payload.description) }) },
+    saveChannelReference: { channel: (payload, viewer) => ({ channelId: viewer.channelId, imageId: text(payload.imageId), description: text(payload.description) }) },
+    readChannelReference: { channel: (payload, viewer) => ({ channelId: viewer.channelId, imageId: text(payload.imageId) }) },
+    removeChannelReference: { channel: (payload, viewer) => ({ channelId: viewer.channelId, imageId: text(payload.imageId) }) },
     planAssetKit: { channel: channelKit(false) },
     createAssetKit: { channel: channelKit(true) },
     // A picture for the set they are about to make, in the workspace they are in; nothing of the request is kept.
@@ -349,7 +398,16 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     if (!views.has(key)) {
       const workspaceId = base.contentStudio?.activeWorkspaceId || activeWorkspaceId();
       let noteInbox = null; try { noteInbox = notes && viewer?.id ? notes.inboxFor(viewer.id) : null; } catch (_) { noteInbox = null; }
-      views.set(key, policy.projectState(base, viewer, { adoptions: teamStore.adoptionsFor(workspaceId), admins: teamStore.admins(), memberCount: teamStore.listMembers().length, editionId: workspace.workspaceById(workspaceId)?.editionId || edition(), noteInbox }));
+      let scopedBase = base;
+      if (viewer.workspaceId !== undefined) {
+        const allowed = new Set(list(viewer.workspaces).map((entry) => entry.id));
+        scopedBase = { ...base, contentStudio: { ...base.contentStudio, workspaces: list(base.contentStudio?.workspaces).filter((entry) => allowed.has(entry.id)).map((entry) => entry.id === viewer.workspaceId ? entry : { id: entry.id, name: entry.name, editionId: entry.editionId }) } };
+      }
+      const result = policy.projectState(scopedBase, viewer, { adoptions: teamStore.adoptionsFor(workspaceId), admins: teamStore.admins(), memberCount: teamStore.listMembers().length, editionId: workspace.workspaceById(workspaceId)?.editionId || edition(), noteInbox });
+      if (viewer.workspaceId !== undefined && result.contentStudio && viewer.role) {
+        if (baseOf(viewer) === 'channel') result.contentStudio.workspaces = list(viewer.workspaces);
+      }
+      views.set(key, result);
     }
     return views.get(key);
   }
@@ -385,7 +443,7 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     return allows(identity, method);
   }
 
-  return { identityForCall, sessionForCall, viewerFor, currentViewer, actorForCall, check, after, projectResult, rewriteError, project, canUpload, effectiveFor, viewKeyFor, allows, canIdentityCall, policy: policyNow };
+  return { identityForCall, sessionForCall, viewerFor, currentViewer, selectWorkspace, actorForCall, check, after, projectResult, rewriteError, project, canUpload, effectiveFor, viewKeyFor, allows, canIdentityCall, policy: policyNow };
 }
 
 module.exports = { createAccess, SYSTEM, SCOPE_METHODS, UPLOAD_METHODS, AUDITED, ASK_METHODS };

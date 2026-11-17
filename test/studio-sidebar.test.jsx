@@ -11,7 +11,7 @@ import { buildNav } from '../src/renderer/src/nav-model.js';
 afterEach(() => { cleanup(); vi.restoreAllMocks(); delete window.matchMedia; });
 const workspaces = [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush' }, { id: 'general', name: 'General', editionId: 'general' }];
 const channels = [{ id: 'blog', name: 'Semrush Blog', short: 'Blog' }, { id: 'social', name: 'Semrush Social Team', short: 'Social' }];
-const admin = (over = {}) => ({ id: 'local', name: 'Alex Rivera', email: '', role: 'admin', realRole: 'admin', channelId: null, channelName: '', preview: false, viewAs: null, modes: ['simple', 'classic'], channels, prefs: {}, ...over });
+const admin = (over = {}) => ({ id: 'local', name: 'Alex Rivera', email: '', role: 'admin', realRole: 'admin', isSuperAdmin: true, channelId: null, channelName: '', preview: false, viewAs: null, modes: ['simple', 'classic'], channels, prefs: {}, ...over });
 const editor = { id: 'm-riley', name: 'Riley Jones', role: 'editor', realRole: 'editor', channelId: null, preview: false, modes: ['simple', 'classic'], hiddenPages: ['settings', 'knowledge', 'analytics', 'people'], nav: { main: ['home', 'reports', 'trends', 'assets', 'ask'], admin: [], bottom: [] }, allowed: ['askHelp', 'setViewPrefs', 'createAssetKit', 'planAssetKit'] };
 const owner = { id: 'm-sam', name: 'Sam Lee', role: 'channel', realRole: 'channel', channelId: 'blog', channelName: 'Semrush Blog', preview: false, modes: ['simple'], allowed: ['setViewPrefs'] };
 const studioState = (programs = [{ id: 'p1', name: 'SEO weekly', workspaceId: 'semrush' }]) => ({ keys: { APIFY_API_TOKEN: false, OPENAI_API_KEY: true }, contentStudio: { activeWorkspaceId: 'semrush', workspaces, programs, researchRuns: [], contentRuns: [] } });
@@ -65,32 +65,39 @@ describe('StudioSidebar: head', () => {
     expect(card).toHaveTextContent('Admin · Simple');
   });
 
-  it('asks before switching everyone’s workspace on the web', () => {
+  it('switches only this web session without a global-switch confirmation', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
     const { onSelectWorkspace } = sidebar({ web: true });
     const open = () => fireEvent.click(screen.getByRole('button', { name: /^Workspace:/ }));
     open(); fireEvent.click(screen.getByRole('menuitemradio', { name: 'General' }));
-    expect(confirm).toHaveBeenCalledWith('Everyone using the studio, including channel owners, switches to General. Switch?');
-    expect(onSelectWorkspace).not.toHaveBeenCalled();
-    open(); fireEvent.click(screen.getByRole('menuitemradio', { name: 'General' }));
+    expect(confirm).not.toHaveBeenCalled();
     expect(onSelectWorkspace).toHaveBeenCalledWith('general');
   });
 
-  it('shows an editor their workspace and role as text, and a channel owner their channel', () => {
+  it('lets editors and channel owners select accessible workspaces without creating new ones', () => {
     sidebar({ viewer: editor });
-    const card = screen.getByRole('group', { name: 'Workspace: Semrush workspace' });
+    const card = screen.getByRole('button', { name: /^Workspace: Semrush workspace/ });
     expect(card).toHaveAttribute('data-spot', 'nav.workspace');
     expect(card).toHaveTextContent('Editor · Simple');
-    expect(screen.queryByRole('button', { name: /^Workspace:/ })).not.toBeInTheDocument();
+    fireEvent.click(card);
+    expect(screen.queryByRole('menuitem', { name: 'New workspace' })).not.toBeInTheDocument();
     expect(screen.getByRole('radiogroup', { name: 'Layout' })).toBeInTheDocument();
     cleanup();
     sidebar({ viewer: owner, mode: 'channel', activeId: 'trends' });
-    const channel = screen.getByRole('group', { name: 'Your channel' });
+    const channel = screen.getByRole('button', { name: /^Workspace: Semrush workspace/ });
     expect(channel).toHaveTextContent('Semrush Blog');
-    expect(channel).toHaveTextContent('Channel owner · Semrush workspace');
+    expect(channel).toHaveTextContent('Channel owner');
+    fireEvent.click(channel);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'General' }));
     expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^New/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Search reports, trends and pages' })).not.toBeInTheDocument();
+  });
+
+  it('does not offer workspace creation to a workspace admin', () => {
+    sidebar({ viewer: admin({ isSuperAdmin: false }) });
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace:/ }));
+    expect(screen.queryByRole('menuitem', { name: 'New workspace' })).not.toBeInTheDocument();
   });
 
   it('turns the switcher off while previewing and says who is being previewed', () => {
@@ -379,6 +386,8 @@ describe('StudioSidebar under 860px', () => {
     render(<ChannelBottomNav items={nav.groups[0].items} active="trends" onNavigate={onNavigate} />);
     const bottom = screen.getByRole('navigation', { name: 'Main' });
     expect(within(bottom).getByRole('button', { name: 'Trends, 2 new' })).toHaveAttribute('aria-current', 'page');
+    const programs = within(bottom).getByRole('button', { name: 'Research programs' });
+    expect(programs).toHaveTextContent('Programs');
     fireEvent.click(within(bottom).getByRole('button', { name: 'Assets' }));
     expect(onNavigate).toHaveBeenCalledWith('assets');
   });

@@ -9,3 +9,16 @@
 .channel-history summary { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--s-muted); cursor: pointer; }
 .channel-history ul { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
 .channel-history li { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--s-muted); }
+.channel-image-examples { display: grid; gap: 16px; max-width: 840px; }
+.channel-example-list { display: grid; gap: 14px; }
+.channel-example { display: grid; grid-template-columns: 160px minmax(0, 1fr); align-items: start; gap: 18px; }
+.channel-example > img, .channel-example-placeholder { display: block; width: 160px; min-height: 120px; max-height: 200px; object-fit: contain; border: 1px solid var(--s-line); border-radius: var(--s-radius-control); background: var(--s-bg); }
+.channel-example-placeholder { display: grid; place-items: center; font-size: 13px; color: var(--s-muted); }
+.channel-example-copy, .channel-example-add { display: grid; min-width: 0; gap: 12px; }
+.channel-example-copy > strong { overflow-wrap: anywhere; font-size: 14px; }
+.channel-example .channel-actions { flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .channel-example { grid-template-columns: minmax(0, 1fr); }
+  .channel-example > img, .channel-example-placeholder { width: 100%; max-height: 240px; }
+  .channel-settings .simple-segment { display: flex; flex-wrap: wrap; }
+}

@@ -50,6 +50,38 @@ const page = { id: 'channel', label: 'Semrush Blog', layout: 'channel', tab: 'tr
 const NOT_FOR_BLOG = ['asset-kit-social', 'content-kit-social', 'AI Citation Tracking social posts', 'Posts for LinkedIn and X', 'LinkedIn + X + FB Captions', 'program-pulse', 'AI search pulse', 'Weekly listening', 'research-review', 'We still cannot prove ROI', 'claude-opus-5-5', '"costUsd"', 'maxBudgetUsd', 'receipts', '11.5', '0.77'];
 
 describe('a channel owner’s Ask AI on the browser studio', () => {
+  it('saves classic asset files within their workspace without overwriting another workspace', async () => {
+    const owner = runtime.provided('people').ownerIdentity(); const session = { workspaceId: 'semrush' };
+    const invoke = (channel, payload) => runtime.invoke(channel, payload, { user: owner, session });
+    await invoke('save-asset', { cardId: 'same-card', assetType: 'copy', title: 'Fixture', markdown: 'Private Semrush copy' });
+    const primaryFile = path.join(runtime.settings.dataDir, 'assets', 'same-card', 'copy.md');
+    const { result: adobe } = await invoke('studio:saveContentWorkspace', { name: 'Adobe assets', editionId: 'general' });
+    await invoke('save-asset', { cardId: 'same-card', assetType: 'copy', title: 'Fixture', markdown: 'Private Adobe copy' });
+    expect(fs.readFileSync(primaryFile, 'utf8')).toBe('Private Semrush copy');
+    expect(fs.readFileSync(path.join(runtime.settings.dataDir, 'workspace-data', adobe.id, 'assets', 'same-card', 'copy.md'), 'utf8')).toBe('Private Adobe copy');
+  });
+  it('keeps saved scraper versions inside their workspace, including cached state reads', async () => {
+    await chris('save-recipe', { id: 'private-semrush-recipe', name: 'Private Semrush targets', platform: 'web', actorId: 'apify/website-content-crawler', input: { startUrls: [{ url: 'https://example.com/private-fixture' }] }, mapper: {} });
+    const events = mainRequire('../shared/v5-core');
+    events.appendEvent(path.join(runtime.settings.dataDir, 'v5', 'events.jsonl'), events.createEvent('recipe-version-saved', { recipeId: 'private-semrush-recipe', version: { version: 1, name: 'Private Semrush targets', input: { query: 'Private customer target' } } }));
+    expect((await chris('state')).v5.recipeVersions['private-semrush-recipe'][0].name).toBe('Private Semrush targets');
+    const owner = runtime.provided('people').ownerIdentity(); const session = { workspaceId: 'semrush' };
+    const { result: adobe } = await runtime.invoke('studio:saveContentWorkspace', { name: 'Adobe recipes', editionId: 'general' }, { user: owner, session });
+    const { result } = await runtime.invoke('state', undefined, { user: owner, session });
+    expect(result.contentStudio.activeWorkspaceId).toBe(adobe.id);
+    expect(result.v5.recipeVersions).toEqual({});
+    expect(JSON.stringify(result)).not.toContain('Private customer target');
+  });
+  it('projects the current session workspace during a broadcast inherited from its earlier request', async () => {
+    const people = runtime.provided('people'); const owner = people.ownerIdentity(); const session = { workspaceId: 'semrush' };
+    const { result: adobe } = await runtime.invoke('studio:saveContentWorkspace', { name: 'Adobe', editionId: 'general' }, { user: owner, session });
+    expect(session.workspaceId).toBe(adobe.id);
+    runtime.withContext({ user: owner, session, workspaceId: 'semrush', workspaceResolved: true }, () => {
+      const state = JSON.parse(people.view({}, owner, session));
+      expect(state.contentStudio.activeWorkspaceId).toBe(adobe.id);
+      expect(JSON.parse(people.viewKey(owner, session)).workspaceId).toBe(adobe.id);
+    });
+  });
   let runtime; let codex; const sessions = new Map(); let count = 0;
   const sessionOf = (member) => { if (!sessions.has(member.id)) sessions.set(member.id, { expires: Date.now() + 3600000, kind: 'link', memberId: member.id, linkId: 'fixture', viewAs: null }); return sessions.get(member.id); };
   const as = (member) => (channel, payload) => runtime.invoke(channel, payload, { user: identity(member), session: sessionOf(member), origin: 'https://studio.example.com' }).then((outcome) => outcome.result);
@@ -75,7 +107,7 @@ describe('a channel owner’s Ask AI on the browser studio', () => {
 
   it('lists Ask AI in a channel owner’s layout by default, with no cost estimate in their state', async () => {
     const state = await alex('state');
-    expect(state.viewer).toMatchObject({ role: 'channel', channelId: 'blog', capabilities: expect.arrayContaining(['askAi']), nav: { main: ['trends', 'assets', 'plan', 'inbox', 'mychannel', 'ask'] } });
+    expect(state.viewer).toMatchObject({ role: 'channel', channelId: 'blog', capabilities: expect.arrayContaining(['askAi']), nav: { main: ['programs', 'trends', 'assets', 'plan', 'inbox', 'mychannel', 'ask'] } });
     expect(state.viewer.allowed).toEqual(expect.arrayContaining(['askHelp', 'listAskConversations', 'createHelpImage']));
     expect(JSON.stringify(state)).not.toMatch(/"estimate"|followUpUsd|firstUsd/);
   });

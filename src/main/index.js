@@ -107,8 +107,10 @@ const apifyRunControllers = new Map();
 const cancelledJobs = new Set();
 
 let mainWindow;
-let dataCache = null;
-let configCache = null;
+const dataCaches = new Map();
+const configCaches = new Map();
+let workspaceService = null;
+let legacyWorkspaceId = null;
 const activeChats = new Set();
 
 function now() {
@@ -211,18 +213,35 @@ function writeJson(filePath, value) {
   require('../shared/durable-write').writeFileDurable(filePath, JSON.stringify(value, null, 2), { platform: process.platform, fsImpl: fs });
 }
 
-function dataFile() {
-  return dataPath('data.json');
+function primaryWorkspaceId() {
+  if (legacyWorkspaceId) return legacyWorkspaceId;
+  const marker = dataPath('workspace-storage.json');
+  const stored = readStoreJson(marker, 'Workspace storage');
+  if (typeof stored.primaryWorkspaceId === 'string' && /^[a-zA-Z0-9_-]{1,180}$/.test(stored.primaryWorkspaceId)) return (legacyWorkspaceId = stored.primaryWorkspaceId);
+  const studio = readStoreJson(dataPath('content-studio', 'state.json'), 'Content workspace');
+  legacyWorkspaceId = studio.workspacePolicy?.mainId || studio.activeWorkspaceId || packageConfig.studioDefaultWorkspace || 'general';
+  writeJson(marker, { primaryWorkspaceId: legacyWorkspaceId });
+  return legacyWorkspaceId;
 }
-
-function configFile() {
-  return dataPath('config.json');
+function storageWorkspaceId() {
+  const call = WEB_RUNTIME ? require('./web-runtime').currentCall() : null;
+  return call?.workspaceId || call?.session?.workspaceId || workspaceService?.activeWorkspaceId() || primaryWorkspaceId();
 }
+function workspaceDiskPath(...parts) {
+  const key = storageWorkspaceId();
+  if (!/^[a-zA-Z0-9_-]{1,180}$/.test(key)) throw new Error('Choose a valid workspace.');
+  return key === primaryWorkspaceId() ? dataPath(...parts) : dataPath('workspace-data', key, ...parts);
+}
+function dataFile() { return workspaceDiskPath('data.json'); }
+function configFile() { return workspaceDiskPath('config.json'); }
 
 function loadData() {
-  if (dataCache) return dataCache;
+  const key = storageWorkspaceId();
+  if (dataCaches.has(key)) return dataCaches.get(key);
   ensureDirs();
-  dataCache = { ...defaultData(), ...readStoreJson(dataFile(), 'Studio data') };
+  const stored = readStoreJson(dataFile(), 'Studio data');
+  const migrated = require('./workspace-legacy').prepareLegacyWorkspaceData({ root: dataRoot(), workspaceId: key, primaryWorkspaceId: primaryWorkspaceId() });
+  const dataCache = { ...defaultData(), ...(migrated ? readStoreJson(dataFile(), 'Studio data') : stored) };
   dataCache.projects = dataCache.projects?.length ? dataCache.projects : defaultData().projects;
   dataCache.recipes = dataCache.recipes || [];
   dataCache.runs = dataCache.runs || [];
@@ -236,6 +255,7 @@ function loadData() {
   dataCache.sheetRuns = dataCache.sheetRuns || [];
   dataCache.settings = { ...defaultData().settings, ...(dataCache.settings || {}) };
   rebaseStoredPaths(dataCache);
+  dataCaches.set(key, dataCache);
   saveData();
   return dataCache;
 }
@@ -261,22 +281,26 @@ function rebaseStoredPaths(data) {
 
 // Never writes defaults over a file that failed to load: only what loadData read (or started fresh) is saved.
 function saveData() {
-  if (!dataCache) throw new Error('Studio data isn’t loaded, so nothing was saved. Restart the studio.');
-  writeJson(dataFile(), dataCache);
+  const data = dataCaches.get(storageWorkspaceId());
+  if (!data) throw new Error('Studio data isn’t loaded, so nothing was saved. Restart the studio.');
+  writeJson(dataFile(), data);
 }
 
 function loadConfig() {
-  if (configCache) return configCache;
+  const key = storageWorkspaceId();
+  if (configCaches.has(key)) return configCaches.get(key);
   ensureDirs();
-  configCache = { ...defaultConfig(), ...readStoreJson(configFile(), 'Studio settings') };
+  const configCache = { ...defaultConfig(), ...readStoreJson(configFile(), 'Studio settings') };
   configCache.keys = configCache.keys && typeof configCache.keys === 'object' ? configCache.keys : {};
+  configCaches.set(key, configCache);
   saveConfig();
   return configCache;
 }
 
 function saveConfig() {
-  if (!configCache) throw new Error('Studio settings aren’t loaded, so nothing was saved. Restart the studio.');
-  writeJson(configFile(), configCache);
+  const config = configCaches.get(storageWorkspaceId());
+  if (!config) throw new Error('Studio settings aren’t loaded, so nothing was saved. Restart the studio.');
+  writeJson(configFile(), config);
 }
 
 function encryptValue(value) {
@@ -429,7 +453,7 @@ function publicState() {
     monday: mondayEngine ? mondayEngine.publicState() : { connected: Boolean(getKey('MONDAY_API_TOKEN')), account: null, link: null, items: {} },
     // Settings → Google Drive (drive-sync.js): the folder, the switches and how syncing is going. Never the key.
     driveSync: driveSync ? driveSync.publicState() : { connected: false, mode: '', email: '', folder: null, autoAdd: false, includeChannelAssets: false, rev: 0, files: 0, failed: 0, waiting: 0, lastSyncAt: '', lastError: '', backfill: null, lastBackfill: null, migratedPrograms: 0 },
-    jobs: Array.from(jobs.values()),
+    jobs: Array.from(jobs.values()).filter((job) => (job.workspaceId || primaryWorkspaceId()) === storageWorkspaceId()),
     // The one part of the retired v5 projection still in use: Scrapers' saved recipe versions.
     v5: { recipeVersions: publicRecipeVersions() },
     // What one Ask AI question costs, for the line under its question box (amounts stripped without See costs).
@@ -501,8 +525,8 @@ function emitState() {
   if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
   pushedAt = Date.now();
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  const base = publicState();
-  emit('state-changed', WEB_RUNTIME ? base : access.project(base, access.currentViewer()));
+  if (WEB_RUNTIME) emit('state-changed', publicState());
+  else { const viewer = access.currentViewer(); emit('state-changed', contentWorkspace.withWorkspace(viewer.workspaceId || contentWorkspace.activeWorkspaceId(), () => access.project(publicState(), viewer))); }
 }
 // The studio's own saves (content-workspace.js) come many times a second while a run works, and building the public
 // state copies every list and sends it whole. Those pushes are spaced: the first goes out at once, and saves within the
@@ -535,7 +559,9 @@ function configureAutoUpdates() {
 }
 
 function v5EventsFile() {
-  return dataPath('v5', 'events.jsonl');
+  const target = workspaceDiskPath('v5', 'events.jsonl');
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  return target;
 }
 
 function readV5EventsSafe() {
@@ -552,6 +578,7 @@ function readV5EventsSafe() {
 // missions, jobs and schedules in it stay on disk, unread.
 function appendV5Event(type, payload, options = {}) {
   ensureDirs();
+  require('./workspace-legacy').captureLegacyWorkspaceData(dataRoot(), primaryWorkspaceId());
   const event = createEvent(type, payload, options);
   appendEvent(v5EventsFile(), event);
   return event;
@@ -568,12 +595,13 @@ function buildAllEvidence(data = loadData()) {
 let recipeVersionCache = { key: '', value: {} };
 function publicRecipeVersions() {
   let stat; try { stat = fs.statSync(v5EventsFile()); } catch (_) { return {}; }
-  const key = `${stat.size}:${stat.mtimeMs}`;
+  const key = `${v5EventsFile()}:${stat.size}:${stat.mtimeMs}`;
   if (recipeVersionCache.key !== key) {
     const projection = projectEvents(readV5EventsSafe().filter((event) => event?.type === 'recipe-version-saved'));
     recipeVersionCache = { key, value: Object.fromEntries(Object.entries(projection.recipeVersions || {}).map(([id, versions]) => [id, versions.map(publicRecipe)])) };
   }
-  return recipeVersionCache.value;
+  const ownedRecipes = new Set(loadData().recipes.map((recipe) => recipe.id));
+  return Object.fromEntries(Object.entries(recipeVersionCache.value).filter(([id]) => ownedRecipes.has(id)));
 }
 
 async function discoverApifyResource(payload) {
@@ -612,7 +640,7 @@ function onceForRequest(method, payload, start) {
   for (const [key, entry] of repeatable) if (entry.settledAt && at - entry.settledAt > REPEAT_KEEP_MS) repeatable.delete(key);
   const { requestId: _requestId, ...rest } = record;
   const fingerprint = stableJson(rest);
-  const key = `${access.identityForCall()?.id || 'local'} ${method} ${requestId}`;
+  const key = `${access.identityForCall()?.id || 'local'} ${storageWorkspaceId()} ${method} ${requestId}`;
   const found = repeatable.get(key);
   if (found) {
     if (found.fingerprint !== fingerprint) throw Object.assign(new Error('Use a new request ID for a different request.'), { status: 409, code: 'requestIdReused' });
@@ -681,7 +709,7 @@ function exportAssetPack(payload = {}) {
   const assetIds = Array.isArray(payload.assetIds) ? payload.assetIds.map((id) => validateId(id, 'Asset ID')) : [];
   const assets = (data.assets || []).filter((asset) => !assetIds.length || assetIds.includes(asset.id));
   if (!assets.length) throw new Error('No assets to export.');
-  const dir = dataPath('exports', `asset-pack-${Date.now()}`);
+  const dir = workspaceDiskPath('exports', `asset-pack-${Date.now()}`);
   fs.mkdirSync(dir, { recursive: true });
   const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const markdown = assets.map((asset) => `# ${asset.title || asset.id}\n\n${asset.markdown || ''}`).join('\n\n---\n\n');
@@ -779,9 +807,10 @@ function isAllowedNavigation(targetUrl) {
 }
 
 function startJob(job) {
-  jobs.set(job.id, job);
+  const scoped = { ...job, workspaceId: storageWorkspaceId() };
+  jobs.set(job.id, scoped);
   emitState();
-  return job;
+  return scoped;
 }
 
 function finishJob(jobId, patch = {}) {
@@ -813,7 +842,7 @@ function upsertById(list, record) {
 }
 
 function containedDataPath(rootName, fileName) {
-  const root = dataPath(rootName);
+  const root = workspaceDiskPath(rootName);
   const filePath = path.resolve(root, fileName);
   if (!isPathInside(root, filePath)) throw new Error('Local file path is outside this app workspace.');
   return filePath;
@@ -835,7 +864,7 @@ function readDatasetPayload(datasetId) {
 
 function localWorkspaceFile(filePath, missingFallback = null) {
   if (!filePath) return missingFallback;
-  const root = dataPath('workspaces');
+  const root = workspaceDiskPath('workspaces');
   const resolved = path.resolve(filePath);
   if (!isPathInside(root, resolved)) throw new Error('Analysis output is outside this app workspace.');
   return fs.existsSync(resolved) ? resolved : missingFallback;
@@ -878,7 +907,7 @@ function assetMarkdownPath(asset) {
 function localAssetPath(assetId) {
   const asset = loadData().assets.find((item) => item.id === assetId);
   if (!asset?.assetPath || !fs.existsSync(asset.assetPath)) throw new Error('Asset file not found.');
-  const root = dataPath('assets');
+  const root = workspaceDiskPath('assets');
   const filePath = path.resolve(asset.assetPath);
   if (!isPathInside(root, filePath)) throw new Error('Asset file is outside this app workspace.');
   return filePath;
@@ -927,7 +956,7 @@ function exportDataset(exportPayload) {
   const items = payload.items || [];
   const extension = valid.format === 'csv' ? 'csv' : 'jsonl';
   const content = extension === 'csv' ? toCsv(items) : toJsonl(items);
-  const target = path.join(browserDownloadFolder() || dataPath('exports'), `${safeFilename(dataset.name || dataset.id)}.${extension}`);
+  const target = path.join(browserDownloadFolder() || workspaceDiskPath('exports'), `${safeFilename(dataset.name || dataset.id)}.${extension}`);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   // The byte-order mark tells Excel the CSV is UTF-8 (without it, Excel on Windows shows accents and emoji as mojibake).
   // On Windows, a copy still open in Excel is locked, so the export goes to "<name> (2).csv" instead.
@@ -1550,7 +1579,7 @@ async function analyzeDataset({ datasetId, kind, reportPresetId }) {
   saveData();
   emitState();
 
-  const workspaceDir = ensureWorkspace(dataPath('workspaces'), analysis.projectId);
+  const workspaceDir = ensureWorkspace(workspaceDiskPath('workspaces'), analysis.projectId);
   const runDir = path.join(workspaceDir, safeFilename(analysisId));
   fs.mkdirSync(runDir, { recursive: true });
 
@@ -1669,6 +1698,7 @@ async function searchSources(payload) {
 
 // Claude routes (the Claude app or an API key) and model checks before spending; see ai-routes.js.
 const aiRoutes = createAiRoutes({
+  getScope: storageWorkspaceId,
   platform: process.platform, // PowerShell or Terminal in the sign-in hints; index.js's own value, so test harnesses can set it
   shared: WEB_RUNTIME, // the browser studio: "auto" is the API key; the Claude app only when an admin chooses it
   spawn: async (command, args, { cwd, stdin, timeoutMs, jobId } = {}) => { await loginShellPathReady; return spawnCodex(command, args, cwd || app.getPath('userData'), { stdin, timeoutMs, providerLabel: 'Claude', ...(jobId ? { jobId } : {}) }); },
@@ -1760,6 +1790,7 @@ const cliProbe = require('./cli-runners').createCliProbe({ spawn: spawnCliProces
 const openRouterRunner = require('./openrouter-runner').createOpenRouterRunner({ getKey, privacy: () => aiRouting.current().openrouter.privacy });
 const openAiTextRunner = require('./openai-text-runner').createOpenAiTextRunner({ getKey });
 const aiConnections = require('./ai-connections').createAiConnections({
+  getScope: storageWorkspaceId,
   platform: process.platform, // "this PC" and PowerShell on Windows, "this Mac" and Terminal on the Mac
   aiRoutes, getKey, keyProblem, web: WEB_RUNTIME, serverUser: WEB_RUNTIME ? (() => { try { return require('os').userInfo().username; } catch (_) { return ''; } })() : '',
   probeCli: async (command, args) => { await loginShellPathReady; return cliProbe(command, args); },
@@ -1830,7 +1861,7 @@ async function askFindings(payload = {}) {
   const jobId = toId('answer');
   startJob({ id: jobId, kind: 'chat', title: conversation.title, cancellable: true, status: 'running', startedAt: now() });
   upsertById(data.conversations, conversation); saveData(); emitState();
-  const workspaceDir = ensureWorkspace(dataPath('workspaces'), 'default');
+  const workspaceDir = ensureWorkspace(workspaceDiskPath('workspaces'), 'default');
   const runDir = path.join(workspaceDir, safeFilename(jobId));
   fs.mkdirSync(runDir, { recursive: true });
   try {
@@ -1884,7 +1915,7 @@ app.once('quit', () => releaseStudioOwner?.());
 // folder the owner lock protects. On the web STUDIO_ADMIN_EMAILS names admins that People can't change (company sign-in).
 const ADMIN_EMAILS = WEB_RUNTIME ? String(process.env.STUDIO_ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean) : [];
 let teamStore;
-try { teamStore = createTeamStore({ root: dataPath('content-studio'), adminEmails: ADMIN_EMAILS }); }
+try { teamStore = createTeamStore({ root: dataPath('content-studio'), adminEmails: ADMIN_EMAILS, workspaceId: storageWorkspaceId, defaultWorkspaceId: primaryWorkspaceId() }); }
 catch (error) { dialog.showErrorBox('Team data could not be read', error.message); app.exit(1); throw error; }
 // Email for invites and first-sign-in notices: off unless the browser studio sets EMAIL_PROVIDER (see emailInvites).
 const { createMailer, redact: redactEmailError } = require('./email');
@@ -1896,8 +1927,13 @@ if (mailer.status().problem) teamStore.logEvent({ event: 'email-not-ready', prov
 const runAlerts = require('./run-alerts').createRunAlerts({ ready: () => WEB_RUNTIME && mailer.status().ready, adminContacts: () => teamStore.adminContacts(), memberById: (id) => teamStore.memberById(id), send: sendEmail, origin: () => emailOrigin(), log: (event) => teamStore.logEvent(event) });
 // Ask AI's conversations and long-term memory, one folder per person (src/main/ask-store.js), beside team.json. Never in
 // the broadcast state: the help:* methods read them for the person asking.
-const askStore = require('./ask-store').createAskStore({ root: dataPath('content-studio', 'ask') });
-const studioHost = createStudioHost({ root: dataPath('content-studio'), getApifyToken: () => getKey('APIFY_API_TOKEN'), model: () => loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL });
+const askStore = require('./ask-store').createAskStore({ root: dataPath('content-studio', 'ask'), getWorkspaceId: storageWorkspaceId, legacyWorkspaceId: primaryWorkspaceId() });
+const studioHosts = new Map();
+const studioHost = new Proxy({}, { get: (_, method) => (...args) => {
+  const key = storageWorkspaceId();
+  if (!studioHosts.has(key)) studioHosts.set(key, createStudioHost({ root: key === primaryWorkspaceId() ? dataPath('content-studio') : dataPath('workspace-data', key, 'content-studio'), legacyRoot: key === primaryWorkspaceId() ? '' : dataPath('content-studio'), workspaceId: key, getApifyToken: () => getKey('APIFY_API_TOKEN'), model: () => loadData().settings.aiModel || DEFAULT_CLAUDE_MODEL }));
+  return studioHosts.get(key)[method](...args);
+} });
 // Workflows: work a workflow starts is credited to it ({ id: 'workflow:<id>', name }) while its step runs; the engine is
 // created below, once access exists, and hears every content change (poke) and every program run a person starts.
 const actingAs = new AsyncLocalStorage();
@@ -1913,6 +1949,7 @@ const contentWorkspace = createContentWorkspace({
   defaultWorkspaceId: packageConfig.studioDefaultWorkspace || 'general',
   // Single mode keeps one workspace, Main, and hides the others without deleting them (workspace-policy.js).
   workspacePolicy,
+  getWorkspaceId: () => WEB_RUNTIME ? require('./web-runtime').currentCall()?.workspaceId || require('./web-runtime').currentCall()?.session?.workspaceId || '' : '',
   // Who started a run, decided a trend or edited a report: the person making this call (read once at each method's entry).
   actor: () => actingAs.getStore() || access.actorForCall(),
   root: dataPath('content-studio'), emit: () => { emitStateSoon(); workflowEngine?.poke(); },
@@ -1971,6 +2008,8 @@ const contentWorkspace = createContentWorkspace({
   },
 });
 
+workspaceService = contentWorkspace;
+
 // ── Access ────────────────────────────────────────────────────────────────────────────────────────
 // Who is calling and what they may do (src/main/access.js, policy in src/shared/roles.json). On the Mac the one person is
 // an admin, and View as lives in this process; on the web each browser request carries its identity and session.
@@ -1985,7 +2024,7 @@ if (WEB_RUNTIME) require('./web-runtime').provide('people', {
   // A member's browser session (Google or a link). Removing or pausing them, or "Sign out everywhere" (a new
   // sessionEpoch), ends it.
   fromMemberSession: (entry) => {
-    const member = teamStore.memberById(entry?.memberId);
+    const member = teamStore.globalMemberById(entry?.memberId);
     if (!member || member.disabled || (Number(member.sessionEpoch) || 0) !== (Number(entry.epoch) || 0)) return null;
     teamStore.touch(member.id); return teamStore.identityFor(member, entry.via === 'google' ? 'google' : 'link');
   },
@@ -2007,14 +2046,14 @@ if (WEB_RUNTIME) require('./web-runtime').provide('people', {
   requestEmailLink: async (email, { origin = '' } = {}) => {
     const member = teamStore.memberForSignIn(email);
     if (!member || !mailer.status().ready) { teamStore.logEvent({ event: 'sign-in-email-skipped', reason: member ? 'email-off' : 'not-a-member' }); return; }
-    const { token } = teamStore.issueLink(member.id, null, { purpose: 'email' });
+    const { token } = teamStore.issueEmailLink(member.id);
     await sendEmail('sign-in-link', member.email, emailTemplates.signInLinkEmail({ name: member.name, url: `${emailOrigin(origin)}/#signin=${token}`, minutes: 20 }), { memberId: member.id });
   },
-  view: (base, identity, session) => JSON.stringify(access.project(base, access.viewerFor(identity, session))),
+  view: (_base, identity, session) => require('./web-runtime').withContext({ user: identity, session, workspaceId: session?.workspaceId || '' }, () => { const viewer = access.viewerFor(identity, session); return contentWorkspace.withWorkspace(viewer.workspaceId || contentWorkspace.defaultWorkspaceId(), () => JSON.stringify(access.project(publicState(), viewer))); }),
   // Uploads follow the role policy (a custom role without imports can't pick a file), and each rendering of the state is
   // keyed on the whole viewer, so a preview of one person or a custom role never shares another view's copy.
   canUpload: (identity, session) => access.canUpload(identity, session),
-  viewKey: (identity, session) => access.viewKeyFor(identity, session),
+  viewKey: (identity, session) => require('./web-runtime').withContext({ user: identity, session, workspaceId: session?.workspaceId || '' }, () => access.viewKeyFor(identity, session)),
   logEvent: (event) => teamStore.logEvent(event),
 });
 // ── Monday.com ───────────────────────────────────────────────────────────────────────────────────
@@ -2030,11 +2069,11 @@ function cancellableJob(job) {
   return { signal: controller.signal, abort: () => controller.abort(), progress: (value) => { const entry = jobs.get(job.id); if (entry) jobs.set(job.id, { ...entry, progress: value }); }, finish: (patch = {}) => { settle(); finishJob(job.id, patch); }, fail: (error) => { settle(); failJob(job.id, error); } };
 }
 let mondayStore;
-try { mondayStore = require('./monday-store').createMondayStore({ root: dataPath('content-studio') }); }
+try { mondayStore = require('./monday-store').createMondayStore({ root: dataPath('content-studio'), workspaceId: storageWorkspaceId, defaultWorkspaceId: primaryWorkspaceId() }); }
 catch (error) { dialog.showErrorBox('Monday.com sync data could not be read', error.message); app.exit(1); throw error; }
 mondayEngine = require('./monday-engine').createMondayEngine({
   store: mondayStore, getToken: () => getKey('MONDAY_API_TOKEN'), saveToken: saveMondayToken, clearToken: clearMondayToken,
-  workspace: contentWorkspace, teamStore, access, web: WEB_RUNTIME, origin: mondayOrigin, emitState,
+  workspace: contentWorkspace, teamStore, access, runInWorkspace: inWorkspaceContext, web: WEB_RUNTIME, origin: mondayOrigin, emitState,
   jobs: { start: (job) => cancellableJob(job) },
 });
 if (WEB_RUNTIME) require('./web-runtime').provide('mondayHook', { receive: (secret, body) => mondayEngine.receiveHook(secret, body) });
@@ -2042,12 +2081,30 @@ if (WEB_RUNTIME) require('./web-runtime').provide('mondayHook', { receive: (secr
 // drive-sync.js: an admin connects a service account (or the Docs access token) and a folder once; every report written
 // or edited is copied there (a minute after an edit), Copy existing reports is a cancellable 'drive' job, and the Mac app
 // syncs only while it is open (what is waiting goes out at the next start). Server-side on the web. Never spends AI money.
-try {
-  driveSync = require('./drive-sync').createDriveSync({
-    root: dataPath('content-studio'), workspace: contentWorkspace, credentials: driveCredentials,
-    saveServiceAccount: saveDriveServiceAccount, clearServiceAccount: clearDriveServiceAccount, emitState,
-    jobs: { start: (job) => cancellableJob(job) },
+const driveServices = new Map(); let driveServicesStarted = false;
+function inWorkspaceContext(workspaceId, fn) {
+  const run = () => contentWorkspace.withWorkspace(workspaceId, fn);
+  return WEB_RUNTIME ? require('./web-runtime').withContext({ ...require('./web-runtime').currentCall(), workspaceId, workspaceResolved: true }, run) : run();
+}
+function driveService(workspaceId) {
+  if (!driveServices.has(workspaceId)) inWorkspaceContext(workspaceId, () => {
+    const service = require('./drive-sync').createDriveSync({
+      root: workspaceId === primaryWorkspaceId() ? dataPath('content-studio') : dataPath('workspace-data', workspaceId, 'content-studio'),
+      workspace: contentWorkspace, credentials: driveCredentials, saveServiceAccount: saveDriveServiceAccount, clearServiceAccount: clearDriveServiceAccount, emitState,
+      jobs: { start: (job) => cancellableJob(job) },
+    });
+    driveServices.set(workspaceId, service);
+    if (driveServicesStarted) service.start();
   });
+  return driveServices.get(workspaceId);
+}
+try {
+  driveService(primaryWorkspaceId());
+  driveSync = new Proxy({}, { get: (_, method) => (...args) => {
+    if (method === 'start') { driveServicesStarted = true; for (const row of contentWorkspace.listWorkspaces()) inWorkspaceContext(row.id, () => driveService(row.id).start()); return; }
+    if (method === 'stop') { driveServicesStarted = false; for (const [key, service] of driveServices) inWorkspaceContext(key, () => service.stop()); return; }
+    const key = storageWorkspaceId(); return inWorkspaceContext(key, () => driveService(key)[method](...args));
+  } });
 } catch (error) { dialog.showErrorBox('Google Drive sync data could not be read', error.message); app.exit(1); throw error; }
 // The one-way sync before wave 3B kept its board in config.json; it moves into the Monday store once, unchanged in
 // behaviour (manual push and pull) until an admin turns automatic sync on. Called at startup, after config.json loaded.
@@ -2069,7 +2126,7 @@ function gated(channel, fn) {
     const viewer = access.currentViewer();
     const scoped = access.check(method, payload, viewer);
     let out;
-    try { out = fn(event, scoped); } catch (error) { throw access.rewriteError(error, viewer); }
+    try { out = viewer.workspaceId && !['selectContentWorkspace', 'saveContentWorkspace'].includes(method) ? contentWorkspace.withWorkspace(viewer.workspaceId, () => fn(event, scoped)) : fn(event, scoped); } catch (error) { throw access.rewriteError(error, viewer); }
     return out && typeof out.then === 'function'
       ? out.then((result) => access.after(method, result, viewer, scoped), (error) => { throw access.rewriteError(error, viewer); })
       : access.after(method, out, viewer, scoped);
@@ -2077,7 +2134,7 @@ function gated(channel, fn) {
 }
 const handle = (channel, fn) => ipcMain.handle(channel, gated(channel, fn));
 
-const studioMethods = ['readChannelSettings', 'saveChannelKnowledge', 'saveChannelInstructions', 'revertChannelInstructions', 'contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'setTrendArchived', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit', 'readBrandImage', 'setBrandImageRole', 'removeBrandImage', 'editStudioAsset', 'restoreStudioAsset', 'estimateQuickScan', 'startQuickScan', 'readTrendHistory', 'readTrendPosts', 'listPrompts', 'readPrompt', 'previewPrompt', 'diffPromptVersions', 'estimatePromptTest', 'savePromptVersion', 'revertPrompt', 'testPrompt', 'setPromptLock', 'setAssetStatus'];
+const studioMethods = ['saveChannelReference', 'readChannelReference', 'removeChannelReference', 'readChannelSettings', 'saveChannelKnowledge', 'saveChannelInstructions', 'revertChannelInstructions', 'contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'setTrendArchived', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit', 'readBrandImage', 'setBrandImageRole', 'removeBrandImage', 'editStudioAsset', 'restoreStudioAsset', 'estimateQuickScan', 'startQuickScan', 'readTrendHistory', 'readTrendPosts', 'listPrompts', 'readPrompt', 'previewPrompt', 'diffPromptVersions', 'estimatePromptTest', 'savePromptVersion', 'revertPrompt', 'testPrompt', 'setPromptLock', 'setAssetStatus'];
 // Work that spends checks first that every connection and model it will use is ready (ai-connections.js preflight): the
 // tasks it resolves now (a run's own snapshot for continue and retry), each checked on its own connection.
 const programFor = (payload) => contentWorkspace.publicState().programs.find((program) => program.id === payload?.programId) || null;
@@ -2101,7 +2158,9 @@ for (const method of studioMethods) handle(`studio:${method}`, async (_, payload
   if (STUDIO_PREFLIGHT[method]) { const tasks = STUDIO_PREFLIGHT[method](payload) || []; if (tasks.length) await aiConnections.preflight(tasks, { needs: taskNeeds }); }
   // The browser studio's run export is a temporary copy, zipped for the download and then removed (offerBrowserFolder).
   if (method === 'exportStudioRun' && WEB_RUNTIME) return offerBrowserFolder(contentWorkspace.exportStudioRun(payload, { temporary: true }));
+  if (method === 'selectContentWorkspace') { access.selectWorkspace(payload); emitState(); return access.project(publicState(), access.currentViewer()); }
   const result = await contentWorkspace[method](payload);
+  if (method === 'saveContentWorkspace' && result?.id) { access.selectWorkspace(result.id); emitState(); }
   if (method === 'exportStudioRun') return forBrowser(result, result?.path);
   return method === 'openStudioAsset' ? forBrowser(result) : result; // the file itself downloads through the shell
 });
@@ -2126,6 +2185,7 @@ function workflowTasks(workflow, programs = contentWorkspace.publicState().progr
   return tasks;
 }
 workflowEngine = createWorkflowEngine({
+  runInWorkspace: inWorkspaceContext,
   store: (() => { try { return createWorkflowStore({ file: dataPath('content-studio', 'workflows.json'), writeJson }); } catch (error) { dialog.showErrorBox('Workflows could not be read', error.message); app.exit(1); throw error; } })(),
   workspace: contentWorkspace, clock: () => new Date(), emit: emitState,
   preflight: async (workflow) => { const tasks = workflowTasks(workflow); if (tasks.length) await aiConnections.preflight(tasks, { needs: taskNeeds }); },
@@ -2239,7 +2299,7 @@ async function offerBrowserFolder(result, folder = result?.path) {
     return forBrowser(result, folder);
   }
   finally {
-    const exportsRoot = [dataPath('content-studio', 'exports'), dataPath('exports')].find((root) => folder && isPathInside(root, folder) && path.resolve(folder) !== path.resolve(root));
+    const exportsRoot = [dataPath('content-studio', 'exports'), workspaceDiskPath('exports')].find((root) => folder && isPathInside(root, folder) && path.resolve(folder) !== path.resolve(root));
     if (exportsRoot) fs.rmSync(path.join(exportsRoot, path.relative(exportsRoot, folder).split(path.sep)[0]), { recursive: true, force: true });
   }
 }
@@ -2252,6 +2312,15 @@ handle('studio:addBrandImage', async (_, payload = {}) => {
   const filePath = result.filePaths[0];
   if (fs.statSync(filePath).size > require('../shared/brand-images').MAX_BRAND_IMAGE_BYTES) throw new Error('Choose a picture under 10 MB.');
   return contentWorkspace.addBrandImage({ workspaceId: payload?.workspaceId, family: payload?.family, role: payload?.role, name: path.basename(filePath), data: fs.readFileSync(filePath) });
+});
+
+handle('studio:addChannelReference', async (_, payload = {}) => {
+  if (typeof payload.description !== 'string' || !payload.description.trim() || payload.description.trim().length > 2000) throw new Error('Add a short description, up to 2,000 characters, explaining what works about this example.');
+  const result = await dialog.showOpenDialog(mainWindow, { title: 'Add a channel image example', buttonLabel: 'Add example', properties: ['openFile'], filters: [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+  if (result.canceled || !result.filePaths.length) return { cancelled: true };
+  const filePath = result.filePaths[0];
+  if (fs.statSync(filePath).size > require('../shared/brand-images').MAX_BRAND_IMAGE_BYTES) throw new Error('Choose a picture under 10 MB.');
+  return contentWorkspace.addChannelReference({ channelId: payload.channelId, description: payload.description, name: path.basename(filePath), data: fs.readFileSync(filePath) });
 });
 
 // A reference picture for one set of channel assets, picked in the Make channel assets dialog (an upload in the browser studio).
@@ -3325,11 +3394,11 @@ const helpChannelPictures = (channel) => (Array.isArray(channel?.viewer?.capabil
 // they go to the window over IPC (help:stream); on the web to that person's own live-update streams (studio-server.js),
 // never to everyone. `session` (the browser session that asked) keeps an answer in that browser for people who share
 // the admin password; follow-ups pass none and reach all of the person's tabs.
-function pushAskEvent(identityId, event, { session = null } = {}) {
+function pushAskEvent(identityId, event, { session = null, workspaceId = storageWorkspaceId() } = {}) {
   if (!identityId || !event || typeof event !== 'object') return false;
   try {
-    if (WEB_RUNTIME) require('./web-runtime').sendTo({ identityId: String(identityId), session }, 'ask', event);
-    else emit('help:stream', event);
+    if (WEB_RUNTIME) require('./web-runtime').sendTo({ identityId: String(identityId), session, workspaceId }, 'ask', event);
+    else if (workspaceId === (access.sessionForCall()?.workspaceId || primaryWorkspaceId())) emit('help:stream', event);
     return true;
   } catch (_) { return false; } // a window that missed it reads the conversation or the progress back
 }
@@ -3337,11 +3406,11 @@ function pushAskEvent(identityId, event, { session = null } = {}) {
 // { type: 'doc-update', assetId, update, epoch, clientId, from, awareness?, reset? }, { type: 'doc-presence', assetId,
 // editors, awareness? }, { type: 'note-changed', assetId, noteId }. On the Mac 'person:event' over IPC (preload
 // onPersonEvent); on the web `event: person` on that person's live-update streams (web-api onPersonEvent).
-function pushPersonEvent(identityId, event, { session = null } = {}) {
+function pushPersonEvent(identityId, event, { session = null, workspaceId = storageWorkspaceId() } = {}) {
   if (!identityId || !event || typeof event !== 'object') return false;
   try {
-    if (WEB_RUNTIME) require('./web-runtime').sendTo({ identityId: String(identityId), session }, 'person', event);
-    else emit('person:event', event);
+    if (WEB_RUNTIME) require('./web-runtime').sendTo({ identityId: String(identityId), session, workspaceId }, 'person', event);
+    else if (workspaceId === (access.sessionForCall()?.workspaceId || primaryWorkspaceId())) emit('person:event', event);
     return true;
   } catch (_) { return false; } // a browser that missed one reopens the report or reloads its notes on resync
 }
@@ -3358,19 +3427,20 @@ function askReachFor(identityId) {
 }
 function askFollowUpPost(event) {
   askFollowUps ||= require('./ask-followups').createAskFollowUps({ askStore, reachFor: askReachFor, push: (identityId, payload) => pushAskEvent(identityId, payload) });
-  return askFollowUps.post(event);
+  return inWorkspaceContext(event.run?.workspaceId || storageWorkspaceId(), () => askFollowUps.post(event));
 }
-const askProgress = require('./ask-progress').createAskProgress({ send: (target, event) => pushAskEvent(target?.identityId, event, { session: target?.session || null }) });
+const askProgress = require('./ask-progress').createAskProgress({ getWorkspaceId: storageWorkspaceId, send: (target, event) => pushAskEvent(target?.identityId, event, { session: target?.session || null, workspaceId: target?.workspaceId || storageWorkspaceId() }) });
 // The cost line under Ask AI's question box (state.help.estimate, ask-estimate.js): the routed connection and model's
 // price over the prompt's size. askCost remembers the last answer's cached prefix and the connection it really used (an
 // 'auto' route picks Claude Code or the Anthropic key per call); before any answer the app guide plus the instructions
 // (about 43,000 characters) stand in for the prefix. Null when nothing is known yet.
-const askCost = { prefixChars: 0, route: '' };
+const askCosts = new Map();
+function askCost() { const key = storageWorkspaceId(); if (!askCosts.has(key)) askCosts.set(key, { prefixChars: 0, route: '' }); return askCosts.get(key); }
 function helpCostEstimate() {
   try {
     const task = aiRouting.resolve('assistant.ask-ai');
-    const route = task.route === 'auto' ? (['claude', 'claude-api'].includes(askCost.route) ? askCost.route : 'claude') : task.route;
-    return require('./ask-estimate').askEstimate({ route, price: task.price || null, fallback: task.model ? modelPrice(task.model) : null, prefixChars: askCost.prefixChars || appGuide().length + 43000 });
+    const route = task.route === 'auto' ? (['claude', 'claude-api'].includes(askCost().route) ? askCost().route : 'claude') : task.route;
+    return require('./ask-estimate').askEstimate({ route, price: task.price || null, fallback: task.model ? modelPrice(task.model) : null, prefixChars: askCost().prefixChars || appGuide().length + 43000 });
   } catch (_) { return null; } // the line then says how questions are charged instead
 }
 const ASK_MESSAGE_ID = /^msg-[0-9a-f-]{36}$/;
@@ -3482,7 +3552,7 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
         try {
           const result = await generateStructuredOutput({ schema, prompt: body, cachePrefix: prefix, workspaceDir: dir, outputPath: path.join(dir, round ? 'answer-read.json' : 'answer.json'), jobId: key, maxBudgetUsd: helpBudgetUsd, task, timeoutMs: 180000, ...streaming });
           // The cost line's next estimate (helpCostEstimate): this prompt's cached prefix and the connection it used.
-          askCost.prefixChars = String(prefix || '').length || askCost.prefixChars; askCost.route = String(result?.receipt?.route || askCost.route || '');
+          askCost().prefixChars = String(prefix || '').length || askCost().prefixChars; askCost().route = String(result?.receipt?.route || askCost().route || '');
           return result;
         } finally { calls.delete(key); }
       },
@@ -3512,6 +3582,7 @@ async function answerHelp({ question, page, history = [], role, jobId, identityI
 // as a stopped answer and returned like any other reply.
 // `channel` (helpChannelOf): a channel owner's question, answered from their channel view and kept in their channel's
 // space of conversations and memory.
+function askJobId(identityId, workspaceId, requestId) { return `help-${require('crypto').createHash('sha256').update(`${identityId}\0${workspaceId}\0${requestId}`).digest('hex').slice(0, 40)}`; }
 async function askInConversation({ identityId, role, promptAccess, reach, question, requestId, conversationId, page, context, history, mode = '', replaces = '', attachments = [], target = null, project = (event) => event, viewer = null, channel = null }) {
   const workspaceId = contentWorkspace.activeWorkspaceId();
   const space = channel?.channelId; // undefined: everything this person has
@@ -3541,7 +3612,7 @@ async function askInConversation({ identityId, role, promptAccess, reach, questi
     // made last week comes up without a lookup.
     const related = helpSafe(() => askStore.searchConversations(identityId, [question, page.trend, page.report].filter(Boolean).join(' '), 2, { workspaceId, exclude: conversation?.id || '', minScore: 3, channelId: space }), []);
     progress.step({ id: 'context', kind: 'context', label: channel ? 'Looked at your channel' : 'Looked at your studio', status: 'done' });
-    const reply = await answerHelp({ question, page, history: [...past.turns, ...(context ? [{ role: 'user', content: context }] : [])], role, promptAccess, reach, checkModel: true, jobId: `help-${requestId}`, identityId, workspaceId, conversationId: conversation?.id || '', memory, summary: past.summary, pending: past.pending, related, progress, attached: attachments, channel: scoped });
+    const reply = await answerHelp({ question, page, history: [...past.turns, ...(context ? [{ role: 'user', content: context }] : [])], role, promptAccess, reach, checkModel: true, jobId: askJobId(identityId, workspaceId, requestId), identityId, workspaceId, conversationId: conversation?.id || '', memory, summary: past.summary, pending: past.pending, related, progress, attached: attachments, channel: scoped });
     const saved = save({ content: reply.answer, pages: reply.pages, followUps: reply.followUps, actions: reply.actions, show: reply.show, image: reply.image ? { ...reply.image, status: 'creating' } : null, cards: reply.cards, read: reply.read, receipt: reply.receipt, ...(reply.unresolved?.length ? { unresolved: reply.unresolved } : {}) },
       { remember: reply.remember, summary: past.pending.length && reply.summary ? { text: reply.summary, through: past.coverThrough } : null, title: reply.title });
     progress.done(saved);
@@ -3593,15 +3664,15 @@ handle('help:ask', async (_, payload = {}) => {
   if (mode && (!ASK_MESSAGE_ID.test(replaces) || !input.conversationId)) throw askFail('Only your last question can be asked again.', 409);
   // The same request never pays twice: one still running is joined, one already answered returns its stored reply. A
   // running one asked from another space (before a move from Editor to a channel role, or to another channel) isn't.
-  const key = `${identityId} ${requestId}`; const running = askingNow.get(key);
+  const key = `${identityId} ${storageWorkspaceId()} ${requestId}`; const running = askingNow.get(key);
   if (running) { if (running.question !== question || (running.space || '') !== (channel?.channelId || '')) throw askFail('Use a new request ID for a different question.'); return running.work; }
   const stored = askStore.findByRequest(identityId, requestId, { channelId: channel?.channelId });
   if (stored) { if (stored.userMessage.content !== question && !mode) throw askFail('Use a new request ID for a different question.'); return stored; }
   // Two questions at once per person (two conversations side by side); a third waits for one of them.
-  if ([...askingNow.keys()].filter((entry) => entry.startsWith(`${identityId} `)).length >= ASK_BUSY_LIMIT) throw Object.assign(askFail('You have two questions going. Wait for one to finish, or stop it.', 429), { code: 'askBusy' });
+  if ([...askingNow.keys()].filter((entry) => entry.startsWith(`${identityId} ${storageWorkspaceId()} `)).length >= ASK_BUSY_LIMIT) throw Object.assign(askFail('You have two questions going. Wait for one to finish, or stop it.', 429), { code: 'askBusy' });
   // Who the streamed answer goes to (this browser session on the web) and how it is shaped for this person (money
   // stripped for roles without See costs), read here at the entry like everything else about the asker.
-  const target = { identityId, session: access.sessionForCall() };
+  const target = { identityId, session: access.sessionForCall(), workspaceId: storageWorkspaceId() };
   const project = (event) => access.projectResult('askHelp', event, viewer);
   const work = askInConversation({ identityId, role, promptAccess, reach, question, requestId, conversationId: String(input.conversationId || ''), page: askPage(input.page), context: String(input.context || '').slice(0, 3900), history: input.history, mode, replaces, attachments: askAttachments(input.attachments), target, project, viewer, channel }).finally(() => askingNow.delete(key));
   askingNow.set(key, { question, work, space: channel?.channelId || '' });
@@ -3615,10 +3686,10 @@ handle('setup:suggest', (_, payload = {}) => suggestProgramSetup(payload && type
 handle('help:cancel', (_, payload = {}) => {
   const identityId = askIdentityId(); const requestId = String(askInput(payload).requestId ?? '');
   if (!ASK_REQUEST_ID.test(requestId)) throw askFail('Invalid question request ID.');
-  const jobId = `help-${requestId}`; const job = jobs.get(jobId); const stop = apiRequests.get(jobId);
+  const jobId = askJobId(identityId, storageWorkspaceId(), requestId); const job = jobs.get(jobId); const stop = apiRequests.get(jobId);
   // Pressed before the answer's job started (it was still reading memory): answerHelp stops it as it starts.
-  if (!job && askingNow.has(`${identityId} ${requestId}`)) { cancelledJobs.add(jobId); return { stopped: true }; }
-  if (!job || job.ownerId !== identityId || !stop) return { stopped: false };
+  if (!job && askingNow.has(`${identityId} ${storageWorkspaceId()} ${requestId}`)) { cancelledJobs.add(jobId); return { stopped: true }; }
+  if (!job || job.ownerId !== identityId || job.workspaceId !== storageWorkspaceId() || !stop) return { stopped: false };
   cancelledJobs.add(jobId); stop.abort();
   return { stopped: true };
 });
@@ -3637,7 +3708,7 @@ const askConversationId = (input) => String(input.conversationId ?? input.id ?? 
 // that channel role, never what they kept before as an editor or for another channel.
 handle('help:conversations', (_, payload = {}) => {
   const identityId = askIdentityId(); const input = askInput(payload); const workspaceId = contentWorkspace.activeWorkspaceId();
-  return { workspaceId, conversations: askStore.listConversations(identityId, { workspaceId: input.allWorkspaces === true ? '' : workspaceId, limit: input.limit, channelId: askSpace() }) };
+  return { workspaceId, conversations: askStore.listConversations(identityId, { workspaceId, limit: input.limit, channelId: askSpace() }) };
 });
 handle('help:conversation', (_, payload = {}) => {
   const conversation = askStore.readConversation(askIdentityId(), askConversationId(askInput(payload)), { channelId: askSpace() });
@@ -3661,6 +3732,7 @@ const helpImages = () => (helpImageStore ||= require('./help-images').createHelp
   generateImage: (request) => mediaRouter.generateImage(request), dir: dataPath('help', 'images'),
   problem: () => mediaRouter.problem('pictures.ask-ai'),
   references: (family) => contentWorkspace.brandReferenceSet({ family }),
+  channelReferences: () => { const channel = helpChannelOf(access.currentViewer()); return channel ? contentWorkspace.channelImageReferenceSet({ channelId: channel.channelId }) : null; },
   edition: () => contentWorkspace.activeEditionId(), workspaceId: () => contentWorkspace.activeWorkspaceId(),
 }));
 // Each picture keeps who asked for it (ownerId); a channel owner lists, opens and saves only their own.
@@ -3779,7 +3851,13 @@ function memberActivity(member, action) {
 }
 const roleLabelOf = (id) => teamStore.roleLabel(id);
 // programs: this workspace's research programs, for choosing who sees which (program-scope.js).
-handle('team:list', () => ({ members: teamStore.listMembers().map(memberView), channels: teamChannels(), signIn: signInSettings(), access: teamStore.accessSummary(), programs: helpSafe(() => (contentWorkspace.publicState().programs || []).map(({ id, name }) => ({ id, name: name || '' })), []) }));
+handle('team:list', () => ({ ...(access.currentViewer().isSuperAdmin ? { directory: teamStore.directory() } : {}), members: teamStore.listMembers().map(memberView), channels: teamChannels(), signIn: signInSettings(), access: teamStore.accessSummary(), programs: helpSafe(() => (contentWorkspace.publicState().programs || []).map(({ id, name }) => ({ id, name: name || '' })), []) }));
+handle('team:workspace-membership', (_, payload = {}) => {
+  const input = objectPayload(payload);
+  if (!contentWorkspace.workspaceById(input.workspaceId)) throw refuse('Choose an existing workspace.', 404);
+  const member = teamStore.assignWorkspaceMember(input, access.identityForCall());
+  emitState(); return { member };
+});
 // Handlers that change people report what changed under `activity` (analytics) and `audit` (the access log); the gate
 // writes both and removes them from the result.
 handle('team:save-member', (_, payload = {}) => {
@@ -3794,7 +3872,7 @@ handle('team:save-member', (_, payload = {}) => {
 });
 handle('team:remove-member', (_, payload = {}) => {
   const removed = teamStore.removeMember(String(objectPayload(payload).id || ''), access.identityForCall());
-  askStore.purge(removed.id); // their Ask AI conversations and memory go with them
+  // Removing one workspace membership retains this account's conversations and access in other workspaces.
   emitState();
   return { ok: true, activity: memberActivity(removed, 'removed'), audit: [auditForMember(removed, null, roleLabelOf)] };
 });
@@ -3912,7 +3990,12 @@ handle('team:view-as', (_, payload = {}) => {
 // Mac the layout is also kept in Settings, which the rest of the app reads.
 handle('team:prefs', (_, payload = {}) => {
   const input = objectPayload(payload); const identity = access.identityForCall();
-  const patch = Object.fromEntries(['uiMode', 'welcomedAt', 'inboxSeenAt', 'focusChannels', 'navRail'].filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+  const patch = Object.fromEntries(['uiMode', 'welcomedAt', 'inboxSeenAt', 'focusChannels', 'navRail', 'workspaceTours'].filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+  if (patch.workspaceTours && access.currentViewer().preview) throw refuse('Tour progress cannot be saved in a preview.', 403);
+  if (patch.workspaceTours) {
+    const viewer = access.currentViewer(); const expected = `${viewer.workspaceId}:${viewer.isSuperAdmin ? 'superadmin' : viewer.roleId}`;
+    if (Object.keys(patch.workspaceTours).some((key) => key !== expected)) throw refuse('Save tour progress only for your current workspace and role.', 403);
+  }
   const prefs = teamStore.setPrefs(identity.id, patch);
   if (!WEB_RUNTIME && patch.uiMode !== undefined && prefs.uiMode && loadData().settings.uiMode !== prefs.uiMode) { loadData().settings.uiMode = prefs.uiMode; saveData(); }
   emitState();
@@ -3973,12 +4056,12 @@ handle('setup:open', async () => {
   const { summary, warnings } = contentWorkspace.previewSetup({ bundle });
   for (const [token, entry] of pendingSetups) if (entry.expires < Date.now()) pendingSetups.delete(token);
   const token = randomUUID();
-  pendingSetups.set(token, { bundle, fileName: path.basename(filePath), expires: Date.now() + SETUP_PREVIEW_TTL_MS });
+  pendingSetups.set(token, { bundle, workspaceId: storageWorkspaceId(), identityId: access.identityForCall()?.id, fileName: path.basename(filePath), expires: Date.now() + SETUP_PREVIEW_TTL_MS });
   return { token, fileName: path.basename(filePath), summary, warnings, apifyTokenIncluded: Boolean(bundle.secrets?.APIFY_API_TOKEN), apifyTokenSaved: Boolean(getKey('APIFY_API_TOKEN')) };
 });
 handle('setup:apply', async (_, { token, saveApifyToken = false } = {}) => {
   const pending = pendingSetups.get(String(token || ''));
-  if (!pending || pending.expires < Date.now()) throw new Error('This preview has expired. Choose Import setup… and open the file again.');
+  if (!pending || pending.workspaceId !== storageWorkspaceId() || pending.identityId !== access.identityForCall()?.id || pending.expires < Date.now()) throw new Error('This preview has expired. Choose Import setup… and open the file again.');
   const apifyToken = saveApifyToken ? pending.bundle.secrets?.APIFY_API_TOKEN : '';
   const encryptedToken = apifyToken ? encryptValue(validateKeyValue('APIFY_API_TOKEN', apifyToken)) : ''; // fail before anything is imported
   const result = contentWorkspace.importSetup({ bundle: pending.bundle });
@@ -4104,7 +4187,7 @@ handle('replay-sheet-run', (_, sheetRunId) => replaySheetRun(sheetRunId));
 handle('read-analysis', (_, analysisId) => readAnalysisOutput(validateId(analysisId, 'Analysis ID')));
 handle('analyze-dataset', (_, payload) => onceForRequest('analyzeDataset', payload, () => analyzeDataset(payload)));
 handle('open-data-folder', () => openPathOrThrow(dataRoot()));
-handle('open-assets-folder', () => openPathOrThrow(dataPath('assets')));
+handle('open-assets-folder', () => { const folder = workspaceDiskPath('assets'); fs.mkdirSync(folder, { recursive: true }); return openPathOrThrow(folder); });
 handle('open-analysis-output', (_, analysisId) => openPathOrThrow(localAnalysisPath(validateId(analysisId, 'Analysis ID'))));
 handle('reveal-analysis-output', (_, analysisId) => {
   shell.showItemInFolder(localAnalysisPath(validateId(analysisId, 'Analysis ID')));
@@ -4115,11 +4198,13 @@ handle('reveal-asset', (_, assetId) => {
   shell.showItemInFolder(localAssetPath(validateId(assetId, 'Asset ID')));
   return true;
 });
-handle('open-workspace', (_, projectId = 'default') => openPathOrThrow(ensureWorkspace(dataPath('workspaces'), validateId(projectId, 'Project ID'))));
+handle('open-workspace', (_, projectId = 'default') => openPathOrThrow(ensureWorkspace(workspaceDiskPath('workspaces'), validateId(projectId, 'Project ID'))));
 handle('cancel-job', async (_, jobId) => {
   const validJobId = validateId(jobId, 'Job ID');
   // A person's own job (an Ask AI answer) is stopped only by them.
-  const owner = jobs.get(validJobId)?.ownerId;
+  const job = jobs.get(validJobId);
+  if (!job || (job.workspaceId || primaryWorkspaceId()) !== storageWorkspaceId()) throw new Error('Job cannot be cancelled.');
+  const owner = job.ownerId;
   if (owner && owner !== access.identityForCall()?.id) throw new Error('Job cannot be cancelled.');
   const child = jobProcesses.get(validJobId);
   const apifyRun = apifyRunControllers.get(validJobId);
@@ -4180,7 +4265,7 @@ app.whenReady().then(() => {
   if (WEB_RUNTIME) {
     const raw = String(process.env.STUDIO_EXPORT_DAYS ?? '').trim(); const days = raw === '' ? 7 : Number(raw); const keepDays = Number.isFinite(days) && days >= 0 ? days : 7;
     try { contentWorkspace.pruneExports({ olderThanDays: keepDays }); } catch (error) { console.warn(`Old export copies could not be removed: ${error.message}`); }
-    try { const cutoff = Date.now() - keepDays * 86400000; for (const entry of fs.readdirSync(dataPath('exports'), { withFileTypes: true })) { const target = dataPath('exports', entry.name); if (fs.statSync(target).mtimeMs < cutoff) fs.rmSync(target, { recursive: true, force: true }); } } catch (_) { /* nothing to remove */ }
+    try { const cutoff = Date.now() - keepDays * 86400000; for (const entry of fs.readdirSync(workspaceDiskPath('exports'), { withFileTypes: true })) { const target = workspaceDiskPath('exports', entry.name); if (fs.statSync(target).mtimeMs < cutoff) fs.rmSync(target, { recursive: true, force: true }); } } catch (_) { /* nothing to remove */ }
   }
   if (process.platform === 'win32' && !WEB_RUNTIME) sweepLeftoverCliFolders();
   contentWorkspace.startResearchScheduler();

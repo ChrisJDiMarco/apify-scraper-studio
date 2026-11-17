@@ -281,36 +281,31 @@ function MyChannelsDialog({ channels, selected, onSave, onClose }) {
   </Dialog>;
 }
 
-function WorkspaceSwitcher({ viewer, edition, workspaces, activeWorkspaceId, mode, unified = false, web, busy, rail, single = false, onSelectWorkspace, onNewWorkspace, onDone }) {
+function WorkspaceSwitcher({ viewer, edition, workspaces, activeWorkspaceId, mode, unified = false, web, busy, rail, single = false, onSelectWorkspace, onNewWorkspace, onManageWorkspace, onDone }) {
   const workspace = workspaces.find((row) => row.id === activeWorkspaceId) || null;
   const workspaceName = workspace?.name || (web ? 'Shared studio' : 'My workspace');
   const preview = Boolean(viewer.preview);
   const label = viewer.roleLabel || roleLabel(viewer.role);
-  if (mode === 'channel' || isChannelViewer(viewer)) {
-    const line = [preview ? `Viewing as ${label}` : label, workspace?.name].filter(Boolean).join(' · ');
-    return <div className="sb-switcher is-static" role="group" aria-label="Your channel" data-spot="nav.workspace" data-tip={rail ? `${viewer.channelName || 'Your channel'} · ${line}` : undefined} tabIndex={rail ? 0 : undefined}>
-      <span className="sb-tile is-channel" aria-hidden="true"><Megaphone size={15} /></span>
-      <span className="sb-switcher-copy"><strong>{viewer.channelName || 'Your channel'}</strong><small>{line}</small></span>
-    </div>;
-  }
-  const line = unified ? (preview ? `Viewing as ${label}` : label) : `${preview ? `Viewing as ${label}` : label} · ${mode === 'classic' ? 'Advanced' : 'Simple'}`;
+  const channel = mode === 'channel' || isChannelViewer(viewer);
+  const roleLine = preview ? `Viewing as ${label}` : label;
+  const line = channel ? [roleLine, viewer.channelName].filter(Boolean).join(' · ') : unified ? roleLine : `${roleLine} · ${mode === 'classic' ? 'Advanced' : 'Simple'}`;
   const tile = <span className={`sb-tile${edition === 'general' ? ' is-general' : ''}`} aria-hidden="true">{(workspaceName.trim()[0] || 'W').toUpperCase()}</span>;
   const copy = <span className="sb-switcher-copy"><strong>{workspaceName}</strong><small>{line}</small></span>;
   // A one-workspace build (single) only shows the name: no menu, no New workspace.
-  const switchable = !single && Boolean(onSelectWorkspace) && isRealAdmin(viewer) && workspaces.length > 0;
+  const switchable = !single && Boolean(onSelectWorkspace) && Boolean(viewer.role) && workspaces.length > 0;
   if (!switchable) {
     return <div className="sb-switcher is-static" role="group" aria-label={`Workspace: ${workspaceName}`} data-spot="nav.workspace" data-tip={rail ? `${workspaceName} · ${line}` : undefined} tabIndex={rail ? 0 : undefined}>{tile}{copy}</div>;
   }
   function choose(id) {
     if (!id || id === activeWorkspaceId) return;
-    const name = workspaces.find((row) => row.id === id)?.name || 'that workspace';
-    if (web && !window.confirm(`Everyone using the studio, including channel owners, switches to ${name}. Switch?`)) return;
     onSelectWorkspace(id); onDone?.();
   }
+  const canCreate = viewer.isSuperAdmin && onNewWorkspace;
   const rows = [
-    { type: 'group', key: 'workspaces', label: 'Workspaces', items: workspaces.map((row) => ({ type: 'radio', key: row.id, label: row.name, checked: row.id === activeWorkspaceId, onSelect: () => choose(row.id) })) },
-    onNewWorkspace && { type: 'separator', key: 'sep' },
-    onNewWorkspace && { type: 'item', key: 'new', label: 'New workspace', icon: Plus, onSelect: () => { onNewWorkspace(); onDone?.(); } },
+    { type: 'group', key: 'workspaces', label: 'Your workspaces', items: workspaces.map((row) => ({ type: 'radio', key: row.id, label: row.name, hint: row.roleLabel || undefined, checked: row.id === activeWorkspaceId, onSelect: () => choose(row.id) })) },
+    (canCreate || onManageWorkspace) && { type: 'separator', key: 'sep' },
+    canCreate && { type: 'item', key: 'new', label: 'New workspace', icon: Plus, onSelect: () => { onNewWorkspace(); onDone?.(); } },
+    onManageWorkspace && { type: 'item', key: 'people', label: 'People & access', icon: Users, onSelect: () => { onManageWorkspace(); onDone?.(); } },
   ];
   return <MenuButton label="Workspaces" rows={rows} placement={rail ? 'right' : 'bottom'} disabled={busy || preview}
     buttonClass="sb-switcher" buttonProps={{ 'data-spot': 'nav.workspace', 'aria-label': `Workspace: ${workspaceName}. ${line}`, title: preview ? PREVIEW_TITLE : undefined, 'data-tip': rail ? `${workspaceName} · ${line}` : undefined }}
@@ -391,6 +386,7 @@ export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: 
   const focus = Array.isArray(viewer.prefs?.focusChannels) ? viewer.prefs.focusChannels : [];
   const viewRow = (option) => ({ type: 'radio', key: option.value, label: option.label, checked: option.value === choice, onSelect: () => { if (option.value === choice) return; if (onViewAs(option.payload) !== false) close(); } });
   const accountRows = [
+    { type: 'item', key: 'tour', label: 'Take the guided tour', icon: Radar, onSelect: () => { close(); window.dispatchEvent(new Event('golden-thread-replay-tour')); } },
     viewAs.length > 0 && { type: 'group', key: 'view-as', label: 'View as', items: viewAs.filter((option) => option.group !== 'channels').map(viewRow) },
     viewAs.some((option) => option.group === 'channels') && { type: 'group', key: 'view-as-channel', label: 'View as a channel owner', items: viewAs.filter((option) => option.group === 'channels').map(viewRow) },
     viewAs.length > 0 && { type: 'separator', key: 'sep-view' },
@@ -418,7 +414,7 @@ export function StudioSidebar({ edition = 'semrush', meta, web = false, viewer: 
         {drawer ? <button type="button" className="studio-icon-button sb-drawer-close" aria-label="Close menu" onClick={close}><X size={18} aria-hidden="true" /></button>
           : onToggleRail && !narrow && <button type="button" className="sb-collapse" data-spot="nav.collapse" aria-label={railed ? 'Expand sidebar' : 'Collapse sidebar'} aria-keyshortcuts={ariaKeys('⌘\\', mac)} title={railed ? undefined : `Collapse sidebar (${keys('⌘\\')})`} data-tip={railed ? `Expand sidebar · ${keys('⌘\\')}` : undefined} onClick={onToggleRail}>{railed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>}
       </header>
-      <WorkspaceSwitcher viewer={viewer} edition={edition} workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} mode={mode} unified={nav?.layout === 'unified'} web={web} busy={busy} rail={railed} single={singleWorkspace} onSelectWorkspace={onSelectWorkspace} onNewWorkspace={onNewWorkspace} onDone={close} />
+      <WorkspaceSwitcher viewer={viewer} edition={edition} workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} mode={mode} unified={nav?.layout === 'unified'} web={web} busy={busy} rail={railed} single={singleWorkspace} onSelectWorkspace={onSelectWorkspace} onNewWorkspace={onNewWorkspace} onManageWorkspace={isRealAdmin(viewer) && !preview ? () => go({ id: 'people', kind: 'admin', target: 'people' }) : undefined} onDone={close} />
       {(create.length > 0 || search || ask) && <div className="sb-actions">
         {create.length > 0 && <MenuButton label="New" rows={newRows} placement={railed ? 'right' : 'bottom'} openKey={newMenuKey} menuClass="sb-new-menu"
           buttonClass="sb-create" buttonProps={{ 'data-spot': 'nav.new', 'aria-keyshortcuts': ariaKeys('⌥⌘N', mac), title: railed ? undefined : `New (${keys('⌥⌘N')})`, 'data-tip': railed ? `New · ${keys('⌥⌘N')}` : undefined }}
@@ -477,8 +473,9 @@ export function ChannelBottomNav({ items = [], active, onNavigate }) {
   return <nav className="studio-bottom-nav" aria-label="Main">{items.map((row) => {
     const Icon = row.icon ? iconOf(row.icon) : null; const current = active === row.id;
     const name = itemName({ ...row, badge: Number(row.badge ?? row.count) || 0, badgeLabel: row.badgeLabel || row.countLabel || '' });
-    return <button key={row.id} type="button" className={current ? 'active' : ''} data-spot={row.spot || `nav.${row.id}`} aria-current={current ? 'page' : undefined} aria-label={name !== row.label ? name : undefined} onClick={() => onNavigate?.(row.id)}>
-      <span className="studio-bottom-icon">{Icon && <Icon size={20} aria-hidden="true" />}{Number(row.badge ?? row.count) > 0 && <span className="simple-count" aria-hidden="true">{row.badge ?? row.count}</span>}</span><span>{row.label}</span>
+    const compact = { programs: 'Programs', mychannel: 'Channel' }[row.id] || row.label;
+    return <button key={row.id} type="button" className={current ? 'active' : ''} data-spot={row.spot || `nav.${row.id}`} aria-current={current ? 'page' : undefined} aria-label={name !== compact ? name : undefined} onClick={() => onNavigate?.(row.id)}>
+      <span className="studio-bottom-icon">{Icon && <Icon size={20} aria-hidden="true" />}{Number(row.badge ?? row.count) > 0 && <span className="simple-count" aria-hidden="true">{row.badge ?? row.count}</span>}</span><span>{compact}</span>
     </button>;
   })}</nav>;
 }

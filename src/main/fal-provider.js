@@ -165,7 +165,8 @@ function createFalProvider({ getKey, fetchImpl = globalThis.fetch, clock = Date.
     const estimateUsd = Math.round(price.unitUsd * units * 1e6) / 1e6;
     // References: data URIs, only to a model that takes images, within the inline size cap (checked before anything is sent).
     const takes = (profile.referenceImages || 0) > 0 && profile.referenceField;
-    const refs = takes ? deliverable.references.slice(0, profile.referenceImages) : [];
+    if (deliverable.references.length && (!takes || deliverable.references.length > profile.referenceImages)) throw problem('IMAGE_INPUT_INVALID', 'deliverable.references', `This picture model accepts ${takes ? profile.referenceImages : 0} reference images, but this set has ${deliverable.references.length}. Choose a model that supports the full set, or remove some examples before generating. Nothing was sent.`, { beforeDispatch: true });
+    const refs = deliverable.references;
     const inline = refs.map((reference) => `data:${reference.mime};base64,${Buffer.from(reference.data).toString('base64')}`);
     if (inline.reduce((sum, uri) => sum + uri.length, 0) > MAX_INLINE_REFERENCE_BYTES) throw problem('IMAGE_INPUT_INVALID', 'deliverable.references', 'The brand reference images are too large to send to fal.ai together (24 MB). Use smaller reference images in Settings.', { beforeDispatch: true });
     const referencesOmitted = deliverable.references.length > refs.length;

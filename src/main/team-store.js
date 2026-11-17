@@ -20,10 +20,11 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('node:async_hooks');
 const { writeFileDurable } = require('../shared/durable-write');
 const roles = require('./roles');
 
-const TEAM_VERSION = 3;
+const TEAM_VERSION = 4;
 const AUDIT_LIMIT = 2000;
 // Ask AI on by default for every role (v3). The built-in roles follow roles.json's defaults, so Channel owner gets it
 // from there and an admin's own Off (builtIn.<role>.deny) stays. Custom roles keep their own lists, so v3 adds Ask AI to
@@ -103,6 +104,8 @@ function askAiForEveryRole(data, { now = () => new Date() } = {}) {
 const MIGRATIONS = Object.freeze({
   1: (data) => ({ ...data, version: 2, members: Array.isArray(data.members) ? data.members.map((member) => (member && typeof member === 'object' ? { ...member, grants: [], denies: [] } : member)) : data.members, roles: [], rolePolicy: { rev: 0, updatedAt: '', updatedBy: null, builtIn: {} }, audit: [] }),
   2: askAiForEveryRole,
+  // Older builds must refuse workspace memberships instead of treating the account's legacy role as global access.
+  3: (data) => ({ ...data, version: 4 }),
 });
 // workflow-run / workflow-changed: written by the workflow engine itself (its decisions never pass the gate).
 const ACTIVITY_KINDS = Object.freeze(['trend-decision', 'adoption', 'kit-created', 'report-edited', 'report-restored', 'member-changed', 'link-issued', 'research-started', 'workflow-run', 'workflow-changed']);
@@ -191,7 +194,7 @@ function auditForMember(before, after, roleLabel = (id) => id) {
   return kind === 'member-changed' && !changes.length ? null : { kind, target, changes, affected: 1 };
 }
 
-function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}) {
+function createTeamStore({ root, now = () => new Date(), adminEmails = [], workspaceId = () => '', defaultWorkspaceId = '' } = {}) {
   if (!root) throw new Error('Team data needs the studio data folder.');
   const target = path.join(root, 'team.json');
   const clock = () => new Date(now()).getTime();
@@ -199,8 +202,55 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
   const serverAdmins = new Set(list(adminEmails).map(normEmail).filter(Boolean));
   const unreadable = () => new Error('Team data could not be read (content-studio/team.json). Restore it from a backup before starting.');
   const emptyPolicy = () => ({ rev: 0, updatedAt: '', updatedBy: null, builtIn: {} });
-  let data = load();
+  let rawData = load();
+  const workspaceContext = new AsyncLocalStorage();
+  const scopedId = () => workspaceContext.getStore() ?? workspaceId();
+  const membershipFields = new Set(['role', 'channelId', 'disabled', 'grants', 'denies', 'programIds', 'accessUpdatedAt', 'accessUpdatedBy']);
+  // The legacy methods stay synchronous. This adapter gives them only the current workspace's membership and policy;
+  // account identity, one-time sign-in links and session epochs remain global.
+  const membershipOf = (member) => Object.fromEntries([...membershipFields].filter((key) => member[key] !== undefined).map((key) => [key, copy(member[key])]));
+  if (defaultWorkspaceId && !rawData.workspaceTeams) {
+    rawData.workspaceTeams = { [defaultWorkspaceId]: { roles: copy(rawData.roles), rolePolicy: copy(rawData.rolePolicy) } };
+    for (const member of rawData.members) { member.memberships = { [defaultWorkspaceId]: membershipOf(member) }; member.disabled = false; }
+    writeFile(JSON.stringify(rawData, null, 2));
+  }
+  function workspaceTeam(key) {
+    rawData.workspaceTeams ||= {};
+    return rawData.workspaceTeams[key] ||= { roles: [], rolePolicy: emptyPolicy() };
+  }
+  function scopedMember(member, key) {
+    const proxy = new Proxy(member, {
+      get(target, field) { if (field === 'toJSON') return () => target; return membershipFields.has(field) ? target.memberships?.[key]?.[field] : target[field]; },
+      set(target, field, value) { if (membershipFields.has(field)) { target.memberships ||= {}; target.memberships[key] ||= {}; target.memberships[key][field] = value; if (field === 'disabled' && value === false) target.disabled = false; } else target[field] = value; return true; },
+      deleteProperty(target, field) { if (membershipFields.has(field)) delete target.memberships?.[key]?.[field]; else delete target[field]; return true; },
+      ownKeys(target) { return [...new Set([...Reflect.ownKeys(target), ...Object.keys(target.memberships?.[key] || {})])]; },
+      getOwnPropertyDescriptor(target, field) { return Object.getOwnPropertyDescriptor(target, field) || (Object.prototype.hasOwnProperty.call(target.memberships?.[key] || {}, field) ? { configurable: true, enumerable: true, writable: true, value: target.memberships[key][field] } : undefined); },
+    });
+    return proxy;
+  }
+  let data = new Proxy({}, {
+    get(_, field) {
+      const key = scopedId();
+      if (key && defaultWorkspaceId && ['roles', 'rolePolicy'].includes(field)) return workspaceTeam(key)[field];
+      if (key && defaultWorkspaceId && field === 'members') {
+        const members = rawData.members.filter((member) => Object.prototype.hasOwnProperty.call(member.memberships || {}, key)).map((member) => scopedMember(member, key));
+        members.push = (...adding) => { for (const member of adding) { member.memberships = { [key]: membershipOf(member) }; member.disabled = false; rawData.members.push(member); } return rawData.members.length; };
+        return members;
+      }
+      return rawData[field];
+    },
+    set(_, field, value) {
+      const key = scopedId();
+      if (key && defaultWorkspaceId && ['roles', 'rolePolicy'].includes(field)) workspaceTeam(key)[field] = value;
+      else if (key && defaultWorkspaceId && field === 'members') {
+        const keep = new Set(value.map((member) => member.id));
+        for (const member of rawData.members) if (!keep.has(member.id)) delete member.memberships?.[key];
+      } else rawData[field] = value;
+      return true;
+    },
+  });
   let compiled = null; // the compiled role policy, rebuilt after any change
+  let compiledWorkspace = '';
   // When each member's lastSeenAt last reached the disk; a restart counts the saved value.
   const touched = new Map(data.members.filter((member) => Number.isFinite(time(member.lastSeenAt))).map((member) => [member.id, time(member.lastSeenAt)]));
 
@@ -231,15 +281,15 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
   }
   // Write-through: a change that can't reach the disk is undone in memory too.
   function change(mutate) {
-    const before = JSON.stringify(data);
-    try { const result = mutate(); compiled = null; writeFile(JSON.stringify(data, null, 2)); return result; }
-    catch (error) { data = JSON.parse(before); compiled = null; throw error; }
+    const before = JSON.stringify(rawData);
+    try { const result = mutate(); compiled = null; writeFile(JSON.stringify(rawData, null, 2)); return result; }
+    catch (error) { rawData = JSON.parse(before); compiled = null; throw error; }
   }
 
   // ---------- Role policy ----------
   // The compiled policy (built-in roles with the team's adjustments, plus custom roles), for the gate and the viewer.
   function accessPolicy() {
-    if (!compiled) compiled = roles.compilePolicy({ rev: data.rolePolicy.rev, builtIn: data.rolePolicy.builtIn, roles: data.roles });
+    if (!compiled || compiledWorkspace !== scopedId()) { compiledWorkspace = scopedId(); compiled = roles.compilePolicy({ rev: data.rolePolicy.rev, builtIn: data.rolePolicy.builtIn, roles: data.roles }); }
     return compiled;
   }
   const roleDef = (id) => accessPolicy().roles.get(id) || null;
@@ -446,12 +496,49 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
   // Members leave the store without their link hash; the token only ever matches inside memberByLinkToken.
   function publicMember(member) {
     if (!member) return null;
-    const { link, ...rest } = member;
+    const { link, memberships: _memberships, ...rest } = member;
     return { ...copy(rest), channelId: rest.channelId ?? null, disabled: Boolean(rest.disabled), grants: [...list(rest.grants)], denies: [...list(rest.denies)], sessionEpoch: Number(rest.sessionEpoch) || 0, link: link ? { id: link.id, purpose: link.purpose || 'invite', createdAt: link.createdAt, expiresAt: link.expiresAt ?? null, lastUsedAt: link.lastUsedAt || '' } : null, serverAdmin: isServerAdmin(rest.email) };
   }
   const listMembers = () => data.members.map(publicMember);
   const memberById = (id) => publicMember(record(id));
   const memberByEmail = (email) => publicMember(recordByEmail(email));
+  const inWorkspace = (key, fn) => workspaceContext.run(key, fn);
+  const isSuperIdentity = (identity) => Boolean(identity && !identity.disabled && (['desktop', 'password'].includes(identity.via) || isServerAdmin(identity.email)));
+  const directory = () => rawData.members.filter((member) => !member.disabled).map(({ id, name, email }) => ({ id, name, email }));
+  const globalMemberById = (id) => inWorkspace('', () => memberById(id));
+  function signInRole(member) {
+    if (!defaultWorkspaceId || scopedId()) return roleDef(member?.role);
+    const account = rawData.members.find((entry) => entry.id === member?.id);
+    if (!account || account.disabled) return null;
+    if (isServerAdmin(account.email)) return roles.DEFAULT_POLICY.roles.get('admin');
+    for (const [key, membership] of Object.entries(account.memberships || {})) {
+      if (membership.disabled) continue;
+      const def = inWorkspace(key, () => roleDef(membership.role));
+      if (def) return def;
+    }
+    return null;
+  }
+  const memberWorkspaces = (id) => {
+    const member = rawData.members.find((entry) => entry.id === id);
+    if (!member || member.disabled) return [];
+    return Object.entries(member.memberships || {}).filter(([, value]) => !value.disabled && value.role).map(([workspaceId, value]) => ({ workspaceId, role: value.role, channelId: value.channelId || null }));
+  };
+  function assignWorkspaceMember({ memberId, workspaceId: key, role, channelId } = {}, by = {}) {
+    if (!isSuperIdentity(by)) throw fail('Only a Super Admin can add an existing account to a workspace.', 403);
+    if (typeof key !== 'string' || !RECORD_ID.test(key)) throw fail('Choose a workspace.');
+    const member = rawData.members.find((entry) => entry.id === memberId);
+    if (!member || member.disabled) throw fail('Choose an existing active account.', 404);
+    return inWorkspace(key, () => {
+      const def = roleDef(role);
+      if (!def) throw fail('Choose a role for this workspace.');
+      if (def.base === 'channel' && !roles.isChannelId(channelId)) throw fail('Choose the channel this person owns.');
+      return change(() => {
+        member.memberships ||= {};
+        member.memberships[key] = { role, channelId: def.base === 'channel' ? channelId : null, disabled: false, grants: [], denies: [] };
+        return memberById(memberId);
+      });
+    });
+  }
 
   // Saves a new member (no id) or changes one. `by` is the acting identity; email may be left out only on the Mac.
   // role is any role id: Admin, Editor, Channel owner or a custom role.
@@ -468,17 +555,18 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     const email = normEmail(pick('email'));
     if (email && (email.length > 254 || !EMAIL.test(email))) throw fail('Enter a work email like pat@company.com.');
     if (!email && by?.via !== 'desktop') throw fail('Add their work email so they can sign in.');
-    if (email && data.members.some((member) => member !== existing && normEmail(member.email) === email)) throw fail('Someone in the studio already uses that email.', 409);
+    if (email && rawData.members.some((member) => member.id !== existing?.id && normEmail(member.email) === email)) throw fail('Someone in the studio already uses that email.', 409);
     const channelId = def.base === 'channel' ? pick('channelId') ?? null : null;
     if (def.base === 'channel' && !roles.isChannelId(channelId)) throw fail('Choose the channel this person owns.');
     const disabled = input.disabled !== undefined ? input.disabled === true : Boolean(existing?.disabled);
     // Admins see every program; anyone else keeps theirs unless the save names new ones.
     const programIds = def.base === 'admin' ? null : input.programIds !== undefined ? cleanProgramIds(input.programIds) : Array.isArray(existing?.programIds) ? [...existing.programIds] : null;
     if (existing) {
+      if (scopedId() && !isSuperIdentity(by) && (name !== existing.name || email !== normEmail(existing.email))) throw fail('Ask a Super Admin to change an existing account’s name or email.', 403);
       const wasDisabled = Boolean(existing.disabled);
       if (isServerAdmin(existing.email) && (role !== existing.role || disabled !== wasDisabled || email !== normEmail(existing.email))) throw roles.refusal('serverAdmin');
       if (existing.id === by?.id && (role !== existing.role || (disabled && !wasDisabled))) throw roles.refusal('selfChange');
-      if (existing.role === 'admin' && !wasDisabled && (role !== 'admin' || disabled) && !enabledAdmins().some((member) => member !== existing)) throw roles.refusal('lastAdmin');
+      if (existing.role === 'admin' && !wasDisabled && (role !== 'admin' || disabled) && !enabledAdmins().some((member) => member.id !== existing.id)) throw roles.refusal('lastAdmin');
     }
     if (isServerAdmin(email) && (role !== 'admin' || disabled)) throw roles.refusal('serverAdmin');
     return change(() => {
@@ -490,7 +578,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
         Object.assign(existing, { name, email, role, channelId, disabled, updatedAt: at });
         if (programIds) existing.programIds = programIds; else delete existing.programIds;
         if (baseChanged || def.base === 'admin') Object.assign(existing, { grants: [], denies: [] });
-        if (pausing) { existing.link = null; existing.sessionEpoch = (Number(existing.sessionEpoch) || 0) + 1; delete data.prefs[existing.id]; }
+        if (pausing && !scopedId()) { existing.link = null; existing.sessionEpoch = (Number(existing.sessionEpoch) || 0) + 1; delete data.prefs[existing.id]; }
         return publicMember(existing);
       }
       const member = { id: `member-${crypto.randomUUID()}`, name, email, role, channelId, disabled, grants: [], denies: [], ...(programIds ? { programIds } : {}), createdAt: at, updatedAt: at, createdBy: actorOf(by), lastSeenAt: '', link: null };
@@ -504,9 +592,9 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     if (!member) throw fail('That person isn’t in the studio anymore.', 404);
     if (isServerAdmin(member.email)) throw roles.refusal('serverAdmin');
     if (member.id === by?.id) throw roles.refusal('selfChange');
-    if (member.role === 'admin' && !member.disabled && !enabledAdmins().some((other) => other !== member)) throw roles.refusal('lastAdmin');
+    if (member.role === 'admin' && !member.disabled && !enabledAdmins().some((other) => other.id !== member.id)) throw roles.refusal('lastAdmin');
     const removed = publicMember(member);
-    change(() => { data.members = data.members.filter((other) => other !== member); delete data.prefs[member.id]; });
+    change(() => { data.members = data.members.filter((other) => other.id !== member.id); if (!scopedId()) delete data.prefs[member.id]; });
     touched.delete(member.id);
     return removed;
   }
@@ -546,7 +634,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
       if (!email || email.length > 254 || !EMAIL.test(email)) { skipped.push({ email: String(raw ?? '').slice(0, 254), reason: 'Not an email address' }); continue; }
       if (seen.has(email)) { skipped.push({ email, reason: 'Listed twice' }); continue; }
       seen.add(email);
-      if (recordByEmail(email)) { skipped.push({ email, reason: 'Already in the studio' }); continue; }
+      if (rawData.members.some((member) => normEmail(member.email) === email)) { skipped.push({ email, reason: 'Already in the studio' }); continue; }
       if (isServerAdmin(email) && def.id !== 'admin') { skipped.push({ email, reason: 'An admin in the server settings' }); continue; }
       const name = cleanName(typeof person === 'object' ? person?.name : '').slice(0, 120) || nameFromEmail(email);
       adding.push({ email, name });
@@ -611,7 +699,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
       if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash)) continue;
       if (crypto.timingSafeEqual(Buffer.from(hash, 'hex'), digest) && !found) found = member;
     }
-    if (!found || found.disabled) return null;
+    if (!found || found.disabled || !signInRole(found)) return null;
     // Links made before links worked once could last up to 10 years; they get MAX_LINK_DAYS from when they were made.
     const expires = found.link.expiresAt ? time(found.link.expiresAt) : time(found.link.createdAt) + MAX_LINK_DAYS * DAY_MS;
     if (!(Math.min(expires, time(found.link.createdAt) + MAX_LINK_DAYS * DAY_MS) > clock())) return null;
@@ -625,9 +713,9 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     return markSignIn(found);
   }
   // The enabled member with this email, for Google sign-in and emailed links; null for anyone else.
-  function memberForSignIn(email) { const found = recordByEmail(email); return found && !found.disabled && roleDef(found.role) ? publicMember(found) : null; }
+  function memberForSignIn(email) { const found = recordByEmail(email); return found && !found.disabled && signInRole(found) ? publicMember(found) : null; }
   // Google sign-in: the account's email is the member's. Returns { member, first, epoch } or null.
-  function signInByEmail(email) { const found = recordByEmail(email); return found && !found.disabled && roleDef(found.role) ? markSignIn(found) : null; }
+  function signInByEmail(email) { const found = recordByEmail(email); return found && !found.disabled && signInRole(found) ? markSignIn(found) : null; }
   function markSignIn(found) {
     const first = !found.firstSignInAt && !found.lastSeenAt;
     change(() => { const at = stamp(); found.link = null; found.lastSeenAt = at; if (!found.firstSignInAt) found.firstSignInAt = at; });
@@ -651,7 +739,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
   function identityFor(member, via = 'link') {
     if (!member) return null;
     const disabled = Boolean(member.disabled);
-    const def = disabled ? null : roleDef(member.role);
+    const def = disabled ? null : signInRole(member);
     const role = def?.base || null;
     return { id: member.id, name: member.name || localName(member.email), email: member.email || '', role, roleId: def?.id || null, channelId: role === 'channel' && roles.isChannelId(member.channelId) ? member.channelId : null, via, disabled, memberSince: member.createdAt || null };
   }
@@ -774,7 +862,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
   // Newest first. Studio-wide rows (people and links, logged without a workspace) show in every workspace.
   function activityFor(workspaceId, limit = 50) {
     const max = Math.max(1, Math.min(ACTIVITY_LIMIT, Math.floor(Number(limit)) || 50));
-    const rows = workspaceId == null ? data.activity : data.activity.filter((row) => row.workspaceId === workspaceId || !row.workspaceId);
+    const rows = workspaceId == null ? data.activity : data.activity.filter((row) => row.workspaceId === workspaceId || (!row.workspaceId && (!defaultWorkspaceId || workspaceId === defaultWorkspaceId)));
     return rows.slice(-max).reverse().map(copy);
   }
 
@@ -799,7 +887,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     const actor = actorOf(by);
     return change(() => {
       const at = stamp();
-      const written = clean.map((row) => ({ id: `audit-${crypto.randomUUID()}`, at, by: actor, ...row }));
+      const written = clean.map((row) => ({ id: `audit-${crypto.randomUUID()}`, at, by: actor, ...(scopedId() ? { workspaceId: scopedId() } : {}), ...row }));
       data.audit.push(...written);
       if (data.audit.length > AUDIT_LIMIT) data.audit.splice(0, data.audit.length - AUDIT_LIMIT);
       return written.map(copy);
@@ -816,7 +904,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
       if (index >= 0) end = index;
       else if (Number.isFinite(time(before))) { const cut = time(before); end = data.audit.findIndex((row) => !(time(row.at) < cut)); if (end < 0) end = data.audit.length; }
     }
-    const matches = (row) => (!kindSet.size || kindSet.has(row.kind))
+    const matches = (row) => (!defaultWorkspaceId || !scopedId() || (row.workspaceId || defaultWorkspaceId) === scopedId()) && (!kindSet.size || kindSet.has(row.kind))
       && (!memberId || (row.target?.type === 'member' && row.target.id === memberId) || row.by?.id === memberId)
       && (!roleId || (row.target?.type === 'role' && row.target.id === roleId) || list(row.changes).some((entry) => entry.field === 'role' && (entry.from === roleId || entry.to === roleId)));
     const rows = [];
@@ -836,6 +924,7 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
     return {
       uiMode: UI_MODES.includes(stored?.uiMode) ? stored.uiMode : '', welcomedAt: typeof stored?.welcomedAt === 'string' ? stored.welcomedAt : '', inboxSeenAt: isoOr(stored?.inboxSeenAt),
       focusChannels: list(stored?.focusChannels).filter(roles.isChannelId), navRail: typeof stored?.navRail === 'boolean' ? stored.navRail : null,
+      ...(stored?.workspaceTours && typeof stored.workspaceTours === 'object' && !Array.isArray(stored.workspaceTours) ? { workspaceTours: { ...stored.workspaceTours } } : {}),
     };
   }
   const dateOrBlank = (value) => (value === null || value === '' ? '' : typeof value === 'string' && Number.isFinite(time(value)) ? new Date(time(value)).toISOString() : null);
@@ -855,6 +944,14 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
       next.focusChannels = [...new Set(input.focusChannels)];
     }
     if (input.navRail !== undefined) { if (input.navRail !== null && typeof input.navRail !== 'boolean') throw fail('Choose whether the sidebar shows labels.'); next.navRail = input.navRail; }
+    if (input.workspaceTours !== undefined) {
+      if (!input.workspaceTours || typeof input.workspaceTours !== 'object' || Array.isArray(input.workspaceTours) || Object.keys(input.workspaceTours).length > 1000) throw fail('Choose a valid workspace tour.');
+      next.workspaceTours = { ...next.workspaceTours };
+      for (const [key, value] of Object.entries(input.workspaceTours)) {
+        if (!/^[a-zA-Z0-9_-]{1,180}:[a-zA-Z0-9_-]{1,80}$/.test(key) || !isoOr(value)) throw fail('Choose a valid workspace tour.');
+        next.workspaceTours[key] = new Date(value).toISOString();
+      }
+    }
     const current = prefsFor(identityId);
     if (JSON.stringify(current) === JSON.stringify(next)) return current;
     change(() => {
@@ -881,14 +978,22 @@ function createTeamStore({ root, now = () => new Date(), adminEmails = [] } = {}
   }
 
   return {
+    workspaceScoped: Boolean(defaultWorkspaceId),
     listMembers, memberById, memberByEmail, isServerAdmin, saveMember, removeMember, saveMemberAccess, inviteMembers,
-    issueLink, revokeLink, peekLinkToken, useLinkToken, memberForSignIn, signInByEmail,
-    fromProxyEmail, identityFor, identityForEmail, touch,
+    inWorkspace, isSuperIdentity, directory, globalMemberById, memberWorkspaces, assignWorkspaceMember,
+    issueLink, revokeLink,
+    issueEmailLink: (id) => inWorkspace('', () => issueLink(id, null, { purpose: 'email' })),
+    peekLinkToken: (...args) => inWorkspace('', () => peekLinkToken(...args)),
+    useLinkToken: (...args) => inWorkspace('', () => useLinkToken(...args)),
+    memberForSignIn: (...args) => inWorkspace('', () => memberForSignIn(...args)),
+    signInByEmail: (...args) => inWorkspace('', () => signInByEmail(...args)),
+    fromProxyEmail: (...args) => inWorkspace('', () => fromProxyEmail(...args)),
+    identityFor: (...args) => inWorkspace('', () => identityFor(...args)), identityForEmail, touch: (...args) => inWorkspace('', () => touch(...args)),
     accessPolicy, accessFor, accessSummary, roleLabel, saveRolePolicy, saveRole, deleteRole,
     setAdoption, adoptionsFor,
     log, activityFor, audit, auditFor,
     prefsFor, setPrefs,
-    admins, adminContacts, noteSignIn, logEvent,
+    admins, adminContacts, noteSignIn: (...args) => inWorkspace('', () => noteSignIn(...args)), logEvent,
   };
 }
 

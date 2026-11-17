@@ -1,7 +1,8 @@
 # Golden Thread: developer handoff
 
 This is the entry point for the team taking over Golden Thread. Start here, then follow the links. Every command,
-variable, path and count below was checked against the code on branch `redesign/ai-library-access` on 2026-10-17.
+variable, path and count in the original handoff was checked against branch `redesign/ai-library-access` on 2026-10-17.
+The workspace/channel update and current verification are recorded in [the November 17 implementation record](docs/feedback/2026-11-17-implementation.md).
 
 **Contents**
 
@@ -47,13 +48,13 @@ trend → channel assets or one-off drafts → optional delivery to Google Drive
 
 One main process (`src/main/index.js`) serves two editions of the same React app:
 
-- **The Mac app** (Electron): one person per Mac, always the admin. Data and keys stay on that Mac.
+- **The Mac app** (Electron): the local owner is a Super Admin. Data and keys stay on that Mac.
 - **The browser studio**: the same main process on a web runtime, served by `src/main/studio-server.js` to signed-in
   browsers. One shared studio for the team, with roles enforced on the server.
 
 ## Who uses it
 
-Semrush marketing roles. Every person has one role; the server enforces it on every call.
+Marketing roles. Every membership has a workspace-specific role; the server enforces it on every call. Global Super Admin authority is separate from that role.
 
 | Role | Who | What they get |
 | --- | --- | --- |
@@ -64,28 +65,28 @@ Semrush marketing roles. Every person has one role; the server enforces it on ev
 Admins can add up to 12 **custom roles** built on Editor or Channel owner, from the templates Viewer, Analyst and
 Channel reviewer, and adjust any person's access per capability (deny wins). **Use Ask AI** is on by default for every
 role and template; an admin can switch it off or on for any role or person in People & access (admins always have it).
-The model is 29 capabilities over 196 RPC methods; with no policy edits the defaults are admin 196 methods, editor 123, channel owner 39. Details:
+The model is 29 capabilities over 201 RPC methods; with no policy edits the defaults are admin 201 methods, editor 128, channel owner 44. Details:
 [docs/roles-and-access.md](docs/roles-and-access.md).
 
 Two layouts, chosen per person: **Simple** (the default; Home, Trends, Reports, Assets, Inbox, Calendar, Ask AI) and
 **Advanced** (`uiMode: 'classic'` in code; every page, including Research programs, Trend board, Sheets, Library,
 Brand knowledge and the Data tools). Two **editions** of workspace, fixed at creation: `semrush` (Semrush branding,
-prompts and formats) and `general`. The browser studio has one active workspace for everyone; only admins switch it.
+prompts and formats) and `general`. Each browser session selects its own workspace. Global Super Admins create workspaces and add existing accounts; workspace Admins manage only their workspace. Membership roles, channels and program grants are workspace-specific, while the sign-in account is shared.
 
 ## Status
 
 | Item | State |
 | --- | --- |
-| Version | `0.3.0` (`package.json`). No git tags yet. |
-| Branch | `redesign/ai-library-access`, 4 commits ahead of `main` at `62cb9da` plus the uncommitted final build-out. Merge to `main` and tag before handing out builds. |
-| Last full test run | `npx vitest run` passed with 199 files and 2,357 tests on 2026-10-18 (macOS), on the uncommitted Windows work on top of `a944e67`. |
-| Final build-out (2026-10-17) | Five workstreams (web server, data safety, Ask AI reach, UX flows, cleanup and CI) plus these docs. Each ran the Vitest suites for what it touched, and they passed; the full suite was not run afterwards (the machine was shared). **Run `npm run check` first.** |
-| Prompt goldens | `node scripts/prompt-goldens.mjs --check`: 111 cases, 0 differences. |
-| Lint | `npm run lint`: 0 errors, 79 warnings (mostly `react-hooks/exhaustive-deps`). |
-| Production audit | `npm audit --omit=dev`: 0 vulnerabilities (10 dev-only advisories remain; see follow-ups). |
-| Builds | `npm run build` and `npm run build:web` compile. An unsigned Windows x64 zip of the app, `dist/Scraper-Studio-0.3.0-Windows-x64.zip`, was built on this Mac on 2026-10-18 (`npx electron-builder --win zip --x64 --publish never`). The Mac build `dist/Golden Thread-0.3.0-universal.dmg` was rebuilt on 2026-10-21 after the rename to Golden Thread (signed, not notarized). The Windows zip above predates the rename and still installs as Scraper Studio; rebuild it before sharing. The Docker image has not been built since the Dockerfile changed (its launcher was tested in a `node:24-bookworm` container). |
+| Version | `0.4.0` (`package.json`). |
+| Workspace update | Implemented on `restructure-nov-11`; not published to the hosted site. |
+| Last full test run | `npm test`: 244 files and 2,818 tests passed on 2026-11-17 (macOS). |
+| Renderer verification | Actual disposable-profile Mac and browser checks passed, including concurrent sessions, shared channel boards, role-specific tours, reference uploads and generation confirmation. No paid provider calls. |
+| Prompt goldens | `node scripts/prompt-goldens.mjs --check`: 114 cases, 0 differences. |
+| Lint | `npm run lint`: 0 errors, 70 existing hook warnings. |
+| Production audit | `npm audit --omit=dev --audit-level=high`: no high/critical findings; five moderate advisories remain. |
+| Builds | Main/native and browser builds passed. Developer ID signed arm64 0.4.0 Mac app installed and verified after restart, with original app/profile backups; not notarized. Existing Windows artifacts predate this update and require rebuilding. Hosted deployment has not been performed. |
 | Windows | The Windows 10/11 x64 build is implemented (`npm run dist:win`, see [Windows desktop](#windows-desktop)), and its unit tests run on macOS with the platform faked. An unsigned x64 zip of the app was built on this Mac on 2026-10-18 (`Golden Thread.exe` is PE32+ x86-64, the fuses read as configured, the app icon replaces Electron's), but it has not been run on Windows. No installer has been built yet: the NSIS step needs Rosetta on Apple silicon (`makensis` fails with error -86 without it), or the `windows-installer` CI job on windows-latest. It is unsigned until Semrush supplies signing. |
-| Never verified live | Ask AI after the schema flattening (`62cb9da`) on any route; quick scans; prompt test runs; the Claude CLI and Codex routes end to end; X `since_time:` hour windows; a deployed Sheets bridge or Drive delivery; the deploy kit's oauth2-proxy options; the Windows app on a real Windows PC; notarization; Electron fuses on a built app; the new UI in a real browser (jsdom tests only). |
+| Live integration limits | This update did not run paid research/generation, send messages or test live delivery. Historical unverified items include Claude CLI/Codex routes end to end, X `since_time:` hour windows, deployed Sheets/Drive delivery, deploy-kit oauth2-proxy options, a real Windows PC, notarization and packaged Electron fuses. |
 | Not switched on | Dark mode tokens exist but nothing enables them. Auto-update code exists but has no feed and nothing calls it. |
 
 ## Quickstart for a new developer
@@ -931,3 +932,7 @@ Every item here was deliberately left for the Semrush team. Grouped by area; eac
 | [docs/web-deploy.md](docs/web-deploy.md) | Operators | The browser studio: configuration, secrets, SSO, health, drain, logs, backups. |
 | [docs/roles-and-access.md](docs/roles-and-access.md) | Developers | Capabilities, the gate, identity, team.json, API. |
 | [deploy/README.md](deploy/README.md) | Operators | The Compose and systemd kits. |
+
+## November 17 workspace and channel update
+
+Version 0.4.0 enables multi-workspace operation in Mac and web, with additive legacy membership migration, per-session selection and isolated workspace configuration/data. Channel Owners receive read-only assigned research programs, a channel Kanban board, direct asset generation and described channel image examples. Onboarding is tracked per account, workspace and role. Implementation and verification are recorded in [the update plan](docs/feedback/2026-11-17-implementation.md).

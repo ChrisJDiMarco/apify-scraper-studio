@@ -7,6 +7,7 @@
 // Electron-free: the main process injects process spawning, key lookup and settings.
 const fs = require('fs');
 const path = require('path');
+const { createHash } = require('crypto');
 const { buildClaudeCommand, parseClaudeResult, modelMatches, missingClaudeFlags, claudeStreamSupported } = require('../shared/claude-runner');
 
 const AI_ROUTE_TTL_MS = 10 * 60 * 1000;
@@ -16,17 +17,21 @@ const PING_SCHEMA = { type: 'object', properties: { ok: { type: 'boolean' } }, r
 
 // `platform` is index.js's process.platform (tests pass their own); Windows is told to use Command Prompt (PowerShell
 // runs npm's .ps1 shim, which a stock PC's execution policy refuses), the Mac Terminal.
-function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, describeError = (error) => error?.message || String(error), now = Date.now, platform = process.platform, shared = false, onSpend = null, checkBudget = null }) {
+function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, getScope = () => '', describeError = (error) => error?.message || String(error), now = Date.now, platform = process.platform, shared = false, onSpend = null, checkBudget = null }) {
   let pings = 0; // preflight job ids
   const shellName = platform === 'win32' ? 'Command Prompt' : 'Terminal';
   // provider → a working route, reused for ten minutes. Kept per provider: 'auto' (a connection check) and 'claude' (the
   // Claude Code runner asking whether the CLI streams) alternate on every Ask AI call and must not re-detect each time.
   const cached = new Map();
   let client = null; // { apiKey, runner }
-  const answered = new Set(); // `${route}:${model}` that answered this session
+  const answered = new Set(); // workspace + credential + route + model that answered this session
   const apiRequests = new Map(); // jobId → AbortController for in-flight API calls
+  let generation = 0;
+  // Hash credentials rather than retaining their plaintext in cache keys. A saved-key change gets a fresh result even
+  // before the host's explicit invalidation, and concurrent workspaces never join each other's detection promise.
+  const scopeKey = () => createHash('sha256').update(JSON.stringify([String(getScope() || ''), getKey('ANTHROPIC_API_KEY') || ''])).digest('hex');
 
-  function invalidate() { cached.clear(); answered.clear(); }
+  function invalidate() { generation++; cached.clear(); answered.clear(); resolving.clear(); }
 
   async function detectClaudeCli() {
     const run = (args) => spawn('claude', args, { timeoutMs: 10000 });
@@ -52,15 +57,16 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
   // probes of the Claude app each, and wait for all of them.
   const resolving = new Map();
   function resolve(provider = getSettings().aiProvider || 'auto', { fresh = false } = {}) {
-    const hit = cached.get(provider);
+    const cacheKey = `${scopeKey()}:${provider}`;
+    const hit = cached.get(cacheKey);
     if (!fresh && hit && now() - hit.at < AI_ROUTE_TTL_MS) return Promise.resolve(hit);
-    const key = `${provider}|${fresh ? 'fresh' : ''}`;
+    const key = `${cacheKey}|${fresh ? 'fresh' : ''}`;
     if (resolving.has(key)) return resolving.get(key);
-    const pending = resolveNow(provider).finally(() => resolving.delete(key));
+    const pending = resolveNow(provider, cacheKey, generation).finally(() => { if (resolving.get(key) === pending) resolving.delete(key); });
     resolving.set(key, pending);
     return pending;
   }
-  async function resolveNow(provider) {
+  async function resolveNow(provider, cacheKey, startedGeneration) {
     const keySaved = Boolean(getKey('ANTHROPIC_API_KEY'));
     let resolved;
     if (provider === 'codex') resolved = { provider, route: 'codex', problem: '' };
@@ -73,7 +79,7 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
       else if (keySaved) resolved = { provider, route: 'claude-api', cli, keySaved, problem: '' };
       else resolved = { provider, route: '', cli, keySaved, problem: `${issue} Or ${ADD_KEY.charAt(0).toLowerCase()}${ADD_KEY.slice(1)}` };
     }
-    if (!resolved.problem) cached.set(provider, { ...resolved, at: now() });
+    if (!resolved.problem && startedGeneration === generation) cached.set(cacheKey, { ...resolved, at: now() });
     return resolved;
   }
   async function requireRoute() {
@@ -107,7 +113,8 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
   async function checkModels(route, models, { fresh = false } = {}) {
     const unique = [...new Set((models || []).filter((model) => typeof model === 'string' && model))];
     if (!unique.length || !route || route === 'codex') return [];
-    const pending = unique.filter((model) => fresh || !answered.has(`${route}:${model}`));
+    const scope = `${scopeKey()}:${route}`; const startedGeneration = generation;
+    const pending = unique.filter((model) => fresh || !answered.has(`${scope}:${model}`));
     const found = new Map();
     if (route === 'claude-api' && pending.length) for (const row of (await runner().checkModels({ models: pending })).models || []) found.set(row.id, row);
     if (route === 'claude') for (const model of pending) {
@@ -115,8 +122,8 @@ function createAiRoutes({ spawn, getKey, getSettings, dataDir, createRunner, des
       catch (error) { found.set(model, { id: model, available: false, error: describeError(error) }); }
     }
     return unique.map((model) => {
-      const row = found.get(model) || { id: model, available: answered.has(`${route}:${model}`) };
-      if (row.available) answered.add(`${route}:${model}`);
+      const row = found.get(model) || { id: model, available: answered.has(`${scope}:${model}`) };
+      if (row.available && startedGeneration === generation) answered.add(`${scope}:${model}`);
       return { id: model, available: Boolean(row.available), error: row.available ? '' : row.error || 'Not available to this account.' };
     });
   }

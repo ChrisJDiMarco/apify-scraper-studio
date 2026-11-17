@@ -42,7 +42,7 @@ function defaultLink(web) {
   };
 }
 
-function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken = () => {}, workspace, teamStore, access = null, web = false, origin = () => '', emitState = () => {}, jobs = null, now = () => Date.now(), fetchImpl, sleep, timers = {}, warn = (message) => console.warn(message) } = {}) {
+function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken = () => {}, workspace, teamStore, access = null, runInWorkspace = (_workspaceId, fn) => fn(), web = false, origin = () => '', emitState = () => {}, jobs = null, now = () => Date.now(), fetchImpl, sleep, timers = {}, warn = (message) => console.warn(message) } = {}) {
   if (!store || !workspace) throw new Error('The Monday.com engine needs its store and the content workspace.');
   const T = { setTimeout: timers.setTimeout || setTimeout, clearTimeout: timers.clearTimeout || clearTimeout, setInterval: timers.setInterval || setInterval, clearInterval: timers.clearInterval || clearInterval };
   const iso = (ms = now()) => new Date(ms).toISOString();
@@ -73,7 +73,7 @@ function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken 
   function enqueue(kind, ws, opts = {}) {
     const signature = signatureOf(kind, ws, opts);
     if (waiting.has(signature)) return waiting.get(signature);
-    const promise = chain.then(async () => {
+    const promise = chain.then(() => runInWorkspace(ws, async () => {
       waiting.delete(signature); waitingJobs.delete(signature);
       current = { kind, ws, done: 0, total: 0, job: opts.job || null, signature };
       try {
@@ -86,7 +86,7 @@ function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken 
         store.updateLink(ws, { lastFullAt: iso() });
         return { pulled, pushed };
       } finally { current = null; }
-    });
+    }));
     waiting.set(signature, promise);
     chain = promise.catch(() => {});
     return promise;
@@ -578,10 +578,10 @@ function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken 
     return { ok: true, account: publicAccount(account), dailyLimit: dailyLimitOf(account.tier) };
   }
   function tokenSaved() {
-    for (const [ws, link] of Object.entries(store.links())) if (link?.paused?.reason === 'token') { store.updateLink(ws, { paused: null }); log({ ws, dir: 'setup', kind: 'resumed', text: 'The Monday.com token works again; syncing resumed.' }); }
+    for (const [ws, link] of Object.entries(store.links())) if ((!store.workspaceScoped || ws === activeWs()) && link?.paused?.reason === 'token') { store.updateLink(ws, { paused: null }); log({ ws, dir: 'setup', kind: 'resumed', text: 'The Monday.com token works again; syncing resumed.' }); }
   }
   function tokenCleared() {
-    for (const ws of Object.keys(store.links())) pause(ws, 'token', 'Monday.com was disconnected. Connect it again in Settings → Monday.com to keep syncing.');
+    for (const ws of Object.keys(store.links())) if (!store.workspaceScoped || ws === activeWs()) pause(ws, 'token', 'Monday.com was disconnected. Connect it again in Settings → Monday.com to keep syncing.');
   }
   function problemsFor(board, link) {
     const problems = [];
@@ -601,7 +601,7 @@ function createMondayEngine({ store, getToken, saveToken = () => {}, clearToken 
     const request = client(token); let account = null;
     try { account = await api.whoAmI(request); store.setAccount(account); }
     catch (error) {
-      if (error?.kind === 'auth') { for (const ws of Object.keys(store.links())) pause(ws, 'token', api.COPY.auth); emit(); }
+      if (error?.kind === 'auth') { for (const ws of Object.keys(store.links())) if (!store.workspaceScoped || ws === activeWs()) pause(ws, 'token', api.COPY.auth); emit(); }
       return { ok: false, account: null, board: null, hooks: { status: 'off', note: '' }, callsToday: store.callsToday(), error: plainError(error, null) };
     }
     if (Object.values(store.links()).some((row) => row?.paused?.reason === 'token')) tokenSaved();

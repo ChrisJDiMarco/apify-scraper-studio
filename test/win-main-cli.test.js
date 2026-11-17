@@ -136,21 +136,25 @@ describe('AI CLIs in the main process', () => {
 
   it('reads a cancelled job as cancelled when the CLI exits with code 1 and no signal', async () => {
     const h = boot({ platform: 'darwin' });
+    h.ctx.startJob({ id: 'job-cancel-1', kind: 'ask', status: 'running', cancellable: true });
     const job = h.ctx.spawnCodex('codex', ['exec', '-'], h.root, { jobId: 'job-cancel-1', providerLabel: 'Codex' });
     expect(await h.call('cancel-job', 'job-cancel-1')).toBe(true);
     await expect(job).rejects.toMatchObject({ message: 'Job cancelled.' });
     expect(h.calls[0].child.kill).toHaveBeenCalledWith('SIGTERM');
     expect(h.inside('jobProcesses.size')).toBe(0);
+    h.ctx.finishJob('job-cancel-1', { status: 'cancelled' });
   });
 
   it('cancels the whole process tree with taskkill on Windows', async () => {
     const h = boot({ platform: 'win32', env: WINDOWS_ENV, files: NPM_INSTALL });
+    h.ctx.startJob({ id: 'job-cancel-2', kind: 'ask', status: 'running', cancellable: true });
     const job = h.ctx.spawnCodex('codex', ['exec', '-'], h.root, { jobId: 'job-cancel-2', providerLabel: 'Codex' });
     await h.call('cancel-job', 'job-cancel-2');
     await expect(job).rejects.toMatchObject({ message: 'Job cancelled.' });
     const [codex, taskkill] = h.calls;
     expect(taskkill).toMatchObject({ command: 'C:\\Windows\\System32\\taskkill.exe', args: ['/PID', String(codex.child.pid), '/T', '/F'], options: { windowsHide: true, stdio: 'ignore' } });
     expect(codex.child.kill).not.toHaveBeenCalled(); // taskkill ended it
+    h.ctx.finishJob('job-cancel-2', { status: 'cancelled' });
   });
 
   it('reports a timeout once the CLI has exited, or after 3 seconds if it never does', async () => {

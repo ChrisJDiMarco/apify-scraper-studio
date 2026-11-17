@@ -155,8 +155,8 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     const now = Date.now();
     for (const [key, entry] of Array.isArray(parsed?.sessions) ? parsed.sessions : []) {
       if (typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key) || !entry || typeof entry !== 'object' || !(entry.expires > now)) continue;
-      if (entry.kind === 'password') sessions.set(key, { kind: 'password', expires: entry.expires, createdAt: entry.createdAt || 0, viewAs: entry.viewAs ?? null });
-      else if (entry.kind === 'member' && typeof entry.memberId === 'string') sessions.set(key, { kind: 'member', memberId: entry.memberId, epoch: Number(entry.epoch) || 0, via: typeof entry.via === 'string' ? entry.via : 'link', expires: entry.expires, createdAt: entry.createdAt || 0, viewAs: entry.viewAs ?? null });
+      if (entry.kind === 'password') sessions.set(key, { kind: 'password', expires: entry.expires, createdAt: entry.createdAt || 0, viewAs: entry.viewAs ?? null, workspaceId: typeof entry.workspaceId === 'string' ? entry.workspaceId : '' });
+      else if (entry.kind === 'member' && typeof entry.memberId === 'string') sessions.set(key, { kind: 'member', memberId: entry.memberId, epoch: Number(entry.epoch) || 0, via: typeof entry.via === 'string' ? entry.via : 'link', expires: entry.expires, createdAt: entry.createdAt || 0, viewAs: entry.viewAs ?? null, workspaceId: typeof entry.workspaceId === 'string' ? entry.workspaceId : '' });
     }
     savedJson = JSON.stringify({ version: 1, sessions: [...sessions] });
   }
@@ -416,6 +416,7 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
     let askGap = false;
     const mine = (target) => {
       if (!target || typeof target !== 'object') return false;
+      if (target.workspaceId && target.workspaceId !== who.session?.workspaceId) return false;
       if (!who.identity) return Boolean(target.session) && target.session === who.session;
       if (who.identity.id !== target.identityId) return false;
       return who.identity.via !== 'password' || !target.session || target.session === who.session;

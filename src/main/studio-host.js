@@ -101,7 +101,7 @@ function killProcessTree(child, { platform = process.platform, spawnImpl = spawn
     taskkill.on?.('close', (code) => { if (code !== 0) end(); });
   } catch (_) { end(); }
 }
-function createStudioHost({ root, getApifyToken = () => process.env.APIFY_API_TOKEN, model = () => process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL, Client = ApifyClient, runnerOptions = {} } = {}) {
+function createStudioHost({ root, legacyRoot = '', workspaceId: owningWorkspaceId = '', getApifyToken = () => process.env.APIFY_API_TOKEN, model = () => process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL, Client = ApifyClient, runnerOptions = {} } = {}) {
   const datasetsDir = path.join(root, 'datasets'); const collectionsDir = path.join(root, 'collections');
   fs.mkdirSync(datasetsDir, { recursive: true }); fs.mkdirSync(collectionsDir, { recursive: true });
   const children = new Map(); const aborts = new Map(); const activeCollections = new Set();
@@ -120,6 +120,36 @@ function createStudioHost({ root, getApifyToken = () => process.env.APIFY_API_TO
       try { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); } catch (_) { /* a leftover temp file is harmless; the save's own error is the one to report */ }
     }
   }
+  function migrateOwnedLegacyData() {
+    const marker = path.join(root, 'legacy-datasets-imported.json');
+    if (!legacyRoot || !owningWorkspaceId || fs.existsSync(marker)) return;
+    let studio = {}; const statePath = path.join(legacyRoot, 'state.json'); if (fs.existsSync(statePath)) studio = readJson(statePath);
+    const known = (studio.workspaces || []).some((row) => row.id === owningWorkspaceId);
+    if (!known) return;
+    const legacyIndex = path.join(legacyRoot, 'dataset-index.json');
+    const legacyDir = path.join(legacyRoot, 'datasets');
+    const rows = fs.existsSync(legacyIndex) ? readJson(legacyIndex).datasets : fs.existsSync(legacyDir) ? fs.readdirSync(legacyDir).filter((name) => name.endsWith('.json')).map((name) => readJson(path.join(legacyDir, name)).dataset).filter(Boolean) : [];
+    if (!Array.isArray(rows)) throw new Error('Legacy dataset metadata could not be read. Restore its index before continuing.');
+    const current = fs.existsSync(indexFile) ? readJson(indexFile).datasets : [];
+    if (!Array.isArray(current)) throw new Error('Studio dataset metadata could not be read. Restore its index before continuing.');
+    const datasets = new Map(current.map((row) => [row.id, row]));
+    for (const dataset of rows) {
+      const owner = dataset.workspaceId || studio.datasetOwners?.[dataset.id] || (studio.researchRuns || []).find((run) => run.id === dataset.researchRunId)?.workspaceId;
+      if (owner !== owningWorkspaceId) continue;
+      const target = datasetFile(dataset.id); const source = path.join(legacyDir, `${safeId(dataset.id)}.json`);
+      if (!fs.existsSync(target) && fs.existsSync(source)) fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
+      if (!datasets.has(dataset.id)) datasets.set(dataset.id, { ...dataset, workspaceId: owner });
+    }
+    const legacyCollections = path.join(legacyRoot, 'collections');
+    for (const name of fs.existsSync(legacyCollections) ? fs.readdirSync(legacyCollections) : []) {
+      if (!/^[a-zA-Z0-9_-]{1,180}\.json$/.test(name)) continue;
+      const source = path.join(legacyCollections, name); const checkpoint = readJson(source);
+      if (checkpoint.workspaceId !== owningWorkspaceId || `${checkpoint.runId}.json` !== name) continue;
+      const target = path.join(collectionsDir, name); if (!fs.existsSync(target)) fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
+    }
+    atomicJson(indexFile, { version: 1, datasets: [...datasets.values()] }); atomicJson(marker, { version: 1 });
+  }
+  migrateOwnedLegacyData();
   function loadMetadata() {
     const currentStamp = indexStamp(); if (metadata && metadataStamp === currentStamp) return metadata;
     if (currentStamp) {

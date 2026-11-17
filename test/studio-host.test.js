@@ -34,6 +34,17 @@ function harness({ configure = {}, root } = {}) {
 }
 
 describe('durable paid Actor collection', () => {
+  it('resumes an owned legacy collection from copied checkpoints without another provider start', async () => {
+    const h = harness(); const first = await h.host.collect(h.request());
+    fs.writeFileSync(path.join(h.root, 'state.json'), JSON.stringify({ workspaces: [{ id: 'semrush' }], researchRuns: [{ id: 'research-a', workspaceId: 'semrush' }] }));
+    const nextRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-host-retained-')); roots.push(nextRoot);
+    const original = fs.readFileSync(path.join(h.root, 'datasets', `${first.datasetIds[0]}.json`));
+    const migrated = createStudioHost({ ...h.deps, root: nextRoot, legacyRoot: h.root, workspaceId: 'semrush', getApifyToken: () => '' });
+    const resumed = await migrated.collect(h.request());
+    expect(resumed.datasetIds).toEqual(first.datasetIds); expect(resumed.receipt.reusedJobs).toBe(1); expect(h.calls.starts).toHaveLength(1);
+    expect(fs.readFileSync(path.join(h.root, 'datasets', `${first.datasetIds[0]}.json`))).toEqual(original);
+    expect(fs.readFileSync(path.join(nextRoot, 'datasets', `${first.datasetIds[0]}.json`))).toEqual(original);
+  });
   it('persists start intent and budget before POST, persists provider ID before download, and reuses completed datasets', async () => {
     let h;
     h = harness({ configure: {

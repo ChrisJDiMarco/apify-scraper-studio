@@ -22,6 +22,34 @@ const api = () => ({
 const show = (ui) => render(<ViewerContext.Provider value={{ id: 'm-alex', role: 'channel', base: 'channel', preview: false, allowed: null }}>{ui}</ViewerContext.Provider>);
 
 describe('a channel’s settings', () => {
+  it('requires a description before choosing an image and keeps the saved example on the channel', async () => {
+    const reference = { id: 'image-1', name: 'example.png', description: 'Bold headline, simple layout.' };
+    const calls = { ...api(), addChannelReference: vi.fn(async () => ({ reference, dataUrl: 'data:image/png;base64,YQ==' })), saveChannelReference: vi.fn(async ({ description }) => ({ reference: { ...reference, description } })), removeChannelReference: vi.fn(async () => ({ removed: 'image-1' })) };
+    show(<ChannelSettings api={calls} channelId="blog" />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Image examples' }));
+    const choose = screen.getByRole('button', { name: 'Choose image and save example' });
+    expect(choose).toBeDisabled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Why this example works' }), { target: { value: reference.description } });
+    fireEvent.click(choose);
+    await waitFor(() => expect(calls.addChannelReference).toHaveBeenCalledWith({ channelId: 'blog', description: reference.description }));
+    expect(await screen.findByRole('img', { name: 'Example: example.png' })).toHaveAttribute('src', 'data:image/png;base64,YQ==');
+    const edit = screen.getByRole('textbox', { name: 'Description for example.png' });
+    fireEvent.change(edit, { target: { value: 'Keep the spacious layout.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save description for example.png' }));
+    await waitFor(() => expect(calls.saveChannelReference).toHaveBeenCalledWith({ channelId: 'blog', imageId: 'image-1', description: 'Keep the spacious layout.' }));
+    expect(screen.getByRole('button', { name: 'Save description for example.png' })).toBeDisabled();
+  });
+
+  it('shows saved examples in previews without allowing uploads or edits', async () => {
+    const calls = { ...api(), readChannelSettings: vi.fn(async () => ({ ...settings(), references: [{ id: 'image-1', name: 'saved.png', description: 'Use the simple spacing.' }] })), readChannelReference: vi.fn(async () => ({ dataUrl: 'data:image/png;base64,YQ==' })), addChannelReference: vi.fn() };
+    render(<ViewerContext.Provider value={{ role: 'channel', preview: true }}><ChannelSettings api={calls} channelId="blog" /></ViewerContext.Provider>);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Image examples' }));
+    expect(await screen.findByRole('img', { name: 'Example: saved.png' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Description for saved.png' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Choose image and save example' })).toBeDisabled();
+    expect(calls.addChannelReference).not.toHaveBeenCalled();
+  });
+
   it('saves the channel knowledge for a channel owner’s own channel', async () => {
     const calls = api(); const onNotice = vi.fn();
     show(<ChannelSettings api={calls} channelId="blog" onNotice={onNotice} />);

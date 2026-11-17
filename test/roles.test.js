@@ -82,7 +82,7 @@ describe('method policy', () => {
 
   it('reproduces the old fixed matrix exactly with no policy edits', () => {
     const counts = Object.fromEntries(roles.ROLE_IDS.map((role) => [role, roles.METHOD_NAMES.filter((method) => roles.canCall(role, method)).length]));
-    expect(counts).toEqual({ admin: 196, editor: 123, channel: 39 }); // + archive a trend (setTrendArchived, admin and editor); + a reference picture for one set of channel assets (stageKitReference, all three); + channel settings (4: read, knowledge, instructions, revert); + guided setup (2, admin: estimate, suggest); // + Save to Drive on a report (saveReportToDrive, exportPublish); + Google Drive folder sync (7 admin: connect, save, test, backfill, retry, disconnect, log); + the report editor and notes (8 new; channel: open, close, list and the three note methods); + readTrendPosts (readResearch); + AI connections and routing (settings, managePrograms); + cancelAsk and readAskProgress (askAi); Monday.com: +8 admin (10 new, saveMondayBoard and clearMondayBoard gone), +2 editor (readMondaySyncLog, readMondayItem); Workflows: +13 new (9 editor), 16 legacy mission, intent and card methods gone (15 editor); + Ask AI for channel owners (the 15 askAi methods, channel-scoped)
+    expect(counts).toEqual({ admin: 201, editor: 128, channel: 44 }); // + archive a trend (setTrendArchived, admin and editor); + a reference picture for one set of channel assets (stageKitReference, all three); + channel settings (4: read, knowledge, instructions, revert); + guided setup (2, admin: estimate, suggest); // + Save to Drive on a report (saveReportToDrive, exportPublish); + Google Drive folder sync (7 admin: connect, save, test, backfill, retry, disconnect, log); + the report editor and notes (8 new; channel: open, close, list and the three note methods); + readTrendPosts (readResearch); + AI connections and routing (settings, managePrograms); + cancelAsk and readAskProgress (askAi); Monday.com: +8 admin (10 new, saveMondayBoard and clearMondayBoard gone), +2 editor (readMondaySyncLog, readMondayItem); Workflows: +13 new (9 editor), 16 legacy mission, intent and card methods gone (15 editor); + Ask AI for channel owners (the 15 askAi methods, channel-scoped)
     expect(roles.capabilitiesFor({ roleId: 'channel' })).toEqual(['askAi', 'commentReports', 'core', 'editChannel', 'makeAssets', 'manageRuns', 'markTrendsUsed', 'readAssets']);
     expect(roles.capabilitiesFor({ roleId: 'editor' })).toEqual(['approveTrends', 'askAi', 'commentReports', 'core', 'dataTools', 'editChannel', 'editPrompts', 'editReports', 'exportPublish', 'makeAssets', 'manageRuns', 'manageWorkflows', 'quickScans', 'readAssets', 'readResearch', 'readWorkflows', 'seeCosts', 'sheets', 'startResearch', 'viewPrompts', 'writeReports']);
     expect(roles.capabilitiesFor({ roleId: 'admin' })).toHaveLength(29);
@@ -95,7 +95,7 @@ describe('method policy', () => {
     for (const [composite, inner] of Object.entries(COMPOSITES)) for (const method of inner) {
       const outer = roles.CAP_OF_METHOD[composite]; const cap = roles.CAP_OF_METHOD[method];
       const locked = roles.CAPABILITIES.find((entry) => entry.id === outer).lock === 'admin';
-      expect({ composite, method, ok: locked || outer === cap || needsOf(outer).has(cap) }).toMatchObject({ ok: true });
+      expect({ composite, method, ok: locked || cap === 'core' || outer === cap || needsOf(outer).has(cap) }).toMatchObject({ ok: true });
     }
   });
 
@@ -116,7 +116,7 @@ describe('method policy', () => {
   it('keeps identity and read methods to classified methods, and no write among the reads', () => {
     for (const method of [...policy.identityMethods, ...policy.readMethods, ...policy.noRoleMethods]) expect(roles.METHOD_NAMES).toContain(method);
     for (const method of WRITERS) expect(policy.readMethods).not.toContain(method);
-    expect(policy.identityMethods).toEqual(['appMeta', 'state', 'setViewAs', 'setViewPrefs']);
+    expect(policy.identityMethods).toEqual(['appMeta', 'state', 'setViewAs', 'setViewPrefs', 'selectContentWorkspace']);
   });
 
   it('lets each role call only its methods, and treats an unknown method as admin-only', () => {
@@ -148,7 +148,7 @@ describe('method policy', () => {
 
   it('ships the allowed methods per role, and only reads while previewing', () => {
     expect(roles.allowedMethods(null)).toEqual(['appMeta', 'state']);
-    expect(roles.allowedMethods('channel').sort()).toEqual(['appMeta', 'askHelp', 'cancelAsk', 'cancelStudioRun', 'closeReportDoc', 'contentCatalog', 'createAssetKit', 'createHelpImage', 'deleteAskConversation', 'deleteReportNote', 'forgetAskMemory', 'listAskConversations', 'listAskMemory', 'listHelpImages', 'listReportNotes', 'openReportDoc', 'openSourceUrl', 'openStudioAsset', 'planAssetKit', 'readAskConversation', 'readAskProgress', 'readChannelSettings', 'readHelpImage', 'readStudioAsset', 'recordAskOutcome', 'renameAskConversation', 'resolveReportNote', 'retryStudioRun', 'revertChannelInstructions', 'saveAskMemory', 'saveAssetKitFolder', 'saveChannelInstructions', 'saveChannelKnowledge', 'saveHelpImage', 'saveReportNote', 'setTrendAdoption', 'setViewPrefs', 'stageKitReference', 'state']);
+    expect(roles.allowedMethods('channel').sort()).toEqual(['addChannelReference', 'appMeta', 'askHelp', 'cancelAsk', 'cancelStudioRun', 'closeReportDoc', 'contentCatalog', 'createAssetKit', 'createHelpImage', 'deleteAskConversation', 'deleteReportNote', 'forgetAskMemory', 'listAskConversations', 'listAskMemory', 'listHelpImages', 'listReportNotes', 'openReportDoc', 'openSourceUrl', 'openStudioAsset', 'planAssetKit', 'readAskConversation', 'readAskProgress', 'readChannelReference', 'readChannelSettings', 'readHelpImage', 'readStudioAsset', 'recordAskOutcome', 'removeChannelReference', 'renameAskConversation', 'resolveReportNote', 'retryStudioRun', 'revertChannelInstructions', 'saveAskMemory', 'saveAssetKitFolder', 'saveChannelInstructions', 'saveChannelKnowledge', 'saveChannelReference', 'saveHelpImage', 'saveReportNote', 'selectContentWorkspace', 'setTrendAdoption', 'setViewPrefs', 'stageKitReference', 'state']);
     expect(roles.allowedMethods('admin')).toHaveLength(roles.METHOD_NAMES.length);
     const preview = roles.allowedMethods('channel', { preview: true });
     expect(preview).toContain('setViewAs'); // a previewing admin can always switch back
@@ -204,7 +204,7 @@ describe('effective role and navigation', () => {
   it('gives each role its sidebar, layouts and hidden pages, from its capabilities', () => {
     expect(roles.navFor('admin')).toEqual({ main: ['home', 'programs', 'trends', 'assets', 'inbox', 'calendar', 'ask'], admin: ['prompts', 'channels', 'analytics', 'people'], bottom: ['settings'] });
     expect(roles.navFor('editor')).toEqual({ main: ['home', 'trends', 'assets', 'inbox', 'calendar', 'ask'], admin: ['prompts', 'channels'], bottom: [] });
-    expect(roles.navFor('channel')).toEqual({ main: ['trends', 'assets', 'plan', 'inbox', 'mychannel', 'ask'], admin: [], bottom: [] });
+    expect(roles.navFor('channel')).toEqual({ main: ['programs', 'trends', 'assets', 'plan', 'inbox', 'mychannel', 'ask'], admin: [], bottom: [] });
     expect(roles.navFor(null)).toEqual({ main: [], admin: [], bottom: [] });
     expect(roles.viewModesFor('channel')).toEqual(['simple']);
     expect(roles.viewModesFor('editor')).toEqual(['simple', 'classic']);
@@ -213,8 +213,8 @@ describe('effective role and navigation', () => {
     expect(roles.hiddenPagesFor('channel')).toEqual([]);
     // A reader without data tools keeps Simple Reports: the Advanced data-tools pages hide as one group.
     expect(roles.pagesFor(['core', 'readAssets', 'readResearch'], 'editor').hiddenPages).toEqual(['settings', 'knowledge', 'analytics', 'people', 'prompts', 'channels', 'programs', 'ask', 'sheets', 'create', 'playbooks', 'workflows', 'data-tools']);
-    expect(roles.pagesFor(['core', 'readAssets'], 'channel')).toEqual({ nav: { main: ['trends', 'assets', 'inbox'], admin: [], bottom: [] }, hiddenPages: ['plan', 'mychannel', 'ask'], modes: ['simple'] });
-    expect(roles.pagesFor(['askAi', 'core', 'readAssets'], 'channel').nav.main).toEqual(['trends', 'assets', 'inbox', 'ask']);
+    expect(roles.pagesFor(['core', 'readAssets'], 'channel')).toEqual({ nav: { main: ['programs', 'trends', 'assets', 'inbox'], admin: [], bottom: [] }, hiddenPages: ['plan', 'mychannel', 'ask'], modes: ['simple'] });
+    expect(roles.pagesFor(['askAi', 'core', 'readAssets'], 'channel').nav.main).toEqual(['programs', 'trends', 'assets', 'inbox', 'ask']);
     const nav = roles.navFor('admin'); nav.main.push('mutated');
     expect(roles.navFor('admin').main).not.toContain('mutated');
   });
@@ -227,7 +227,7 @@ describe('effective role and navigation', () => {
     expect(admin.channels).toHaveLength(10);
     expect(admin.channels[9]).toEqual({ id: 'searchengineland', name: 'Search Engine Land / MarTech', short: 'SEL' });
     const channel = viewerFor('channel');
-    expect(channel).toMatchObject({ role: 'channel', base: 'channel', realRole: 'channel', roleLabel: 'Channel owner', channelId: 'blog', channelName: 'Semrush Blog', prefs: { uiMode: 'simple', focusChannels: [] }, memberSince: fixture.at('10-01'), nav: { main: ['trends', 'assets', 'plan', 'inbox', 'mychannel', 'ask'] } });
+    expect(channel).toMatchObject({ role: 'channel', base: 'channel', realRole: 'channel', roleLabel: 'Channel owner', channelId: 'blog', channelName: 'Semrush Blog', prefs: { uiMode: 'simple', focusChannels: [] }, memberSince: fixture.at('10-01'), nav: { main: ['programs', 'trends', 'assets', 'plan', 'inbox', 'mychannel', 'ask'] } });
     expect(channel.capabilities).toEqual(['askAi', 'commentReports', 'core', 'editChannel', 'makeAssets', 'manageRuns', 'markTrendsUsed', 'readAssets']);
     expect(channel).not.toHaveProperty('channels');
     expect(channel).not.toHaveProperty('roles');
@@ -285,7 +285,7 @@ describe('effective role and navigation', () => {
 });
 
 describe('state projection', () => {
-  const FORBIDDEN_KEYS = ['costUsd', 'ownCostUsd', 'receipts', 'programs', 'maxBudgetUsd', 'reservedUsd', 'estimateUsd', 'estimate', 'ai', 'model', 'warnings', 'imageCalls', 'receipt', 'knowledge', 'products', 'referenceDocs', 'availableDatasets', 'availableReports', 'researchRuns', 'contentRuns', 'v5', 'monday', 'recipes', 'datasets', 'sheets', 'error'];
+  const FORBIDDEN_KEYS = ['costUsd', 'ownCostUsd', 'receipts', 'budgets', 'maxBudgetUsd', 'reservedUsd', 'estimateUsd', 'estimate', 'ai', 'model', 'warnings', 'imageCalls', 'receipt', 'knowledge', 'products', 'referenceDocs', 'availableDatasets', 'availableReports', 'researchRuns', 'contentRuns', 'v5', 'monday', 'recipes', 'datasets', 'sheets', 'error'];
 
   it('keeps who saved which prompt from a role that can’t see prompts', () => {
     const studio = fixture.baseState().contentStudio;
@@ -346,13 +346,13 @@ describe('state projection', () => {
     expect(undefinedPaths(state)).toEqual([]);
   });
 
-  it('gives a channel owner only their channel, with no money, programs, keys or other channels', () => {
+  it('gives a channel owner their channel and safe program summaries, with no money, keys or other channels', () => {
     const state = project(viewerFor('channel'));
     expect(Object.keys(state).sort()).toEqual(['contentStudio', 'keys', 'settings', 'team', 'viewer']);
     expect(state.settings).toEqual({ uiMode: 'simple' });
     expect(state.keys).toEqual({});
     expect(state.team).toEqual({ admins: [{ name: 'Chris' }] });
-    expect(Object.keys(state.contentStudio).sort()).toEqual(['activeWorkspaceId', 'capabilities', 'channelView', 'noteCounts', 'noteMentions', 'workspaces']);
+    expect(Object.keys(state.contentStudio).sort()).toEqual(['activeWorkspaceId', 'capabilities', 'channelView', 'noteCounts', 'noteMentions', 'programs', 'workspaces']);
     expect(state.contentStudio).toMatchObject({ activeWorkspaceId: 'semrush', workspaces: [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush' }], capabilities: { imagesConfigured: true } });
     const view = state.contentStudio.channelView;
     expect(view.channel).toEqual({ id: 'blog', name: 'Semrush Blog', short: 'Blog', deliverables: [{ id: 'blogshort', label: 'Short news update', kind: 'text' }, { id: 'bloglong', label: 'Long-form article', kind: 'text' }] });
@@ -361,7 +361,7 @@ describe('state projection', () => {
     const strings = stringsIn(state);
     const otherDeliverables = kit.kitFolders('semrush').filter((folder) => folder.id !== 'blog').flatMap((folder) => folder.deliverableIds);
     for (const id of otherDeliverables) expect(strings).not.toContain(id);
-    for (const id of ['asset-kit-shared-social', 'image-shared-0', 'content-kit-local', 'asset-campaign-newsletter', 'program-pulse']) expect(strings).not.toContain(id);
+    for (const id of ['asset-kit-shared-social', 'image-shared-0', 'content-kit-local', 'asset-campaign-newsletter']) expect(strings).not.toContain(id);
     expect(strings.some((text) => /claude-opus|Semrush Social Team|Private positioning/.test(text))).toBe(false);
     expect(undefinedPaths(state)).toEqual([]);
   });
@@ -452,7 +452,7 @@ describe('capabilities: role policy and per-person access', () => {
     // Off for the built-in Channel owner: the methods go, and the nav loses Ask AI.
     const off = policyOf({ rev: 1, builtIn: { channel: { grant: [], deny: ['askAi'] } } });
     expect(roles.capabilitiesFor({ roleId: 'channel' }, off)).not.toContain('askAi');
-    expect(roles.pagesFor(roles.capabilitiesFor({ roleId: 'channel' }, off), 'channel').nav.main).toEqual(['trends', 'assets', 'plan', 'inbox', 'mychannel']);
+    expect(roles.pagesFor(roles.capabilitiesFor({ roleId: 'channel' }, off), 'channel').nav.main).toEqual(['programs', 'trends', 'assets', 'plan', 'inbox', 'mychannel']);
     for (const method of ask.methods) expect(roles.methodsFor('channel', roles.capabilitiesFor({ roleId: 'channel' }, off))).not.toContain(method);
     // A channel role without Read reports and assets can't hold it.
     expect(roles.settle(['askAi'], 'channel')).toEqual(['core']);
@@ -468,7 +468,7 @@ describe('capabilities: role policy and per-person access', () => {
     expect(methods).not.toContain('cancelJob'); expect(methods).not.toContain('getJob');
     expect(methods.every((method) => policy.channelSafeMethods.includes(method))).toBe(true);
     const viewer = roles.buildViewer({ identity: { ...identities.channel, roleId: 'role-reviewers-ab12' }, prefs: {}, editionId: 'semrush', web: true, policy: compiled });
-    expect(viewer).toMatchObject({ role: 'channel', base: 'channel', roleId: 'role-reviewers-ab12', roleLabel: 'Channel reviewer', channelId: 'blog', modes: ['simple'], nav: { main: ['trends', 'assets', 'plan', 'inbox', 'ask'] } });
+    expect(viewer).toMatchObject({ role: 'channel', base: 'channel', roleId: 'role-reviewers-ab12', roleLabel: 'Channel reviewer', channelId: 'blog', modes: ['simple'], nav: { main: ['programs', 'trends', 'assets', 'plan', 'inbox', 'ask'] } });
     expect(viewer.allowed).not.toContain('createAssetKit');
     expect(Object.keys(roles.projectState(fixture.baseState(), viewer, { editionId: 'semrush' })).sort()).toEqual(['contentStudio', 'keys', 'settings', 'team', 'viewer']);
   });

@@ -6,9 +6,10 @@ import { useUnsavedGuard } from './asset-editor.jsx';
 import { CoverageStrip, PeopleTable } from './people-table.jsx';
 import { PersonSheet, RetryNote } from './person-sheet.jsx';
 import { InviteDialog } from './invite-dialog.jsx';
+import { WorkspaceMemberDialog } from './workspace-member-dialog.jsx';
 import { RolesMatrix } from './roles-matrix.jsx';
 import { AccessLog } from './access-log.jsx';
-import { firstName, writeProps } from './viewer.js';
+import { can, firstName, writeProps } from './viewer.js';
 import { place } from './platform.js';
 import './people-view.css';
 
@@ -107,6 +108,7 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
   const [tab, setTabState] = useState(readTab);
   const [sheet, setSheet] = useState(null); // { memberId, tab }
   const [invite, setInvite] = useState(null); // { preset }
+  const [existingPerson, setExistingPerson] = useState(false);
   const [panel, setPanel] = useState(null); // { memberId, url, expiresAt }
   const [previewing, setPreviewing] = useState(false);
   const [toast, showToast] = useToast();
@@ -134,7 +136,7 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
   const members = list(team?.members);
   const channels = list(team?.channels).length ? list(team.channels) : list(viewer.channels);
   const signIn = team?.signIn || {};
-  const links = web && Boolean(signIn.links) && typeof api?.createSignInLink === 'function';
+  const links = web && can(viewer, 'createSignInLink') && can(viewer, 'revokeSignInLink') && Boolean(signIn.links) && typeof api?.createSignInLink === 'function';
   const name = studioName || (channels.some((channel) => /^Semrush\b/.test(channel.name || '')) ? 'Semrush research studio' : 'research studio');
   const editable = typeof api?.saveMember === 'function';
   const canInvite = web && typeof api?.inviteMembers === 'function' && Boolean(team?.access);
@@ -175,11 +177,11 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
     await write(() => api.revokeSignInLink({ id: member.id }), () => { if (panel?.memberId === member.id) setPanel(null); showToast(`${member.name} is signed out everywhere.`); });
   }
   async function setDisabled(member, disabled) {
-    if (disabled && !(await confirm({ title: `Disable ${member.name}?`, lines: ['They can’t use the studio until you enable them again. Their answers and history stay.'], confirmLabel: 'Disable', tone: 'danger' }))) return;
+    if (disabled && !(await confirm({ title: `Disable ${member.name}?`, lines: ['They can’t use this workspace until you enable them again. Their other workspace memberships stay.'], confirmLabel: 'Disable', tone: 'danger' }))) return;
     await write(() => api.saveMember({ id: member.id, name: member.name, email: member.email, role: member.role, channelId: member.channelId || null, disabled }), () => showToast(disabled ? `${member.name} is disabled.` : `${member.name} can use the studio again.`));
   }
   async function remove(member) {
-    if (!(await confirm({ title: `Remove ${member.name} from the studio?`, lines: ['Their answers and history stay, and they’re signed out everywhere. To stop access for a while instead, disable them.'], confirmLabel: 'Remove', tone: 'danger' }))) return;
+    if (!(await confirm({ title: `Remove ${member.name} from the studio?`, lines: ['Their answers and history stay. This removes access to this workspace; their account and other workspace memberships stay.'], confirmLabel: 'Remove', tone: 'danger' }))) return;
     await write(() => api.removeMember({ id: member.id }), () => { if (panel?.memberId === member.id) setPanel(null); setSheet(null); showToast(`${member.name} was removed.`); });
   }
   function invited(result) {
@@ -193,6 +195,7 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
   const heading = <div className="studio-page-head">
     <div><h1>People & access</h1><p>Who can use the studio and what they can do. {web ? (signIn.sso ? 'People sign in with their company account.' : links ? 'Each person signs in with their own link.' : '') : `On ${place()}, roles and the access log change what View as shows.`}</p></div>
     {team && <div className="studio-head-actions">
+      {viewer.isSuperAdmin && !viewer.preview && typeof api.saveWorkspaceMembership === 'function' && <button type="button" className="studio-quiet" disabled={busy} onClick={() => setExistingPerson(true)}><Users size={16} aria-hidden="true" />Add existing person</button>}
       {canPreviewAny && <button type="button" className="studio-quiet" onClick={() => setPreviewing(true)}><Eye size={16} aria-hidden="true" />Preview as…</button>}
       {canInvite && !firstRun && <button type="button" className="studio-primary" {...writeProps(viewer, busy)} onClick={() => setInvite({ preset: {} })}><UserPlus size={16} aria-hidden="true" />Invite people</button>}
       {!web && <ExplainedButton icon={<UserPlus size={16} aria-hidden="true" />} label="Invite people" note={`People join through the browser version of the studio, where your team shares one studio. Invite them there once it’s set up; this app on ${place()} is for you alone.`} />}
@@ -201,6 +204,7 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
   if (!available) return <div className="studio-screen studio-page people-page"><div className="studio-page-head"><div><h1>People & access</h1></div></div><div className="studio-empty"><p>People and roles aren’t available in this version of the studio.</p></div></div>;
   return <div className="studio-screen studio-page people-page">
     {heading}
+    {existingPerson && team && <WorkspaceMemberDialog viewer={viewer} team={team} api={api} workspaceName={studioName || 'this workspace'} onClose={() => setExistingPerson(false)} onSaved={() => { setExistingPerson(false); reload(); showToast('Workspace access added. Their existing sign-in still works.'); }} />}
     {error && <div className="studio-empty" role="alert"><p>{error}</p><button type="button" className="studio-quiet small" onClick={reload}><RefreshCw size={14} aria-hidden="true" />Try again</button></div>}
     {!team && !error && <div className="studio-skeleton" role="status" aria-label="Loading people"><span /><span /><span /><span /></div>}
     {team && <>

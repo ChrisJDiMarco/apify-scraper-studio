@@ -29,7 +29,7 @@ describe('team file', () => {
     h.store.saveMember({ name: 'Alex', email: 'Alex@Semrush.com ', role: 'channel', channelId: 'blog' }, ADMIN);
     const saved = h.file();
     expect(saved).toMatchObject({ version: TEAM_VERSION, members: [{ name: 'Alex', email: 'alex@semrush.com', role: 'channel', channelId: 'blog', grants: [], denies: [], disabled: false, createdBy: { id: 'owner', name: 'Studio admin' }, lastSeenAt: '', link: null }], roles: [], rolePolicy: { rev: 0, builtIn: {} }, adoptions: [], activity: [], audit: [], prefs: {} });
-    expect(TEAM_VERSION).toBe(3);
+    expect(TEAM_VERSION).toBe(4);
     expect(saved.members[0].id).toMatch(/^member-[0-9a-f-]{36}$/);
     expect(fs.readdirSync(h.root).filter((name) => name.endsWith('.tmp'))).toEqual([]);
     if (process.platform !== 'win32') expect(fs.statSync(path.join(h.root, 'team.json')).mode & 0o777).toBe(0o600);
@@ -46,7 +46,7 @@ describe('team file', () => {
     expect(legacy.store.listMembers()).toMatchObject([{ id: 'member-1', role: 'editor', channelId: null, grants: [], denies: [], disabled: false, link: null, serverAdmin: false }]);
     // Version 1 becomes version 2 with no access changes (everyone keeps exactly what they had), then 3, which only
     // touches custom roles (a v1 file has none).
-    expect(migrate({ version: 1, members: [{ id: 'member-1', role: 'editor' }] })).toEqual({ version: 3, members: [{ id: 'member-1', role: 'editor', grants: [], denies: [] }], roles: [], rolePolicy: { rev: 0, updatedAt: '', updatedBy: null, builtIn: {} }, audit: [] });
+    expect(migrate({ version: 1, members: [{ id: 'member-1', role: 'editor' }] })).toEqual({ version: 4, members: [{ id: 'member-1', role: 'editor', grants: [], denies: [] }], roles: [], rolePolicy: { rev: 0, updatedAt: '', updatedBy: null, builtIn: {} }, audit: [] });
     expect(legacy.store.identityFor(legacy.store.memberById('member-1'))).toMatchObject({ role: 'editor', roleId: 'editor' });
   });
 
@@ -614,7 +614,7 @@ describe('Ask AI on for every role (team.json v3)', () => {
     const policy = h.store.accessSummary();
     const off = h.store.saveRolePolicy({ rev: policy.rev, builtIn: { channel: { grant: [], deny: ['askAi'] } }, custom: [{ id: 'role-readers-0001', capabilities: ['core', 'readAssets', 'readResearch'] }] }, by);
     expect(off.audit.map((row) => [row.target.id, row.changes[0].capability, row.changes[0].to])).toEqual([['channel', 'askAi', false], ['role-readers-0001', 'askAi', false]]);
-    expect(h.file()).toMatchObject({ version: 3, rolePolicy: { builtIn: { channel: { grant: [], deny: ['askAi'] } } } });
+    expect(h.file()).toMatchObject({ version: 4, rolePolicy: { builtIn: { channel: { grant: [], deny: ['askAi'] } } } });
     // A restart reads version 3: nothing turns it back on.
     for (let restart = 0; restart < 2; restart++) {
       const store = h.open();

@@ -182,7 +182,7 @@ function firstTitle(question) {
   return `${(space > 30 ? cut.slice(0, space) : cut).replace(/[\s,.;:–-]+$/, '')}…`;
 }
 
-function createAskStore({ root, now = () => new Date() } = {}) {
+function createAskStore({ root, now = () => new Date(), getWorkspaceId = () => '', legacyWorkspaceId = '' } = {}) {
   if (!root) throw new Error('Ask AI needs the studio data folder.');
   const stamp = () => new Date(now()).toISOString();
   const clock = () => new Date(now()).getTime();
@@ -228,7 +228,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
   // person has. So a person moved from Editor to a channel role never reads back answers written from the whole studio,
   // and one moved to another channel doesn't see the old channel's.
   const spaceOf = (channelId) => (typeof channelId === 'string' && channelId ? channelId : null);
-  const inSpace = (channelId) => { const space = spaceOf(channelId); return (row) => !space || (row?.channelId || '') === space; };
+  const inSpace = (channelId) => { const space = spaceOf(channelId); const workspaceId = getWorkspaceId(); return (row) => Boolean(row) && (!workspaceId || (row.workspaceId || legacyWorkspaceId) === workspaceId) && (!space || (row.channelId || '') === space); };
   function metaOf(conversation) {
     const messages = list(conversation.messages);
     const lastAnswer = [...messages].reverse().find((message) => message.role === 'assistant');
@@ -270,7 +270,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
 
   // The stored reply for a request already answered, so asking again with the same requestId never pays twice.
   function findByRequest(identityId, requestId, { channelId } = {}) {
-    const entry = [...loadIndex(identityId).requests].reverse().find((row) => row.requestId === requestId);
+    const entry = [...loadIndex(identityId).requests].reverse().find((row) => row.requestId === requestId && inSpace(channelId)(readConversationFile(identityId, row.conversationId)));
     if (!entry) return null;
     const found = readConversationFile(identityId, entry.conversationId);
     const conversation = found && inSpace(channelId)(found) ? found : null;
@@ -289,7 +289,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
       conversation = readConversationFile(identityId, conversationId);
       if (!conversation || !inSpace(channelId)(conversation)) throw fail('This conversation was deleted while Ask AI was answering. Ask again in a new conversation.', 404);
     } else {
-      conversation = { version: ASK_VERSION, id: newId('ask'), title: firstTitle(user.content), workspaceId, ...(spaceOf(channelId) ? { channelId: spaceOf(channelId) } : {}), createdAt: at, updatedAt: at, pinned: false, renamed: false, summary: '', summaryThrough: '', messages: [] };
+      conversation = { version: ASK_VERSION, id: newId('ask'), title: firstTitle(user.content), workspaceId: getWorkspaceId() || workspaceId, ...(spaceOf(channelId) ? { channelId: spaceOf(channelId) } : {}), createdAt: at, updatedAt: at, pinned: false, renamed: false, summary: '', summaryThrough: '', messages: [] };
     }
     // The model may name a conversation from its first answer; a title the person chose always stays.
     const suggested = clip(title, TITLE_MAX);
@@ -310,8 +310,9 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     index.conversations = [metaOf(conversation), ...index.conversations.filter((row) => row.id !== conversation.id)];
     if (userMessage.requestId) index.requests.push({ requestId: userMessage.requestId, conversationId: conversation.id, userMessageId: userMessage.id, messageId: message.id });
     // Past the cap the oldest unpinned conversations go, files and all.
-    const unpinned = index.conversations.filter((row) => !row.pinned && row.id !== conversation.id).sort((a, b) => time(a.updatedAt) - time(b.updatedAt));
-    const extra = unpinned.slice(0, Math.max(0, index.conversations.length - MAX_CONVERSATIONS)).map((row) => row.id);
+    const currentConversations = index.conversations.filter(inSpace());
+    const unpinned = currentConversations.filter((row) => !row.pinned && row.id !== conversation.id).sort((a, b) => time(a.updatedAt) - time(b.updatedAt));
+    const extra = unpinned.slice(0, Math.max(0, currentConversations.length - MAX_CONVERSATIONS)).map((row) => row.id);
     if (extra.length) {
       for (const id of extra) fs.rmSync(conversationFile(identityId, id), { force: true });
       index.conversations = index.conversations.filter((row) => !extra.includes(row.id));
@@ -394,7 +395,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
   function deleteConversation(identityId, conversationId, { channelId } = {}) {
     if (typeof conversationId !== 'string' || !CONVERSATION_ID.test(conversationId)) throw fail('That conversation isn’t available anymore.', 404);
     const index = loadIndex(identityId);
-    if (spaceOf(channelId)) {
+    if (getWorkspaceId() || spaceOf(channelId)) {
       const stored = readConversationFile(identityId, conversationId) || index.conversations.find((row) => row.id === conversationId);
       if (stored && !inSpace(channelId)(stored)) throw fail('That conversation isn’t available anymore.', 404);
     }
@@ -437,9 +438,9 @@ function createAskStore({ root, now = () => new Date() } = {}) {
   }
   // Caps: at most MAX_ACTIVE_MEMORY active items (the oldest unpinned go first) and MAX_FORGOTTEN_MEMORY forgotten ones.
   function saveMemoryFile(identityId, memory) {
-    const active = memory.items.filter((item) => item.status === 'active');
+    const active = memory.items.filter((item) => item.status === 'active' && inSpace()(item));
     const overflow = new Set(active.filter((item) => !item.pinned).sort((a, b) => time(a.updatedAt) - time(b.updatedAt)).slice(0, Math.max(0, active.length - MAX_ACTIVE_MEMORY)).map((item) => item.id));
-    const forgotten = memory.items.filter((item) => item.status !== 'active').sort((a, b) => time(b.updatedAt) - time(a.updatedAt)).slice(MAX_FORGOTTEN_MEMORY).map((item) => item.id);
+    const forgotten = memory.items.filter((item) => item.status !== 'active' && inSpace()(item)).sort((a, b) => time(b.updatedAt) - time(a.updatedAt)).slice(MAX_FORGOTTEN_MEMORY).map((item) => item.id);
     for (const id of forgotten) overflow.add(id);
     memory.items = memory.items.filter((item) => !overflow.has(item.id));
     writeFile(files(identityId).memory, { version: ASK_VERSION, items: memory.items });
@@ -466,9 +467,9 @@ function createAskStore({ root, now = () => new Date() } = {}) {
       if (!text || looksSecret(text)) continue;
       const scope = MEMORY_SCOPES.includes(raw?.scope) ? raw.scope : 'me';
       const kind = MEMORY_KINDS.includes(raw?.kind) ? raw.kind : 'fact';
-      const same = memory.items.find((item) => item.status === 'active' && item.scope === scope && (scope === 'me' || item.workspaceId === workspaceId) && (item.channelId || '') === (space || '') && normalizedText(item.text) === normalizedText(text));
+      const same = memory.items.find((item) => item.status === 'active' && item.scope === scope && inSpace(channelId)(item) && (scope === 'me' || item.workspaceId === workspaceId) && (item.channelId || '') === (space || '') && normalizedText(item.text) === normalizedText(text));
       if (same) { Object.assign(same, { kind, updatedAt: at }); continue; }
-      const item = { id: newId('mem'), kind, text, scope, workspaceId: scope === 'workspace' ? workspaceId : '', ...(space ? { channelId: space } : {}), source: { conversationId: String(source.conversationId || ''), messageId: String(source.messageId || '') }, createdAt: at, updatedAt: at, lastUsedAt: '', uses: 0, pinned: false, status: 'active' };
+      const item = { id: newId('mem'), kind, text, scope, workspaceId: getWorkspaceId() || (scope === 'workspace' ? workspaceId : ''), ...(space ? { channelId: space } : {}), source: { conversationId: String(source.conversationId || ''), messageId: String(source.messageId || '') }, createdAt: at, updatedAt: at, lastUsedAt: '', uses: 0, pinned: false, status: 'active' };
       memory.items.unshift(item); saved.push({ id: item.id, text: item.text });
     }
     saveMemoryFile(identityId, memory);
@@ -483,7 +484,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     const memory = loadMemory(identityId); const at = stamp(); const space = spaceOf(channelId);
     if (input.id == null || input.id === '') {
       const item = { id: newId('mem'), ...cleanItem(input), workspaceId: '', ...(space ? { channelId: space } : {}), source: { conversationId: '', messageId: '' }, createdAt: at, updatedAt: at, lastUsedAt: '', uses: 0, pinned: input.pinned === true, status: 'active' };
-      if (item.scope === 'workspace') item.workspaceId = workspaceId;
+      if (getWorkspaceId() || item.scope === 'workspace') item.workspaceId = getWorkspaceId() || workspaceId;
       const same = memory.items.find((row) => row.status === 'active' && row.scope === item.scope && row.workspaceId === item.workspaceId && (row.channelId || '') === (space || '') && normalizedText(row.text) === normalizedText(item.text));
       if (same) { Object.assign(same, { kind: item.kind, pinned: same.pinned || item.pinned, updatedAt: at }); saveMemoryFile(identityId, memory); return memoryView(same); }
       memory.items.unshift(item); saveMemoryFile(identityId, memory); return memoryView(item);
@@ -492,7 +493,7 @@ function createAskStore({ root, now = () => new Date() } = {}) {
     if (!item) throw fail('Ask AI doesn’t remember that anymore.', 404);
     if (input.text !== undefined || input.kind !== undefined || input.scope !== undefined) {
       const next = cleanItem({ text: input.text ?? item.text, kind: input.kind ?? item.kind, scope: input.scope ?? item.scope });
-      Object.assign(item, next, { workspaceId: next.scope === 'workspace' ? item.workspaceId || workspaceId : '' });
+      Object.assign(item, next, { workspaceId: getWorkspaceId() || (next.scope === 'workspace' ? item.workspaceId || workspaceId : '') });
     }
     if (input.pinned !== undefined) item.pinned = input.pinned === true;
     if (input.status === 'active') item.status = 'active';

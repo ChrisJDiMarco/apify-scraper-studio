@@ -176,21 +176,25 @@ describe('One frame for every role', () => {
     expect(within(await screen.findByRole('navigation', { name: 'Studio setup' })).getAllByRole('button').map((button) => button.textContent)).toEqual(['Brand knowledge', 'Analytics', 'People & access', 'Settings']);
   });
 
-  it('gives a channel owner the same sidebar shape: Inbox, a pipeline of Trends with a count, Assets and Calendar, and My channel', async () => {
+  it('gives a channel owner research program visibility before their channel workflow', async () => {
     const { project } = openStudio('channel');
     const newTrends = project().contentStudio.channelView.counts.newTrends;
     expect(newTrends).toBeGreaterThan(0);
     expect(await screen.findByRole('heading', { level: 1, name: 'Trends for Semrush Blog' })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Main' });
-    expect(labels(nav)).toEqual(['Inbox', 'Trends', 'Assets', 'Calendar', 'My channel']);
+    expect(labels(nav)).toEqual(['Inbox', 'Research programs', 'Trends', 'Assets', 'Calendar', 'My channel']);
     expect(within(nav).getByRole('button', { name: `Trends, ${newTrends} new` }).querySelector('.sb-badge')).toHaveTextContent(String(newTrends));
     expect(document.querySelector('.studio-frame')).toHaveAttribute('data-mode', 'channel');
     expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Your channel' })).toHaveTextContent('Semrush Blog');
+    expect(document.querySelector('[data-spot="nav.workspace"]')).toHaveTextContent('Semrush');
+    fireEvent.click(within(nav).getByRole('button', { name: /^Research programs/ }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Research programs' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Contact admin' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add program' })).not.toBeInTheDocument();
     fireEvent.click(within(nav).getByRole('button', { name: /^Assets/ }));
     expect(await screen.findByRole('heading', { level: 1, name: 'My assets · Semrush Blog' })).toBeInTheDocument();
-    fireEvent.keyDown(window, { key: '2', metaKey: true }); // Inbox leads, as in everyone's sidebar; Trends is ⌘2
+    fireEvent.keyDown(window, { key: '3', metaKey: true }); // Inbox and programs lead; Trends is ⌘3.
     expect(await screen.findByRole('heading', { level: 1, name: 'Trends for Semrush Blog' })).toBeInTheDocument();
     // My channel: their channel's knowledge and asset instructions.
     fireEvent.click(within(nav).getByRole('button', { name: /^My channel/ }));
@@ -201,6 +205,7 @@ describe('One frame for every role', () => {
     openStudio('channel');
     await screen.findByRole('heading', { level: 1, name: 'Trends for Semrush Blog' });
     const nav = () => within(screen.getByRole('navigation', { name: 'Main' }));
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
     fireEvent.click(screen.getByRole('button', { name: /^All/ }));
     fireEvent.click(within(screen.getByRole('article', { name: 'AI Overviews eat clicks' })).getByRole('button', { name: /Open my assets/ }));
     const group = await screen.findByRole('heading', { level: 2, name: 'AI Overviews eat clicks' });

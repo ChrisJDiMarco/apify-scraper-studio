@@ -2,7 +2,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, ClipboardCopy, Link2, LoaderCircle, Lock, RefreshCw, Unlink } from 'lucide-react';
 import { Dialog, DialogClose, copyText } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
-import { firstName, formatDay, formatTime, plural, writeProps } from './viewer.js';
+import { can, firstName, formatDay, formatTime, plural, writeProps } from './viewer.js';
 import { ProgramAccessField } from './program-access-field.jsx';
 
 // One person, in a wide sheet with four tabs: Details (name, email, role, channel), Access (their own changes on top of
@@ -221,7 +221,7 @@ export function PersonSheet({ team, member, viewer = {}, web = false, api, actio
   const admins = list(team?.members).filter((row) => row.role === 'admin' && !row.disabled);
   const lastAdmin = member.role === 'admin' && !member.disabled && admins.length <= 1;
   const locked = Boolean(member.serverAdmin);
-  const sso = Boolean(team?.signIn?.sso); const links = Boolean(team?.signIn?.links) && typeof api?.createSignInLink === 'function';
+  const sso = Boolean(team?.signIn?.sso); const links = can(viewer, 'createSignInLink') && can(viewer, 'revokeSignInLink') && Boolean(team?.signIn?.links) && typeof api?.createSignInLink === 'function';
   const emailChanged = sso && email.trim().toLowerCase() !== String(member.email || '').toLowerCase();
   const baseChanged = (savedDef?.base || member.base) !== base;
   const programKey = (value) => (Array.isArray(value) ? [...value].sort().join() : '*');
@@ -285,7 +285,7 @@ export function PersonSheet({ team, member, viewer = {}, web = false, api, actio
   const tabs = TABS.filter(([id]) => id !== 'signin' || web);
   const editable = !locked && typeof api?.saveMember === 'function';
   const roleChoices = roles.filter((entry) => !self || entry.id === member.role);
-  return <Dialog labelledBy={titleId} onClose={onClose} closeDisabled={saving} initialFocus={tab === 'details' ? nameRef : undefined} className="people-sheet people-person-sheet" wide>
+  return <Dialog labelledBy={titleId} onClose={onClose} closeDisabled={saving} initialFocus={tab === 'details' && viewer.isSuperAdmin !== false ? nameRef : undefined} className="people-sheet people-person-sheet" wide>
     <form className="people-sheet-form" noValidate onSubmit={save}>
       <header className="studio-dialog-head"><div><small>People & access</small><h2 id={titleId}>{member.name}</h2><p className="studio-dialog-meta">{member.roleLabel || roleDef?.label || 'No role'}{member.email ? ` · ${member.email}` : ''}</p></div><DialogClose onClose={onClose} disabled={saving} /></header>
       <div className="people-sheet-tabs" role="tablist" aria-label={`${member.name}’s details`}>
@@ -295,8 +295,9 @@ export function PersonSheet({ team, member, viewer = {}, web = false, api, actio
       <div className="studio-dialog-body" role="tabpanel" id={`${tabId}-${tab}-panel`} aria-labelledby={`${tabId}-${tab}`}>
         {locked && <p className="studio-hint">{member.name} is an admin in the server settings, so their access is set there.</p>}
         {tab === 'details' && <>
-          <label className="studio-field"><span>Name</span><input ref={nameRef} value={name} maxLength={120} autoComplete="off" disabled={!editable} onChange={(event) => { setName(event.target.value); setProblem(''); }} /></label>
-          <label className="studio-field"><span>Work email{web ? '' : <em> (optional)</em>}</span><input type="email" inputMode="email" autoComplete="off" value={email} disabled={!editable} onChange={(event) => { setEmail(event.target.value); setProblem(''); }} /></label>
+          <label className="studio-field"><span>Name</span><input ref={nameRef} value={name} maxLength={120} autoComplete="off" disabled={!editable || viewer.isSuperAdmin === false} onChange={(event) => { setName(event.target.value); setProblem(''); }} /></label>
+          <label className="studio-field"><span>Work email{web ? '' : <em> (optional)</em>}</span><input type="email" inputMode="email" autoComplete="off" value={email} disabled={!editable || viewer.isSuperAdmin === false} onChange={(event) => { setEmail(event.target.value); setProblem(''); }} /></label>
+          {viewer.isSuperAdmin === false && <p className="studio-hint">A Super Admin manages account names and sign-in details. You can change this person’s role and access in this workspace.</p>}
           {emailChanged && <p className="channel-note">They’ll sign in with this address from now on.</p>}
           <fieldset className="people-roles">
             <legend>Role</legend>

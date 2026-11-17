@@ -6,6 +6,16 @@ Version numbers come from `package.json`, and 0.3.0 covers two days of work (the
 redesign on Oct 17), so a DMG labelled 0.3.0 may predate the redesign. Bump the version when the final build-out
 below is merged (0.4.0 is suggested) and tag that commit.
 
+## [0.4.0] - 2026-11-17
+
+- Separate workspaces with a global Super Admin, workspace-specific roles and existing-account assignment.
+- Session-specific workspace selection; isolated settings, data, jobs, integrations and Ask AI history.
+- Read-only research programs for Channel Owners, a shared channel Kanban board and asset generation from Assets.
+- Required descriptions for channel image examples, used in image generation and retained for retries.
+- First-use walkthroughs by workspace and role, with replay from the account menu.
+- Team schema 4 keeps old app versions from misinterpreting workspace membership data. Restore the pre-update
+  profile backup if reverting to an older app.
+
 ## [Unreleased]: Golden Thread rename (2026-10-21)
 
 ### Changed

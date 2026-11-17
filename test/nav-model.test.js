@@ -115,12 +115,12 @@ describe('buildNav: Advanced', () => {
 });
 
 describe('buildNav: channel owners', () => {
-  it('shows the pipeline of Trends, Assets and Calendar, with new trends counted, and nothing to create, search or ask', () => {
+  it('shows research programs before Trends, Assets and Calendar, with new trends counted, and nothing to create, search or ask', () => {
     const nav = buildNav({ viewer: owner, layout: 'channel', state: { contentStudio: { channelView: { counts: { newTrends: 4 } } } }, edition: 'semrush' });
-    expect(labels(nav)).toEqual([['pipeline', ['Trends', 'Assets', 'Calendar']]]);
+    expect(labels(nav)).toEqual([['pipeline', ['Research programs', 'Trends', 'Assets', 'Calendar']]]);
     expect(nav.groups[0]).toMatchObject({ label: 'Pipeline', pipeline: true });
     expect(itemName(findNavItem(nav, 'trends'))).toBe('Trends, 4 new');
-    expect(nav.order.map((row) => row.shortcut)).toEqual(['⌘1', '⌘2', '⌘3']);
+    expect(nav.order.map((row) => row.shortcut)).toEqual(['⌘1', '⌘2', '⌘3', '⌘4']);
     expect(nav.actions).toEqual({ create: [], search: null, ask: null });
     expect(nav.footer).toMatchObject({ layouts: [], viewAs: [], channels: [] });
     // A role whose nav lists only the two built-in tabs doesn't get My plan; one that lists Inbox gets it.
@@ -156,10 +156,11 @@ describe('buildNav: channel owners', () => {
 
 describe('buildNav: New', () => {
   it('offers every kind of new thing, with the admin rows last, and lists programs when there are several', () => {
-    const nav = buildNav({ viewer: admin({ web: true }), layout: 'simple', state: state({ programs: [{ id: 'p1', name: 'SEO weekly', workspaceId: 'w1' }, { id: 'p2', name: 'AI search', workspaceId: 'w1' }, { id: 'p3', name: 'Elsewhere', workspaceId: 'w2' }] }), edition: 'semrush' });
+    const nav = buildNav({ viewer: admin({ web: true, isSuperAdmin: true }), layout: 'simple', state: state({ programs: [{ id: 'p1', name: 'SEO weekly', workspaceId: 'w1' }, { id: 'p2', name: 'AI search', workspaceId: 'w1' }, { id: 'p3', name: 'Elsewhere', workspaceId: 'w2' }] }), edition: 'semrush' });
     expect(nav.actions.create.map((row) => `${row.id}:${row.section}`)).toEqual(['research:main', 'quick-scan:main', 'assets:main', 'content:main', 'picture:main', 'program:admin', 'playbook:admin', 'person:admin', 'workspace:admin']);
     // People on the Mac has no invite, so New › Person is the browser studio's only.
     expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).not.toContain('person');
+    expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).not.toContain('workspace');
     // A one-workspace build offers no New › Workspace.
     expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state({ workspacePolicy: { mode: 'single', name: 'Main' } }), edition: 'semrush' }).actions.create)).not.toContain('workspace');
     expect(nav.actions.create[0].choices).toEqual([{ id: 'p1', label: 'SEO weekly' }, { id: 'p2', label: 'AI search' }]);

@@ -50,6 +50,7 @@ const copies = [
   ['src/main/content-workspace.js', 'out/main/content-workspace.js'],
   // One workspace or several (package.json studioWorkspace, STUDIO_WORKSPACE_MODE).
   ['src/main/workspace-policy.js', 'out/main/workspace-policy.js'],
+  ['src/main/workspace-legacy.js', 'out/main/workspace-legacy.js'],
   // Prompt Library: saved versions, the API (previews, tests), the template engine, its registry, defaults and samples.
   ['src/main/prompt-store.js', 'out/main/prompt-store.js'],
   ['src/main/prompt-lab.js', 'out/main/prompt-lab.js'],
@@ -71,6 +72,7 @@ const copies = [
   ['src/main/access.js', 'out/main/access.js'],
   ['src/main/access-log.js', 'out/main/access-log.js'], // People & access → Access log sentences
   ['src/main/channel-view.js', 'out/main/channel-view.js'],
+  ['src/main/channel-references.js', 'out/main/channel-references.js'],
   // The report editor and notes: shared documents (Yjs, from node_modules), versions, presence; notes and Inbox items.
   ['src/main/report-docs.js', 'out/main/report-docs.js'],
   ['src/main/report-notes.js', 'out/main/report-notes.js'],

@@ -112,6 +112,49 @@ describe('Apify runs from Scrapers', () => {
 });
 
 describe('data.json and config.json', () => {
+  it('retains owned legacy data in both workspaces, with exact source files preserved', async () => {
+    const root = temp('safety-retained-workspaces-'); studio.seedStudio(root);
+    const statePath = path.join(root, 'content-studio', 'state.json'); const contentState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    contentState.datasetOwners = { 'dataset-general': 'general' }; fs.writeFileSync(statePath, JSON.stringify(contentState));
+    const outputPath = path.join(root, 'workspaces', 'default', 'analysis-general', 'output.json'); fs.mkdirSync(path.dirname(outputPath), { recursive: true }); fs.writeFileSync(outputPath, '{"retained":"general"}');
+    const data = { datasets: [{ id: 'dataset-primary', workspaceId: 'semrush', name: 'Primary dataset', platform: 'x', itemCount: 1 }, { id: 'dataset-general', name: 'Retained General dataset', platform: 'x', itemCount: 1, recipeId: 'recipe-general' }], recipes: [{ id: 'recipe-general', name: 'General collection', platform: 'x', actorId: 'owner/fixture', input: {}, mapper: {} }, { id: 'recipe-primary', workspaceId: 'semrush', name: 'Primary collection', platform: 'x', actorId: 'owner/fixture', input: {}, mapper: {} }], analyses: [{ id: 'analysis-general', datasetId: 'dataset-general', projectId: 'default', outputPath, status: 'succeeded' }] };
+    const original = `${JSON.stringify(data, null, 2)}\n`; fs.writeFileSync(path.join(root, 'data.json'), original);
+    const versionLine = (id, name) => `${JSON.stringify({ id: `event-${id}`, version: 1, type: 'recipe-version-saved', payload: { recipeId: id, version: { recipeId: id, version: 1, name, platform: 'x', actorId: 'owner/fixture', input: {}, mapper: {} } }, createdAt: '2026-11-01T10:00:00.000Z' })}\n`;
+    const generalVersion = versionLine('recipe-general', 'General history'); const primaryVersion = versionLine('recipe-primary', 'Primary history');
+    fs.mkdirSync(path.join(root, 'v5'), { recursive: true }); fs.writeFileSync(path.join(root, 'v5', 'events.jsonl'), primaryVersion + generalVersion);
+    fs.mkdirSync(path.join(root, 'datasets'), { recursive: true }); fs.writeFileSync(path.join(root, 'datasets', 'dataset-general.json'), '{"items":[{"text":"retained imported evidence"}]}');
+    const legacyHost = path.join(root, 'content-studio'); fs.mkdirSync(path.join(legacyHost, 'datasets'), { recursive: true }); fs.mkdirSync(path.join(legacyHost, 'collections'), { recursive: true });
+    const hostMetadata = { id: 'dataset-host-general', workspaceId: 'general', name: 'Retained host dataset', platform: 'x', itemCount: 1 };
+    fs.writeFileSync(path.join(legacyHost, 'dataset-index.json'), JSON.stringify({ version: 1, datasets: [hostMetadata] }));
+    const hostBytes = `${JSON.stringify({ dataset: hostMetadata, items: [{ text: 'retained collected evidence' }] })}\n`;
+    fs.writeFileSync(path.join(legacyHost, 'datasets', `${hostMetadata.id}.json`), hostBytes);
+    const checkpoint = '{"version":1,"workspaceId":"general","runId":"research-retained","jobs":[]}\n'; fs.writeFileSync(path.join(legacyHost, 'collections', 'research-retained.json'), checkpoint);
+    const app = desktop(root, { env: { STUDIO_WORKSPACE_MODE: 'multi' } });
+    try {
+      expect(app.call('state').datasets.map((row) => row.id)).toEqual(['dataset-primary']);
+      expect(Object.keys(app.call('state').v5.recipeVersions)).toEqual(['recipe-primary']);
+      await app.call('studio:selectContentWorkspace', 'general');
+      const general = app.call('state');
+      expect(general.datasets.map((row) => row.id)).toEqual(['dataset-general']);
+      expect(general.recipes.map((row) => row.id)).toEqual(['recipe-general']);
+      expect(Object.keys(general.v5.recipeVersions)).toEqual(['recipe-general']); expect(general.v5.recipeVersions['recipe-general'][0].name).toBe('General history');
+      expect(general.contentStudio.availableDatasets.map((row) => row.id).sort()).toEqual(['dataset-general', 'dataset-host-general']);
+      expect(app.call('read-dataset', 'dataset-general').items[0].text).toBe('retained imported evidence');
+      expect(app.call('read-analysis', 'analysis-general').output).toEqual({ retained: 'general' });
+      expect(general.analyses[0].outputPath).toBe(path.join(root, 'workspace-data', 'general', 'workspaces', 'default', 'analysis-general', 'output.json'));
+      expect(fs.readFileSync(path.join(root, 'workspace-data', 'general', 'content-studio', 'datasets', `${hostMetadata.id}.json`), 'utf8')).toBe(hostBytes);
+      expect(fs.readFileSync(path.join(root, 'workspace-data', 'general', 'content-studio', 'collections', 'research-retained.json'), 'utf8')).toBe(checkpoint);
+      expect(fs.readFileSync(path.join(legacyHost, 'datasets', `${hostMetadata.id}.json`), 'utf8')).toBe(hostBytes);
+      expect(fs.readFileSync(path.join(root, 'workspace-legacy', 'data.json'), 'utf8')).toBe(original);
+      expect(fs.readFileSync(path.join(root, 'workspace-legacy', 'events.jsonl'), 'utf8')).toBe(primaryVersion + generalVersion);
+      expect(fs.readFileSync(path.join(root, 'workspace-data', 'general', 'v5', 'events.jsonl'), 'utf8')).toBe(generalVersion);
+      expect(fs.readFileSync(path.join(root, 'v5', 'events.jsonl'), 'utf8')).toBe(primaryVersion + generalVersion);
+      const made = await app.call('studio:saveContentWorkspace', { name: 'Adobe', editionId: 'general' });
+      expect(app.call('state').viewer.workspaceId).toBe(made.id);
+      expect(app.call('state').datasets).toEqual([]); expect(app.call('state').contentStudio.availableDatasets).toEqual([]);
+      expect(app.call('state').v5.recipeVersions).toEqual({});
+    } finally { app.close(); }
+  });
   it('copy a damaged file aside, start fresh and name the copy in the state', () => {
     const root = temp('safety-torn-');
     fs.writeFileSync(path.join(root, 'data.json'), '{"recipes": [');

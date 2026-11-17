@@ -22,9 +22,9 @@ const MAX_TEXT = 12000; // the same limit cleanReply puts on an answer
 const RECENT_MS = 60000; // active() also lists answers that finished this recently, so a reloaded window can show them
 const clip = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
-function createAskProgress({ send = () => {}, now = Date.now, frameMs = 50, keepMs = 600000, maxPerPerson = 20, maxTotal = 500, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+function createAskProgress({ send = () => {}, getWorkspaceId = () => '', now = Date.now, frameMs = 50, keepMs = 600000, maxPerPerson = 20, maxTotal = 500, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const records = new Map(); // `${identityId}\u0000${requestId}` → record
-  const keyOf = (identityId, requestId) => `${identityId}\u0000${requestId}`;
+  const keyOf = (identityId, requestId) => `${identityId}\u0000${getWorkspaceId()}\u0000${requestId}`;
   const iso = () => new Date(now()).toISOString();
 
   function deliver(record, event) {
@@ -133,7 +133,7 @@ function createAskProgress({ send = () => {}, now = Date.now, frameMs = 50, keep
     const key = keyOf(identityId, requestId); const existing = records.get(key);
     if (existing && !FINAL.has(existing.status)) return handleFor(existing);
     const record = {
-      key, identityId: String(identityId), requestId: String(requestId), target: target || { identityId }, project: typeof project === 'function' ? project : (event) => event, space: String(space || ''),
+      key, workspaceId: getWorkspaceId(), identityId: String(identityId), requestId: String(requestId), target: target || { identityId }, project: typeof project === 'function' ? project : (event) => event, space: String(space || ''),
       conversationId: String(conversationId || ''), question: String(question || '').slice(0, 2000), mode: mode === 'regenerate' || mode === 'edit' ? mode : '',
       status: 'starting', steps: [], text: '', sent: 0, title: '', seq: 0, startedAt: iso(), finishedAt: 0, final: null, error: null, timer: null,
     };
@@ -142,14 +142,14 @@ function createAskProgress({ send = () => {}, now = Date.now, frameMs = 50, keep
     return handleFor(record);
   }
   // `space` (a channel owner's channel): only answers asked from that space. None (admins and editors): all of theirs.
-  const inSpace = (space) => { const wanted = typeof space === 'string' && space ? space : null; return (record) => !wanted || record.space === wanted; };
+  const inSpace = (space) => { const wanted = typeof space === 'string' && space ? space : null; const workspaceId = getWorkspaceId(); return (record) => (!workspaceId || record.workspaceId === workspaceId) && (!wanted || record.space === wanted); };
   const snapshot = (identityId, requestId, { space } = {}) => { const record = records.get(keyOf(identityId, requestId)); return record && inSpace(space)(record) ? projected(record) : null; };
   // This person's answers still running, and those that finished in the last minute.
   function active(identityId, { space } = {}) {
     const at = now(); const keep = inSpace(space);
     return [...records.values()].filter((record) => record.identityId === identityId && keep(record) && (!record.finishedAt || at - record.finishedAt <= RECENT_MS)).map(projected).filter(Boolean);
   }
-  const running = (identityId) => [...records.values()].filter((record) => record.identityId === identityId && !record.finishedAt).length;
+  const running = (identityId) => [...records.values()].filter((record) => record.identityId === identityId && inSpace()(record) && !record.finishedAt).length;
   return { begin, snapshot, active, running, size: () => records.size };
 }
 

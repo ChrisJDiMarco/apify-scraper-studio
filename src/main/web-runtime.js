@@ -237,13 +237,14 @@ const autoUpdater = { on: () => {}, setFeedURL: () => {}, checkForUpdates: () =>
 // `user` itself, so a call made from inside another call's background work never inherits someone's identity.
 async function invoke(channel, payload, { uploads = [], saveDir = '', user = null, session = null, origin = '' } = {}) {
   const handler = handlers.get(channel); if (!handler) throw new Error('Unknown studio action.');
-  const call = { uploads, saveDir, user, session, origin, saves: [], files: [], opens: [] };
+  const call = { uploads, saveDir, user, session, origin, workspaceId: session?.workspaceId || '', saves: [], files: [], opens: [] };
   const result = await calls.run(call, () => handler({ sender: null, senderFrame: null }, payload));
   const saved = call.saves.filter((file) => fs.existsSync(file));
   return { result, files: [...new Set([...saved, ...call.files])], opens: call.opens };
 }
 
 module.exports = {
+  withContext: (context, fn) => calls.run(context, fn),
   configure, electron, autoUpdater, invoke, settings,
   // The browser request the running code belongs to ({ user, session, origin, … }), or null outside one.
   // Background work a call starts keeps its store, so read it at the entry of a handler, not in continuations.

@@ -49,6 +49,7 @@ function harness({ denied = [], mondayFails = false, theme = {}, noTrends = fals
   const activity = [];
   const store = createWorkflowStore({ file: path.join(root, 'workflows.json') });
   engine = createWorkflowEngine({
+    runInWorkspace: (key, fn) => workspace.withWorkspace(key, fn),
     store, workspace, clock: () => new Date(now), monday, describeRoutes: async () => ({ models: ['Fixture model'], uncapped }),
     canIdentityCall: (_id, method) => !denied.includes(method),
     logActivity: (kind, workspaceId, detail, by) => activity.push({ kind, detail, by }),
@@ -80,6 +81,14 @@ const MONDAY = '2026-10-19T08:00:30Z';
 const onlyRun = (h) => h.engine.readRun({ runId: h.engine.publicState().workflowRuns[0].id });
 
 describe('workflow engine', () => {
+  it('runs an approved schedule while another workspace is selected', async () => {
+    const h = harness(); await approvedWorkflow(h);
+    h.workspace.selectContentWorkspace('semrush'); h.setTime(MONDAY);
+    await h.engine.tick(); await h.settle();
+    expect(h.workspace.activeWorkspaceId()).toBe('semrush');
+    expect(h.workspace.withWorkspace('general', () => h.engine.publicState()).workflowRuns).toHaveLength(1);
+    expect(h.workspace.withWorkspace('general', () => h.engine.publicState()).workflowRuns[0].status).toBe('succeeded');
+  });
   it('runs on schedule: research, rule approvals with a note, reports, channel assets, Monday.com and the team summary', async () => {
     const h = harness();
     const workflow = await approvedWorkflow(h);

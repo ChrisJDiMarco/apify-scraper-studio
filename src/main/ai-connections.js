@@ -5,6 +5,7 @@
 // message; test() runs Settings → AI connections → Test; preflight(tasks) checks every model a piece of work will use
 // before anything is spent. Electron-free; index.js injects the CLI probe, keys and runners.
 const PROVIDERS = require('../shared/ai-providers.json');
+const { createHash } = require('crypto');
 
 const STATUS_TTL_MS = 60 * 1000;
 const CONNECTIONS = Object.fromEntries(PROVIDERS.connections.map((entry) => [entry.id, entry]));
@@ -25,9 +26,13 @@ const versionOf = (text) => String(text || '').trim().split(/\r?\n/)[0].replace(
 
 // `platform` is index.js's process.platform (tests pass their own): the Windows app says "this PC", Command Prompt and
 // the Windows sign-in (Electron's safeStorage uses DPAPI there) where the Mac app says "this Mac", Terminal and the keychain.
-function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => '', web = false, serverUser = '', catalog = null, runners = {}, getRouting = () => null, onChecked = () => {}, now = Date.now, platform = process.platform } = {}) {
-  let cached = null; // { at, value }
-  let inflight = null;
+function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => '', web = false, serverUser = '', catalog = null, runners = {}, getRouting = () => null, getScope = () => '', onChecked = () => {}, now = Date.now, platform = process.platform } = {}) {
+  const cached = new Map(); // scope + credentials → { at, value, routingSignature }
+  const inflight = new Map();
+  let generation = 0;
+  const scopeKey = () => String(getScope() || '');
+  // Readiness is called by routing.preview(), so its cache identity must never ask routing to preview itself.
+  const connectionKey = () => createHash('sha256').update(JSON.stringify([scopeKey(), KEY_ROUTES.map((route) => { const name = CONNECTIONS[route].keyName; const problem = keyProblem(name); return [route, problem, problem ? '' : getKey(name) || '']; })])).digest('hex');
   const pc = !web && platform === 'win32';
   const where = web ? 'on the studio server' : pc ? 'on this PC' : 'on this Mac';
   // Not PowerShell: it runs npm's codex.ps1 / claude.ps1 shim first, which a stock PC's execution policy refuses.
@@ -61,12 +66,14 @@ function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => ''
     return { id: 'codex', status: 'ready', version: label, signedInWith, detail: `${signedInWith === 'chatgpt' ? 'Signed in with ChatGPT' : 'Signed in with an API key'}${label ? ` · Codex ${label}` : ''}`, commands: [] };
   }
   // Codex's own status is cached apart from the rest, so a Codex job checks only Codex (two quick CLI calls a minute).
-  let codexCached = null; let codexInflight = null;
+  const codexCached = new Map(); const codexInflight = new Map();
   async function codexStatus({ fresh = false } = {}) {
-    if (!fresh && codexCached && now() - codexCached.at < STATUS_TTL_MS) return codexCached.value;
-    if (!fresh && codexInflight) return codexInflight;
-    codexInflight = codexStatusNow().then((value) => { codexCached = { at: now(), value }; return value; }).finally(() => { codexInflight = null; });
-    return codexInflight;
+    const key = scopeKey(); const hit = codexCached.get(key); const startedGeneration = generation;
+    if (!fresh && hit && now() - hit.at < STATUS_TTL_MS) return hit.value;
+    if (!fresh && codexInflight.has(key)) return codexInflight.get(key);
+    const pending = codexStatusNow().then((value) => { if (startedGeneration === generation) codexCached.set(key, { at: now(), value }); return value; }).finally(() => { if (codexInflight.get(key) === pending) codexInflight.delete(key); });
+    codexInflight.set(key, pending);
+    return pending;
   }
   function keyStatus(route) {
     const state = keyState(route); const name = vendorKey[route];
@@ -75,12 +82,12 @@ function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => ''
       : state.status === 'ready' ? `Key saved. ${storage(route)}` : `Add ${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} key to use it. ${storage(route)}`;
     return { id: route, ...state, detail, commands: [] };
   }
-  const usedBy = (route) => {
-    const routing = getRouting(); if (!routing?.tasks) return [];
+  const usedBy = (route, routing) => {
+    if (!routing?.tasks) return [];
     return routing.tasks.filter((row) => row.route === route || (route === 'claude' && row.route === 'auto') || (route === 'claude-api' && row.route === 'auto')).map((row) => row.taskId);
   };
 
-  async function compute(fresh = false) {
+  async function compute(fresh, routing) {
     const rows = await Promise.all([
       claudeStatus().catch((error) => ({ id: 'claude', status: 'not-installed', detail: String(error?.message || error), commands: [] })),
       keyStatus('claude-api'),
@@ -89,25 +96,29 @@ function createAiConnections({ aiRoutes, probeCli, getKey, keyProblem = () => ''
     ]);
     return {
       host: web ? 'server' : 'mac', serverUser: web ? serverUser || null : null, checkedAt: new Date(now()).toISOString(),
-      connections: rows.map((row) => { const meta = CONNECTIONS[row.id]; return { label: meta.label, ...(meta.plan ? { plan: meta.plan } : {}), kinds: meta.kinds, auth: meta.auth, ...row, ...(web && meta.auth === 'subscription-cli' ? { serverNote: `This uses the sign-in on the studio server${serverUser ? ` (user ${serverUser})` : ''}, not your own account. Whoever runs the server signs in there, and usage counts against that plan.${row.id === 'codex' ? ' Codex can read files the server’s user can read. Prefer Claude on a shared server.' : ''}` } : {}), usedBy: usedBy(row.id) }; }),
+      connections: rows.map((row) => { const meta = CONNECTIONS[row.id]; return { label: meta.label, ...(meta.plan ? { plan: meta.plan } : {}), kinds: meta.kinds, auth: meta.auth, ...row, ...(web && meta.auth === 'subscription-cli' ? { serverNote: `This uses the sign-in on the studio server${serverUser ? ` (user ${serverUser})` : ''}, not your own account. Whoever runs the server signs in there, and usage counts against that plan.${row.id === 'codex' ? ' Codex can read files the server’s user can read. Prefer Claude on a shared server.' : ''}` } : {}), usedBy: usedBy(row.id, routing) }; }),
     };
   }
   async function status({ fresh = false } = {}) {
-    if (!fresh && cached && now() - cached.at < STATUS_TTL_MS) return cached.value;
-    if (!fresh && inflight) return inflight;
-    inflight = compute(fresh).then((value) => { cached = { at: now(), value }; return value; }).finally(() => { inflight = null; });
-    return inflight;
+    const key = connectionKey(); const routing = getRouting(); const routingSignature = JSON.stringify((routing?.tasks || []).map(({ taskId, route }) => [taskId, route]));
+    const hit = cached.get(key); const startedGeneration = generation; const requestKey = `${key}:${routingSignature}`;
+    if (!fresh && hit?.routingSignature === routingSignature && now() - hit.at < STATUS_TTL_MS) return hit.value;
+    if (!fresh && inflight.has(requestKey)) return inflight.get(requestKey);
+    const pending = compute(fresh, routing).then((value) => { if (startedGeneration === generation) cached.set(key, { at: now(), value, routingSignature }); return value; }).finally(() => { if (inflight.get(requestKey) === pending) inflight.delete(requestKey); });
+    inflight.set(requestKey, pending);
+    return pending;
   }
-  function invalidate() { cached = null; codexCached = null; aiRoutes?.invalidate?.(); }
+  function invalidate() { generation++; cached.clear(); inflight.clear(); codexCached.clear(); codexInflight.clear(); aiRoutes?.invalidate?.(); }
   // Synchronous readiness from what's known now (keys are read directly; Claude Code and Codex from the last status).
   // null means not checked yet.
   function ready(route) {
     if (KEY_ROUTES.includes(route)) return keyState(route).status === 'ready';
-    const row = route === 'codex' && codexCached ? codexCached.value : cached?.value?.connections?.find((entry) => entry.id === route);
-    if (route === 'auto') { const claude = cached?.value?.connections?.find((entry) => entry.id === 'claude'); return claude?.status === 'ready' || keyState('claude-api').status === 'ready' ? true : claude ? false : null; }
+    const value = cached.get(connectionKey())?.value;
+    const row = route === 'codex' && codexCached.has(scopeKey()) ? codexCached.get(scopeKey()).value : value?.connections?.find((entry) => entry.id === route);
+    if (route === 'auto') { const claude = value?.connections?.find((entry) => entry.id === 'claude'); return claude?.status === 'ready' || keyState('claude-api').status === 'ready' ? true : claude ? false : null; }
     return row ? row.status === 'ready' : null;
   }
-  function cachedStatus() { return cached?.value || null; }
+  function cachedStatus() { return cached.get(connectionKey())?.value || null; }
 
   // The Claude route "auto" takes right now: Claude Code when ready, else the Anthropic key (ai-routes.js).
   async function claudeRoute(provider = 'auto') {

@@ -12,7 +12,7 @@ capability is granted per role, and each person can be adjusted on top with thei
 
 | Built-in role | id | Who | What they get by default |
 | --- | --- | --- | --- |
-| Admin | `admin` | The studio's owners | Every capability, always. Can't be adjusted, and there is no second admin type. |
+| Admin | `admin` | The studio's owners | Workspace capabilities. A separate global Super Admin authority is required to create workspaces or assign an existing account to another workspace. |
 | Editor | `editor` | The content and research leads | Finds trends, writes and edits reports, makes assets for any channel, uses Ask AI, sees and edits AI prompts, sees costs. No Settings, Brand knowledge, People & access, Analytics, research programs or schedules. |
 | Channel owner | `channel` | One owner per channel (several may share one) | Sees new trends and their own channel's assets, says which trends they used and where, and uses Ask AI scoped to their channel. Never sees money, models or other channels. |
 
@@ -70,7 +70,7 @@ the No access screen.
    `costsOptional` (Ask AI). A channel base never needs costs.
 
 The methods are the union of the capabilities' methods (a channel base: intersected with `channelSafeMethods`). With
-no policy edits this is exactly the old fixed matrix plus Ask AI for channel owners: admin 196 methods, editor 123, channel owner 39
+no policy edits this is exactly the old fixed matrix plus Ask AI for channel owners: admin 201 methods, editor 128, channel owner 44
 (`test/roles.test.js` and `test/docs-consistency.test.js` check these numbers).
 
 Channels are the ten asset-kit folders in `src/shared/kit-folders.json` `folders` (main reads them through
@@ -385,7 +385,7 @@ as an admin.
 
 ## Data model and member lifecycle
 
-`content-studio/team.json` (next to `state.json`, in the folder the owner lock protects), version 3. A version 1 file is
+`content-studio/team.json` (next to `state.json`, in the folder the owner lock protects), version 4. A version 1 file is
 upgraded on load (`MIGRATIONS[1]`): members get empty `grants` and `denies`, and empty `roles`, `rolePolicy` and
 `audit` are added, so everyone keeps exactly the access they had. A version 2 file then gets Ask AI on by default
 (`MIGRATIONS[2]`, `askAiForEveryRole`): each custom role that lacks `askAi` gets it, once, when it already holds what
@@ -400,7 +400,7 @@ capabilities and people's other access are never touched. The version reached is
 admin who later turns Ask AI off for a role keeps it off through restarts and upgrades (`test/team-store.test.js`).
 
 ```json
-{ "version": 3,
+{ "version": 4,
   "members": [{ "id": "member-<uuid>", "name": "", "email": "", "role": "admin|editor|channel|role-<slug>-<4hex>", "channelId": null,
                 "grants": ["<capability>"], "denies": ["<capability>"], "accessUpdatedAt": "", "accessUpdatedBy": { "id": "", "name": "" },
                 "disabled": false, "createdAt": "", "updatedAt": "", "createdBy": { "id": "", "name": "" }, "lastSeenAt": "",
@@ -590,7 +590,7 @@ A channel owner's kit run message comes from a fixed set: "Starting…", "Writin
   read-only.
 - Editors see per-channel usage in the report reader, not on Trends cards.
 - Notifications are in-app only: the Trends count and Copy reminder. No email or Slack.
-- One active workspace for everyone; only admins switch it, and switching moves everyone (an open report edit stays on
+- Each browser session selects its own workspace; only explicitly assigned workspaces are available. An open report edit stays on
   screen with Copy my text). The selected brand profile is also shared.
 - Sessions live in memory: a deploy signs out link and password users.
 - Editors read private Google Docs and Sheets, and publish to Drive and Monday, through the account connected in
@@ -599,3 +599,13 @@ A channel owner's kit run message comes from a fixed set: "Starting…", "Writin
   reads, so treat anything the server's user can read as readable by it. Keep secrets in the secrets file and keys in
   Settings (see Secrets); the strongest setup runs `codex` as a user that can't read `STUDIO_DATA_DIR`.
 - On the web the browser keeps its own ⌘1–9.
+
+## Workspace memberships and Super Admins
+
+Accounts retain their existing sign-in identity. A membership sets the role, channel and program access inside one workspace; custom role policies are scoped to that workspace. Legacy members migrate into the existing primary workspace only. Creating another workspace never grants legacy accounts access automatically. Removing a workspace membership preserves the global account and its other memberships.
+
+The desktop owner, password owner and configured server owners bootstrap global **Super Admin** authority. Only that authority may create workspaces or call `saveWorkspaceMembership({ memberId, workspaceId, role, channelId })`. Workspace Admins manage their current workspace; `getTeam` exposes the global account directory only to Super Admins.
+
+Workspace selection is session-specific and the service checks record ownership before returning data or executing actions. Channel Owners also retain channel and program scope. Their read-only Research programs view excludes budgets, AI models and prompts. Channel image reference RPCs pin the workspace and channel server-side; image files and descriptions are kept separately from global brand references.
+
+Team schema 4 adds workspace membership isolation. Older app versions refuse it; restoring an older binary requires restoring the pre-update profile backup too. Setup imports apply only to the selected workspace and must match its edition. Sign-in-link creation and account-wide sign-out require a Super Admin.
