@@ -15,9 +15,9 @@ node scripts/prompt-goldens.mjs --check       # every prompt byte-for-byte again
 npm run check                                 # lint + test + build:web, what CI runs (plus goldens and the audit)
 ```
 
-package.json makes this a one-workspace build (`studioWorkspace`), so the first `npm run dev` hides every workspace but
-Main in your data folder (nothing is deleted). Use `STUDIO_WORKSPACE_MODE=multi npm run dev` to keep several; see
-[RUNBOOK.md](RUNBOOK.md#one-workspace-builds-semrush-package).
+The default build supports multiple isolated workspaces. Each web session chooses its own workspace; the Mac owner
+is a Super Admin. Use `STUDIO_WORKSPACE_MODE=single` only when intentionally testing the optional one-workspace
+policy; it hides other workspaces without deleting their data. See [RUNBOOK.md](RUNBOOK.md#one-workspace-builds-semrush-package).
 
 On Windows the commands are the same in PowerShell (install Node 24 first: nvm-windows ignores `.nvmrc`, so run
 `nvm install 24` and `nvm use 24`, or use `fnm use`). Environment variables are set before the command, for example

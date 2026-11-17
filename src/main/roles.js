@@ -245,6 +245,7 @@ function cleanPrefs(prefs, base) {
   const uiMode = base === 'channel' ? 'simple' : UI_MODES.includes(prefs?.uiMode) ? prefs.uiMode : '';
   return {
     uiMode, welcomedAt: typeof prefs?.welcomedAt === 'string' ? prefs.welcomedAt : '', inboxSeenAt: ISO(prefs?.inboxSeenAt),
+    ...(prefs?.workspaceTours && typeof prefs.workspaceTours === 'object' && !Array.isArray(prefs.workspaceTours) ? { workspaceTours: { ...prefs.workspaceTours } } : {}),
     focusChannels: base === 'channel' ? [] : [...new Set(list(prefs?.focusChannels).filter(isChannelId))], navRail: typeof prefs?.navRail === 'boolean' ? prefs.navRail : null,
   };
 }
@@ -464,6 +465,7 @@ function projectState(base, viewer, { adoptions = [], admins = [], memberCount =
     contentStudio: {
       activeWorkspaceId: studio.activeWorkspaceId || '',
       workspaces: active ? [{ id: active.id, name: active.name || '', editionId: active.editionId || edition }] : [],
+      programs: list(studio.programs).map((program) => ({ ...pick(program, ['id', 'name', 'query', 'window', 'brand']), sourceGroups: list(program.sourceGroups).map((group) => pick(group, ['id', 'platform', 'name', 'enabled', 'targets'])), schedule: pick(program.schedule || {}, ['frequency', 'enabled', 'time', 'timeZone', 'weekday', 'dayOfMonth', 'lookbackDays']) })),
       capabilities: { imagesConfigured: Boolean(studio.capabilities?.imagesConfigured) },
       channelView: buildChannelView({ contentStudio: studio, adoptions, channelId: viewer.channelId, editionId: edition, viewerId: viewer.id, memberSince }),
       ...notesView(studio, noteInbox, viewer, channelNoteScope(studio, viewer.channelId, edition)),

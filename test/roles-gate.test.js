@@ -40,6 +40,8 @@ describe('the gate on the browser studio', () => {
   const sessionOf = (member) => { if (!sessions.has(member.id)) sessions.set(member.id, { expires: Date.now() + 3600000, kind: 'link', memberId: member.id, linkId: 'fixture', viewAs: null }); return sessions.get(member.id); };
   const as = (member) => (channel, payload) => runtime.invoke(channel, payload, { user: identity(member), session: sessionOf(member), origin: 'https://studio.example.com' }).then((outcome) => outcome.result);
   const chris = as(MEMBERS.chris); const riley = as(MEMBERS.riley); const alex = as(MEMBERS.alex);
+  const ownerSession = { workspaceId: 'semrush', viewAs: null };
+  const superadmin = (channel, payload) => runtime.invoke(channel, payload, { user: { id: 'owner', name: 'Studio admin', role: 'admin', via: 'password' }, session: ownerSession, origin: 'https://studio.example.com' }).then(outcome => outcome.result);
   const run = async (runId) => chris('studio:readStudioRun', { runId });
   // A run started here fails as soon as it reaches the fixture CLI; wait for it to finish.
   async function settled(runId) { for (let i = 0; i < 200; i++) { const value = await run(runId); if (!['queued', 'running'].includes(value.status)) return value; await sleep(10); } throw new Error('The run never finished.'); }
@@ -86,7 +88,7 @@ describe('the gate on the browser studio', () => {
     expect(Object.keys(state).sort()).toEqual(['contentStudio', 'keys', 'settings', 'team', 'viewer']);
     expect(state.contentStudio.channelView.trends).toEqual([expect.objectContaining({ themeId: 'theme-citations', name: TREND, primaryReportId: 'asset-toolkit', isNew: true })]);
     const text = JSON.stringify(state);
-    for (const hidden of ['costUsd', 'receipts', 'program-pulse', 'maxBudgetUsd', 'asset-kit-social', 'content-kit-social', 'Semrush Social Team']) expect(text).not.toContain(hidden);
+    for (const hidden of ['costUsd', 'receipts', 'maxBudgetUsd', 'asset-kit-social', 'content-kit-social', 'Semrush Social Team']) expect(text).not.toContain(hidden);
     expect((await chris('state')).contentStudio.programs).toHaveLength(2);
   });
 
@@ -94,7 +96,8 @@ describe('the gate on the browser studio', () => {
     const plan = await chris('studio:planAssetKit', { source: { kind: 'report', assetId: 'asset-toolkit' }, deliverableIds: ['blogshort', 'bloglong'] });
     const ownPlan = await alex('studio:planAssetKit', { source: { kind: 'report', assetId: 'asset-toolkit' }, deliverableIds: ['social'] });
     expect(ownPlan).toEqual({ title: TREND, folder: { id: 'blog', name: 'Semrush Blog', items: [expect.objectContaining({ id: 'blogshort' }), expect.objectContaining({ id: 'bloglong' })] }, minutes: expect.any(Number), imagesReady: false, edited: null, earlierSets: [] });
-    const made = await alex('studio:createAssetKit', { workspaceId: 'general', source: { kind: 'report', assetId: 'asset-toolkit' }, deliverableIds: ['social', 'pr'], maxBudgetUsd: 999, imageVariants: 9 });
+    await expect(alex('studio:createAssetKit', { workspaceId: 'general', source: { kind: 'report', assetId: 'asset-toolkit' } })).rejects.toMatchObject({ status: 403 });
+    const made = await alex('studio:createAssetKit', { source: { kind: 'report', assetId: 'asset-toolkit' }, deliverableIds: ['social', 'pr'], maxBudgetUsd: 999, imageVariants: 9 });
     expect(made).toMatchObject({ title: TREND, shared: false, kit: { themeId: 'theme-citations' }, jobs: [{ id: 'blogshort' }, { id: 'bloglong' }] });
     expect(JSON.stringify(made)).not.toMatch(/costUsd|receipts|maxBudgetUsd|reservedUsd|model/);
     const saved = await settled(made.id);
@@ -173,7 +176,8 @@ describe('the gate on the browser studio', () => {
   it('manages people and makes sign-in links with the page’s own address', async () => {
     const { member } = await chris('team:save-member', { name: 'Dana', email: 'Dana@Semrush.com', role: 'channel', channelId: 'pr' });
     expect(member).toMatchObject({ name: 'Dana', email: 'dana@semrush.com', role: 'channel', channelId: 'pr', disabled: false, link: null, serverAdmin: false });
-    const link = await chris('team:sign-in-link', { id: member.id });
+    await expect(chris('team:sign-in-link', { id: member.id })).rejects.toMatchObject({ status: 403 });
+    const link = await superadmin('team:sign-in-link', { id: member.id });
     expect(link).toEqual({ url: expect.stringMatching(/^https:\/\/studio\.example\.com\/#signin=[0-9a-f]{64}$/), expiresAt: expect.any(String) });
     const team = await chris('team:list');
     expect(team.signIn).toEqual({ web: true, sso: false, links: true, google: false, inviteLinks: true, linkDays: 7, email: false });
@@ -184,7 +188,7 @@ describe('the gate on the browser studio', () => {
     expect(await chris('team:remove-member', { id: member.id })).toEqual({ ok: true });
     await expect(riley('team:list')).rejects.toMatchObject({ status: 403 });
     const recent = (await chris('team:analytics', {})).recent.map((row) => row.text);
-    expect(recent).toEqual(expect.arrayContaining(['Chris added Dana as a channel owner for Semrush PR', 'Chris made a new sign-in link for Dana', 'Chris removed Dana']));
+    expect(recent).toEqual(expect.arrayContaining(['Chris added Dana as a channel owner for Semrush PR', 'Studio admin made a new sign-in link for Dana', 'Chris removed Dana']));
   });
 
   it('changes what a role can do, one person’s access, custom roles and previews, all enforced by the server', async () => {
@@ -288,7 +292,7 @@ describe('the gate on the Mac app', () => {
     let pushed = last();
     expect(pushed.viewer).toMatchObject({ role: 'channel', channelId: 'blog', preview: true, realRole: 'admin' });
     expect(pushed.contentStudio.channelView.channel).toMatchObject({ id: 'blog', name: 'Semrush Blog' });
-    expect(JSON.stringify(pushed)).not.toMatch(/costUsd|receipts|program-pulse|asset-kit-social/);
+    expect(JSON.stringify(pushed)).not.toMatch(/costUsd|receipts|asset-kit-social/);
     expect(() => handlers.get('save-settings')(null, { uiMode: 'classic' })).toThrow('You’re previewing as Semrush Blog’s channel owner.');
     // Any later push (here: the admin's own layout preference) stays the preview.
     const count = sent.length;

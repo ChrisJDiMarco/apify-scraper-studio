@@ -30,9 +30,8 @@ npm run dev         # the Mac app
 Never run `npm audit fix` or `npm install` with `--omit=dev` in a development checkout: it strips the dev
 dependencies (Vite, Vitest, Electron) from `node_modules`.
 
-`package.json` makes this a one-workspace build (`studioWorkspace`, below), and `npm run dev` uses your real data
-folder. To keep a second workspace while developing, start with `STUDIO_WORKSPACE_MODE=multi npm run dev` (PowerShell:
-`$env:STUDIO_WORKSPACE_MODE='multi'; npm run dev`).
+`npm run dev` uses your real data folder. The default package supports multiple workspaces; use an isolated profile
+for fixture checks. The optional `STUDIO_WORKSPACE_MODE=single` policy is described below.
 
 ## Release the Mac app
 
@@ -57,8 +56,7 @@ Details and signing caveats: [docs/macos-app.md](docs/macos-app.md).
 
 ### One-workspace builds (Semrush package)
 
-`package.json` `studioWorkspace` (`{ "mode": "single", "id": "semrush", "editionId": "semrush", "name": "Main" }`) is on
-for the Semrush package, on the Mac and the browser studio. On the browser studio `STUDIO_WORKSPACE_MODE=single|multi`
+`package.json` `studioWorkspace` (`{ "mode": "single", "id": "semrush", "editionId": "semrush", "name": "Main" }`) is an optional policy; the default 0.4.0 package uses `"mode": "multi"` on Mac and web. On the browser studio `STUDIO_WORKSPACE_MODE=single|multi`
 and `STUDIO_WORKSPACE_NAME` override it. In single mode:
 
 - The studio has one workspace of the Semrush edition, shown as **Main**. The sidebar shows only its name (no switcher,

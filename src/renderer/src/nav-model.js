@@ -102,6 +102,7 @@ export const STUDIO_PAGES = Object.freeze([
 // A channel owner's sidebar, the same shape as everyone's: Inbox, a pipeline of their channel's Trends, Assets and
 // Calendar (My plan), and Studio › My channel (their channel's knowledge and asset instructions).
 export const CHANNEL_PAGES = Object.freeze([
+  { id: 'programs', label: 'Research programs', icon: 'Radar', group: 'pipeline' },
   { id: 'trends', label: 'Trends', icon: 'TrendingUp', group: 'pipeline' },
   { id: 'assets', label: 'Assets', icon: 'FolderOpen', group: 'pipeline' },
   { id: 'plan', label: 'Calendar', icon: 'CalendarDays', group: 'pipeline' },
@@ -351,7 +352,7 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
     hasStudio && !hidden.has('playbooks') && can('applyPlaybook') && { id: 'playbook', label: 'Playbook', icon: 'LayoutGrid', hint: 'Research, approvals, reports and assets set up in one go. You see the cost first.', section: 'admin' },
     // Inviting is the browser studio's (People on the Mac has no invite), so the Mac never offers it.
     viewer.web && groups.some((group) => group.items.some((row) => row.id === 'people' || list(row.children).some((child) => child.id === 'people'))) && (can('inviteMembers') || can('saveMember')) && { id: 'person', label: 'Person', icon: 'UserPlus', hint: 'Invite someone and choose their role.', section: 'admin' },
-    isRealAdmin(viewer) && workspaces.length > 0 && studio.workspacePolicy?.mode !== 'single' && can('saveContentWorkspace') && can('selectContentWorkspace') && { id: 'workspace', label: 'Workspace', icon: 'Building2', hint: 'A separate set of programs, trends and reports.', section: 'admin' },
+    viewer.isSuperAdmin && isRealAdmin(viewer) && workspaces.length > 0 && studio.workspacePolicy?.mode !== 'single' && can('saveContentWorkspace') && can('selectContentWorkspace') && { id: 'workspace', label: 'Workspace', icon: 'Building2', hint: 'A separate set of programs, trends and reports.', section: 'admin' },
   ].filter(Boolean).map((row) => (preview && row.section === 'admin' ? { ...row, disabled: true, title: PREVIEW_TITLE } : { disabled: false, title: '', choices: [], programId: '', ...row }));
 
   const actions = {

@@ -1,0 +1,13 @@
+.program-readonly-note { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; padding: 16px 20px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 12px; }
+.program-readonly-note p { margin: 0; color: var(--s-muted); font-size: 14px; line-height: 1.5; }
+.program-readonly-note button { flex: none; }
+.channel-programs .hp-title h3 { margin: 0 0 8px; font-size: 17px; overflow-wrap: anywhere; }
+.channel-programs .program-focus { margin: 0 0 10px; color: var(--s-ink); line-height: 1.5; white-space: pre-wrap; }
+.program-readonly-detail .studio-dialog-body h3 { margin: 24px 0 8px; font-size: 16px; }
+.program-readonly-detail .studio-dialog-body h3:first-child { margin-top: 0; }
+.program-readonly-detail .studio-dialog-body p { white-space: pre-wrap; line-height: 1.6; }
+.program-source-list { padding-left: 20px; }
+.program-source-list > li { margin-bottom: 16px; }
+.program-source-list ul { padding: 8px 0 0 20px; line-height: 1.6; overflow-wrap: anywhere; }
+.program-admin-request textarea { display: block; width: 100%; resize: vertical; margin-top: 8px; }
+@media (max-width: 600px) { .program-readonly-note { align-items: flex-start; flex-direction: column; gap: 12px; } .channel-programs .hp-head { flex-direction: column; align-items: flex-start; gap: 16px; } }

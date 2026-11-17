@@ -6,7 +6,7 @@ evidence-backed trends report and editorial toolkit for each, and turns any repo
 It runs as a desktop app (one person, local data) on macOS, with an unsigned Windows 10/11 build in testing, and as a
 shared browser studio with roles (Admin, Editor, Channel owner) enforced on the server.
 
-**Status:** version 0.3.0, being handed to the Semrush dev team. What is verified and what isn't:
+**Status:** version 0.4.0, with separate workspaces and channel workflows. What is verified and what isn't:
 [HANDOFF.md → Status](HANDOFF.md#status).
 
 | Home: the weekly briefing | Library tree (Advanced) | Prompt Library |

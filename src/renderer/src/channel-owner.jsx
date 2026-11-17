@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Check, Clapperboard, ChevronDown, ChevronLeft, ChevronRight, CircleStop, ClipboardCopy, Clock, Download, ExternalLink, FileText, FolderDown, FolderOpen, Image as ImageIcon, LayoutTemplate, Link2, LoaderCircle, MessageSquareQuote, Pencil, RefreshCw, RotateCcw, Send, Sparkles, TriangleAlert, TrendingUp } from 'lucide-react';
+import { CalendarDays, Check, Clapperboard, ChevronDown, ChevronLeft, ChevronRight, CircleStop, ClipboardCopy, Clock, Download, ExternalLink, FileText, FolderDown, FolderOpen, Image as ImageIcon, LayoutList, LayoutTemplate, Link2, LoaderCircle, MessageSquareQuote, Pencil, RefreshCw, RotateCcw, Send, Sparkles, SquareKanban, TriangleAlert, TrendingUp } from 'lucide-react';
 import { MarkdownContent } from './markdown-content.jsx';
 import { VideoPlayer, VideoTile } from './video-preview.jsx';
 import { Dialog, DialogClose, MoreMenu, copyText, useToast } from './role-screens.jsx';
@@ -433,16 +433,17 @@ const EMPTY = {
 
 // `linkOrigin` (deep-links.js shareOrigin) adds Copy link to the brief; `focusThemeId` opens one trend's brief (a share
 // link to #/trend/<themeId>).
-export function ChannelTrends({ api, view, viewer = {}, busy = false, action, imagesReady = true, onOpenAssets, onPrefs, onToast, linkOrigin = '', focusThemeId = '' }) {
+export function ChannelTrends({ api, view, viewer = {}, busy = false, action, imagesReady = true, onOpenAssets, onPrefs, onToast, linkOrigin = '', focusThemeId = '', onboarding = false }) {
   const channel = view?.channel || {};
   const mayMake = can(viewer, 'planAssetKit') && can(viewer, 'createAssetKit');
   const mayAnswer = can(viewer, 'setTrendAdoption');
   const confirm = useConfirm();
-  const trends = useMemo(() => [...list(view?.trends)].sort(byNewest('readyAt')), [view?.trends]);
+  const trends = useMemo(() => [...list(view?.trends)].filter((trend) => trend.offered !== false).sort(byNewest('readyAt')), [view?.trends]);
   const [toast, showToast] = useToast();
   const notify = (text) => (onToast ? onToast(text) : showToast(text));
   const answers = useAnswers({ api, viewer, trends, onError: (text) => showToast(text, { tone: 'error' }) });
   const [filter, setFilter] = useState(null);
+  const [layout, setLayout] = useState(viewer.prefs?.channelTrendView === 'list' ? 'list' : 'board');
   const [earlierOpen, setEarlierOpen] = useState(false);
   const [welcomed, setWelcomed] = useState(false);
   const [reading, setReading] = useState(null);
@@ -496,6 +497,11 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
   const visibleOrder = () => [...(listRef.current?.querySelectorAll('[data-theme-card]') || [])].filter((node) => !node.closest('[hidden]')).map((node) => node.dataset.themeCard);
   function answer(row, next) {
     const before = row.answer;
+    if (layout === 'board') {
+      answers.save(row.trend, next); setFocusTarget({ id: row.trend.themeId });
+      showToast(!next ? 'Answer cleared.' : next.status === 'using' ? 'Marked as used.' : 'Marked Not for us.', { actionLabel: 'Undo', onAction: () => { answers.save(row.trend, before); setFocusTarget({ id: row.trend.themeId }); } });
+      return;
+    }
     const after = rowOf(row.trend, next);
     if (!filter) setFilter(shown); // keep the list where it is while cards move between filters
     const stays = inFilter(after, shown) || (after.old && earlierOpen && ['new', 'all'].includes(shown));
@@ -551,13 +557,13 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
   const card = (row) => <TrendCard key={row.trend.themeId} row={row} api={api} channel={channel} viewer={viewer} imagesReady={imagesReady} run={runOf(row.trend)} pending={pending[row.trend.themeId]}
     onRead={() => setReading(row.trend)} onGenerate={() => generate(row.trend)} onAgain={() => again(row.trend)} onOpenAssets={() => onOpenAssets?.(row.trend.themeId)}
     onStop={() => stop(row.trend)} onFinish={() => finish(row.trend)} onAnswer={(next) => answer(row, next)} />;
-  const showWelcome = !viewer.prefs?.welcomedAt && !preview && !welcomed;
+  const showWelcome = !onboarding && !viewer.prefs?.welcomedAt && !preview && !welcomed;
   if (!view) return <ChannelLoading title="Trends" />;
   return <div className="studio-screen studio-page channel-page" data-spot="trends.channel">
     <div className="studio-page-head"><div>
       <h1 ref={titleRef} tabIndex={-1}>Trends for {channel.name || 'your channel'}</h1>
       <p>{mayMake ? `New trends the team approved, each with a brief. Generate drafts for your channel${mayAnswer ? ', then tell us if you used it' : ''}.` : `New trends the team approved, each with a brief. ${mayAnswer ? 'Read it, then tell us if you used it.' : 'Read it to see what fits your channel.'}`}</p>
-    </div></div>
+    </div><div className="studio-filters channel-view-toggle" role="group" aria-label="Trends view">{[['board', 'Board', SquareKanban], ['list', 'List', LayoutList]].map(([id, label, Icon]) => <button key={id} type="button" aria-pressed={layout === id} onClick={() => setLayout(id)}><Icon size={15} aria-hidden="true" />{label}</button>)}</div></div>
 
     {showWelcome && <section className="channel-welcome" aria-labelledby="channel-welcome-title">
       <div className="channel-welcome-copy">
@@ -567,9 +573,14 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
       <button type="button" className="studio-primary" onClick={() => { setWelcomed(true); onPrefs?.({ welcomedAt: new Date().toISOString() }); titleRef.current?.focus(); }}>Got it</button>
     </section>}
 
-    {rows.length > 0 && <div className="studio-filters" role="group" aria-label="Show trends" data-spot="trends.filters">{FILTERS.filter(([value]) => value !== 'for-us' || counts['for-us'] > 0 || shown === 'for-us').map(([value, label]) => <button type="button" key={value} aria-pressed={shown === value} onClick={() => setFilter(value)}>{label}<span>{counts[value]}</span></button>)}</div>}
+    {layout === 'list' && rows.length > 0 && <div className="studio-filters" role="group" aria-label="Show trends" data-spot="trends.filters">{FILTERS.filter(([value]) => value !== 'for-us' || counts['for-us'] > 0 || shown === 'for-us').map(([value, label]) => <button type="button" key={value} aria-pressed={shown === value} onClick={() => setFilter(value)}>{label}<span>{counts[value]}</span></button>)}</div>}
 
     <div ref={listRef} className="channel-list">
+      {layout === 'board' && <><p className="channel-board-note">Approved trends for {channel.name || 'your channel'}. Everyone in this channel shares these decisions.</p><div className="channel-board" data-spot="trends.channel-board">{[['ready', 'Ready to review'], ['using', 'Using'], ['not-using', 'Not for us']].map(([id, label]) => {
+        const items = rows.filter((row) => row.trend.offered !== false && (row.answer?.status || 'ready') === id);
+        return <section className="channel-board-column" key={id} aria-label={label}><h2>{label}<span className="studio-count" aria-label={`${items.length} trends`}>{items.length}</span></h2><div className="channel-cards">{items.length ? items.map(card) : <p className="channel-board-empty">{id === 'ready' ? 'New approved trends will appear here.' : id === 'using' ? 'Choose a trend to use for your channel.' : 'Trends you pass on will appear here.'}</p>}</div></section>;
+      })}</div></>}
+      {layout === 'list' && <>
       {!rows.length && <div className="studio-empty big"><TrendingUp size={28} aria-hidden="true" /><p>No trends for {channel.name || 'your channel'} yet. The team reviews new trends each week; when a brief is ready, it appears here with a count next to Trends.{viewer.askAdmin ? ` Questions? Ask ${viewer.askAdmin}.` : ''}</p></div>}
       {rows.length > 0 && !main.length && <div className="studio-empty"><p>{earlier.length ? 'Nothing new right now. Trends from before you joined are below, if you want to answer them.' : !mayAnswer && shown === 'new' ? 'Nothing new in the last two weeks. Every trend for your channel is under All.' : EMPTY[shown]}</p>{shown !== 'all' && !earlier.length && <button type="button" className="studio-quiet small" onClick={() => setFilter('all')}>Show all trends</button>}</div>}
       {groups.map((group) => <section className="channel-group" key={group.key} aria-labelledby={domId('channel-day', group.key)}>
@@ -581,6 +592,7 @@ export function ChannelTrends({ api, view, viewer = {}, busy = false, action, im
         <p className="channel-earlier-note">These came in before you joined. Answer them if you like.</p>
         <div id="channel-earlier-list" className="channel-cards" hidden={!earlierOpen}>{earlier.map(card)}</div>
       </section>}
+      </>}
     </div>
 
     {reading && <ChannelBriefReader api={api} trend={reading} linkOrigin={linkOrigin} onClose={() => setReading(null)} />}
@@ -710,9 +722,20 @@ function ChannelLightbox({ web, picture, cache, onClose, onMove, onFile }) {
   </Dialog>;
 }
 
-export function ChannelAssets({ api, web = false, view, viewer = {}, busy = false, action, cache, onCache, focusThemeId }) {
+function AssetTrendPicker({ trends, channel, onClose, onChoose }) {
+  const titleId = useId();
+  const [selected, setSelected] = useState('');
+  const available = trends.filter((trend) => trend.offered !== false && trend.primaryReportId);
+  return <Dialog labelledBy={titleId} onClose={onClose} className="channel-sheet">
+    <header className="studio-dialog-head"><div><h2 id={titleId}>Generate assets for {channel.name || 'your channel'}</h2></div><DialogClose onClose={onClose} /></header>
+    <div className="studio-dialog-body">{available.length ? <><p className="studio-hint">Choose an approved trend. You’ll review what will be made before generation starts.</p><label className="studio-field"><span>Trend</span><select value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Choose a trend…</option>{available.map((trend) => <option key={trend.themeId} value={trend.themeId}>{trend.name}</option>)}</select></label></> : <p className="studio-hint">No approved trend briefs are ready for your channel yet. When the team makes one available, you can generate assets from it here.</p>}</div>
+    <footer className="studio-dialog-foot"><button type="button" className="studio-quiet" onClick={onClose}>Cancel</button>{available.length > 0 && <button type="button" className="studio-primary" disabled={!selected} onClick={() => onChoose(available.find((trend) => trend.themeId === selected))}>Review generation</button>}</footer>
+  </Dialog>;
+}
+
+export function ChannelAssets({ api, web = false, view, viewer = {}, busy = false, action, cache, onCache, focusThemeId, imagesReady = true }) {
   const channel = view?.channel || {};
-  const trends = useMemo(() => list(view?.trends), [view?.trends]);
+  const trends = useMemo(() => list(view?.trends).filter((trend) => trend.offered !== false), [view?.trends]);
   const runs = list(view?.runs);
   const assets = list(view?.assets);
   const [ownCache, setOwnCache] = useState({});
@@ -724,6 +747,9 @@ export function ChannelAssets({ api, web = false, view, viewer = {}, busy = fals
   const [picture, setPicture] = useState(null);
   const [brief, setBrief] = useState(null);
   const [saving, setSaving] = useState('');
+  const [choosing, setChoosing] = useState(false);
+  const [making, setMaking] = useState(null);
+  const mayMake = can(viewer, 'planAssetKit') && can(viewer, 'createAssetKit');
 
   // One group per trend, newest first; inside it each set (kit run) for this channel, newest first.
   const groups = useMemo(() => {
@@ -798,8 +824,8 @@ export function ChannelAssets({ api, web = false, view, viewer = {}, busy = fals
     <div className="studio-page-head"><div>
       <h1>My assets · {channel.name || 'your channel'}</h1>
       <p>Drafts made for {channel.name || 'your channel'}, by trend, newest first.</p>
-    </div></div>
-    {!groups.length && <div className="studio-empty big"><FolderOpen size={28} aria-hidden="true" /><p>{can(viewer, 'createAssetKit') ? 'No drafts yet. On Trends, open a trend’s brief and press Generate for my channel. Your drafts land here, grouped by trend, and you can download each set as a folder.' : `No drafts for ${channel.name || 'your channel'} yet. Drafts the team makes for your channel land here, grouped by trend.`}</p></div>}
+    </div>{mayMake && <button type="button" className="studio-primary" data-spot="assets.channel-generate" {...writeProps(viewer, busy)} onClick={() => setChoosing(true)}><Sparkles size={16} aria-hidden="true" />Generate assets</button>}</div>
+    {!groups.length && <div className="studio-empty big"><FolderOpen size={28} aria-hidden="true" /><p>{mayMake ? 'No drafts yet. Choose Generate assets to start from an approved trend. Your drafts land here, grouped by trend, and you can download each set as a folder.' : `No drafts for ${channel.name || 'your channel'} yet. Drafts the team makes for your channel land here, grouped by trend.`}</p></div>}
     {groups.map((group) => {
       const hid = domId('channel-group', group.themeId || group.key);
       return <section className="channel-asset-group" key={group.key} aria-labelledby={hid}>
@@ -814,6 +840,8 @@ export function ChannelAssets({ api, web = false, view, viewer = {}, busy = fals
     {reading && <ChannelFileReader api={api} web={web} file={reading} label={labelOf(reading.asset, reading.run)} onClose={() => setReading(null)} onMove={moveFile} onFile={openFile} />}
     {picture && <ChannelLightbox web={web} picture={picture} cache={images} onClose={() => setPicture(null)} onMove={movePicture} onFile={openFile} />}
     {brief && <ChannelBriefReader api={api} trend={brief} onClose={() => setBrief(null)} />}
+    {choosing && <AssetTrendPicker trends={trends} channel={channel} onClose={() => setChoosing(false)} onChoose={(trend) => { setChoosing(false); setMaking(trend); }} />}
+    {making && <ChannelGenerateSheet api={api} trend={making} channel={channel} viewer={viewer} imagesReady={imagesReady} busy={busy} action={action} onClose={() => setMaking(null)} onStarted={(_, count) => { setMaking(null); showToast(`Generating ${plural(count, 'draft')} for ${channel.name || 'your channel'}. Progress appears here as the set starts.`); }} />}
     {toast}
   </div>;
 }

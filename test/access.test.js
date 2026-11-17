@@ -28,6 +28,7 @@ function fakeWorkspace({ pictures = true } = {}) {
   const studio = fixture.contentStudio(); const runs = [...studio.contentRuns, ...studio.researchRuns];
   return {
     studio,
+    trendSource: () => studio,
     findAsset: (id) => { const asset = studio.assets.find((row) => row.id === id); return asset ? { asset, run: runs.find((run) => run.id === asset.runId) || null } : null; },
     findRun: (id) => runs.find((run) => run.id === id) || null,
     activeEditionId: () => 'semrush',
@@ -245,11 +246,13 @@ describe('errors people can act on', () => {
 });
 
 describe('the state each person receives', () => {
-  it('projects once per state and kind of viewer, and a channel owner’s view holds no money, programs or other channels', () => {
+  it('projects once per viewer, with safe research summaries and no money or other channels', () => {
     const { access, viewer } = setup(); const base = fixture.baseState();
     const first = access.project(base, viewer()); expect(access.project(base, viewer())).toBe(first);
     const text = JSON.stringify(first);
-    for (const secret of ['costUsd', 'receipts', 'programs', 'program-pulse', 'Private positioning', 'maxBudgetUsd', 'asset-kit-shared-social', 'Semrush Social Team']) expect(text).not.toContain(secret);
+    for (const secret of ['costUsd', 'receipts', 'Private positioning', 'maxBudgetUsd', 'asset-kit-shared-social', 'Semrush Social Team']) expect(text).not.toContain(secret);
+    expect(first.contentStudio.programs[0]).toMatchObject({ id: 'program-pulse', name: 'AI search pulse' });
+    expect(JSON.stringify(first.contentStudio.programs)).not.toMatch(/budgets|models|aiUsd|collectionUsd/);
     expect(first.contentStudio.channelView.channel).toMatchObject({ id: 'blog', name: 'Semrush Blog' });
     const admin = setup({ identity: CHRIS });
     expect(admin.access.project(base, admin.viewer()).contentStudio.adoptionsByTheme['theme-aio'].blog).toMatchObject({ status: 'using', byName: 'Alex' });

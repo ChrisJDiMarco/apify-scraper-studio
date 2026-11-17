@@ -89,7 +89,7 @@ describe('the report editor and notes on the browser studio', () => {
     const listed = await alex('studio:listReportNotes', { assetId: 'asset-toolkit' });
     expect(listed.notes).toEqual([]);
     expect(listed.mentionable.map((row) => row.id).sort()).toEqual(['member-alex', 'member-chris', 'member-riley', 'member-sam']); // a brief: everyone reads it
-    const { note } = await alex('studio:saveReportNote', { assetId: 'asset-toolkit', anchor: { yStart: '', yEnd: '', quote: 'lead with the measurement gap' }, body: 'Can the Blog take this angle?', mentions: ['member-riley'], workspaceId: 'general' });
+    const { note } = await alex('studio:saveReportNote', { assetId: 'asset-toolkit', anchor: { yStart: '', yEnd: '', quote: 'lead with the measurement gap' }, body: 'Can the Blog take this angle?', mentions: ['member-riley'] });
     expect(note).toMatchObject({ author: { id: 'member-alex', name: 'Alex' }, mentions: ['member-riley'] });
     // An editor can't change Alex's note, but may resolve it.
     await expect(riley('studio:saveReportNote', { assetId: 'asset-toolkit', noteId: note.id, body: 'Mine' })).rejects.toMatchObject({ status: 403, code: 'notYourNote' });

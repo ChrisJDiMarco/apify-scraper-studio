@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import storeModule from '../src/main/monday-store.js';
+import engineModule from '../src/main/monday-engine.js';
 
 // content-studio/monday.json and monday-log.jsonl (src/main/monday-store.js).
 const { createMondayStore, hashSecret } = storeModule;
@@ -11,6 +12,27 @@ afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursiv
 const tempRoot = () => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'monday-store-')); roots.push(root); return root; };
 
 describe('the Monday.com store', () => {
+  it('disconnects only the selected workspace token', () => {
+    let selected = 'semrush';
+    const store = createMondayStore({ root: tempRoot(), workspaceId: () => selected, defaultWorkspaceId: 'semrush' });
+    store.saveLink('semrush', { active: true, boardId: '1' }); store.saveLink('adobe', { active: true, boardId: '2' });
+    const engine = engineModule.createMondayEngine({ store, getToken: () => '', workspace: { activeWorkspaceId: () => selected } });
+    engine.tokenCleared();
+    expect(store.link('semrush').paused.reason).toBe('token'); expect(store.link('adobe').paused).toBeUndefined();
+    selected = 'adobe'; engine.tokenSaved();
+    expect(store.link('semrush').paused.reason).toBe('token');
+  });
+  it('keeps account details, people and usage separate by workspace', () => {
+    let selected = 'semrush';
+    const store = createMondayStore({ root: tempRoot(), workspaceId: () => selected, defaultWorkspaceId: 'semrush' });
+    store.setAccount({ accountName: 'Semrush account', userId: '1' });
+    store.setPeople([{ id: '1', name: 'Alex', email: 'alex@example.com' }]); store.countCall(7);
+    selected = 'adobe';
+    expect(store.account()).toBeNull(); expect(store.people()).toEqual({}); expect(store.callsToday()).toBe(0);
+    store.setAccount({ accountName: 'Adobe account', userId: '2' }); store.countCall(3);
+    selected = 'semrush';
+    expect(store.account().accountName).toBe('Semrush account'); expect(store.people()['1'].name).toBe('Alex'); expect(store.callsToday()).toBe(7);
+  });
   it('moves the old config.json board into a manual link, keeping every item ID', () => {
     const root = tempRoot(); const store = createMondayStore({ root });
     const moved = store.migrateLegacy({ boardId: '123', boardName: 'Trends', statusColumnId: 'status', notesColumnId: 'notes', itemIds: { 'r1:t1': '9001', 'r1:t2': '9002' }, lastSyncedAt: '2026-10-01T00:00:00Z' }, 'semrush');

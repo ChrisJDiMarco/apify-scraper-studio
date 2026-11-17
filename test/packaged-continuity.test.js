@@ -42,7 +42,6 @@ describe('installed app continuity', () => {
   it('pins the internal Keychain identity and legacy data directory before constructing services', () => {
     const h = harness(); expect(h.app.setName).toHaveBeenCalledWith('apify-scraper-studio'); expect(h.userData).toBe(h.expectedData);
     expect(h.invoke('app-meta').dataRoot).toBe(h.expectedData); expect(h.app.requestSingleInstanceLock).toHaveBeenCalledOnce(); expect(h.events.has('second-instance')).toBe(true);
-    expect(fs.existsSync(path.join(h.expectedData, 'content-studio', 'datasets'))).toBe(true);
     const ownerLock = path.join(h.expectedData, 'content-studio', '.studio-owner.json');
     expect(fs.existsSync(ownerLock)).toBe(true); h.app.emit('quit'); expect(fs.existsSync(ownerLock)).toBe(false);
   });

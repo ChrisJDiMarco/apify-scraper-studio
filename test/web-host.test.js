@@ -115,7 +115,7 @@ async function openStream(who) {
     async ended() { for (;;) { const { done } = await reader.read().catch(() => ({ done: true })); if (done) return true; } },
   };
 }
-const HIDDEN_FROM_CHANNEL = ['costUsd', 'receipts', 'program-pulse', 'maxBudgetUsd', 'content-kit-social', 'asset-kit-social', 'Semrush Social Team'];
+const HIDDEN_FROM_CHANNEL = ['costUsd', 'receipts', '"budgets"', '"model"', 'maxBudgetUsd', 'content-kit-social', 'asset-kit-social', 'Semrush Social Team'];
 
 describe('research program access in the browser studio', () => {
   // The seeded studio has two programs: AI search pulse (a finished run, its trend's reports and a Social set) and Weekly

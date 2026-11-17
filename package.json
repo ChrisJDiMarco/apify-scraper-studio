@@ -1,6 +1,6 @@
 {
   "name": "apify-scraper-studio",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Desktop (macOS and Windows) and browser workspace for Apify research, source-linked findings, and Claude Opus 5.5 analysis.",
   "main": "./out/main/index.js",
@@ -15,7 +15,7 @@
   },
   "studioDefaultWorkspace": "semrush",
   "studioWorkspace": {
-    "mode": "single",
+    "mode": "multi",
     "id": "semrush",
     "editionId": "semrush",
     "name": "Main"

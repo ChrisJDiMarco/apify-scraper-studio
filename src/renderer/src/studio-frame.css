@@ -77,7 +77,9 @@
 .studio-topbar-mark { display: grid; place-items: center; flex: none; width: 32px; height: 32px; color: var(--s-mint-ink); background: var(--s-mint); border-radius: 50%; }
 .studio-working.compact { max-width: 44%; }
 .studio-scrim { position: fixed; inset: 0; z-index: 89; background: rgba(18, 22, 17, .45); animation: studio-fade 180ms ease both; }
-.studio-bottom-nav { position: fixed; z-index: 80; left: 0; right: 0; bottom: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; height: calc(56px + env(safe-area-inset-bottom)); padding: 0 8px env(safe-area-inset-bottom); background: color-mix(in srgb, var(--s-card) 94%, transparent); border-top: 1px solid var(--s-line); backdrop-filter: saturate(1.4) blur(12px); }
+.studio-bottom-nav { position: fixed; z-index: 80; left: 0; right: 0; bottom: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(48px, 1fr); height: calc(56px + env(safe-area-inset-bottom)); padding: 0 8px env(safe-area-inset-bottom); overflow-x: auto; overscroll-behavior-x: contain; background: color-mix(in srgb, var(--s-card) 94%, transparent); border-top: 1px solid var(--s-line); backdrop-filter: saturate(1.4) blur(12px); }
+.studio-bottom-nav button > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell.studio-frame[data-edition] .studio-bottom-nav button[data-spot="nav.programs"] { font-size: 11px; letter-spacing: -.15px; }
 .app-shell.studio-frame[data-edition] .studio-bottom-nav button { display: grid; justify-content: stretch; justify-items: center; align-content: center; gap: 2px; min-height: 56px; padding: 4px 0; font-size: 12px; font-weight: 600; color: var(--s-muted); background: transparent; border: 0; border-radius: 0; }
 .app-shell.studio-frame[data-edition] .studio-bottom-nav button:hover:not(:disabled) { color: var(--s-ink); background: transparent; }
 .app-shell.studio-frame[data-edition] .studio-bottom-nav button.active { color: var(--s-ink); }

@@ -1,0 +1,10 @@
+.workspace-tour-intro { max-width: 490px; }
+.workspace-tour-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 24px; }
+.workspace-tour-card { position: fixed; z-index: 110; right: 24px; bottom: 24px; width: min(380px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; padding: 20px; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line-strong, var(--s-line)); border-radius: 16px; box-shadow: 0 12px 40px rgb(0 0 0 / 16%); }
+.workspace-tour-card > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--s-muted); font-size: 12px; }
+.workspace-tour-card h2 { margin: 10px 0; font-size: 20px; line-height: 1.3; }
+.workspace-tour-card h2:focus { outline: none; }
+.workspace-tour-card > p { font-size: 14px; line-height: 1.6; }
+.workspace-tour-card .workspace-tour-progress { color: var(--s-muted); font-size: 12px; margin-bottom: 0; }
+.workspace-tour-card .workspace-tour-actions { padding: 12px 0 0; }
+@media (max-width: 860px) { .workspace-tour-card { right: 16px; bottom: 86px; max-height: calc(100dvh - 110px); } }

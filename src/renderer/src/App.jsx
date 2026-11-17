@@ -38,6 +38,8 @@ import { ChannelBottomNav, NAV_ICONS, StudioSidebar, StudioTopBar } from './stud
 import { DATA_TOOL_IDS, PAGE_LABELS, STUDIO_PAGES, WORKBENCH, buildNav, focusChannelOptions, generalStudioTabs, isChannelViewer, isRealAdmin, navPages } from './nav-model.js';
 import { ChannelSettings } from './channel-settings.jsx';
 import { ProgramSetup } from './program-setup.jsx';
+import { ChannelPrograms } from './programs-page.jsx';
+import { WorkspaceTour } from './workspace-tour.jsx';
 import { InboxView, inboxUnread, markInboxRead } from './inbox-view.jsx';
 import { CalendarView } from './calendar-view.jsx';
 import { PromptLibrary } from './prompt-library.jsx';
@@ -260,10 +262,10 @@ function StudioApp({ api }) {
   const contentWorkspaces = list(state.contentStudio?.workspaces);
   const contentWorkspace = contentWorkspaces.find(item => item.id === state.contentStudio?.activeWorkspaceId);
   const semrushShell = contentWorkspace?.editionId === 'semrush';
-  // Only a real admin switches the workspace everyone uses; the sidebar turns the picker off while previewing. A
-  // one-workspace build (package.json studioWorkspace, or STUDIO_WORKSPACE_MODE=single) has no switcher and no New workspace.
+  // Each person switches only their own session; the server lists and permits only workspaces they may enter.
+  // A preview stays inside the workspace being previewed.
   const singleWorkspace = state.contentStudio?.workspacePolicy?.mode === 'single';
-  const switchWorkspace = contentWorkspace && api.selectContentWorkspace && realAdmin && !singleWorkspace ? (id) => { if (guard.confirmLeave()) runAction(() => api.selectContentWorkspace(id)); } : undefined;
+  const switchWorkspace = contentWorkspace && api.selectContentWorkspace && can('selectContentWorkspace') && !viewer.preview && !singleWorkspace ? (id) => { if (guard.confirmLeave()) runAction(() => api.selectContentWorkspace(id)); } : undefined;
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [pendingActions, setPendingActions] = useState(0);
@@ -298,6 +300,7 @@ function StudioApp({ api }) {
   // What a Simple page has open, for its address: { report, folder, program } (SimpleMode reports it).
   const [simpleDetail, setSimpleDetail] = useState({ report: '', folder: '', program: '', trend: '', trendTab: '', trendRun: '' });
   const [channelTab, setChannelTab] = useState('trends');
+  const [channelProgramFocus, setChannelProgramFocus] = useState('');
   const [channelFocus, setChannelFocus] = useState('');
   const [channelCache, setChannelCache] = useState({});
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -555,7 +558,7 @@ function StudioApp({ api }) {
 
   // Ask AI's "Open" buttons name a studio view (Research programs, Library…) or an app page (Sheets, Settings…).
   function openHelpPage(page) {
-    if (page === 'programs') { if (simpleAllowed('programs')) goSimple('programs'); else setNotice(pageOffNotice('research')); return; }
+    if (page === 'programs') { if (mode === 'channel' && channelIds.includes('programs')) goChannel('programs'); else if (simpleAllowed('programs')) goSimple('programs'); else setNotice(pageOffNotice('research')); return; }
     if (mode === 'simple' && (page === 'knowledge' || page === 'brands')) { openClassicPage(page); return; } // Simple's own page
     if (STUDIO_VIEWS.has(page)) navigateStudio(page);
     else navigate(page);
@@ -783,6 +786,7 @@ function StudioApp({ api }) {
     // A note's Inbox row: the report (or the channel's brief) opens with its notes panel at that note.
     if (target.noteId && id) requestNoteFocus(id, target.noteId);
     if (mode === 'channel') {
+      if (kind === 'program') { goChannel('programs'); setChannelProgramFocus(String(id)); return; }
       // A trend, or a report (a share link from Reports or the Slack briefing), opens that trend's brief.
       const trends = list(channelView?.trends);
       if (kind === 'trend' || kind === 'report') {
@@ -1001,7 +1005,7 @@ function StudioApp({ api }) {
   // The page on screen as a route (deep-links.js): a Simple page (with the report open in its reader, the Assets folder
   // open, or Trends' program), an Advanced page (a Workbench tool, a program's editor at its section or its runs), Settings.
   function screenRoute() {
-    if (mode === 'channel') return { kind: 'page', page: ['assets', 'plan', 'inbox', 'ask', 'mychannel'].includes(channelTab) ? channelTab : 'trends' };
+    if (mode === 'channel') return channelTab === 'programs' && channelProgramFocus ? { kind: 'page', page: 'program', id: channelProgramFocus } : { kind: 'page', page: ['programs', 'assets', 'plan', 'inbox', 'ask', 'mychannel'].includes(channelTab) ? channelTab : 'trends' };
     if (mode === 'simple') {
       if (simpleTab === 'programs' && simpleDetail.programPage) return { kind: 'page', page: 'program', id: simpleDetail.programPage, section: simpleDetail.programTab && simpleDetail.programTab !== 'runs' ? simpleDetail.programTab : '' };
       if (simpleTab === 'trends' && simpleDetail.trend) return { kind: 'trend', id: simpleDetail.trend, tab: simpleDetail.trendTab || 'overview', run: simpleDetail.trendRun || '' };
@@ -1024,7 +1028,7 @@ function StudioApp({ api }) {
     if (!route?.kind) return;
     if (route.kind !== 'page') { const target = deepLinkTarget(route); if (target) openTarget(target); return; }
     const { page } = route;
-    if (mode === 'channel') { goChannel(channelIds.includes(page) || (page === 'ask' && channelAsk) ? page : 'trends'); return; }
+    if (mode === 'channel') { if (page === 'program' && channelIds.includes('programs')) { goChannel('programs'); setChannelProgramFocus(String(route.id || '')); } else goChannel(channelIds.includes(page) || (page === 'ask' && channelAsk) ? page : 'trends'); return; }
     if (page === 'program') { if (route.section) openProgramSection(route.section, route.id); else openProgram(route.id); return; }
     if (page === 'workbench') { openClassicPage({ 'dataset-reports': 'reports' }[route.id] || route.id); return; }
     if (page === 'ask') { openAskAi(''); return; }
@@ -1126,6 +1130,13 @@ function StudioApp({ api }) {
 
   // Someone else changed this person's role (an admin in People, or the server's admin list): close what was open and say so.
   // Keyed on role ids, not bases: a move from Editor to a custom editor-based role (Viewer) is a change too.
+  const workspaceKey = viewer.workspaceId || state.contentStudio?.activeWorkspaceId || '';
+  const lastWorkspace = useRef('');
+  useEffect(() => {
+    const previous = lastWorkspace.current; lastWorkspace.current = workspaceKey;
+    if (!previous || previous === workspaceKey) return;
+    setChannelCache({}); setChannelProgramFocus(''); setProgramSetup(null); setPeopleRequest(null); setPromptRequest(null); setRunRequest(null); setCreateRequest(null);
+  }, [workspaceKey]);
   const roleKey = `${viewer.realRoleId || viewer.realRole || ''}|${viewer.roleId || viewer.role || ''}|${viewer.channelId || ''}`;
   const lastRole = useRef('');
   useEffect(() => {
@@ -1146,7 +1157,7 @@ function StudioApp({ api }) {
     }
     expectedRole.current = null; previewReturn.current = null;
     if (!before.split('|')[1]) return; // just let in (from No access): the frame itself is the news
-    setRoleEpoch((value) => value + 1); setDrawerOpen(false); setPeek(false); setPaletteOpen(false); setHelpOpen(false); setHelpSeed(null); setShellRequest(null); setChannelSeed(null); setClassicTour(null); setPromptRequest(null); setPeopleRequest(null); setRunRequest(null); setCreateRequest(null);
+    setRoleEpoch((value) => value + 1); setDrawerOpen(false); setPeek(false); setPaletteOpen(false); setHelpOpen(false); setHelpSeed(null); setShellRequest(null); setChannelSeed(null); setClassicTour(null); setPromptRequest(null); setPeopleRequest(null); setRunRequest(null); setCreateRequest(null); setChannelCache({}); setChannelProgramFocus(''); setProgramSetup(null);
     const label = viewer.roleLabel || roleLabel(role);
     if (role) setNotice(`Your role changed to ${channelBase && viewer.channelName ? `${label} for ${viewer.channelName}` : label}.`);
   }, [roleKey, Boolean(state.viewer)]);
@@ -1460,7 +1471,7 @@ function StudioApp({ api }) {
   const dismiss = () => { setError(''); setNotice(''); };
   const inWorkspace = (run) => !studioState.activeWorkspaceId || !run.workspaceId || run.workspaceId === studioState.activeWorkspaceId;
   // New › Workspace and the switcher's New workspace: Brand knowledge's new-workspace form, for a real admin.
-  const newWorkspace = switchWorkspace && can('saveContentWorkspace') ? () => openStudioWith('knowledge', () => setCreateWorkspaceKey((value) => value + 1)) : undefined;
+  const newWorkspace = switchWorkspace && viewer.isSuperAdmin && can('saveContentWorkspace') ? () => openStudioWith('knowledge', () => setCreateWorkspaceKey((value) => value + 1)) : undefined;
   // The sidebar's model for this layout, with what waits on this person: trends that need their OK (the board knows
   // decisions made a moment ago) and unread Inbox rows. ⌘1–9 walk its order.
   const nav = buildNav({ ...navBase, layout: mode === 'channel' ? 'channel' : 'unified', askMode: mode === 'classic' ? 'drawer' : 'page', counts: { waiting: can('decideResearchTheme') ? classicActions.waiting.length : 0 }, inboxUnread: inboxCount });
@@ -1545,16 +1556,18 @@ function StudioApp({ api }) {
   const revealNav = (open, spotId) => { if (narrow && mode !== 'channel') setDrawerOpen(Boolean(open)); if (open && spotId) revealNavSpot(spotId); };
 
   const main = mode === 'channel'
-    ? <main className="channel-main" key={`channel-${roleEpoch}`} data-tab={channelTab}>
+    ? <main className="channel-main" key={`channel-${roleEpoch}-${workspaceKey}`} data-tab={channelTab}>
       <ErrorBoundary page resetKey={`channel:${channelTab}`}>{channelTab === 'ask' && channelAsk
         ? <ChannelAskPage api={askApi} state={state} viewer={viewer} can={can} canRun={canRun} action={runAction} askAdmin={askAdmin} web={web} seed={channelSeed} lastTab={channelLastTab}
           onOpenTrend={(themeId) => { goChannel('trends'); setChannelTrendFocus(themeId || ''); }} onOpenFolder={(themeId) => goChannel('assets', themeId || '')} onOpenTab={(tab) => goChannel(tab)} />
+        : channelTab === 'programs'
+        ? <ChannelPrograms key={studioState.activeWorkspaceId} programs={studioState.programs} viewer={viewer} workspaceName={contentWorkspace?.name || ''} initialProgramId={channelProgramFocus} onProgramChange={setChannelProgramFocus} />
         : channelTab === 'mychannel'
         ? <ChannelSettings api={api} channelId={viewer.channelId || ''} onNotice={setNotice} />
         : channelTab === 'assets'
-        ? <ChannelAssets api={api} web={web} view={channelView} viewer={viewer} busy={busy} action={runAction} cache={channelCache} onCache={(key, url) => setChannelCache((current) => ({ ...current, [key]: url }))} focusThemeId={channelFocus} />
+        ? <ChannelAssets api={api} web={web} view={channelView} viewer={viewer} busy={busy} action={runAction} cache={channelCache} onCache={(key, url) => setChannelCache((current) => ({ ...current, [key]: url }))} focusThemeId={channelFocus} imagesReady={studioState.capabilities?.imagesConfigured ?? true} />
         : SHARED_PAGES[channelTab] ? renderSharedPage(channelTab)
-          : <ChannelTrends api={api} view={channelView} viewer={viewer} busy={busy} action={runAction} imagesReady={studioState.capabilities?.imagesConfigured ?? true} onOpenAssets={(themeId) => goChannel('assets', themeId || '')} onPrefs={(patch) => Promise.resolve(api.setViewPrefs?.(patch)).catch(() => null)} onToast={setNotice} linkOrigin={linkOrigin} focusThemeId={channelTrendFocus} />}</ErrorBoundary>
+          : <ChannelTrends api={api} view={channelView} viewer={viewer} busy={busy} action={runAction} onboarding imagesReady={studioState.capabilities?.imagesConfigured ?? true} onOpenAssets={(themeId) => goChannel('assets', themeId || '')} onPrefs={(patch) => Promise.resolve(api.setViewPrefs?.(patch)).catch(() => null)} onToast={setNotice} linkOrigin={linkOrigin} focusThemeId={channelTrendFocus} />}</ErrorBoundary>
     </main>
     : mode === 'simple'
       ? <ErrorBoundary page resetKey={`simple:${simpleTab}`}><SimpleMode key={`simple-${roleEpoch}`} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onNavSpot={revealNav} spotRoot={() => frameRef.current} shellRequest={shellRequest} onOpenSheets={(workbookId) => openClassicPage('sheets', workbookId ? { workbookId } : {})} onOpenTarget={openTarget} onOpenPrompt={openPrompt} linkOrigin={linkOrigin} shellNav={simpleShellNav} reopenKey={simpleReopen} onRouteDetail={setSimpleDetail} setupPages={nav.setup} onOpenSetup={openNavItem} /></ErrorBoundary>
@@ -1588,6 +1601,7 @@ function StudioApp({ api }) {
         {kitHost}
         {playbookHost}
         {programSetupHost}
+        {!loading && <WorkspaceTour viewer={viewer} workspace={activeWorkspace} pages={[...navPages(nav).map((row) => row.id), ...(nav.actions.ask ? ['ask'] : [])]} enabled={!programSetup && !playbookRequest} onOpenPage={(page) => mode === 'channel' ? goChannel(page) : openTarget({ kind: 'page', page })} onSave={typeof api.setViewPrefs === 'function' ? (patch) => api.setViewPrefs(patch) : undefined} />}
       </div>
     </div>
   </UnsavedContext.Provider></ViewerContext.Provider>;

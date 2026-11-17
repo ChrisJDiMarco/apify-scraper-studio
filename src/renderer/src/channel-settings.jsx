@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useState } from 'react';
-import { ArrowLeft, ArrowRight, History, Save } from 'lucide-react';
-import { formatDay, useViewer, writeProps } from './viewer.js';
+import { ArrowLeft, ArrowRight, History, ImagePlus, LoaderCircle, Save, Trash2 } from 'lucide-react';
+import { can, formatDay, useViewer, writeProps } from './viewer.js';
+import { useConfirm } from './confirm-dialog.jsx';
 import './channel-settings.css';
 
 // A channel's settings: its knowledge (what the channel's team knows about writing for it, shared/channel-knowledge.json)
@@ -31,14 +32,78 @@ export function ChannelSettings({ api, channels = [], channelId: fixed = '', onN
     {!fixed && <button type="button" className="simple-back" onClick={() => setChannelId('')}><ArrowLeft size={15} aria-hidden="true" />All channels</button>}
     <div className="simple-page-head"><div><h1>{fixed ? 'My channel' : name === 'this channel' ? 'Channel' : name}</h1><p>{fixed ? `What ${name}’s assets should know about the channel, and the instructions that write them.` : 'This channel’s knowledge and the instructions that write its assets. Its owner can edit them too.'}</p></div>
       {!fixed && list(channels).length > 0 && <div className="simple-head-actions"><label className="cs-program-pick" htmlFor={pickId}><span className="sr-only">Channel</span><select id={pickId} className="simple-program-pick" value={channelId} onChange={(event) => setChannelId(event.target.value)}>{channels.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label></div>}</div>
-    <div className="simple-segment" role="tablist" aria-label="Channel settings">{[['knowledge', 'Channel knowledge'], ['instructions', 'Asset instructions']].map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div>
+    <div className="simple-segment" role="tablist" aria-label="Channel settings">{[['knowledge', 'Channel knowledge'], ['images', 'Image examples'], ['instructions', 'Asset instructions']].map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div>
     {problem && <p className="studio-error" role="alert">{problem}</p>}
     {!data && !problem && <p className="studio-hint" role="status">Loading {name}…</p>}
     {data && tab === 'knowledge' && <KnowledgeForm key={data.channelId} api={api} data={data} viewer={viewer} onNotice={onNotice} />}
+    {data && tab === 'images' && <ChannelImages key={data.channelId} api={api} data={data} viewer={viewer} onNotice={onNotice} />}
     {data && tab === 'instructions' && <div className="channel-prompts">
       {!data.prompts.length && <p className="studio-hint">No asset instructions for {name} in this edition.</p>}
       {data.prompts.map((detail) => <InstructionCard key={`${detail.prompt.id}:${detail.version}`} api={api} channelId={data.channelId} detail={detail} viewer={viewer} onNotice={onNotice} onSaved={() => setReload((value) => value + 1)} />)}
     </div>}
+  </div>;
+}
+
+function ChannelImages({ api, data, viewer, onNotice }) {
+  const confirm = useConfirm();
+  const [references, setReferences] = useState(list(data.references));
+  const [pictures, setPictures] = useState({});
+  const [drafts, setDrafts] = useState({});
+  const [description, setDescription] = useState('');
+  const [pending, setPending] = useState('');
+  const [problem, setProblem] = useState('');
+  const mayAdd = can(viewer, 'addChannelReference');
+  const mayEdit = can(viewer, 'saveChannelReference');
+  const mayRemove = can(viewer, 'removeChannelReference');
+  useEffect(() => {
+    let live = true;
+    if (typeof api.readChannelReference !== 'function') return undefined;
+    for (const reference of references) if (!pictures[reference.id]) Promise.resolve().then(() => api.readChannelReference({ channelId: data.channelId, imageId: reference.id })).then((result) => { if (live && /^data:image\/(png|jpeg|webp);base64,/.test(result?.dataUrl || '')) setPictures((current) => ({ ...current, [reference.id]: result.dataUrl })); }, () => { if (live) setProblem('An example image couldn’t be loaded. Reopen this channel to try again.'); });
+    return () => { live = false; };
+  }, [references.map((row) => row.id).join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function add(event) {
+    event.preventDefault(); if (!description.trim() || viewer.preview || pending) return;
+    setPending('add'); setProblem('');
+    try {
+      const result = await api.addChannelReference({ channelId: data.channelId, description: description.trim() });
+      if (result?.cancelled) return;
+      if (!result?.reference?.id) throw new Error('The image example wasn’t saved. Try again.');
+      setReferences((current) => [...current, result.reference]);
+      if (result.dataUrl) setPictures((current) => ({ ...current, [result.reference.id]: result.dataUrl }));
+      setDescription(''); onNotice?.(`Saved an image example for ${data.channelName}. Future pictures use its image and description.`);
+    } catch (failure) { setProblem(failure?.message || 'That example couldn’t be saved. Try again.'); }
+    finally { setPending(''); }
+  }
+  async function update(reference) {
+    const next = String(drafts[reference.id] ?? reference.description).trim();
+    if (!next || viewer.preview || pending) return;
+    setPending(reference.id); setProblem('');
+    try { const result = await api.saveChannelReference({ channelId: data.channelId, imageId: reference.id, description: next }); setReferences((current) => current.map((row) => row.id === reference.id ? result.reference : row)); setDrafts((current) => { const next = { ...current }; delete next[reference.id]; return next; }); onNotice?.('Saved the example’s description.'); }
+    catch (failure) { setProblem(failure?.message || 'That description couldn’t be saved.'); }
+    finally { setPending(''); }
+  }
+  async function remove(reference) {
+    if (viewer.preview || pending || !(await confirm({ title: `Remove “${reference.name}”?`, lines: ['Future pictures will stop using this example. Existing assets stay as they are.'], confirmLabel: 'Remove example', danger: true }))) return;
+    setPending(reference.id); setProblem('');
+    try { await api.removeChannelReference({ channelId: data.channelId, imageId: reference.id }); setReferences((current) => current.filter((row) => row.id !== reference.id)); onNotice?.('Removed the image example.'); }
+    catch (failure) { setProblem(failure?.message || 'That example couldn’t be removed.'); }
+    finally { setPending(''); }
+  }
+  return <div className="channel-image-examples" data-spot="channel.image-examples">
+    <p className="studio-hint">Show the visual styles that work for {data.channelName}. Future pictures use these examples and their descriptions alongside the brand rules. PNG, JPEG or WebP, up to 10 MB each; up to four examples.</p>
+    <div className="channel-example-list">{references.map((reference) => {
+      const draft = drafts[reference.id] ?? reference.description;
+      return <section className="cs-panel channel-example" key={reference.id} aria-label={reference.name}>
+        {pictures[reference.id] ? <img src={pictures[reference.id]} alt={`Example: ${reference.name}`} /> : <div className="channel-example-placeholder" role="status">Loading image…</div>}
+        <div className="channel-example-copy"><strong>{reference.name}</strong><label className="studio-field"><span className="sr-only">Description for {reference.name}</span><textarea rows={3} maxLength={2000} disabled={viewer.preview || !mayEdit} value={draft} onChange={(event) => setDrafts((current) => ({ ...current, [reference.id]: event.target.value }))} /></label>
+          <div className="channel-actions">{mayRemove && <button type="button" className="studio-quiet" aria-label={`Remove ${reference.name}`} {...writeProps(viewer, Boolean(pending))} onClick={() => remove(reference)}><Trash2 size={15} aria-hidden="true" />Remove</button>}{mayEdit && <button type="button" className="studio-primary" aria-label={`Save description for ${reference.name}`} {...writeProps(viewer, Boolean(pending) || !draft.trim() || draft.trim() === reference.description)} onClick={() => update(reference)}><Save size={15} aria-hidden="true" />Save description</button>}</div>
+        </div>
+      </section>;
+    })}</div>
+    {!references.length && <p className="studio-hint">No image examples yet. Add a post or design that worked well, and explain why.</p>}
+    {problem && <p className="studio-error" role="alert">{problem}</p>}
+    {mayAdd && references.length < 4 && <form className="cs-panel channel-example-add" onSubmit={add}><label className="studio-field"><span>Why this example works</span><textarea rows={3} maxLength={2000} required disabled={viewer.preview || Boolean(pending)} value={description} placeholder="This post performed well last week. The bold headline and simple product layout work well for our audience." onChange={(event) => setDescription(event.target.value)} /></label><div className="channel-actions"><button type="submit" className="studio-primary" {...writeProps(viewer, Boolean(pending) || !description.trim() || typeof api.addChannelReference !== 'function')}>{pending === 'add' ? <LoaderCircle size={15} className="spin" aria-hidden="true" /> : <ImagePlus size={15} aria-hidden="true" />}Choose image and save example</button></div></form>}
+    {references.length >= 4 && <p className="studio-hint">Four examples saved. Remove one before adding another.</p>}
   </div>;
 }
 

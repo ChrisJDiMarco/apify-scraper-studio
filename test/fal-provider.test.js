@@ -53,10 +53,10 @@ describe('fal.ai pictures', () => {
     expect(image.receipt).toMatchObject({ status: 'succeeded', requestId: 'req-1', costUsd: 0.039, unitUsd: 0.039, units: 1, width: 64, height: 48, costBasis: 'fal unit price (fal charges only successful outputs)' });
     expect(h.sleeps).toEqual([2500, 2500]);
   });
-  it('makes pictures without references on a model that can’t take them, and says so', async () => {
-    const h = provider((call) => (call.method === 'POST' ? json(queue('fal-ai/flux', 'req-2')) : call.url.includes('/status') ? json({ status: 'COMPLETED' }) : call.url.includes('fal.media') ? bytes(PNG) : json({ images: [{ url: 'https://fal.media/files/out.png' }] })));
-    const [image] = await h.fal.generateImages({ deliverable: deliverable([style(1)]), model: 'fal-ai/flux/dev', profile: FLUX, price: { unitUsd: 0.025, unit: 'image' }, runId: 'run-2', maxBudgetUsd: 1, onRequest: async () => {} });
-    expect(h.calls[0].json.image_urls).toBeUndefined(); expect(image.receipt.referencesOmitted).toBe(true);
+  it.each([[FLUX, 1], [EDIT, 11]])('refuses a model that cannot accept every saved reference before a paid request', async (profile, count) => {
+    const never = vi.fn(); const h = provider(never); const onRequest = vi.fn();
+    await expect(h.fal.generateImages({ deliverable: deliverable(Array.from({ length: count }, () => style(1))), model: 'fal-ai/fixture/edit', profile, price: { unitUsd: 0.025, unit: 'image' }, runId: 'run-2', maxBudgetUsd: 1, onRequest })).rejects.toMatchObject({ code: 'IMAGE_INPUT_INVALID', field: 'deliverable.references', beforeDispatch: true });
+    expect(onRequest).not.toHaveBeenCalled(); expect(never).not.toHaveBeenCalled();
   });
   it('refuses before anything is sent: no reference list, oversized references, unknown price, no PNG', async () => {
     const never = vi.fn(); const { fal } = provider(never);

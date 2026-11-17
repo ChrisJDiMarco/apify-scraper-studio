@@ -1,7 +1,8 @@
 import React, { useEffect, useId, useState } from 'react';
 import { ProgramsPanel } from './home-programs.jsx';
-import { Dialog, DialogClose } from './role-screens.jsx';
+import { Dialog, DialogClose, copyText } from './role-screens.jsx';
 import { useViewer } from './viewer.js';
+import './programs-page.css';
 
 // The Research programs page (the first pipeline stage, for admins with Manage research programs): every program at a
 // glance, with Run now (its cost confirmation first), Edit (Workbench → Edit research program, where every setting and
@@ -13,10 +14,49 @@ export function ProgramsPage({ state = {}, api = {}, busy = false, needsSetup = 
   const [people, setPeople] = useState(null); // the program whose People dialog is open
   const canPeople = typeof api.getTeam === 'function' && typeof api.saveMember === 'function';
   return <div className="wb-page simple-page simple-programs" data-spot="programs.page">
-    <div className="simple-page-head"><div><h1>Research programs</h1><p>What research follows, when it runs and what it may spend. Run one now, or edit its sources, schedule and AI instructions.</p></div></div>
+    <div className="simple-page-head"><div><h1>Research programs</h1><p>Research starts here. Each program defines what to monitor and generates trends for your team to review. Create separate programs for different topics or brands.</p></div></div>
     <ProgramsPanel state={state} api={api} busy={busy} needsSetup={needsSetup} onStartResearch={onStartResearch} onOpenTarget={onOpenTarget} onNotice={onNotice}
       onEditProgram={onEditProgram} onAddProgram={onAddProgram} onOpenProgramPage={onOpenTarget ? (id) => onOpenTarget({ kind: 'program', id }) : undefined} onPeople={canPeople ? setPeople : undefined} limit={Infinity} page />
     {people && <ProgramPeople program={people} programs={list(state.contentStudio?.programs)} api={api} onNotice={onNotice} onClose={() => setPeople(null)} />}
+  </div>;
+}
+
+// The server supplies only programs this person can see. Render known descriptive fields, rather than passing a
+// program into the admin editor: that editor also contains models, budgets and controls this role cannot use.
+export function ChannelPrograms({ programs = [], viewer = {}, workspaceName = '', initialProgramId = '', onProgramChange }) {
+  const detailTitle = useId(); const requestTitle = useId(); const messageId = useId();
+  const [selected, setSelected] = useState(initialProgramId);
+  const [request, setRequest] = useState(false);
+  const [message, setMessage] = useState('');
+  const [copied, setCopied] = useState('');
+  useEffect(() => { setSelected(initialProgramId); }, [initialProgramId]);
+  const rows = list(programs); const program = rows.find((row) => row.id === selected);
+  const select = (id) => { setSelected(id); onProgramChange?.(id); };
+  function contact(name = '') {
+    setMessage(`Hi ${viewer.askAdmin || 'team'}, I’d like to request a research program ${name ? `change for “${name}”` : 'addition or update'} in ${workspaceName || 'our workspace'}.\n\nWhat I need:\n`);
+    setCopied(''); select(''); setRequest(true);
+  }
+  const schedule = (value = {}) => value.frequency && value.frequency !== 'manual' ? `${value.enabled ? 'Runs' : 'Paused'} ${value.frequency}${value.time ? ` at ${value.time}` : ''}${value.timeZone ? ` (${value.timeZone})` : ''}` : 'On demand';
+  return <div className="wb-page simple-page simple-programs channel-programs" data-spot="programs.page">
+    <div className="simple-page-head"><div><h1>Research programs</h1><p>Research starts here. Each program defines what to monitor and generates trends for your team to review.</p></div></div>
+    <div className="program-readonly-note"><p>You can view the programs available to you. To add or edit a research program, contact {viewer.askAdmin || 'a workspace admin'}.</p><button type="button" className="studio-quiet" onClick={() => contact()}>Contact admin</button></div>
+    <section className="wb-card hp-card" aria-label="Available research programs"><header className="wb-card-head"><h2>{rows.length} research {rows.length === 1 ? 'program' : 'programs'}</h2></header>
+      {rows.length ? <ul className="hp-list">{rows.map((row) => <li className="hp-row" key={row.id}><div className="hp-head"><div className="hp-title"><h3>{row.name}</h3><p className="program-focus">{row.query || 'An admin defines what this program follows.'}</p><p className="hp-meta">{schedule(row.schedule)}</p></div><button type="button" className="studio-quiet" aria-label={`View ${row.name}`} onClick={() => select(row.id)}>View program</button></div></li>)}</ul> : <p className="wb-empty">No research programs are available to you yet. Contact an admin to request access.</p>}
+    </section>
+    {program && <Dialog labelledBy={detailTitle} onClose={() => select('')} className="program-readonly-detail">
+      <header className="studio-dialog-head"><div><h2 id={detailTitle}>{program.name}</h2><p className="studio-dialog-meta">Research program · Read only</p></div><DialogClose onClose={() => select('')} /></header>
+      <div className="studio-dialog-body"><h3>Research focus</h3><p>{program.query || 'No research focus has been added yet.'}</p><h3>Sources</h3>
+        {list(program.sourceGroups).length ? <ul className="program-source-list">{list(program.sourceGroups).map((group, index) => <li key={group.id || index}><strong>{group.name || group.platform || 'Sources'}{group.enabled === false ? ' · Paused' : ''}</strong><ul>{list(group.targets).length ? list(group.targets).map((target, i) => <li key={i}>{typeof target === 'string' ? target : target.label || target.url || target.handle || 'Source'}</li>) : <li>No sources added</li>}</ul></li>)}</ul> : <p>No sources have been added yet.</p>}
+        <h3>Schedule</h3><p>{schedule(program.schedule)}</p>
+        {(program.window?.startDate || program.window?.endDate) && <p>Research dates: {program.window.startDate || 'Start not set'} to {program.window.endDate || 'End not set'}</p>}
+        {program.schedule?.lookbackDays > 0 && <p>Each scheduled run looks back {program.schedule.lookbackDays} days.</p>}
+        {program.brand?.mode === 'own' && <><h3>Brand context</h3><p><strong>{program.brand.name}</strong></p>{program.brand.audience && <p>Audience: {program.brand.audience}</p>}{program.brand.positioning && <p>{program.brand.positioning}</p>}{program.brand.voice && <p>Voice: {program.brand.voice}</p>}</>}
+      </div><footer className="workspace-tour-actions"><button type="button" className="studio-quiet" onClick={() => contact(program.name)}>Request a change</button><button type="button" className="studio-primary" onClick={() => select('')}>Done</button></footer>
+    </Dialog>}
+    {request && <Dialog labelledBy={requestTitle} onClose={() => setRequest(false)} className="program-admin-request"><header className="studio-dialog-head"><div><h2 id={requestTitle}>Request a research program change</h2><p className="studio-dialog-meta">Send this to {viewer.askAdmin || 'a workspace admin'} in your usual work chat or email.</p></div><DialogClose onClose={() => setRequest(false)} /></header>
+      <div className="studio-dialog-body"><label htmlFor={messageId}>Message to your workspace admin</label><textarea id={messageId} rows={7} value={message} onChange={(event) => { setMessage(event.target.value); setCopied(''); }} />{copied && <p role="status">{copied}</p>}</div>
+      <footer className="workspace-tour-actions"><button type="button" className="studio-quiet" onClick={() => setRequest(false)}>Close</button><button type="button" className="studio-primary" disabled={!message.trim()} onClick={async () => setCopied(await copyText(message) ? 'Request copied. Paste it into your work chat or email to send it.' : 'The request could not be copied. Select the message and copy it manually.')}>Copy request</button></footer>
+    </Dialog>}
   </div>;
 }
 

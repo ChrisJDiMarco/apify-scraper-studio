@@ -19,7 +19,7 @@ const sha256 = (value) => crypto.createHash('sha256').update(String(value)).dige
 const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 const clip = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
-function createMondayStore({ root, now = () => Date.now(), onDamaged = (message) => console.warn(message) } = {}) {
+function createMondayStore({ root, now = () => Date.now(), workspaceId = () => '', defaultWorkspaceId = '', onDamaged = (message) => console.warn(message) } = {}) {
   if (!root) throw new Error('The Monday.com store needs the studio data folder.');
   const target = path.join(root, 'monday.json');
   const logFile = path.join(root, 'monday-log.jsonl');
@@ -58,8 +58,13 @@ function createMondayStore({ root, now = () => Date.now(), onDamaged = (message)
   }
 
   // ---------- Account ----------
-  const account = () => copy(data.account);
-  const setAccount = (value) => change(() => { data.account = value ? { ...record(value), checkedAt: new Date(now()).toISOString() } : null; return copy(data.account); });
+  function accountState() {
+    const key = workspaceId(); if (!key || !defaultWorkspaceId) return data;
+    data.workspaceAccounts ||= {};
+    return data.workspaceAccounts[key] ||= { account: key === defaultWorkspaceId ? copy(data.account) : null, people: key === defaultWorkspaceId ? copy(data.people) : {}, usage: key === defaultWorkspaceId ? copy(data.usage) : { day: '', calls: 0 } };
+  }
+  const account = () => copy(accountState().account);
+  const setAccount = (value) => change(() => { const current = accountState(); current.account = value ? { ...record(value), checkedAt: new Date(now()).toISOString() } : null; return copy(current.account); });
 
   // ---------- Links ----------
   const link = (ws) => (data.links[ws] ? copy(data.links[ws]) : null);
@@ -100,17 +105,18 @@ function createMondayStore({ root, now = () => Date.now(), onDamaged = (message)
   const keyForItem = (ws, itemId) => Object.entries(data.items[ws] || {}).find(([, entry]) => entry.itemId && String(entry.itemId) === String(itemId))?.[0] || '';
 
   // ---------- People (Monday users seen in changes; refreshed daily) ----------
-  const people = () => copy(data.people);
-  const setPeople = (rows) => change(() => { for (const row of rows) if (row?.id) data.people[String(row.id)] = { name: clip(row.name, 120), email: clip(row.email, 254).toLowerCase(), at: new Date(now()).toISOString() }; });
+  const people = () => copy(accountState().people);
+  const setPeople = (rows) => change(() => { for (const row of rows) if (row?.id) accountState().people[String(row.id)] = { name: clip(row.name, 120), email: clip(row.email, 254).toLowerCase(), at: new Date(now()).toISOString() }; });
 
   // ---------- Usage: counted in memory, written at most once a minute, reset at 00:00 UTC ----------
   function countCall(count = 1) {
+    const current = accountState();
     const day = utcDay(now());
-    if (data.usage.day !== day) data.usage = { day, calls: 0 };
-    data.usage.calls += count;
+    if (current.usage.day !== day) current.usage = { day, calls: 0 };
+    current.usage.calls += count;
     if (now() - callFlushAt >= 60000) { callFlushAt = now(); try { writeFile(target, JSON.stringify(data, null, 2)); } catch (_) { /* the count is a convenience */ } }
   }
-  const callsToday = () => (data.usage.day === utcDay(now()) ? data.usage.calls : 0);
+  const callsToday = () => { const usage = accountState().usage; return usage.day === utcDay(now()) ? usage.calls : 0; };
   const flush = () => { try { writeFile(target, JSON.stringify(data, null, 2)); } catch (_) { /* best effort on quit */ } };
 
   // ---------- Sync log ----------
@@ -172,7 +178,7 @@ function createMondayStore({ root, now = () => Date.now(), onDamaged = (message)
     return true;
   }
 
-  return { file: target, logFile, load: () => copy(data), account, setAccount, link, links, saveLink, updateLink, removeLink, items, item, patchItems, keyForItem, people, setPeople, countCall, callsToday, flush, appendLog, readLog, hookMatch, migrateLegacy };
+  return { workspaceScoped: Boolean(defaultWorkspaceId), file: target, logFile, load: () => copy(data), account, setAccount, link, links, saveLink, updateLink, removeLink, items, item, patchItems, keyForItem, people, setPeople, countCall, callsToday, flush, appendLog, readLog, hookMatch, migrateLegacy };
 }
 
 const hashSecret = (secret) => sha256(secret).toString('hex');

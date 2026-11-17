@@ -239,7 +239,7 @@ describe('trends routed to channels', () => {
     expect(social.trends.find((trend) => trend.themeId === 'theme-local')).toMatchObject({ offered: true, forUs: true, isNew: true, decidedBy: { name: 'Riley', auto: false }, suggestion: { byName: 'Riley', note: 'Lead with the map pack data.', channels: [{ id: 'social', name: 'Semrush Social Team' }] } });
     expect(social.counts).toEqual({ newTrends: 2 });
     const blog = view('blog');
-    expect(blog.trends.find((trend) => trend.themeId === 'theme-local')).toMatchObject({ offered: false, forUs: false, isNew: false });
+    expect(blog.trends.find((trend) => trend.themeId === 'theme-local')).toBeUndefined();
     expect(blog.trends.find((trend) => trend.themeId === 'theme-aio')).toMatchObject({ offered: true, forUs: false, isNew: true, decidedBy: { name: 'Riley', auto: false }, suggestion: null });
     expect(blog.counts).toEqual({ newTrends: 1 });
   });

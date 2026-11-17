@@ -39,7 +39,7 @@ const when = (value) => { const date = new Date(value); return Number.isFinite(d
 function createWorkflowEngine({
   store, workspace, clock = () => new Date(), emit = () => {}, preflight = async () => {}, describeRoutes = async () => ({ models: [], uncapped: false }),
   monday = null, trendCards = MONDAY_CARDS, canIdentityCall = () => true, logActivity = () => {}, runAs = (actor, fn) => fn(),
-  isDraining = () => false, desktop = true,
+  isDraining = () => false, desktop = true, runInWorkspace = (_workspaceId, fn) => fn(),
 } = {}) {
   if (!store || !workspace) throw new Error('The workflow engine needs its store and the content workspace.');
   const stamp = () => new Date(clock()).toISOString();
@@ -695,7 +695,11 @@ function createWorkflowEngine({
     try {
       do {
         again = false;
-        const data = store.read(); const now = stamp(); const workspaceId = activeId();
+        const data = store.read(); const now = stamp();
+        const workspaceIds = [...new Set([...data.workflows, ...data.runs].map((row) => row.workspaceId).filter(Boolean))];
+        for (const workspaceId of workspaceIds) {
+          if (workspace.isWorkspaceHidden?.(workspaceId)) continue;
+          await runInWorkspace(workspaceId, async () => {
         for (const workflow of data.workflows) {
           if (workflow.workspaceId !== workspaceId || workflow.status !== 'active' || workflow.trigger?.kind !== 'schedule' || !workflow.nextRunAt || Date.parse(workflow.nextRunAt) > Date.parse(now)) continue;
           const next = core.nextTriggerAt(workflow.trigger, { from: now });
@@ -710,6 +714,8 @@ function createWorkflowEngine({
           await startRun(workflow, { trigger: 'schedule', startedBy: workflow.owner, capUsd: workflow.budget.perRunUsd, budgetHash: current });
         }
         for (const run of store.read().runs) if (run.workspaceId === workspaceId && LIVE.has(run.status)) await advance(run.id);
+          });
+        }
       } while (again && !stopped);
     } finally { ticking = false; }
   }
@@ -720,7 +726,7 @@ function createWorkflowEngine({
     const snapshot = studio(); const children = [...list(snapshot.researchRuns), ...list(snapshot.contentRuns)].filter((row) => row.workflow?.runId);
     store.change((data) => {
       for (const run of data.runs) {
-        if (!LIVE.has(run.status)) continue;
+        if (run.workspaceId !== activeId() || !LIVE.has(run.status)) continue;
         for (const child of children.filter((row) => row.workflow.runId === run.id)) {
           if (child.type === 'research' && child.origin !== 'quick-scan') { const step = run.steps.find((row) => row.kind === 'research'); if (step && !step.refs.researchRunId) { step.refs.researchRunId = child.id; step.status = 'running'; } }
           else if (child.type === 'research') { const step = run.steps.find((row) => row.kind === 'quick-scan'); if (step && !step.refs.quickScanRunId) { step.refs.quickScanRunId = child.id; step.status = 'running'; } }
@@ -737,7 +743,7 @@ function createWorkflowEngine({
     });
   }
 
-  function start() { stopped = false; recover(); clearInterval(timer); timer = setInterval(() => { tick().catch(() => null); }, 30000); timer.unref?.(); tick().catch(() => null); }
+  function start() { stopped = false; for (const key of new Set([...store.read().workflows, ...store.read().runs].map((row) => row.workspaceId).filter(Boolean))) runInWorkspace(key, recover); clearInterval(timer); timer = setInterval(() => { tick().catch(() => null); }, 30000); timer.unref?.(); tick().catch(() => null); }
   function stop() { stopped = true; clearInterval(timer); timer = undefined; clearTimeout(pokeTimer); pokeTimer = undefined; }
   function poke() { if (stopped || pokeTimer) return; pokeTimer = setTimeout(() => { pokeTimer = undefined; tick().catch(() => null); }, 500); pokeTimer.unref?.(); }
 

@@ -50,9 +50,9 @@ describe('workspace policy', () => {
     expect(Object.isFrozen(resolveWorkspacePolicy())).toBe(true);
   });
 
-  it('ships the Semrush package as a one-workspace build named Main', () => {
+  it('ships with multiple workspaces while retaining the Semrush primary', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-    expect(resolveWorkspacePolicy({ packageConfig: pkg, env: {} })).toMatchObject({ mode: 'single', editionId: 'semrush', name: 'Main' });
+    expect(resolveWorkspacePolicy({ packageConfig: pkg, env: {} })).toMatchObject({ mode: 'multi', editionId: 'semrush', name: 'Main' });
   });
 });
 

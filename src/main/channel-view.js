@@ -160,12 +160,12 @@ function buildChannelView({ contentStudio = {}, adoptions = [], channelId = null
   const answers = new Map(list(adoptions).filter((row) => row && row.channelId === channelId && (!row.workspaceId || !workspaceId || row.workspaceId === workspaceId)).map((row) => [row.themeId, row]));
   const since = time(memberSince);
   const channelName = (id) => kit.kitFolders(editionId).find((entry) => entry.id === id)?.name || id;
-  const trends = readyTrends(contentStudio).map((trend) => {
+  const trends = readyTrends(contentStudio).filter((trend) => !list(trend.decidedBy?.channels).length || trend.decidedBy.channels.includes(channelId)).map((trend) => {
     const answer = answers.get(trend.themeId);
     const adoption = answer ? { status: answer.status, link: answer.link || '', note: answer.note || '', plannedFor: typeof answer.plannedFor === 'string' ? answer.plannedFor : '', at: answer.at || answer.updatedAt || null, byName: answer.by?.name || '', byMe: Boolean(viewerId) && answer.by?.id === viewerId } : null;
     const earlier = !adoption && Number.isFinite(since) && time(trend.readyAt) < since - EARLIER_MS;
     const own = runsByTheme.get(trend.themeId) || [];
-    // Routing: a trend sent to other channels only stays on the list (under All) but isn't new for this one.
+    // Every list and board shares the channel's offered trends.
     const routed = list(trend.decidedBy?.channels); const offered = !routed.length || routed.includes(channelId); const forUs = routed.includes(channelId);
     const decided = trend.decidedBy;
     return {

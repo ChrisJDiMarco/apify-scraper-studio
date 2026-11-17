@@ -181,6 +181,7 @@ describe('sharing a workspace setup between installs', () => {
     const file = JSON.stringify(owner.api.exportSetup({ workspaceId: 'semrush', appVersion: '0.1.0' }), null, 2);
     const tester = harness({ time: '2026-10-09T08:00:00Z' });
     expect(tester.api.publicState().activeWorkspaceId).toBe('general');
+    tester.api.selectContentWorkspace('semrush'); tester.emit.mockClear();
     const result = tester.api.importSetup({ bundle: file });
     expect(result).toMatchObject({ workspaceId: 'semrush', programIds: ['program-manual', 'program-weekly'], state: { activeWorkspaceId: 'semrush' } });
     expect(result.summary.changes).toEqual(['Replaces the brand knowledge, product registry, taxonomy and reference documents of “Semrush workspace”.', 'Adds 2 programs.', '1 schedule arrives paused; nothing runs until someone turns it on.']);
@@ -207,7 +208,7 @@ describe('sharing a workspace setup between installs', () => {
   });
   it('re-importing pauses a schedule the tester turned on and keeps this machine’s run history', () => {
     const file = JSON.stringify(configureOwner(harness()).api.exportSetup());
-    const tester = harness(); tester.api.importSetup({ bundle: file });
+    const tester = harness(); tester.api.selectContentWorkspace('semrush'); tester.api.importSetup({ bundle: file });
     const live = tester.api.saveResearchProgram({ ...tester.api.publicState().programs.find(p => p.id === 'program-weekly'), schedule: { ...weeklyProgram().schedule, enabled: true } });
     expect(live.schedule.nextRunAt).toBeTruthy();
     const stored = tester.stored();
@@ -219,9 +220,9 @@ describe('sharing a workspace setup between installs', () => {
   it('previews counts, schedules and key names without changing anything', () => {
     const owner = configureOwner(harness());
     const file = JSON.stringify(attachSetupSecrets(owner.api.exportSetup({ appVersion: '0.1.0' }), { APIFY_API_TOKEN: TOKEN }), null, 2);
-    const tester = harness(); const before = tester.raw();
+    const tester = harness(); tester.api.selectContentWorkspace('semrush'); tester.emit.mockClear(); const before = tester.raw();
     const preview = tester.api.previewSetup({ bundle: file });
-    expect(tester.raw()).toBe(before); expect(tester.emit).not.toHaveBeenCalled(); expect(tester.api.publicState().activeWorkspaceId).toBe('general');
+    expect(tester.raw()).toBe(before); expect(tester.emit).not.toHaveBeenCalled(); expect(tester.api.publicState().activeWorkspaceId).toBe('semrush');
     expect(JSON.stringify(preview)).not.toContain(TOKEN);
     expect(preview.summary).toMatchObject({
       exportedAt: '2026-10-08T12:00:00.000Z', appVersion: '0.1.0', secrets: ['APIFY_API_TOKEN'], target: { workspaceId: 'semrush', name: 'Semrush workspace', action: 'replace' },
@@ -237,7 +238,7 @@ describe('sharing a workspace setup between installs', () => {
   it('imports a file that carries a key without storing the key, leaving it for the host', () => {
     const owner = configureOwner(harness());
     const file = JSON.stringify(attachSetupSecrets(owner.api.exportSetup(), { APIFY_API_TOKEN: TOKEN }), null, 2);
-    const tester = harness(); const result = tester.api.importSetup({ bundle: file });
+    const tester = harness(); tester.api.selectContentWorkspace('semrush'); const result = tester.api.importSetup({ bundle: file });
     expect(result.summary.secrets).toEqual(['APIFY_API_TOKEN']);
     expect(JSON.stringify(result)).not.toContain(TOKEN); expect(tester.raw()).not.toContain(TOKEN);
     expect(validateSetupBundle(file).secrets).toEqual({ APIFY_API_TOKEN: TOKEN });
@@ -260,19 +261,24 @@ describe('sharing a workspace setup between installs', () => {
     }
     expect(tester.raw()).toBe(before); expect(tester.emit).not.toHaveBeenCalled();
     // Unknown top-level keys are ignored, not refused.
+    tester.api.selectContentWorkspace('semrush');
     expect(tester.api.importSetup({ bundle: { ...bundle, notes: 'from the owner', future: { feature: true } } }).programIds).toEqual(['program-manual', 'program-weekly']);
   });
   it('refuses a program ID that belongs to another workspace instead of moving it', () => {
     const file = JSON.stringify(configureOwner(harness()).api.exportSetup());
-    const tester = harness(); tester.api.saveResearchProgram({ ...manualProgram(), workspaceId: 'general' }); const before = tester.raw();
+    const tester = harness(); tester.api.saveResearchProgram({ ...manualProgram(), workspaceId: 'general' }); tester.api.selectContentWorkspace('semrush'); const before = tester.raw();
     for (const method of ['previewSetup', 'importSetup']) expect(() => tester.api[method]({ bundle: file })).toThrow('Program “Agency pulse” already belongs to “Your workspace”, so it cannot be imported into “Semrush workspace”. Nothing was imported.');
     expect(tester.raw()).toBe(before);
   });
-  it('creates the workspace on an install without that edition and keeps programs it does not replace', () => {
+  it('requires creating and selecting the matching workspace before importing, and keeps local programs', () => {
     const file = JSON.stringify(configureOwner(harness()).api.exportSetup());
     const general = { id: 'general', name: 'Your workspace', editionId: 'general', knowledge: content.validateBrandKnowledge({}, { editionId: 'general' }), products: [], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
     const tester = harness({ state: { version: 1, activeWorkspaceId: 'general', workspaces: [general], programs: [], researchRuns: [], contentRuns: [], themes: [], history: [], detections: [], assets: [], exports: [], datasetOwners: {} } });
-    expect(tester.api.previewSetup({ bundle: file }).summary).toMatchObject({ target: { workspaceId: '', name: 'Semrush workspace', action: 'create' }, changes: ['Creates a new workspace, “Semrush workspace”, with this file’s brand knowledge, product registry, taxonomy and reference documents.', 'Adds 2 programs.', '1 schedule arrives paused; nothing runs until someone turns it on.'] });
+    const before = tester.raw();
+    for (const method of ['previewSetup', 'importSetup']) expect(() => tester.api[method]({ bundle: file })).toThrow(/Switch to a Semrush workspace/);
+    expect(tester.raw()).toBe(before);
+    const selected = tester.api.saveContentWorkspace({ name: 'Semrush workspace', editionId: 'semrush' });
+    expect(tester.api.previewSetup({ bundle: file }).summary.target).toMatchObject({ workspaceId: selected.id, action: 'replace' });
     const result = tester.api.importSetup({ bundle: file });
     expect(result.workspaceId).toMatch(/^workspace-/);
     expect(tester.stored().workspaces.find(w => w.id === result.workspaceId)).toMatchObject({ name: 'Semrush workspace', editionId: 'semrush', brandDefaults: content.SEMRUSH_BRAND_2026, enterpriseProducts: ['Enterprise AIO'] });

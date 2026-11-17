@@ -50,8 +50,8 @@ describe('Ask AI in the channel layout', () => {
     expect(button).toBeInTheDocument();
     expect(button.querySelector('kbd')).toHaveTextContent(/^(⌘J|Ctrl\+J)$/);
     expect(button).toHaveAttribute('aria-keyshortcuts', expect.stringMatching(/^(Meta|Control)\+J$/));
-    // The pages stay the four channel pages; Ask AI is with the actions, as in Simple.
-    expect(within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('button').map((row) => row.textContent.replace(/\d+$/, ''))).toEqual(['Inbox', 'Trends', 'Assets', 'Calendar', 'My channel']);
+    // Programs are read-only for channel owners; Ask AI stays with the actions, as in Simple.
+    expect(within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('button').map((row) => row.textContent.replace(/\d+$/, ''))).toEqual(['Inbox', 'Research programs', 'Trends', 'Assets', 'Calendar', 'My channel']);
     fireEvent.click(button);
     expect(await screen.findByRole('heading', { name: 'What can I help with?' })).toBeInTheDocument();
     expect(button).toHaveAttribute('aria-current', 'page');
@@ -80,7 +80,7 @@ describe('Ask AI in the channel layout', () => {
       await screen.findByRole('heading', { level: 1, name: 'Trends for Semrush Blog' });
       const bottom = document.querySelector('.studio-bottom-nav');
       const ask = within(bottom).getByRole('button', { name: 'Ask AI' });
-      expect(within(bottom).getAllByRole('button').map((row) => row.textContent.replace(/^\d+|\d+$/g, ''))).toEqual(['Inbox', 'Trends', 'Assets', 'Calendar', 'My channel', 'Ask AI']);
+      expect(within(bottom).getAllByRole('button').map((row) => row.textContent.replace(/^\d+|\d+$/g, ''))).toEqual(['Inbox', 'Programs', 'Trends', 'Assets', 'Calendar', 'Channel', 'Ask AI']);
       fireEvent.click(ask);
       expect(await screen.findByRole('heading', { name: 'What can I help with?' })).toBeInTheDocument();
       expect(ask).toHaveAttribute('aria-current', 'page');

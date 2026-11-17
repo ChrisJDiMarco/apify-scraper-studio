@@ -93,7 +93,7 @@ describe('email from the browser studio', () => {
     expect(notices[0].text).not.toContain(token);
     // The link is used up. Signing in again with a new one, or after a restart reads team.json back, is not a first time.
     expect(people().useLink(token, { origin: 'https://studio.example.com' })).toBeNull();
-    const again = await chris('team:sign-in-link', { id: result.members[0].id });
+    const again = (await runtime.invoke('team:sign-in-link', { id: result.members[0].id }, { user: people().ownerIdentity(), session: { workspaceId: 'semrush' }, origin: 'https://studio.example.com' })).result;
     expect(again).toMatchObject({ emailed: true, to: 'casey@semrush.com' }); expect(again).not.toHaveProperty('url'); // email on: the admin never sees it
     await until(() => sent.length > before + 1);
     const resent = sent.at(-1);

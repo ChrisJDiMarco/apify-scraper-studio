@@ -9,6 +9,7 @@ export const FILE_PICKERS = {
   pickImportFile: () => '.csv,.json,.jsonl,.ndjson',
   openSetupFile: () => '.json',
   addBrandImage: () => '.png,.jpg,.jpeg,.webp',
+  addChannelReference: () => '.png,.jpg,.jpeg,.webp',
   stageKitReference: () => '.png,.jpg,.jpeg,.webp',
 };
 

@@ -23,6 +23,10 @@
     "saveReferenceDoc": "studio:saveReferenceDoc",
     "readReferenceDoc": "studio:readReferenceDoc",
     "readChannelSettings": "studio:readChannelSettings",
+    "addChannelReference": "studio:addChannelReference",
+    "saveChannelReference": "studio:saveChannelReference",
+    "readChannelReference": "studio:readChannelReference",
+    "removeChannelReference": "studio:removeChannelReference",
     "estimateProgramSetup": "setup:estimate",
     "suggestProgramSetup": "setup:suggest",
     "saveChannelKnowledge": "studio:saveChannelKnowledge",
@@ -238,6 +242,7 @@
     "openAsset": "open-asset",
     "revealAsset": "reveal-asset",
     "openWorkspace": "open-workspace",
-    "cancelJob": "cancel-job"
+    "cancelJob": "cancel-job",
+    "saveWorkspaceMembership": "team:workspace-membership"
   }
 }

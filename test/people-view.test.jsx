@@ -156,7 +156,7 @@ describe('People & access: the People tab', () => {
     await waitFor(() => expect(services.saveMember).toHaveBeenCalledWith({ id: 'm-riley', name: 'Riley Jones', email: 'riley@semrush.com', role: 'editor', channelId: null, disabled: true }));
     openMenu('Riley Jones');
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }));
-    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining('To stop access for a while instead, disable them.')));
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining('their account and other workspace memberships stay.')));
     await waitFor(() => expect(services.removeMember).toHaveBeenCalledWith({ id: 'm-riley' }));
     confirm.mockReturnValue(false);
     openMenu('Alex Smith');
