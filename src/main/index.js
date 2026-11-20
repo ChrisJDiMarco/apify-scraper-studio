@@ -2482,6 +2482,8 @@ const helpSafe = (read, fallback = null) => { try { return read() ?? fallback; }
 // OpenRouter): sources to follow for a company and vertical, each checked with the program form's rules, and a brand
 // knowledge draft. Nothing is saved; the person keeps what they want in the setup sheet. The estimate comes first.
 const programSetup = require('../shared/program-setup');
+const websiteSetup = require('./website-setup');
+const websiteSetupsInFlight = new Set();
 function programSetupPrompt(payload) {
   const request = programSetup.setupRequest(payload);
   const editionId = contentWorkspace.activeWorkspace()?.editionId || 'general';
@@ -2489,18 +2491,47 @@ function programSetupPrompt(payload) {
   return programSetup.setupPrompt(request, { editionId, blocks });
 }
 function estimateProgramSetup(payload = {}) {
-  const prompt = programSetupPrompt(payload);
+  const website = payload.websiteMode ? websiteSetup.websiteRequest(payload) : null;
+  const prompt = website ? websiteSetup.websitePrompt(website) : programSetupPrompt(payload);
   const task = aiRouting.resolve('assistant.program-setup');
-  const estimate = require('./ask-estimate').askEstimate({ route: task.route, price: task.price || null, fallback: task.model ? modelPrice(task.model) : null, prefixChars: 0, bodyChars: prompt.length, outputTokens: 4000 });
-  return { route: task.route, routeLabel: aiRouting.routeLabel(task.route), model: task.model || '', modelLabel: task.modelLabel || task.model || '', metered: estimate?.metered !== false, estimateUsd: estimate?.firstUsd ?? null, problem: task.problem || '' };
+  const estimate = require('./ask-estimate').askEstimate({ route: task.route, price: task.price || null, fallback: task.model ? modelPrice(task.model) : null, prefixChars: 0, bodyChars: prompt.length + (website ? websiteSetup.EVIDENCE_CHAR_LIMIT : 0), outputTokens: 4000 });
+  const problem = website && !getKey('APIFY_API_TOKEN') ? keyNeeded('APIFY_API_TOKEN', 'Connect Apify in Settings to research a website.') : task.problem || '';
+  return { route: task.route, routeLabel: aiRouting.routeLabel(task.route), model: task.model || '', modelLabel: task.modelLabel || task.model || '', metered: estimate?.metered !== false, estimateUsd: estimate?.firstUsd ?? null, problem,
+    ...(website ? { website: website.url, pageLimit: websiteSetup.PAGE_LIMIT } : {}) };
 }
 async function suggestProgramSetup(payload = {}) {
+  if (payload.websiteMode) return suggestWebsiteSetup(payload);
   const prompt = programSetupPrompt(payload);
   const jobId = `setup-${randomUUID()}`; const dir = dataPath('help', 'calls', jobId); fs.mkdirSync(dir, { recursive: true });
   try {
     const result = await generateStructuredOutputNow({ taskId: 'assistant.program-setup', schema: programSetup.SETUP_SCHEMA, prompt, workspaceDir: dir, outputPath: path.join(dir, 'answer.json'), jobId, maxBudgetUsd: 2, timeoutMs: 180000 });
     return { ...programSetup.cleanSetup(result.output), costUsd: Number.isFinite(Number(result.receipt?.costUsd)) ? Number(result.receipt.costUsd) : null };
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+async function suggestWebsiteSetup(payload) {
+  const request = websiteSetup.websiteRequest(payload);
+  const token = getKey('APIFY_API_TOKEN');
+  if (!token) throw new Error(keyNeeded('APIFY_API_TOKEN', 'Connect Apify in Settings to research a website.'));
+  const taskId = 'assistant.program-setup';
+  const task = aiRouting.resolve(taskId);
+  if (task.problem) throw new Error(task.problem);
+  aiLimits.checkBudget();
+  const identity = access.identityForCall()?.id || 'local';
+  if (websiteSetupsInFlight.has(identity)) throw Object.assign(new Error('A website draft is already running. Wait for it to finish and try again.'), { status: 409 });
+  const jobId = `setup-${randomUUID()}`;
+  const dir = dataPath('help', 'calls', jobId);
+  websiteSetupsInFlight.add(identity);
+  try {
+    await aiConnections.require(task.route);
+    const runner = createApifyRunner({ token, Client: ApifyClient, maxRetries: 0 });
+    const research = await websiteSetup.collectWebsite(request, runner);
+    fs.mkdirSync(dir, { recursive: true });
+    const result = await generateStructuredOutput({ taskId, task, schema: websiteSetup.websiteSchema(request), prompt: websiteSetup.websitePrompt(request, research.evidence), workspaceDir: dir, outputPath: path.join(dir, 'answer.json'), jobId, maxBudgetUsd: websiteSetup.AI_LIMIT_USD, timeoutMs: 120000 });
+    return websiteSetup.cleanWebsiteDraft(request, result.output, research);
+  } finally {
+    websiteSetupsInFlight.delete(identity);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 const helpNorm = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const helpSources = (program) => Object.fromEntries(['x', 'linkedin', 'reddit'].map((platform) => [platform, (program.sourceGroups || []).filter((group) => group.enabled && group.platform.startsWith(platform)).reduce((sum, group) => sum + (group.targets || []).length, 0)]));
@@ -3682,7 +3713,7 @@ handle('help:ask', async (_, payload = {}) => {
 // a restart still lets it through. { requestId } → { stopped }.
 // Guided setup: the estimate (free) and the suggestions (one paid AI call), for New research program and first-run setup.
 handle('setup:estimate', (_, payload = {}) => estimateProgramSetup(payload && typeof payload === 'object' ? payload : {}));
-handle('setup:suggest', (_, payload = {}) => suggestProgramSetup(payload && typeof payload === 'object' ? payload : {}));
+handle('setup:suggest', (_, payload = {}) => onceForRequest('suggestProgramSetup', payload, () => suggestProgramSetup(payload && typeof payload === 'object' ? payload : {})));
 handle('help:cancel', (_, payload = {}) => {
   const identityId = askIdentityId(); const requestId = String(askInput(payload).requestId ?? '');
   if (!ASK_REQUEST_ID.test(requestId)) throw askFail('Invalid question request ID.');

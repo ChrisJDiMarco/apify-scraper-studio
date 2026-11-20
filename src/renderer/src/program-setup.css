@@ -1,4 +1,6 @@
 /* Guided setup (program-setup.jsx): New research program and the studio's first setup. */
+.studio-dialog-backdrop:has(> .program-setup) { z-index: 96; }
+.studio-dialog.program-setup:has(> .program-setup-steps) { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .program-setup .studio-dialog-body { display: grid; gap: 12px; }
 .program-setup-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px 4px; padding: 0; list-style: none; }
 .program-setup-steps button { min-height: 30px; padding: 0 12px; font: inherit; font-size: 13px; font-weight: 600; color: var(--s-muted); background: transparent; border: 1px solid var(--s-line); border-radius: 999px; cursor: pointer; }

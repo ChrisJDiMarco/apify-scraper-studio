@@ -1,10 +1,11 @@
-import React, { useId, useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, LoaderCircle, Sparkles } from 'lucide-react';
 import { Dialog, DialogClose } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { emptyProgram, programPayload } from './program-editor.jsx';
 import { ProgramPeople } from './programs-page.jsx';
 import { useViewer, writeProps } from './viewer.js';
+import { WebsiteSetup, WebsiteSourceLink, fillEmptyFields } from './website-setup.jsx';
 import './program-setup.css';
 
 // Guided setup: a research program from what the person knows (their company, its website, its vertical, what to follow)
@@ -17,7 +18,8 @@ const list = (value) => (Array.isArray(value) ? value : []);
 const money = (value) => (Number.isFinite(Number(value)) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value)) : '');
 const STEPS = [['about', 'About'], ['sources', 'Sources'], ['brand', 'Brand'], ['schedule', 'Schedule'], ['review', 'Review']];
 const PLATFORMS = [['x', 'X accounts', 'x', 'Handles, one per line'], ['linkedin', 'LinkedIn people and pages', 'linkedin-profile', 'Profile or company URLs, one per line'], ['reddit', 'Subreddits', 'reddit', 'Names, one per line']];
-const BRAND_FIELDS = [['name', 'Brand name', 160], ['audience', 'Who it serves', 4000], ['positioning', 'How it positions itself', 6000], ['voice', 'Voice', 4000], ['forbiddenClaims', 'Claims to avoid', 6000]];
+const BRAND_FIELDS = [['name', 'Brand name', 160], ['audience', 'Who it serves', 4000], ['positioning', 'How it positions itself', 6000], ['voice', 'Voice', 4000], ['editorialRules', 'Editorial rules', 6000], ['forbiddenClaims', 'Claims to avoid', 6000]];
+const WORKSPACE_FIELDS = [...BRAND_FIELDS, ['icp', 'Ideal customer profile', 6000], ['productContext', 'Product context', 6000]];
 const lines = (value) => [...new Set(String(value || '').split(/[\n,]+/).map((row) => row.trim()).filter(Boolean))];
 
 export function ProgramSetup({ api, workspace, firstRun = false, onClose, onSaved, onNotice, onStartResearch }) {
@@ -25,11 +27,13 @@ export function ProgramSetup({ api, workspace, firstRun = false, onClose, onSave
   const confirm = useConfirm();
   const titleId = useId();
   const knowledge = workspace?.knowledge || {};
+  const workspaceBrandEmpty = !String(knowledge.name || '').trim();
+  const firstWorkspaceBrand = firstRun && workspaceBrandEmpty && typeof api.saveContentWorkspace === 'function';
   const [step, setStep] = useState(0);
   const [about, setAbout] = useState({ company: firstRun ? '' : knowledge.name || '', website: '', vertical: '', focus: '', name: '' });
   // The workspace's brand, unless the program is for another one (or this is the studio's first setup without one).
   const [brandMode, setBrandMode] = useState('workspace');
-  const [brand, setBrand] = useState({ name: knowledge.name || '', audience: knowledge.audience || '', positioning: knowledge.positioning || '', voice: knowledge.voice || '', forbiddenClaims: knowledge.forbiddenClaims || '' });
+  const [brand, setBrand] = useState(() => Object.fromEntries(WORKSPACE_FIELDS.map(([key]) => [key, firstWorkspaceBrand ? knowledge[key] || '' : ''])));
   const [suggested, setSuggested] = useState(null); // { sources: { x, linkedin, reddit }, notes, dropped }
   const [picked, setPicked] = useState(new Set()); // `${platform}:${target}`
   const [own, setOwn] = useState({ x: '', linkedin: '', reddit: '' });
@@ -38,9 +42,27 @@ export function ProgramSetup({ api, workspace, firstRun = false, onClose, onSave
   const [problem, setProblem] = useState('');
   const [saved, setSaved] = useState(null);
   const [people, setPeople] = useState(false);
-  const workspaceBrandEmpty = !String(knowledge.name || '').trim();
+  const [websiteDraft, setWebsiteDraft] = useState(null);
+  const companyEdited = useRef(false);
   const name = about.name.trim() || [about.company.trim(), about.focus.trim()].filter(Boolean).join(' · ').slice(0, 120);
   const set = (setter) => (key) => (event) => setter((current) => ({ ...current, [key]: event.target.value }));
+
+  function applyWebsiteDraft(result) {
+    const keepCompany = companyEdited.current;
+    setAbout((current) => fillEmptyFields(keepCompany ? current : { ...current, company: '' }, { ...result.about, company: result.about.company || current.company }));
+    setBrand((current) => fillEmptyFields(current, { ...result.knowledge, name: result.about.company || about.company }));
+    const nextSources = {};
+    const additions = [];
+    for (const [platform] of PLATFORMS) {
+      const current = list(suggested?.sources?.[platform]);
+      const next = list(result.sources[platform]).filter((row) => !current.some((source) => source.target === row.target));
+      nextSources[platform] = [...current, ...next].slice(0, 15);
+      additions.push(...nextSources[platform].slice(current.length).map((row) => `${platform}:${row.target}`));
+    }
+    setSuggested({ ...suggested, sources: nextSources });
+    setPicked((current) => new Set([...current, ...additions]));
+    setWebsiteDraft(result);
+  }
 
   async function suggest() {
     setProblem('');
@@ -81,8 +103,8 @@ export function ProgramSetup({ api, workspace, firstRun = false, onClose, onSave
     try {
       // The studio's first setup with no brand knowledge yet: the brand becomes the workspace's (its products and other
       // fields kept as they are).
-      if (firstRun && brandMode === 'workspace' && workspaceBrandEmpty && typeof api.saveContentWorkspace === 'function' && workspace?.id) {
-        await api.saveContentWorkspace({ id: workspace.id, name: workspace.name, editionId: workspace.editionId, knowledge: { ...knowledge, name: brand.name.trim() || about.company.trim(), audience: brand.audience, positioning: brand.positioning, voice: brand.voice, forbiddenClaims: brand.forbiddenClaims }, products: list(workspace.products), ...(workspace.enterpriseProducts ? { enterpriseProducts: workspace.enterpriseProducts } : {}), ...(workspace.updatedAt ? { baseUpdatedAt: workspace.updatedAt } : {}) });
+      if (firstWorkspaceBrand && brandMode === 'workspace' && workspace?.id) {
+        await api.saveContentWorkspace({ id: workspace.id, name: workspace.name, editionId: workspace.editionId, knowledge: { ...knowledge, ...brand, name: brand.name.trim() || about.company.trim() }, products: list(workspace.products), ...(workspace.enterpriseProducts ? { enterpriseProducts: workspace.enterpriseProducts } : {}), ...(workspace.updatedAt ? { baseUpdatedAt: workspace.updatedAt } : {}) });
       }
       const result = await api.saveResearchProgram(program());
       const done = result?.program || result;
@@ -108,33 +130,34 @@ export function ProgramSetup({ api, workspace, firstRun = false, onClose, onSave
   return <Dialog labelledBy={titleId} onClose={onClose} closeDisabled={Boolean(working)} className="program-setup" wide>
     {head}
     <ol className="program-setup-steps" aria-label="Steps">{STEPS.map(([id, label], index) => <li key={id} className={index === step ? 'is-current' : index < step ? 'is-done' : ''} aria-current={index === step ? 'step' : undefined}><button type="button" disabled={Boolean(working)} onClick={() => setStep(index)}>{index + 1}. {label}</button></li>)}</ol>
-    <div className="studio-dialog-body">
+    <div className="studio-dialog-body" key={step}>
       {STEPS[step][0] === 'about' && <>
-        <p className="studio-hint">Tell Golden Thread who it’s researching for. Ask AI uses this to suggest who to follow.</p>
-        <label className="studio-field"><span>Company</span><input value={about.company} maxLength={120} onChange={set(setAbout)('company')} placeholder="Acme" /></label>
-        <label className="studio-field"><span>Website <em>(optional)</em></span><input value={about.website} maxLength={300} onChange={set(setAbout)('website')} placeholder="https://www.example.com" /></label>
+        <WebsiteSetup api={api} mode="program" website={about.website} onWebsite={(website) => setAbout((current) => ({ ...current, website }))} focus={about.focus}
+          onWorking={(busy) => setWorking(busy ? 'website' : '')} onDraft={applyWebsiteDraft} result={websiteDraft}
+          fallback={<label className="studio-field"><span>Website <em>(optional)</em></span><input value={about.website} maxLength={300} onChange={set(setAbout)('website')} placeholder="https://www.example.com" /></label>} />
+        <label className="studio-field"><span>Company</span><input value={about.company} maxLength={120} onChange={(event) => { companyEdited.current = true; set(setAbout)('company')(event); }} placeholder="Acme" /></label>
         <label className="studio-field"><span>Vertical or industry</span><input value={about.vertical} maxLength={200} onChange={set(setAbout)('vertical')} placeholder="B2B marketing analytics" /></label>
-        <label className="studio-field"><span>What should research follow?</span><textarea rows={3} value={about.focus} maxLength={600} onChange={set(setAbout)('focus')} placeholder="What marketers say about measuring their brand in AI search answers" /></label>
+        <label className="studio-field"><span>What should research follow?</span><textarea rows={3} value={about.focus} maxLength={500} onChange={set(setAbout)('focus')} placeholder="What marketers say about measuring their brand in AI search answers" /></label>
         <label className="studio-field"><span>Program name <em>(optional)</em></span><input value={about.name} maxLength={120} onChange={set(setAbout)('name')} placeholder={name || 'Company · focus'} /></label>
         <fieldset className="program-setup-choice"><legend>Whose brand do its reports and assets speak for?</legend>
-          <label><input type="radio" name={`${titleId}-brand`} checked={brandMode === 'workspace'} onChange={() => setBrandMode('workspace')} /><span><strong>{workspaceBrandEmpty ? 'This studio’s brand' : knowledge.name}</strong><small>{workspaceBrandEmpty ? (firstRun ? 'Saved as the studio’s brand knowledge.' : 'The studio has no brand knowledge yet.') : 'Its brand knowledge, products and channels.'}</small></span></label>
-          <label><input type="radio" name={`${titleId}-brand`} checked={brandMode === 'own'} onChange={() => setBrandMode('own')} /><span><strong>Another brand</strong><small>This program writes for its own brand, without the studio’s products or taxonomy.</small></span></label>
+          <label><input type="radio" name={`${titleId}-brand`} checked={brandMode === 'workspace'} onChange={() => setBrandMode('workspace')} /><span><strong>{workspaceBrandEmpty ? 'This studio’s brand' : knowledge.name}</strong><small>{workspaceBrandEmpty ? (firstWorkspaceBrand ? 'Saved as the studio’s brand knowledge.' : 'The studio has no brand knowledge yet.') : 'Its brand knowledge, products and channels.'}</small></span></label>
+          <label><input type="radio" name={`${titleId}-brand`} checked={brandMode === 'own'} onChange={() => setBrandMode('own')} /><span><strong>Another brand</strong><small>{websiteDraft ? `Use the website’s drafted brand knowledge for this program.` : 'Give this program its own brand knowledge.'}</small></span></label>
         </fieldset>
       </>}
       {STEPS[step][0] === 'sources' && <>
-        <div className="program-setup-suggest"><p>Ask AI can suggest X accounts, LinkedIn people and pages, and subreddits for {about.company || 'this company'}. Each is checked before it’s shown; keep the ones you want.</p>
-          <button type="button" className="simple-primary" {...writeProps(viewer, Boolean(working))} onClick={suggest}>{working === 'suggest' ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}{suggested ? 'Suggest again' : 'Suggest sources'}</button></div>
+        {websiteDraft ? <p className="studio-hint">Review the results from website research. Choose the sources to follow or add your own below.</p> : <div className="program-setup-suggest"><p>Ask AI can suggest X accounts, LinkedIn people and pages, and subreddits for {about.company || 'this company'}. Each is checked before it’s shown; keep the ones you want.</p>
+          <button type="button" className="simple-primary" {...writeProps(viewer, Boolean(working))} onClick={suggest}>{working === 'suggest' ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}{suggested ? 'Suggest again' : 'Suggest sources'}</button></div>}
         {suggested?.notes && <p className="studio-hint">{suggested.notes}</p>}
         {suggested?.dropped > 0 && <p className="studio-hint">{suggested.dropped} suggestion{suggested.dropped === 1 ? ' wasn’t' : 's weren’t'} a valid account, page or subreddit, so {suggested.dropped === 1 ? 'it was' : 'they were'} left out.</p>}
         {PLATFORMS.map(([platform, label, , hint]) => <fieldset key={platform} className="program-setup-platform"><legend>{label}</legend>
-          {list(suggested?.sources?.[platform]).length > 0 && <ul>{suggested.sources[platform].map((row) => { const key = `${platform}:${row.target}`; return <li key={key}><label><input type="checkbox" checked={picked.has(key)} onChange={(event) => setPicked((current) => { const next = new Set(current); if (event.target.checked) next.add(key); else next.delete(key); return next; })} /><span><strong>{row.name}</strong> <code>{row.target}</code><small>{row.why}</small></span></label></li>; })}</ul>}
+          {list(suggested?.sources?.[platform]).length > 0 && <ul>{suggested.sources[platform].map((row) => { const key = `${platform}:${row.target}`; return <li key={key}><label><input type="checkbox" checked={picked.has(key)} onChange={(event) => setPicked((current) => { const next = new Set(current); if (event.target.checked) next.add(key); else next.delete(key); return next; })} /><span><strong>{row.name}</strong> <code>{row.target}</code><small>{row.why}</small></span></label>{row.url && <WebsiteSourceLink url={row.url}>View source for {row.target}</WebsiteSourceLink>}</li>; })}</ul>}
           <label className="studio-field"><span>Add your own</span><textarea rows={2} value={own[platform]} onChange={set(setOwn)(platform)} placeholder={hint} /></label>
         </fieldset>)}
       </>}
       {STEPS[step][0] === 'brand' && <>
-        {brandMode === 'workspace' && !(firstRun && workspaceBrandEmpty) ? <p className="studio-hint">This program uses {knowledge.name || 'the studio’s'} brand knowledge. Change it in Studio › Brand knowledge, or go back and choose Another brand.</p>
-          : <><p className="studio-hint">{brandMode === 'own' ? 'The brand this program’s reports and assets speak for.' : 'The studio’s brand knowledge, so reports and assets come out on brand.'} Ask AI’s draft (from Sources) fills these in; check every line.</p>
-            {BRAND_FIELDS.map(([key, label, max]) => <label key={key} className="studio-field"><span>{label}</span>{key === 'name' ? <input value={brand[key]} maxLength={max} onChange={set(setBrand)(key)} /> : <textarea rows={3} value={brand[key]} maxLength={max} onChange={set(setBrand)(key)} />}</label>)}</>}
+        {brandMode === 'workspace' && !firstWorkspaceBrand ? <p className="studio-hint">This program uses {knowledge.name || 'the studio’s'} brand knowledge. Change it in Studio › Brand knowledge, or go back and choose Another brand.</p>
+          : <><p className="studio-hint">{brandMode === 'own' ? 'The brand this program’s reports and assets speak for.' : 'This brand knowledge will be saved to the workspace.'} Review the wording before saving.</p>
+            {(brandMode === 'own' ? BRAND_FIELDS : WORKSPACE_FIELDS).map(([key, label, max]) => <label key={key} className="studio-field"><span>{label}</span>{key === 'name' ? <input value={brand[key]} maxLength={max} onChange={set(setBrand)(key)} /> : <textarea rows={3} value={brand[key]} maxLength={max} onChange={set(setBrand)(key)} />}</label>)}</>}
       </>}
       {STEPS[step][0] === 'schedule' && <>
         <label className="studio-field"><span>When it runs</span><select value={schedule.frequency} onChange={set(setSchedule)('frequency')}><option value="manual">When I start it</option><option value="daily">Every day</option><option value="weekly">Every week</option></select></label>

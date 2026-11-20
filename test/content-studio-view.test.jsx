@@ -95,6 +95,58 @@ describe('research and content studio workspace', () => {
     await waitFor(() => expect(handlers.api.saveContentWorkspace).toHaveBeenCalledWith(expect.objectContaining({ name: 'New client', editionId: 'semrush' })));
   });
 
+  it('assists brand knowledge without overwriting manual fields or saving the workspace', async () => {
+    const handlers = props();
+    const url = 'https://example.com/product';
+    handlers.api.estimateProgramSetup = vi.fn(async () => ({ website: url, pageLimit: 10, estimateUsd: 0.08 }));
+    handlers.api.suggestProgramSetup = vi.fn(async () => ({
+      about: { company: 'Acme' }, knowledge: { audience: 'Illustrators', voice: 'Approachable' },
+      products: [{ name: 'Acme Draw', url, description: 'Illustration tools.', capabilities: ['Vector editing'] }],
+      evidence: [{ title: 'Acme Draw', url, kind: 'page' }],
+    }));
+    render(<ContentStudioView {...handlers} />);
+    fireEvent.click(screen.getByRole('button', { name: 'New workspace' }));
+    fill('Workspace name', 'My Acme workspace');
+    fill('Brand voice', 'Plain');
+    fireEvent.click(screen.getByRole('button', { name: 'Help me fill this out' }));
+    fill('Website', 'example.com/product');
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Website' }), { key: 'Enter' });
+    await screen.findByText(/Draft ready/);
+    expect(handlers.api.saveContentWorkspace).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: 'Workspace name' })).toHaveValue('My Acme workspace');
+    expect(screen.getByRole('textbox', { name: 'Brand voice' })).toHaveValue('Plain');
+    expect(screen.getByRole('textbox', { name: 'Audience', exact: true })).toHaveValue('Illustrators');
+    fireEvent.click(screen.getByRole('button', { name: 'Review brand fields' }));
+    expect(screen.getByRole('textbox', { name: 'Audience', exact: true })).toHaveFocus();
+    fill('Audience', 'Independent illustrators');
+    fireEvent.click(screen.getByRole('button', { name: 'Save brand knowledge' }));
+    await waitFor(() => expect(handlers.api.saveContentWorkspace).toHaveBeenCalledWith(expect.objectContaining({
+      knowledge: expect.objectContaining({ audience: 'Independent illustrators', voice: 'Plain' }), products: [expect.objectContaining({ name: 'Acme Draw', url })],
+    })));
+  });
+
+  it('fills the manual program editor from website research while keeping a source the user entered', async () => {
+    const handlers = props();
+    const url = 'https://example.com/';
+    handlers.api.estimateProgramSetup = vi.fn(async () => ({ website: url, pageLimit: 10 }));
+    handlers.api.suggestProgramSetup = vi.fn(async () => ({
+      about: { name: 'Illustration research', focus: 'Vector editing adoption' },
+      sources: { x: [{ target: 'acme' }], reddit: [{ target: 'illustration' }] }, knowledge: {},
+      evidence: [{ title: 'Acme Design Tools', url, kind: 'page' }],
+    }));
+    render(<ContentStudioView {...handlers} initialView="research" />);
+    fireEvent.click(screen.getByRole('checkbox', { name: /X accounts/ }));
+    fill('X accounts', 'customartist');
+    fireEvent.click(screen.getByRole('button', { name: 'Help me fill this out' }));
+    fill('Website', 'example.com');
+    fireEvent.click(screen.getByRole('button', { name: 'Research website' }));
+    await screen.findByText(/Draft ready/);
+    expect(screen.getByRole('textbox', { name: 'Program name' })).toHaveValue('Illustration research');
+    expect(screen.getByRole('textbox', { name: 'X accounts' })).toHaveValue('customartist');
+    expect(screen.getByRole('textbox', { name: 'Subreddits' })).toHaveValue('illustration');
+    expect(handlers.api.saveResearchProgram).not.toHaveBeenCalled();
+  });
+
   it('generates only the explicitly selected deliverables with the source evidence and budget', async () => {
     const handlers = await setupCreate();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Trends report' })); fireEvent.click(screen.getByRole('checkbox', { name: 'Social captions' })); // evidence-report carries the Library's name in every edition

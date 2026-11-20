@@ -123,7 +123,8 @@ function createAccess({ teamStore, roles: policy = roles, workspace, web = false
     const base = baseOf(viewer, identityMethod);
     if (viewer.workspaceId !== undefined) {
       if (['saveWorkspaceMembership', 'createSignInLink', 'revokeSignInLink'].includes(method) && (!viewer.isSuperAdmin || viewer.preview)) throw fail('Only a Super Admin can manage workspace assignments and account sign-in links.', 403, 'superAdminOnly');
-      if (method === 'saveContentWorkspace' && !record(payload).id && !viewer.isSuperAdmin) throw fail('Only a Super Admin can create a workspace.', 403, 'superAdminOnly');
+      const draftingWorkspace = ['estimateProgramSetup', 'suggestProgramSetup'].includes(method) && record(payload).websiteMode === 'workspace';
+      if (((method === 'saveContentWorkspace' && !record(payload).id) || draftingWorkspace) && !viewer.isSuperAdmin) throw fail('Only a Super Admin can create a workspace.', 403, 'superAdminOnly');
       if (method === 'selectContentWorkspace' && viewer.preview) throw policy.refusal('preview', { who: policy.previewWho(viewer) });
       if (method !== 'saveWorkspaceMembership' && record(payload).workspaceId && record(payload).workspaceId !== viewer.workspaceId) throw policy.refusal('outOfScope');
       if (method === 'saveContentWorkspace' && record(payload).id && record(payload).id !== viewer.workspaceId) throw policy.refusal('outOfScope');

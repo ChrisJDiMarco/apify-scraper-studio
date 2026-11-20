@@ -11,7 +11,7 @@ export function safeMarkdownUrl(value) {
   } catch (_) { return ''; }
 }
 
-function MarkdownLink({ href, children, onOpenSourceUrl }) {
+export function MarkdownLink({ href, children, onOpenSourceUrl }) {
   const url = safeMarkdownUrl(href);
   const [error, setError] = useState('');
   if (!url) return <span>{children}</span>;

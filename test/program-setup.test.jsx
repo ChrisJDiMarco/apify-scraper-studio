@@ -67,6 +67,61 @@ describe('guided setup of a research program', () => {
     expect(api.saveResearchProgram).not.toHaveBeenCalled();
   });
 
+  it('fills from a URL, keeps manual edits, and saves the chosen sources and edited brand on confirmation', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { api } = open();
+    api.estimateProgramSetup.mockResolvedValue({ website: 'https://example.com/product', pageLimit: 10, estimateUsd: 0.08 });
+    const url = 'https://x.com/acmeai';
+    api.suggestProgramSetup.mockResolvedValue({
+      about: { company: 'Acme', vertical: 'Design tools', name: 'Acme design pulse', focus: 'AI tool adoption' },
+      knowledge: { audience: 'Illustrators', voice: 'Clear' }, sources: { x: [{ target: 'acmeai', name: 'Acme', url }] },
+      evidence: [{ url, title: 'Acme on X', kind: 'search' }],
+    });
+    type('What should research follow?', 'How illustrators evaluate new tools');
+    fireEvent.click(screen.getByRole('button', { name: 'Help me fill this out' }));
+    type('Website', 'example.com/product');
+    fireEvent.click(screen.getByRole('button', { name: 'Research website' }));
+    await screen.findByText(/Draft ready/);
+    expect(api.suggestProgramSetup).toHaveBeenCalledWith(expect.objectContaining({ websiteMode: 'program', website: 'https://example.com/product' }));
+    expect(screen.getByRole('textbox', { name: 'Company' })).toHaveValue('Acme');
+    expect(screen.getByRole('textbox', { name: 'What should research follow?' })).toHaveValue('How illustrators evaluate new tools');
+    fireEvent.click(screen.getByRole('radio', { name: /Another brand/ }));
+    next();
+    expect(screen.getByRole('checkbox', { name: /acmeai/i })).toBeChecked();
+    expect(screen.getByRole('link', { name: 'View source for acmeai' })).toHaveAttribute('href', url);
+    next();
+    expect(screen.getByRole('textbox', { name: 'Who it serves' })).toHaveValue('Illustrators');
+    type('Voice', 'Plain and direct');
+    expect(api.saveResearchProgram).not.toHaveBeenCalled();
+    next(); next();
+    fireEvent.click(screen.getByRole('button', { name: 'Save program' }));
+    await waitFor(() => expect(api.saveResearchProgram).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Acme design pulse', query: 'How illustrators evaluate new tools', brand: expect.objectContaining({ name: 'Acme', voice: 'Plain and direct' }),
+    })));
+    expect(api.saveContentWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('reuses the paid request ID when the browser loses the first response', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { api } = open();
+    api.estimateProgramSetup.mockResolvedValue({ website: 'https://example.com/', pageLimit: 10 });
+    api.suggestProgramSetup.mockRejectedValueOnce(Object.assign(new Error('The studio didn’t answer.'), { status: 0 }));
+    api.suggestProgramSetup.mockResolvedValueOnce(undefined);
+    api.suggestProgramSetup.mockResolvedValue({ about: { company: 'Acme' }, sources: {}, evidence: [] });
+    fireEvent.click(screen.getByRole('button', { name: 'Help me fill this out' }));
+    type('Website', 'example.com');
+    fireEvent.click(screen.getByRole('button', { name: 'Research website' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The studio didn’t answer.');
+    fireEvent.click(screen.getByRole('button', { name: 'Research website' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The draft response was incomplete.');
+    fireEvent.click(screen.getByRole('button', { name: 'Research website' }));
+    await screen.findByText(/Draft ready/);
+    expect(api.suggestProgramSetup).toHaveBeenCalledTimes(3);
+    expect(api.suggestProgramSetup.mock.calls[0][0].requestId).toBeTruthy();
+    expect(api.suggestProgramSetup.mock.calls[1][0]).toEqual(api.suggestProgramSetup.mock.calls[0][0]);
+    expect(api.suggestProgramSetup.mock.calls[2][0]).toEqual(api.suggestProgramSetup.mock.calls[0][0]);
+  });
+
   it('on the studio’s first setup, saves the brand as the workspace’s, keeping its products', async () => {
     const { api } = open({ firstRun: true, space: { ...workspace, knowledge: {} } });
     type('Company', 'Acme'); type('Vertical or industry', 'AI images');

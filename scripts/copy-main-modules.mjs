@@ -106,6 +106,7 @@ const copies = [
   ['src/shared/brand-images.js', 'out/shared/brand-images.js'],
   ['src/shared/research-program.js', 'out/shared/research-program.js'],
   ['src/shared/program-setup.js', 'out/shared/program-setup.js'], // guided setup's suggestions (index.js suggestProgramSetup)
+  ['src/main/website-setup.js', 'out/main/website-setup.js'],
   ['src/shared/research-quick-scan.js', 'out/shared/research-quick-scan.js'], // quick scans sized from chat
   ['src/shared/research-scan-report.js', 'out/shared/research-scan-report.js'], // a quick scan's short trends report
   ['src/shared/quick-scan.json', 'out/shared/quick-scan.json'],
