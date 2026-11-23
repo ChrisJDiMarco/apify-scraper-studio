@@ -152,14 +152,22 @@ export function setupChecklist({ state = {}, web = false, team = null, channels 
   const members = list(team?.members);
   const owned = new Set(members.filter((member) => member.channelId && !member.disabled).map((member) => member.channelId));
   const covered = channels.filter((channel) => owned.has(channel.id)).length;
+  // Done only when it exists: brand knowledge written, a channel's knowledge saved, a brand picture uploaded.
+  const knowledge = workspace?.knowledge || {};
+  const brandDone = ['audience', 'positioning', 'voice', 'productContext'].some((key) => String(knowledge[key] || '').trim());
+  const channelsDone = Object.values(workspace?.channelKnowledge || {}).some((row) => row && typeof row === 'object' && Object.entries(row).some(([key, value]) => !['updatedAt', 'updatedBy'].includes(key) && typeof value === 'string' && value.trim()));
+  const imagesDone = list(workspace?.brandImageSets).some((set) => list(set?.images).length > 0) || list(workspace?.brandImages).length > 0;
   const items = [
+    { id: 'brand', label: 'Describe the brand', detail: 'Who it helps, how it sounds and what it sells. Every brief, report and asset uses it.', done: brandDone, action: { kind: 'open', target: { kind: 'page', page: 'knowledge' }, label: 'Open Brand knowledge' } },
     { id: 'apify', label: 'Connect Apify', detail: 'Research collects posts through it.', done: Boolean(state.keys?.APIFY_API_TOKEN), action: { kind: 'open', target: { kind: 'page', page: 'settings', section: 'sources' }, label: 'Open Settings' } },
     { id: 'ai', label: state.settings?.aiProvider === 'codex' ? 'Check that Codex works' : 'Check that Claude works', detail: 'Check connections in Settings tries the route research uses.', done: aiChecked(state.settings) || runs.some((run) => ['succeeded', 'partial', 'awaiting-review'].includes(run.status)), action: { kind: 'open', target: { kind: 'page', page: 'settings', section: 'ai' }, label: 'Check in Settings' } },
     { id: 'program', label: 'Set up your first research program', detail: 'A guided setup: your company and vertical, suggested accounts and communities to follow, your brand, and when it runs.', done: list(studio.programs).some(mine), action: { kind: 'create', create: 'program', label: 'Start setup' } },
+    { id: 'channels', label: 'Set up your channels', detail: 'What each channel should know about its audience and format, and the instructions that write its assets.', done: channelsDone, action: { kind: 'open', target: { kind: 'page', page: 'channels' }, label: 'Open Channels' } },
     ...(web ? [
-      { id: 'team', label: 'Invite your editors', detail: 'They say yes to trends and write reports.', done: (Number(state.team?.memberCount) || members.length) > 1, action: { kind: 'create', create: 'person', label: 'Invite people' } },
-      ...(team && channels.length ? [{ id: 'owners', label: `Give each channel an owner (${count(covered)} of ${count(channels.length)})`, detail: 'Channel owners get the briefs and say what they used.', done: covered >= channels.length, action: { kind: 'open', target: { kind: 'page', page: 'people' }, label: 'Open People & access' } }] : []),
+      { id: 'team', label: 'Invite your team', detail: 'Editors say yes to trends and write reports. Channel owners get their channel’s briefs.', done: (Number(state.team?.memberCount) || members.length) > 1, action: { kind: 'create', create: 'person', label: 'Invite people' } },
+      ...(channels.length ? [{ id: 'owners', label: `Give each channel an owner (${count(team ? covered : 0)} of ${count(channels.length)})`, detail: 'Channel owners get the briefs and say what they used.', done: Boolean(team) && covered >= channels.length, action: { kind: 'open', target: { kind: 'page', page: 'people' }, label: 'Open People & access' } }] : []),
     ] : []),
+    { id: 'images', label: 'Add brand reference images', detail: 'Logos and style examples that pictures for channel assets follow.', optional: true, done: imagesDone, action: { kind: 'open', target: { kind: 'page', page: 'knowledge' }, label: 'Open Brand knowledge' } },
     { id: 'pictures', label: 'Turn on pictures', detail: 'Optional. Hero graphics for channel assets and Ask AI.', optional: true, done: Boolean(state.keys?.OPENAI_API_KEY) || Boolean(studio.capabilities?.imagesConfigured), action: { kind: 'open', target: { kind: 'page', page: 'settings', section: 'ai' }, label: 'Open Settings' } },
     ...(!web ? [{ id: 'address', label: 'Add the Studio web address', detail: 'Optional. Share links and the Slack briefing then link into the browser studio.', optional: true, done: Boolean(state.settings?.studioWebAddress), action: { kind: 'open', target: { kind: 'page', page: 'settings', section: 'web-address' }, label: 'Open Settings' } }] : []),
   ];

@@ -62,17 +62,18 @@ describe('Ask AI', () => {
 describe('Prompt Library', () => {
   it('refuses for now when a saved prompt can’t be read, and leaves the file in place', () => {
     const root = temp('win-prompts-'); const store = createPromptStore({ root, now: () => new Date('2026-10-18T09:00:00Z') });
-    const empty = 'Return an empty list when nothing in this batch is a real trend.';
-    store.save('general', 'general', 'research.discovery', { blocks: { empty }, expectedVersion: 0, note: 'Plainer rule', by: { id: 'id-sam', name: 'Sam', role: 'editor' } });
-    const file = path.join(root, 'general', 'research.discovery.json'); const before = fs.readFileSync(file, 'utf8');
-    holdFiles('research.discovery.json');
-    const error = failure(() => store.read('general', 'general', 'research.discovery'));
+    // A channel asset prompt: the only kind anyone can save over.
+    const instruction = 'LinkedIn 120–180 words with one CTA. X: 5–7 short posts. Facebook 80–120 words with at most two hashtags.';
+    store.save('general', 'general', 'assets.social', { blocks: { instruction }, expectedVersion: 0, note: 'Plainer rule', by: { id: 'id-sam', name: 'Sam', role: 'editor' } });
+    const file = path.join(root, 'general', 'assets.social.json'); const before = fs.readFileSync(file, 'utf8');
+    holdFiles('assets.social.json');
+    const error = failure(() => store.read('general', 'general', 'assets.social'));
     expect(error).toMatchObject({ status: 503, code: 'promptsUnreadable', message: 'This prompt’s saved versions could not be read right now; nothing was changed. Try again.' });
-    expect(() => store.save('general', 'general', 'research.discovery', { blocks: { empty: `${empty} Again.` }, expectedVersion: 1, note: 'Again', by: { id: 'id-sam', name: 'Sam', role: 'editor' } })).toThrow(/could not be read right now/);
+    expect(() => store.save('general', 'general', 'assets.social', { blocks: { instruction: `${instruction} Again.` }, expectedVersion: 1, note: 'Again', by: { id: 'id-sam', name: 'Sam', role: 'editor' } })).toThrow(/could not be read right now/);
     vi.restoreAllMocks();
     expect(asideCopies(root)).toEqual([]);
     expect(fs.readFileSync(file, 'utf8')).toBe(before);
-    expect(store.read('general', 'general', 'research.discovery')).toMatchObject({ version: 1, customized: ['empty'], damaged: false });
+    expect(store.read('general', 'general', 'assets.social')).toMatchObject({ version: 1, customized: ['instruction'], damaged: false });
   });
 });
 

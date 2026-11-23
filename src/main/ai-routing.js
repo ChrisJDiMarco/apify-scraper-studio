@@ -360,7 +360,8 @@ function createAiRouting({ tasks = TASKS, getSettings = () => ({}), catalog = nu
     if (method === 'startQuickScan') return ['quickScans.discovery', 'quickScans.synthesis'];
     if (method === 'createContentRun') return ['create.drafts', ...(pictures ? ['pictures.content-image'] : [])];
     if (method === 'createAssetKit') {
-      const written = deliverableIds.filter((id) => byId.has(`assets.${id}`)).map((id) => `assets.${id}`);
+      const base = (id) => require('../shared/custom-channels').baseDeliverableId(id); // a custom channel's format writes like the built-in one
+      const written = [...new Set(deliverableIds.map(base).filter((id) => byId.has(`assets.${id}`)).map((id) => `assets.${id}`))];
       return [...(written.length ? written : []), ...(pictures ? ['pictures.kit-brief', 'pictures.kit-image'] : []), ...(video ? ['video.brief', 'video.social-clip'] : [])];
     }
     if (method === 'askFindings') return ['assistant.ask-datasets'];

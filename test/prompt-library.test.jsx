@@ -75,13 +75,17 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); try { window.localStorage.cle
 
 describe('checks that match the server', () => {
   it('says what the server says for the same edit', () => {
-    const entry = entryOf('research.discovery'); const fields = entry.blocks.find((block) => block.id === 'fields');
-    const original = template.defaultText('research.discovery', 'fields', EDITION);
-    const drafts = ['Return names only.', `${original}\n{{brand}} and {{nope}}`, `${original} {{ stray`, `${original}\nRAW DATA BATCH`, ''];
-    for (const draft of drafts) expect(checkBlock(fields, draft, original)).toEqual(template.validateBlocks('research.discovery', EDITION, { fields: draft }).map((problem) => problem.message));
+    // The short video plan (a prompt that writes channel assets): "Who the AI is" has {{values}} it must keep, and "What
+    // to return" field names it must still mention.
+    for (const blockId of ['role', 'fields']) {
+      const block = entryOf('video.brief').blocks.find((row) => row.id === blockId);
+      const original = template.defaultText('video.brief', blockId, EDITION);
+      const drafts = ['Return names only.', `${original}\n{{brand}} and {{nope}}`, `${original} {{ stray`, `${original}\nRAW DATA BATCH`, ''];
+      for (const draft of drafts) expect(checkBlock(block, draft, original), `${blockId}: ${draft.slice(-20)}`).toEqual(template.validateBlocks('video.brief', EDITION, { [blockId]: draft }).map((problem) => problem.message));
+      expect(checkBlock(block, original, original)).toEqual([]);
+    }
     const variations = entryOf('pictures.variations').blocks[0];
     expect(checkBlock(variations, 'One line only', '')).toEqual(template.validateBlocks('pictures.variations', EDITION, { [variations.id]: 'One line only' }).map((problem) => problem.message));
-    expect(checkBlock(fields, original, original)).toEqual([]);
   });
   it('finds prompts by name, use or id, and says what each runs on', () => {
     const row = { id: 'research.discovery', name: 'Find candidate trends', description: 'Reads posts', powers: ['Quick scans'] };
@@ -110,76 +114,100 @@ describe('checks that match the server', () => {
 
 describe('the Prompts page', () => {
   it('lists prompts by group with their badges and finds them by search', async () => {
-    const api = fakeApi({ saved: { 'research.matching': { role: 'You match {{subject}} trends.' } }, locked: { 'reports.trends-report': true } });
+    const api = fakeApi({ saved: { 'video.brief': { role: 'You plan a {{seconds}}-second {{shape}} clip for {{owner}}.' } }, locked: { 'assets.newsletter': true } });
     page({ api });
     const list = await screen.findByRole('navigation', { name: 'All prompts' });
     expect(within(list).getAllByRole('heading', { level: 2 }).map((node) => node.textContent)).toEqual(REGISTRY.groups.map((group) => group.label));
-    expect(within(list).getByRole('button', { name: /Match trends you already track.*Customized · v1 · Riley/ })).toBeInTheDocument();
-    expect(within(list).getByRole('button', { name: /Trends report.*Locked/ })).toBeInTheDocument();
+    expect(within(list).getByRole('button', { name: /Short video plan.*Customized · v1 · Riley/ })).toBeInTheDocument();
+    expect(within(list).getByRole('button', { name: /Newsletter pack.*Locked/ })).toBeInTheDocument();
     expect(within(list).getByRole('button', { name: /Claude system prompt.*View only/i })).toBeInTheDocument();
+    // Research prompts are set by the studio.
+    expect(within(list).getByRole('button', { name: /Find candidate trends.*View only/i })).toBeInTheDocument();
     fireEvent.change(within(list).getByRole('searchbox', { name: 'Search prompts' }), { target: { value: 'nothing like this' } });
     expect(within(list).getByText('No prompt matches “nothing like this”.')).toBeInTheDocument();
   });
+  // Only the prompts that write channel assets can be changed: the edits below are to the short video plan.
   it('shows the prompt in order and saves an edit as a new version with a note', async () => {
     const onNotice = vi.fn();
     const { api } = page({ onNotice });
-    await openPrompt('Find candidate trends');
+    await openPrompt('Short video plan');
     expect(screen.getByText('Runs on Claude Opus 5.5 · medium effort', { exact: false })).toBeInTheDocument();
-    expect(screen.getByText('SYSTEM INSTRUCTIONS')).toBeInTheDocument(); // a fixed part, with its reason
+    expect(screen.getByText('BRAND DIRECTION (the look the video model is given)')).toBeInTheDocument(); // a fixed part, with its reason
+    expect(screen.getByText('Edit it under Brand visual direction.')).toBeInTheDocument();
     expect(screen.getAllByText('Data from the run goes here.').length).toBeGreaterThan(0);
-    const field = screen.getByRole('textbox', { name: 'What to return for each trend' });
+    expect(screen.getByRole('tab', { name: 'Edit' })).toHaveAttribute('aria-selected', 'true');
+    const field = screen.getByRole('textbox', { name: 'What to return' });
     const original = field.value;
     fireEvent.change(field, { target: { value: 'Return names only.' } });
-    expect(await screen.findByText('What to return for each trend must keep {{painPoints}}: the studio fills it in for every run.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save as version 1…' })).toBeDisabled();
+    expect(await screen.findByText('What to return must still mention “title”: the studio reads that field back.')).toBeInTheDocument();
+    // One save bar for the page: what changed, Discard, and Save (off while something needs fixing).
+    const bar = screen.getByRole('region', { name: 'Unsaved changes' });
+    expect(within(bar).getByText('1 unsaved change')).toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: 'Discard' })).toBeEnabled();
+    expect(within(bar).getByRole('button', { name: 'Save new version…' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: /Reset this block/ }));
     expect(field.value).toBe(original);
-    const empty = screen.getByRole('textbox', { name: 'When nothing qualifies' });
-    fireEvent.change(empty, { target: { value: 'Return no candidates unless two posts back a trend.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save as version 1…' }));
-    const dialog = await screen.findByRole('dialog', { name: /Version 1 of “Find candidate trends”/ });
-    expect(await within(dialog).findByRole('list', { name: /Changes to When nothing qualifies: 1 line added, 1 line removed/ })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Unsaved changes' })).toBeNull();
+    const story = screen.getByRole('textbox', { name: 'How to tell the story' });
+    fireEvent.change(story, { target: { value: 'Tell the story in one calm, continuous shot.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save new version…' }));
+    const dialog = await screen.findByRole('dialog', { name: /Version 1 of “Short video plan”/ });
+    expect(await within(dialog).findByRole('list', { name: /Changes to How to tell the story: 1 line added, 1 line removed/ })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save as version 1' }));
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Add a short note');
-    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Note for the history' }), { target: { value: 'Two posts per trend' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Note for the history' }), { target: { value: 'One continuous shot' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save as version 1' }));
-    await waitFor(() => expect(onNotice).toHaveBeenCalledWith('Saved version 1 of “Find candidate trends”.'));
-    expect(api.savePromptVersion).toHaveBeenCalledWith({ id: 'research.discovery', blocks: { empty: 'Return no candidates unless two posts back a trend.' }, expectedVersion: 0, note: 'Two posts per trend', source: 'library' });
+    await waitFor(() => expect(onNotice).toHaveBeenCalledWith('Saved version 1 of “Short video plan”.'));
+    expect(api.savePromptVersion).toHaveBeenCalledWith({ id: 'video.brief', blocks: { instruction: 'Tell the story in one calm, continuous shot.' }, expectedVersion: 0, note: 'One continuous shot', source: 'library' });
     expect(screen.queryByRole('dialog')).toBeNull();
   });
   it('inserts a value where the cursor is', async () => {
     page();
-    await openPrompt('Find candidate trends');
+    await openPrompt('Short video plan');
     const field = screen.getByRole('textbox', { name: 'Who the AI is' });
     field.setSelectionRange(0, 0);
-    fireEvent.click(screen.getAllByRole('button', { name: /^Insert \{\{brand\}\}/ })[0]);
-    expect(field.value.startsWith('{{brand}}')).toBe(true);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Insert \{\{owner\}\}/ })[0]);
+    expect(field.value.startsWith('{{owner}}')).toBe(true);
   });
   it('tells someone a save came after theirs, and keeps their edits', async () => {
     const api = fakeApi();
     page({ api });
-    await openPrompt('Find candidate trends');
-    api.store['research.discovery'].version = 2; // Riley saved twice meanwhile
-    fireEvent.change(screen.getByRole('textbox', { name: 'When nothing qualifies' }), { target: { value: 'Return nothing.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save as version 1…' }));
+    await openPrompt('Short video plan');
+    api.store['video.brief'].version = 2; // Riley saved twice meanwhile
+    fireEvent.change(screen.getByRole('textbox', { name: 'How to tell the story' }), { target: { value: 'Tell it in one shot.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save new version…' }));
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Note for the history' }), { target: { value: 'Shorter' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save as version 1' }));
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('after you opened it');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Reload the prompt (your edits stay)' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save as version 3…' })).toBeInTheDocument());
-    expect(screen.getByRole('textbox', { name: 'When nothing qualifies' }).value).toBe('Return nothing.');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByRole('textbox', { name: 'How to tell the story' }).value).toBe('Tell it in one shot.');
+    // Riley's versions are loaded under the edit, so the next save is version 3.
+    fireEvent.click(screen.getByRole('button', { name: 'Save new version…' }));
+    expect(await screen.findByRole('dialog', { name: /Version 3 of “Short video plan”/ })).toBeInTheDocument();
   });
   it('shows a locked prompt read-only to an editor, and a prompt read-only to a role that can’t edit', async () => {
-    const api = fakeApi({ locked: { 'research.discovery': true } }); api.setRole('editor');
+    const api = fakeApi({ locked: { 'video.brief': true } }); api.setRole('editor');
     const first = page({ api, viewer: EDITOR });
-    await openPrompt('Find candidate trends');
+    await openPrompt('Short video plan');
     expect(screen.getByRole('note')).toHaveTextContent('Locked by an admin (Alex, Oct 14). Ask Alex to change it.');
     expect(screen.getByRole('textbox', { name: 'Who the AI is' })).toHaveAttribute('readonly');
     first.unmount();
-    page({ api: fakeApi(), viewer: READER });
-    await openPrompt('Find candidate trends');
+    const second = page({ api: fakeApi(), viewer: READER });
+    await openPrompt('Short video plan');
     expect(screen.getByRole('note')).toHaveTextContent('Your role can see prompts but not change them.');
+    second.unmount();
+    // A prompt the studio sets is read only to everyone, admins too: one note at the top instead of the reason on every
+    // part, its text as text, and its first tab says "Prompt".
+    page({ api: fakeApi(), viewer: ADMIN });
+    await openPrompt('Find candidate trends');
+    expect(screen.getByRole('note')).toHaveTextContent('Set by the studio: only the prompts that write channel assets can be changed. It’s shown here so you can see what the AI is told.');
+    expect(screen.getByRole('tab', { name: 'Prompt' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: 'Edit' })).toBeNull();
+    expect(screen.queryAllByRole('textbox')).toEqual([]);
+    expect(screen.queryByText('Set by the studio. Only the prompts that write channel assets can be changed.')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Unsaved changes' })).toBeNull();
   });
   it('previews the real prompt with the editable part marked, and test-runs it after the price is confirmed', async () => {
     const { api, confirmed } = page();
@@ -206,9 +234,9 @@ describe('the Prompts page', () => {
     const api = fakeApi();
     let finish;
     api.testPrompt = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
-    const state = { ...STATE, jobs: [{ id: 'ptest-1', kind: 'prompt-test', title: 'Test run · Find candidate trends', cancellable: true }] };
+    const state = { ...STATE, jobs: [{ id: 'ptest-1', kind: 'prompt-test', title: 'Test run · Short video plan', cancellable: true }] };
     page({ api, state });
-    await openPrompt('Find candidate trends');
+    await openPrompt('Short video plan');
     fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Test run…' }));
     await waitFor(() => expect(api.testPrompt).toHaveBeenCalledOnce());
@@ -226,23 +254,28 @@ describe('the Prompts page', () => {
     expect(api.estimatePromptTest).toHaveBeenCalledOnce();
   });
   it('compares and restores versions, and lets an admin lock the prompt', async () => {
-    const api = fakeApi({ saved: { 'research.discovery': { empty: 'Return nothing.' } } });
+    const api = fakeApi({ saved: { 'video.brief': { instruction: 'Tell it in one shot.' } } });
     const onNotice = vi.fn();
     page({ api, onNotice });
-    await openPrompt('Find candidate trends');
+    await openPrompt('Short video plan');
     fireEvent.click(screen.getByRole('tab', { name: 'History' }));
     expect(screen.getByText('First pass')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Compare with the default' }));
-    expect(await screen.findByRole('list', { name: /Version 1 against the default: When nothing qualifies/ })).toBeInTheDocument();
-    expect(api.diffPromptVersions).toHaveBeenCalledWith({ id: 'research.discovery', from: 0, to: 1 });
+    expect(await screen.findByRole('list', { name: /Version 1 against the default: How to tell the story/ })).toBeInTheDocument();
+    expect(api.diffPromptVersions).toHaveBeenCalledWith({ id: 'video.brief', from: 0, to: 1 });
     fireEvent.click(screen.getByRole('button', { name: /Go back to the default/ }));
-    await waitFor(() => expect(api.revertPrompt).toHaveBeenCalledWith({ id: 'research.discovery', toVersion: 0, expectedVersion: 1, note: 'Restored the default' }));
+    await waitFor(() => expect(api.revertPrompt).toHaveBeenCalledWith({ id: 'video.brief', toVersion: 0, expectedVersion: 1, note: 'Restored the default' }));
     await waitFor(() => expect(onNotice).toHaveBeenCalledWith('Back on the default, as version 2.'));
     const lock = screen.getByRole('switch', { name: 'Lock this prompt' });
     expect(lock).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(lock);
     await waitFor(() => expect(screen.getByRole('switch', { name: 'Lock this prompt' })).toHaveAttribute('aria-checked', 'true'));
-    expect(api.setPromptLock).toHaveBeenCalledWith({ id: 'research.discovery', locked: true });
+    expect(api.setPromptLock).toHaveBeenCalledWith({ id: 'video.brief', locked: true });
+    // A prompt the studio sets has nothing to restore or lock.
+    await openPrompt('Find candidate trends');
+    expect(screen.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('No saved versions yet: this prompt uses the text the studio ships with.')).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Lock this prompt' })).toBeNull();
   });
   it('opens the prompt a request names, asks Ask AI about it, and copies its link', async () => {
     const onAsk = vi.fn();
@@ -309,11 +342,11 @@ describe('the edit-prompt button without its card', () => {
     const api = fakeApi(); let actions = null; const confirm = vi.fn(async () => true);
     render(<Harness api={api} confirm={confirm} onReady={(value) => { actions = value; }} />);
     let result;
-    await act(async () => { result = await actions.runAiAction({ kind: 'edit-prompt', target: 'Find candidate trends', conversationId: 'ask-9', prompt: { promptId: 'research.discovery', blockId: 'empty', text: 'Return nothing.', note: 'Shorter.' } }); });
-    expect(confirm.mock.calls[0][0]).toMatchObject({ title: 'Save this change to “Find candidate trends”?', confirmLabel: 'Save as version 1' });
-    expect(confirm.mock.calls[0][0].lines[0]).toBe('When nothing qualifies: 1 line added, 1 line removed.');
-    expect(api.savePromptVersion).toHaveBeenCalledWith({ id: 'research.discovery', blocks: { empty: 'Return nothing.' }, expectedVersion: 0, note: 'Shorter.', source: 'ask-ai', conversationId: 'ask-9' });
-    expect(result).toBe('Saved as version 1 of “Find candidate trends”.');
+    await act(async () => { result = await actions.runAiAction({ kind: 'edit-prompt', target: 'Short video plan', conversationId: 'ask-9', prompt: { promptId: 'video.brief', blockId: 'instruction', text: 'Tell it in one calm shot.', note: 'Calmer.' } }); });
+    expect(confirm.mock.calls[0][0]).toMatchObject({ title: 'Save this change to “Short video plan”?', confirmLabel: 'Save as version 1' });
+    expect(confirm.mock.calls[0][0].lines[0]).toBe('How to tell the story: 1 line added, 1 line removed.');
+    expect(api.savePromptVersion).toHaveBeenCalledWith({ id: 'video.brief', blocks: { instruction: 'Tell it in one calm shot.' }, expectedVersion: 0, note: 'Calmer.', source: 'ask-ai', conversationId: 'ask-9' });
+    expect(result).toBe('Saved as version 1 of “Short video plan”.');
   });
   it('asks whether a retry should use prompts saved since the run started', async () => {
     const api = { retryStudioRun: vi.fn(async () => ({})) };

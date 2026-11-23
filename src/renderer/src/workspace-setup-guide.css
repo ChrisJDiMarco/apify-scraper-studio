@@ -1,0 +1,28 @@
+/* The setup guide shown after a new workspace is created (workspace-setup-guide.jsx). It sits on the confirm dialog's
+   backdrop and panel (chat-cards.css), so it shares their colors in both themes. */
+.confirm-dialog.ws-guide { width: min(580px, 100%); gap: 16px; padding: 22px 22px 16px; }
+.ws-guide-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.ws-guide-head small { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 650; letter-spacing: .4px; text-transform: uppercase; color: var(--cd-muted); }
+.ws-guide-head h2 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -.3px; line-height: 1.3; color: var(--cd-ink); }
+.ws-guide-head p { margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--cd-muted); }
+.ws-guide-close { flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--cd-muted); background: transparent; border: 1px solid transparent; border-radius: 999px; cursor: pointer; }
+.ws-guide-close:hover { color: var(--cd-ink); border-color: var(--cd-line); }
+.ws-guide-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.ws-guide-steps li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; background: var(--cd-surface); border: 1px solid var(--cd-line); border-radius: 12px; }
+.ws-guide-steps li.is-done { background: color-mix(in srgb, var(--cd-accent) 6%, var(--cd-surface)); }
+.ws-guide-mark { display: inline-grid; place-items: center; width: 24px; height: 24px; color: var(--cd-muted); border-radius: 999px; }
+.ws-guide-steps li.is-done .ws-guide-mark { color: var(--cd-accent-ink); background: var(--cd-accent); }
+.ws-guide-text { display: grid; gap: 3px; min-width: 0; }
+.ws-guide-text strong { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; font-weight: 650; color: var(--cd-ink); }
+.ws-guide-text small { font-size: 12.5px; line-height: 1.45; color: var(--cd-muted); }
+.ws-guide-optional { padding: 1px 7px; font-size: 12px; font-weight: 600; color: var(--cd-muted); border: 1px solid var(--cd-line); border-radius: 999px; }
+.ws-guide-go { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 14px; font-size: 13px; font-weight: 650; white-space: nowrap; color: var(--cd-accent-ink); background: var(--cd-accent); border: 1px solid var(--cd-accent); border-radius: 999px; cursor: pointer; }
+.ws-guide-go:hover { filter: brightness(.95); }
+.ws-guide-done { font-size: 12.5px; font-weight: 600; white-space: nowrap; color: var(--cd-muted); }
+@media (max-width: 560px) {
+  .ws-guide-steps li { grid-template-columns: auto minmax(0, 1fr); }
+  .ws-guide-go, .ws-guide-done { grid-column: 2; justify-self: start; }
+}
+.ws-guide-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ws-guide-tour { padding: 0; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--cd-ink); text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; cursor: pointer; }
+.ws-guide-tour:hover { text-decoration-thickness: 2px; }

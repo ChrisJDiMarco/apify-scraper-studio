@@ -23,13 +23,16 @@ import { FindingsChatView } from './findings-chat-view.jsx';
 import { ContentStudioView } from './content-studio-view.jsx';
 import { HomeView } from './home-view.jsx';
 import { SettingsView } from './settings-view.jsx';
+import { BrandImages } from './brand-images.jsx';
+import { WorkspaceSetupGuide } from './workspace-setup-guide.jsx';
+import { setCustomChannels } from '../../shared/channel-table.js';
 import { sectionId } from './settings-sections.js';
 import { HelpAssistant } from './help-assistant.jsx';
 import { canWriteReports, useStudioActions } from './studio-actions.js';
 import { KitCreatorHost, kitSourcesFrom } from './kit-creator.jsx';
 import { useAnnouncingApi } from './help-images.js';
 import { defaultProgram, lastProgramId } from './choices.js';
-import { nextSteps } from './next-steps.js';
+import { nextSteps, setupChecklist } from './next-steps.js';
 import { briefingData, briefingMarkdown } from './weekly-briefing.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { SheetsView } from './sheets-view.jsx';
@@ -39,7 +42,7 @@ import { DATA_TOOL_IDS, PAGE_LABELS, STUDIO_PAGES, WORKBENCH, buildNav, focusCha
 import { ChannelSettings } from './channel-settings.jsx';
 import { ProgramSetup } from './program-setup.jsx';
 import { ChannelPrograms } from './programs-page.jsx';
-import { WorkspaceTour } from './workspace-tour.jsx';
+import { WorkspaceTour, tourKey } from './workspace-tour.jsx';
 import { InboxView, inboxUnread, markInboxRead } from './inbox-view.jsx';
 import { CalendarView } from './calendar-view.jsx';
 import { PromptLibrary } from './prompt-library.jsx';
@@ -223,6 +226,9 @@ function StudioApp({ api }) {
   const fileNotice = (desktopText) => (web ? 'Download started.' : desktopText);
   const revealed = isMac() ? 'revealed in Finder' : 'shown in File Explorer';
   const [state, setState] = useState(EMPTY_STATE);
+  // Channels an admin added to this workspace join the built-in ones wherever the app lists channels (channel-table.js).
+  // Setting the same list again does nothing, so this is safe on every render.
+  setCustomChannels(state.contentStudio?.customChannels);
   // Who is looking, as the server projected it. Old mocks and the Mac before its first push act as the local admin.
   const viewer = state.viewer || LOCAL_ADMIN_FALLBACK;
   const can = useCallback((method) => canCall(viewer, method), [viewer]); // shown: in a preview, the previewed role's controls
@@ -314,6 +320,8 @@ function StudioApp({ api }) {
   const [programSection, setProgramSection] = useState(''); // the program form's section Workbench last opened ('' when a program's runs are open)
   const [programRouteId, setProgramRouteId] = useState(''); // the program the research page was last opened on, for its address
   const [programSetup, setProgramSetup] = useState(null); // { key, firstRun }: the guided setup sheet (program-setup.jsx)
+  const [workspaceGuide, setWorkspaceGuide] = useState(null); // { key, workspaceId, name }: next steps after a new workspace
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false); // the New workspace step is open (Studio setup's menu steps aside)
   const [runRequest, setRunRequest] = useState(null); // { key, runId }: Research programs or Create content selects that run once
   const [createRequest, setCreateRequest] = useState(null); // { key, mode: 'report' }: Create content opens on "Use a report"
   const [promptRequest, setPromptRequest] = useState(null); // { key, promptId, tab? }: Prompts opens that prompt once
@@ -888,7 +896,7 @@ function StudioApp({ api }) {
     if (!tabId) return;
     if (tabId === 'settings') {
       // #/settings/brand-knowledge (older links): Simple's Brand knowledge page, Content › Brand knowledge in Advanced.
-      if (sectionId(target.section) === 'brand-knowledge') {
+      if (['brand-knowledge', 'brand-images'].includes(sectionId(target.section))) {
         if (mode === 'simple' && knowledgeInSimple) goSimple('knowledge');
         else if (mode === 'classic' && pageAllowed('knowledge')) navigateStudio('knowledge');
         else setNotice(pageOffNotice(settingsAllowed ? 'knowledge' : 'settings'));
@@ -981,6 +989,26 @@ function StudioApp({ api }) {
     const active = list(studioState.workspaces).find((row) => row.id === studioState.activeWorkspaceId);
     const firstRun = !list(studioState.programs).filter(inWorkspace).length && !String(active?.knowledge?.name || '').trim();
     setProgramSetup({ key: Date.now(), firstRun });
+  }
+  // A new workspace was saved (saving selects it): a short guide to what it needs next, each step one button away.
+  function onWorkspaceCreated(saved) { setWorkspaceGuide({ key: Date.now(), workspaceId: saved?.id || '', name: saved?.name || '' }); }
+  // The guide's steps are Home's setup list (next-steps.js setupChecklist): the same items, names, order and done rules.
+  function workspaceGuideSteps() {
+    const setup = setupChecklist({ state, web, team: null, channels: focusChannelOptions(viewer, semrushShell ? 'semrush' : 'general') });
+    const doer = (item) => {
+      if (item.action.kind !== 'create') return () => openTargetRef.current(item.action.target);
+      if (item.action.create === 'program') return can('saveResearchProgram') ? () => openProgramSetup() : null;
+      if (item.action.create === 'person') return adminPages.includes('people') ? () => openInvite() : null;
+      return null;
+    };
+    return setup.items.map((item) => ({ id: item.id, label: item.label, detail: item.detail, done: item.done, optional: item.optional, actionLabel: item.action.label, action: doer(item) }));
+  }
+  // Closing the guide also settles the walkthrough offer for this workspace (the guide offers the tour itself), so a
+  // second welcome dialog never follows it.
+  function closeWorkspaceGuide({ tour = false } = {}) {
+    setWorkspaceGuide(null);
+    if (typeof api.setViewPrefs === 'function' && !viewer.preview && activeWorkspace) Promise.resolve(api.setViewPrefs({ workspaceTours: { [tourKey(viewer, activeWorkspace)]: new Date().toISOString() } })).catch(() => {});
+    if (tour) setTimeout(() => window.dispatchEvent(new Event('golden-thread-replay-tour')), 80);
   }
   // A research program drafted elsewhere (Ask AI): the program editor opens filled in, and nothing is saved until Save.
   function openProgramDraft(draft = {}) {
@@ -1303,7 +1331,7 @@ function StudioApp({ api }) {
     if (id === 'analytics') return <AnalyticsView api={api} viewer={viewer} web={web} state={state} onFindTrends={() => openTargetRef.current({ kind: 'page', page: 'trends' })} />;
     if (id === 'people') return <PeopleView api={api} web={web} busy={busy} action={runAction} viewer={viewer} request={peopleRequest} onPreview={(payload) => (payload && typeof payload === 'object' ? viewAs(payload) : false)} />;
     if (id === 'prompts') return renderSharedPage('prompts');
-    if (id === 'channels') return <ChannelSettings api={api} channels={focusChannelOptions(viewer, semrushShell ? 'semrush' : 'general')} onNotice={setNotice} />;
+    if (id === 'channels') return <ChannelSettings api={api} channels={focusChannelOptions(viewer, semrushShell ? 'semrush' : 'general')} formats={list(state.contentStudio?.channelFormats)} onNotice={setNotice} />;
     return null;
   }
   // Pages both layouts share (SHARED_PAGES): Inbox and Calendar for the team, My plan and Inbox for channel owners, and
@@ -1317,18 +1345,29 @@ function StudioApp({ api }) {
   }
   // Brand knowledge's Research brand profiles tab, in Advanced's Brand knowledge and in Simple's Settings.
   function renderResearchProfiles() {
-    return <BrandContextView state={state} busy={busy} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} />;
+    return <BrandContextView state={state} busy={busy} onSaveProfile={(profile) => runAction(() => api.saveBrandProfile(profile), '', true)} onDeleteProfile={can('deleteBrandProfile') ? (id) => runAction(() => api.deleteBrandProfile(id), '', true) : undefined} onSelectProfile={(id) => runAction(() => api.selectBrandProfile(id), '', true)} onNotice={setNotice} />;
+  }
+  // Brand knowledge, scrolled to its reference images (the asset dialog's "Change them" link).
+  function openBrandImages() {
+    openTargetRef.current({ kind: 'page', page: 'knowledge' });
+    setTimeout(() => document.querySelector('.cs-brand-images')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 350);
+  }
+  // Brand reference images live on Brand knowledge (they were a Settings section), for anyone who may edit the brand.
+  function renderBrandImages() {
+    if (typeof api.addBrandImage !== 'function' || !can('addBrandImage')) return null;
+    const workspace = list(state.contentStudio?.workspaces).find((row) => row.id === state.contentStudio?.activeWorkspaceId) || null;
+    return <BrandImages api={api} workspace={workspace} busy={busy} imagesConfigured={Boolean(state.contentStudio?.capabilities?.imagesConfigured ?? state.keys?.OPENAI_API_KEY)} />;
   }
   // Advanced's whole Brand knowledge page (the content studio on its knowledge view, without its tab bar), for Simple's
   // Settings. It shares the knowledge tab and New workspace's request with the Advanced page.
   function renderBrandKnowledge() {
-    return <ContentStudioView state={state} api={api} busy={busy} activeView="knowledge" shellNavigation workspaceControlsInShell={Boolean(contentWorkspace)} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={(page) => openTargetRef.current({ kind: 'page', page })} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={renderResearchProfiles} web={web} />;
+    return <ContentStudioView state={state} api={api} busy={busy} activeView="knowledge" shellNavigation workspaceControlsInShell={Boolean(contentWorkspace)} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={(page) => openTargetRef.current({ kind: 'page', page })} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={renderResearchProfiles} renderBrandImages={renderBrandImages} onWorkspaceCreated={onWorkspaceCreated} onCreatingChange={setCreatingWorkspace} web={web} />;
   }
   const renderSimplePage = (id) => (id === 'settings' ? renderSettings() : id === 'knowledge' ? renderBrandKnowledge() : SHARED_PAGES[id] && !ADMIN_PAGES[id] ? renderSharedPage(id) : renderAdminPage(id));
 
   const content = useMemo(() => {
     const common = { state, busy };
-    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} runRequest={runRequest} createRequest={createRequest} onViewChange={(view) => { if (view !== studioView && !guard.confirmLeave()) return; withViewTransition(() => setStudioView(view)); }} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onProgramRequestHandled={(key) => setProgramRequest((current) => (current?.key === key ? null : current))} onAsk={askAllowed ? (text, context, extra) => openAskAiRef.current(text, { context, attachments: extra?.attachments }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} onMakeAssets={(request) => openKitDialogRef.current(request)} onContextChange={setClassicContext} briefingActions={briefingActionsRef.current} web={web} onOpenTarget={(target) => openTargetRef.current(target)} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={renderResearchProfiles} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice(`Asset ${revealed}.`))} />} />;
+    if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} runRequest={runRequest} createRequest={createRequest} onViewChange={(view) => { if (view !== studioView && !guard.confirmLeave()) return; withViewTransition(() => setStudioView(view)); }} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onProgramRequestHandled={(key) => setProgramRequest((current) => (current?.key === key ? null : current))} onAsk={askAllowed ? (text, context, extra) => openAskAiRef.current(text, { context, attachments: extra?.attachments }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} onMakeAssets={(request) => openKitDialogRef.current(request)} onContextChange={setClassicContext} briefingActions={briefingActionsRef.current} web={web} onOpenTarget={(target) => openTargetRef.current(target)} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={renderResearchProfiles} renderBrandImages={renderBrandImages} onWorkspaceCreated={onWorkspaceCreated} onCreatingChange={setCreatingWorkspace} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice(`Asset ${revealed}.`))} />} />;
     if (active === 'sheets') return <SheetsView api={api} state={state} initialWorkbookId={sheetRequest.id} workbookRequestKey={sheetRequest.key} onNavigate={(target, args = {}) => (target === 'research-programs' ? (args?.runId ? openTargetRef.current({ kind: 'run', id: String(args.runId), page: 'research' }) : navigateStudio('research')) : target === 'trend-board' ? navigateStudio('board') : navigate(target))} />;
     if (active === 'templates') return <TemplateLibraryView {...common} onChooseTemplate={choosePlaybook} onNavigate={navigate} />;
     if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), '', true)} onNavigate={navigate} />;
@@ -1544,9 +1583,10 @@ function StudioApp({ api }) {
   // over the Simple page the person is on (KitCreatorHost), so Cancel leaves them there.
   const simpleShellNav = { inboxRead: () => setInboxSeen((value) => value + 1), copyLink, openInvite, viewAs: viewAsFromNav, openProgramDraft, newProgram: openProgramSetup, create: (kind) => createFromNav(kind), makeAssets: (request) => openKitDialog(request),
     ...(navCan('createContentRun') && pageAllowed('create') ? { createFrom: (assetId) => openStudioWith('create', () => setCreateRequest({ key: Date.now(), assetId: String(assetId || '') })) } : {}), ...(navCan('saveResearchProgram') && studioAllowed('research') ? { editProgram: (programId, section = 'basics') => openProgramSection(section, programId) } : {}) };
-  const kitHost = mode !== 'channel' && <KitCreatorHost request={kitRequest} api={api} sources={kitSourcesFrom(classicActions.reports, list(studioState.contentRuns).filter(inWorkspace))} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} action={runAction} busy={busy} picturesOff={`Pictures are off for your team. ${askAdmin} can turn them on.`} focus={list(viewer.prefs?.focusChannels)} edition={semrushShell ? 'semrush' : 'general'} onSettings={settingsAllowed ? openSettings : undefined} onOpenFolder={(key) => openTarget({ kind: 'folder', id: key, page: 'assets' })} onDone={() => setKitRequest(null)} />;
+  const kitHost = mode !== 'channel' && <KitCreatorHost request={kitRequest} api={api} sources={kitSourcesFrom(classicActions.reports, list(studioState.contentRuns).filter(inWorkspace))} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} action={runAction} busy={busy} picturesOff={`Pictures are off for your team. ${askAdmin} can turn them on.`} focus={list(viewer.prefs?.focusChannels)} edition={semrushShell ? 'semrush' : 'general'} onSettings={settingsAllowed ? openSettings : undefined} onBrandImages={can('addBrandImage') ? openBrandImages : undefined} onOpenFolder={(key) => openTarget({ kind: 'folder', id: key, page: 'assets' })} onDone={() => setKitRequest(null)} />;
   // Guided setup of a research program, over whatever page is open.
   const activeWorkspace = list(studioState.workspaces).find((row) => row.id === studioState.activeWorkspaceId) || null;
+  const workspaceGuideHost = mode !== 'channel' && workspaceGuide && <WorkspaceSetupGuide key={workspaceGuide.key} name={workspaceGuide.name} steps={workspaceGuideSteps()} onClose={() => closeWorkspaceGuide()} onTour={() => closeWorkspaceGuide({ tour: true })} />;
   const programSetupHost = mode !== 'channel' && programSetup && activeWorkspace && <ProgramSetup key={programSetup.key} api={api} workspace={activeWorkspace} firstRun={programSetup.firstRun} onNotice={setNotice}
     onClose={() => setProgramSetup(null)} onSaved={(program) => { setNotice(`Saved “${program?.name || 'the program'}”.`); refresh().catch(() => {}); }}
     onStartResearch={can('startResearchRun') && typeof api.startResearchRun === 'function' ? (program) => startProgramResearch(program.id) : undefined} />;
@@ -1570,7 +1610,7 @@ function StudioApp({ api }) {
           : <ChannelTrends api={api} view={channelView} viewer={viewer} busy={busy} action={runAction} onboarding imagesReady={studioState.capabilities?.imagesConfigured ?? true} onOpenAssets={(themeId) => goChannel('assets', themeId || '')} onPrefs={(patch) => Promise.resolve(api.setViewPrefs?.(patch)).catch(() => null)} onToast={setNotice} linkOrigin={linkOrigin} focusThemeId={channelTrendFocus} />}</ErrorBoundary>
     </main>
     : mode === 'simple'
-      ? <ErrorBoundary page resetKey={`simple:${simpleTab}`}><SimpleMode key={`simple-${roleEpoch}`} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onNavSpot={revealNav} spotRoot={() => frameRef.current} shellRequest={shellRequest} onOpenSheets={(workbookId) => openClassicPage('sheets', workbookId ? { workbookId } : {})} onOpenTarget={openTarget} onOpenPrompt={openPrompt} linkOrigin={linkOrigin} shellNav={simpleShellNav} reopenKey={simpleReopen} onRouteDetail={setSimpleDetail} setupPages={nav.setup} onOpenSetup={openNavItem} /></ErrorBoundary>
+      ? <ErrorBoundary page resetKey={`simple:${simpleTab}`}><SimpleMode key={`simple-${roleEpoch}`} creatingWorkspace={creatingWorkspace} api={api} state={state} meta={meta} busy={busy} loading={loading} notice={notice} error={error} onDismiss={dismiss} action={runAction} background={backgroundLabels} renderPage={renderSimplePage} tab={simpleTab} onTab={goSimple} tabs={simpleTabs} settingsAllowed={settingsAllowed} onOpenClassic={openClassicPage} onNotice={setNotice} onNavSpot={revealNav} spotRoot={() => frameRef.current} shellRequest={shellRequest} onOpenSheets={(workbookId) => openClassicPage('sheets', workbookId ? { workbookId } : {})} onOpenTarget={openTarget} onOpenPrompt={openPrompt} linkOrigin={linkOrigin} shellNav={simpleShellNav} reopenKey={simpleReopen} onRouteDetail={setSimpleDetail} setupPages={nav.setup} onOpenSetup={openNavItem} /></ErrorBoundary>
       : <main className="workspace" key={`classic-${roleEpoch}`}>
         <Header title={classicTitle} workspaceName={contentWorkspace?.name || (web ? 'Shared studio' : 'Workspace')} busy={busy} background={backgroundLabels} onRefresh={() => runAction(refresh)} />
         <div className={`content${active === 'sheets' ? ' content-fill' : active === 'chat' ? ' content-fit' : ''}`} ref={contentRef}>
@@ -1601,7 +1641,8 @@ function StudioApp({ api }) {
         {kitHost}
         {playbookHost}
         {programSetupHost}
-        {!loading && <WorkspaceTour viewer={viewer} workspace={activeWorkspace} pages={[...navPages(nav).map((row) => row.id), ...(nav.actions.ask ? ['ask'] : [])]} enabled={!programSetup && !playbookRequest} onOpenPage={(page) => mode === 'channel' ? goChannel(page) : openTarget({ kind: 'page', page })} onSave={typeof api.setViewPrefs === 'function' ? (patch) => api.setViewPrefs(patch) : undefined} />}
+        {workspaceGuideHost}
+        {!loading && <WorkspaceTour viewer={viewer} workspace={activeWorkspace} pages={[...navPages(nav).map((row) => row.id), ...(nav.actions.ask ? ['ask'] : [])]} enabled={!programSetup && !playbookRequest && !workspaceGuide} onOpenPage={(page) => mode === 'channel' ? goChannel(page) : openTarget({ kind: 'page', page })} onSave={typeof api.setViewPrefs === 'function' ? (patch) => api.setViewPrefs(patch) : undefined} />}
       </div>
     </div>
   </UnsavedContext.Provider></ViewerContext.Provider>;

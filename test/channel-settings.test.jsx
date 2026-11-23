@@ -55,33 +55,51 @@ describe('a channel’s settings', () => {
     show(<ChannelSettings api={calls} channelId="blog" onNotice={onNotice} />);
     expect(await screen.findByRole('heading', { level: 1, name: 'My channel' })).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Channel' })).not.toBeInTheDocument(); // their channel only
-    const save = screen.getByRole('button', { name: 'Save channel knowledge' });
-    expect(save).toBeDisabled();
-    fireEvent.change(screen.getByRole('textbox', { name: 'Never do' }), { target: { value: 'No exclamation marks.' } });
-    fireEvent.click(save);
+    // The save bar comes up once something changed, and goes once it's saved.
+    const never = await screen.findByRole('textbox', { name: 'Never do' });
+    expect(screen.queryByRole('button', { name: 'Save channel knowledge' })).not.toBeInTheDocument();
+    fireEvent.change(never, { target: { value: 'No exclamation marks.' } });
+    const bar = screen.getByRole('region', { name: 'Unsaved changes' });
+    expect(within(bar).getByText('1 unsaved change')).toBeInTheDocument();
+    fireEvent.click(within(bar).getByRole('button', { name: 'Save channel knowledge' }));
     await waitFor(() => expect(calls.saveChannelKnowledge).toHaveBeenCalledWith({ channelId: 'blog', knowledge: expect.objectContaining({ voice: 'Plain.', donts: 'No exclamation marks.' }) }));
     expect(onNotice).toHaveBeenCalledWith(expect.stringContaining('Semrush Blog'));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save channel knowledge' })).toBeDisabled());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save channel knowledge' })).not.toBeInTheDocument());
   });
 
   it('edits and restores the asset instructions, and keeps a locked prompt read-only', async () => {
-    const calls = api();
-    show(<ChannelSettings api={calls} channelId="blog" />);
+    // The blog writes with three prompts here: Blog short, Blog long (an admin locked it) and Newsletter.
+    const calls = { ...api(), readChannelSettings: vi.fn(async ({ channelId }) => ({ ...settings(channelId), prompts: [...settings(channelId).prompts, prompt('assets.newsletter', 'Newsletter', 2)] })) };
+    const onNotice = vi.fn();
+    show(<ChannelSettings api={calls} channelId="blog" onNotice={onNotice} />);
     fireEvent.click(await screen.findByRole('tab', { name: 'Asset instructions' }));
     const short = screen.getByRole('region', { name: 'Blog short' });
-    expect(within(short).queryByRole('textbox', { name: 'Output' })).not.toBeInTheDocument(); // only the editable parts
-    fireEvent.change(within(short).getByRole('textbox', { name: 'Instruction' }), { target: { value: 'Write it in 300 words.' } });
-    fireEvent.change(within(short).getByRole('textbox', { name: 'Note for the history' }), { target: { value: 'Shorter posts' } });
-    fireEvent.click(within(short).getByRole('button', { name: 'Save instructions' }));
-    await waitFor(() => expect(calls.saveChannelInstructions).toHaveBeenCalledWith({ channelId: 'blog', promptId: 'assets.blogshort', blocks: { instruction: 'Write it in 300 words.' }, expectedVersion: 3, note: 'Shorter posts' }));
-    await waitFor(() => expect(calls.readChannelSettings).toHaveBeenCalledTimes(2)); // the saved version is read again
+    expect(within(short).queryByRole('textbox', { name: 'Blog short: Output' })).not.toBeInTheDocument(); // only the editable parts
+    // Locked: its text as text, with nothing to change or restore.
+    const locked = screen.getByRole('region', { name: 'Blog long' });
+    expect(within(locked).queryByRole('textbox')).not.toBeInTheDocument();
+    expect(within(locked).getByText('Write the Blog long.')).toBeInTheDocument();
+    expect(within(locked).getByText(/Read only: an admin locked it/)).toBeInTheDocument();
+    expect(within(locked).queryByRole('button', { name: 'Restore' })).not.toBeInTheDocument();
+    // One save bar and one note for the history for every instruction on the tab, once something changed.
+    expect(screen.queryByRole('button', { name: /^Save instruction/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Note for the history' })).not.toBeInTheDocument();
+    fireEvent.change(within(short).getByRole('textbox', { name: 'Blog short: Instruction' }), { target: { value: 'Write it in 300 words.' } });
+    expect(within(screen.getByRole('region', { name: 'Unsaved changes' })).getByRole('button', { name: 'Save instruction' })).toBeEnabled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Newsletter: Instruction' }), { target: { value: 'Three stories, one line each.' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note for the history' }), { target: { value: 'Shorter posts' } });
+    const bar = screen.getByRole('region', { name: 'Unsaved changes' });
+    expect(within(bar).getByText('2 unsaved changes')).toBeInTheDocument();
+    fireEvent.click(within(bar).getByRole('button', { name: 'Save instructions' }));
+    await waitFor(() => expect(calls.saveChannelInstructions).toHaveBeenCalledTimes(2));
+    expect(calls.saveChannelInstructions).toHaveBeenNthCalledWith(1, { channelId: 'blog', promptId: 'assets.blogshort', blocks: { instruction: 'Write it in 300 words.' }, expectedVersion: 3, note: 'Shorter posts' });
+    expect(calls.saveChannelInstructions).toHaveBeenNthCalledWith(2, { channelId: 'blog', promptId: 'assets.newsletter', blocks: { instruction: 'Three stories, one line each.' }, expectedVersion: 2, note: 'Shorter posts' });
+    await waitFor(() => expect(onNotice).toHaveBeenCalledWith('Saved 2 instructions. New assets use them.'));
+    await waitFor(() => expect(calls.readChannelSettings).toHaveBeenCalledTimes(2)); // the saved versions are read again
     const again = await screen.findByRole('region', { name: 'Blog short' });
     fireEvent.click(within(again).getByText('Earlier versions'));
     fireEvent.click(within(again).getByRole('button', { name: 'Restore' }));
     await waitFor(() => expect(calls.revertChannelInstructions).toHaveBeenCalledWith({ channelId: 'blog', promptId: 'assets.blogshort', toVersion: 2, expectedVersion: 3 }));
-    const locked = screen.getByRole('region', { name: 'Blog long' });
-    expect(within(locked).getByRole('textbox', { name: 'Instruction' })).toBeDisabled();
-    expect(within(locked).queryByRole('button', { name: 'Save instructions' })).not.toBeInTheDocument();
   });
 
   it('lets an admin or editor pick any channel', async () => {
@@ -93,12 +111,15 @@ describe('a channel’s settings', () => {
     await waitFor(() => expect(blogRow).toHaveTextContent(`1 of ${FIELDS.fields.length} filled in`));
     expect(blogRow).toHaveTextContent('2 prompts');
     const socialRow = screen.getByRole('rowheader', { name: 'Semrush Social Team' }).closest('tr');
-    await waitFor(() => expect(socialRow).toHaveTextContent('Empty'));
-    expect(screen.getByRole('status')).toHaveTextContent('1 of 2 has no channel knowledge yet');
+    await waitFor(() => expect(socialRow).toHaveTextContent('None yet'));
+    expect(screen.getByText('1 of 2 has no channel knowledge yet: their assets are written from the brand knowledge alone.')).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Owner' })).not.toBeInTheDocument(); // this role can't read People
-    // A row opens that channel; its picker moves to another, and Back returns to the table.
-    fireEvent.click(within(blogRow).getByRole('button', { name: 'Semrush Blog' }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument(); // so nothing is said about owners
+    expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['Channel', 'Channel knowledge', 'Asset instructions', 'Last saved']);
+    // The row opens that channel (there's no Open column); its picker moves to another, and Back returns to the table.
+    fireEvent.click(within(blogRow).getByText('2 prompts'));
     expect(await screen.findByRole('heading', { level: 1, name: 'Semrush Blog' })).toBeInTheDocument();
+    expect(screen.getByRole('tablist', { name: 'Channel settings' })).toHaveClass('people-tabs');
     fireEvent.change(screen.getByRole('combobox', { name: 'Channel' }), { target: { value: 'social' } });
     await waitFor(() => expect(calls.readChannelSettings).toHaveBeenLastCalledWith({ channelId: 'social' }));
     fireEvent.click(await screen.findByRole('tab', { name: 'Asset instructions' }));
@@ -112,7 +133,12 @@ describe('a channel’s settings', () => {
     show(<ChannelSettings api={calls} channels={[{ id: 'blog', name: 'Semrush Blog' }, { id: 'social', name: 'Semrush Social Team' }]} />);
     const blogRow = (await screen.findByRole('rowheader', { name: 'Semrush Blog' })).closest('tr');
     await waitFor(() => expect(blogRow).toHaveTextContent('Alex'));
-    expect(screen.getByRole('rowheader', { name: 'Semrush Social Team' }).closest('tr')).toHaveTextContent('No owner');
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 has no owner'));
+    expect(screen.getByRole('columnheader', { name: 'Owner' })).toBeInTheDocument();
+    // The Owner cell: a disabled owner doesn't count.
+    expect(within(screen.getByRole('rowheader', { name: 'Semrush Social Team' }).closest('tr')).getAllByRole('cell')[0]).toHaveTextContent(/^None$/);
+    // One notice says what needs doing, with the way to do it.
+    const notice = await screen.findByRole('status');
+    expect(notice).toHaveTextContent('1 channel has no owner.');
+    expect(within(notice).getByRole('link', { name: 'Assign owners' })).toHaveAttribute('href', '#/studio/people');
   });
 });

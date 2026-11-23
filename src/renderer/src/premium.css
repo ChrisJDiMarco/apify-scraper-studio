@@ -53,7 +53,7 @@ button.icon-button { width: 31px; min-height: 31px; padding: 6px; border-color: 
 .panel { border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 24px; box-shadow: none; }
 .panel.full { min-height: auto; } .panel-head { align-items: center; margin-bottom: 22px; gap: 18px; } .panel-head p { font-size: 12px; }
 .view-grid { gap: 20px; align-items: start; }
-.button-row { gap: 8px; } .badge { display: inline-flex; align-items: center; font-size: 10px; line-height: 1.4; border-radius: 5px; padding: 4px 7px; font-weight: 500; text-transform: none; letter-spacing: 0; border: none; background: #eef2ef; color: #78847a; }
+.button-row { gap: 8px; } .badge { display: inline-flex; align-items: center; font-size: 12px; line-height: 1.4; border-radius: 6px; padding: 3px 8px; font-weight: 500; text-transform: none; letter-spacing: 0; border: none; background: #eef2ef; color: #78847a; }
 .badge.ready { color: #367b55; background: #eaf4ed; } .badge.running { color: #367395; background: #eaf3f8; } .badge.warning { color: #996529; background: #faf1e3; }
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px dashed #dce6de; border-radius: 10px; padding: 38px 24px; background: #fbfcfa; text-align: center; }
 .empty strong { font-size: 15px; font-weight: 550; color: #617468; } .empty span { max-width: 420px; font-size: 12px; color: #929e92; line-height: 1.65; } .empty button { margin-top: 5px; }

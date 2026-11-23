@@ -30,6 +30,8 @@
     "estimateProgramSetup": "setup:estimate",
     "suggestProgramSetup": "setup:suggest",
     "saveChannelKnowledge": "studio:saveChannelKnowledge",
+    "saveCustomChannel": "studio:saveCustomChannel",
+    "removeCustomChannel": "studio:removeCustomChannel",
     "saveChannelInstructions": "studio:saveChannelInstructions",
     "revertChannelInstructions": "studio:revertChannelInstructions",
     "deleteReferenceDoc": "studio:deleteReferenceDoc",

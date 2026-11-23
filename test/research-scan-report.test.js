@@ -38,14 +38,17 @@ describe('buildScanReportRequest', () => {
   const scan = scanSummary({ run, themes, postCount: items.length });
   const selection = selectScanEvidence({ themes, items });
 
-  it('lays out the frame, the scan, the trends and the posts, with the workspace’s saved blocks', () => {
+  it('lays out the frame, the scan, the trends and the posts, in the studio’s words even when blocks were saved', () => {
     const request = buildScanReportRequest({ scan, selection, editionId: 'semrush', brandName: 'Semrush' });
     expect(request.prompt.startsWith('SYSTEM INSTRUCTIONS\nYou are a social listening analyst for Semrush. A quick scan just read recent posts about “reporting” from the last 6 hours.')).toBe(true);
     for (const marker of ['## RULES', '\nTASK\n', 'QUICK SCAN:', 'TRENDS (in order;', 'POSTS:', '## STRUCTURED OUTPUT (required)', 'Return JSON only, matching the schema.']) expect(request.prompt).toContain(marker);
     expect(request.prompt).toContain(', written for SEO professionals');
     expect(request.schema).toBe(SCAN_REPORT_SCHEMA);
+    // The quick scan report's prompt is set by the studio: a block saved for it changes nothing.
+    const general = buildScanReportRequest({ scan, selection, editionId: 'general', brandName: 'Northwind' });
     const saved = buildScanReportRequest({ scan, selection, editionId: 'general', brandName: 'Northwind', blocks: { writingRules: '- Keep it to the facts.' } });
-    expect(saved.prompt).toContain('## RULES\n- Keep it to the facts.\n');
+    expect(saved.prompt).toBe(general.prompt);
+    expect(saved.prompt).toContain(`## RULES\n${template.defaultText('reports.quick-scan', 'writingRules', 'general')}\n`);
     expect(saved.prompt).toContain('analyst for Northwind');
   });
   it('keeps its schema small and strict (three objects, every field required)', () => {
@@ -106,6 +109,13 @@ describe('estimate, window and samples', () => {
     const { scan, selection } = samplePayload(samples);
     expect(scan.themes.map((row) => row.name)).toEqual(samples.themes.map((row) => row.name));
     expect(selection.posts.length).toBeGreaterThan(0);
-    for (const editionId of ['semrush', 'general']) expect(template.validateBlocks('reports.quick-scan', editionId, template.blocksFor('reports.quick-scan', editionId))).toEqual([]);
+    // Set by the studio: no part can be saved over, and its own text keeps every value and field the report needs.
+    for (const editionId of ['semrush', 'general']) for (const block of template.prompt('reports.quick-scan').blocks) {
+      const text = template.defaultText('reports.quick-scan', block.id, editionId);
+      expect(block.editable, block.id).toBe(false);
+      for (const name of block.requiredVariables) expect(template.placeholders(text), `${block.id} ${editionId}`).toContain(name);
+      for (const term of block.requiredTerms) expect(text, `${block.id} ${editionId}`).toContain(term);
+      expect(text.length, `${block.id} ${editionId}`).toBeLessThanOrEqual(block.maxChars);
+    }
   });
 });

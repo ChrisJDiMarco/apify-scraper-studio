@@ -88,11 +88,20 @@ describe('research and content studio workspace', () => {
     const handlers = props(); render(<ContentStudioView {...handlers} />);
     fill('Content workspace', 'semrush'); await waitFor(() => expect(handlers.api.selectContentWorkspace).toHaveBeenCalledWith('semrush'));
     nav('Brand knowledge'); expect(screen.getByLabelText('Edition')).toBeDisabled();
+    // An existing workspace's save bar comes up only once something changed.
+    expect(screen.queryByRole('region', { name: 'Unsaved changes' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'New workspace' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'New workspace' })).toBeInTheDocument();
     expect(screen.getByLabelText('Edition')).toBeEnabled();
+    // Creating one keeps its bar up, with Create workspace (off until it has a name) and Cancel.
+    const bar = screen.getByRole('region', { name: 'Unsaved changes' });
+    expect(within(bar).getByRole('button', { name: 'Create workspace' })).toBeDisabled();
+    expect(within(bar).getByRole('button', { name: 'Cancel' })).toBeEnabled();
     fill('Workspace name', 'New client'); fill('Edition', 'semrush');
-    fireEvent.click(screen.getByRole('button', { name: 'Save brand knowledge' }));
+    expect(within(bar).getByText('Creates “New client” and switches to it.')).toBeInTheDocument();
+    fireEvent.click(within(bar).getByRole('button', { name: 'Create workspace' }));
     await waitFor(() => expect(handlers.api.saveContentWorkspace).toHaveBeenCalledWith(expect.objectContaining({ name: 'New client', editionId: 'semrush' })));
+    await waitFor(() => expect(handlers.onNotice).toHaveBeenCalledWith('Created “New client”.'));
   });
 
   it('assists brand knowledge without overwriting manual fields or saving the workspace', async () => {
@@ -119,7 +128,7 @@ describe('research and content studio workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review brand fields' }));
     expect(screen.getByRole('textbox', { name: 'Audience', exact: true })).toHaveFocus();
     fill('Audience', 'Independent illustrators');
-    fireEvent.click(screen.getByRole('button', { name: 'Save brand knowledge' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
     await waitFor(() => expect(handlers.api.saveContentWorkspace).toHaveBeenCalledWith(expect.objectContaining({
       knowledge: expect.objectContaining({ audience: 'Independent illustrators', voice: 'Plain' }), products: [expect.objectContaining({ name: 'Acme Draw', url })],
     })));

@@ -8,6 +8,7 @@ import { linkFor, shareOrigin, LINK_COPIED } from './deep-links.js';
 import { money } from './studio-actions.js';
 import { modelLabel, number } from './ui.jsx';
 import './prompt-library.css';
+import { SaveBar } from './studio-kit.jsx';
 
 // Prompts (SPEC-2 §A): every prompt behind research, reports, channel assets, pictures, Ask AI and the data tools, read
 // from the content workspace's Prompt Library API. A list on the left (search, registry groups, badges); on the right the
@@ -35,6 +36,8 @@ const MAX_PROMPT_CHARS = 40000;
 const NOTE_MAX = 200;
 const PREVIEW_SHOWN = 80000; // characters drawn at once; the rest is one click away
 const SELECTED_KEY = 'studio.prompts.selected';
+// The reason prompt-template.js gives every part of a prompt the studio sets: said once at the top, not on each part.
+const STUDIO_SET = 'Set by the studio. Only the prompts that write channel assets can be changed.';
 const TABS = [{ id: 'edit', label: 'Edit', Icon: Pencil, spot: 'prompts.edit' }, { id: 'preview', label: 'Preview', Icon: Eye, spot: 'prompts.preview' }, { id: 'history', label: 'History', Icon: History, spot: 'prompts.history' }];
 const ROUTE_LABELS = { claude: 'the Claude app', 'claude-api': 'the Claude API key', codex: 'Codex', openai: 'OpenAI' };
 const SOURCE_LABELS = { library: 'Prompts', 'ask-ai': 'Ask AI', restore: 'Restore' };
@@ -245,7 +248,7 @@ export function PromptLibrary({ api, state, viewer: viewerIn, can: canIn, reques
   const editable = editableBlocks(entry).length > 0;
   const readOnly = !mayEdit || lockedForYou || Boolean(viewer?.preview) || !editable;
   const fixedReason = list(entry?.blocks).find((block) => block.reason)?.reason || '';
-  const readOnlyWhy = !editable ? `Nothing in this prompt can be changed here.${fixedReason ? ` ${fixedReason}` : ''}` : lockedForYou ? `Locked by an admin${data?.lock?.by?.name ? ` (${data.lock.by.name}${data.lock.at ? `, ${formatDay(data.lock.at)}` : ''})` : ''}. Ask ${askAdmin} to change it.` : viewer?.preview ? 'Buttons that change things are off in a preview.' : !mayEdit ? `Your role can see prompts but not change them. Ask ${askAdmin} if something needs changing.` : '';
+  const readOnlyWhy = !editable ? (fixedReason === STUDIO_SET ? 'Set by the studio: only the prompts that write channel assets can be changed. It’s shown here so you can see what the AI is told.' : `Nothing in this prompt can be changed here.${fixedReason ? ` ${fixedReason}` : ''}`) : lockedForYou ? `Locked by an admin${data?.lock?.by?.name ? ` (${data.lock.by.name}${data.lock.at ? `, ${formatDay(data.lock.at)}` : ''})` : ''}. Ask ${askAdmin} to change it.` : viewer?.preview ? 'Buttons that change things are off in a preview.' : !mayEdit ? `Your role can see prompts but not change them. Ask ${askAdmin} if something needs changing.` : '';
   const setDraft = (blockId, text) => setDrafts((current) => ({ ...current, [blockId]: text }));
   const textOf = (blockId) => (typeof drafts[blockId] === 'string' ? drafts[blockId] : data?.blocks?.[blockId] ?? '');
 
@@ -279,7 +282,7 @@ export function PromptLibrary({ api, state, viewer: viewerIn, can: canIn, reques
 
   return <section className="prompt-library" aria-labelledby={titleId}>
     <header className="pl-page-head">
-      <div><h1 id={titleId}>Prompts</h1><p>The instructions behind research, reports, channel assets, pictures and Ask AI. Change the parts marked editable: every save is a new version you can compare or restore, and runs already going keep the version they started with.</p></div>
+      <div><h1 id={titleId}>Prompts</h1><p>The instructions behind research, reports, channel assets, pictures and Ask AI. Only the prompts that write channel assets (their words, pictures and videos) can be changed; the rest are set by the studio and shown so you can see what the AI is told. Every save is a new version you can compare or restore, and runs already going keep the version they started with.</p></div>
     </header>
     {catalog.status === 'error' && !rows.length ? <div className="studio-empty" role="alert"><TriangleAlert size={22} aria-hidden="true" /><h2>Prompts couldn’t be loaded</h2><p>{catalog.error}</p><button type="button" className="studio-quiet" onClick={() => loadCatalog()}><RotateCcw size={14} aria-hidden="true" />Try again</button></div>
       : <div className={`pl-panes${listHidden ? ' is-detail' : ''}`}>
@@ -315,7 +318,7 @@ export function PromptLibrary({ api, state, viewer: viewerIn, can: canIn, reques
               </header>
               {data.damaged && <p className="pl-note is-warn" role="status"><TriangleAlert size={15} aria-hidden="true" />This prompt’s saved file couldn’t be read, so it’s back on the studio’s default. The damaged file was kept next to it.</p>}
               {savedElsewhere && dirty && !saving && <div className="pl-note is-warn" role="status"><TriangleAlert size={15} aria-hidden="true" /><span>{savedElsewhere.byName || 'Someone'} saved version {savedElsewhere.version} while you were editing. Reload to see it; your edits stay.</span><button type="button" className="studio-link" onClick={() => loadDetail(selectedId, { keepDrafts: true })}>Reload</button></div>}
-              <PromptTabs tab={tab} onTab={setTab} idBase={titleId} dirty={dirty} />
+              <PromptTabs tab={tab} onTab={setTab} idBase={titleId} dirty={dirty} readOnly={readOnly} />
               <div id={`${titleId}-panel-${tab}`} role="tabpanel" aria-labelledby={`${titleId}-tab-${tab}`} className="pl-panel" tabIndex={-1}>
                 {tab === 'edit' && <EditTab key={entry.id} detail={data} parts={promptParts(entry)} textOf={textOf} setDraft={setDraft} changed={changed} readOnly={readOnly} readOnlyWhy={readOnlyWhy} saving={saving} onDiscard={() => setDrafts({})} onSave={() => setSaving(true)} />}
                 {tab === 'preview' && <PreviewTab key={entry.id} api={api} state={state} detail={data} drafts={changed} viewer={viewer} can={can} confirm={confirm} lockedForYou={lockedForYou}
@@ -351,7 +354,7 @@ function PromptBadges({ row, detail = null, compact = false }) {
   return <span className="pl-badges">{badges.map((badge) => <span key={badge.key} className={`pl-badge ${badge.tone}`}>{badge.Icon && <badge.Icon size={11} aria-hidden="true" />}{badge.text}</span>)}</span>;
 }
 
-function PromptTabs({ tab, onTab, idBase, dirty }) {
+function PromptTabs({ tab, onTab, idBase, dirty, readOnly = false }) {
   const refs = useRef({});
   function onKeyDown(event) {
     const at = TABS.findIndex((row) => row.id === tab); let next = null;
@@ -361,7 +364,7 @@ function PromptTabs({ tab, onTab, idBase, dirty }) {
     event.preventDefault(); onTab(next.id); refs.current[next.id]?.focus();
   }
   return <div className="pl-tabs" role="tablist" aria-label="Prompt views" onKeyDown={onKeyDown}>
-    {TABS.map(({ id, label, Icon, spot }) => <button key={id} ref={(node) => { refs.current[id] = node; }} type="button" role="tab" id={`${idBase}-tab-${id}`} aria-selected={tab === id} aria-controls={tab === id ? `${idBase}-panel-${id}` : undefined} tabIndex={tab === id ? 0 : -1} data-spot={spot} onClick={() => onTab(id)}><Icon size={14} aria-hidden="true" />{label}{id === 'edit' && dirty && <><span className="pl-dot" aria-hidden="true" /><span className="pl-sr"> (unsaved changes)</span></>}</button>)}
+    {TABS.map(({ id, label, Icon, spot }) => <button key={id} ref={(node) => { refs.current[id] = node; }} type="button" role="tab" id={`${idBase}-tab-${id}`} aria-selected={tab === id} aria-controls={tab === id ? `${idBase}-panel-${id}` : undefined} tabIndex={tab === id ? 0 : -1} data-spot={spot} onClick={() => onTab(id)}>{id === 'edit' && readOnly ? <Eye size={14} aria-hidden="true" /> : <Icon size={14} aria-hidden="true" />}{id === 'edit' && readOnly ? 'Prompt' : label}{id === 'edit' && dirty && <><span className="pl-dot" aria-hidden="true" /><span className="pl-sr"> (unsaved changes)</span></>}</button>)}
   </div>;
 }
 
@@ -389,11 +392,8 @@ function EditTab({ detail, parts, textOf, setDraft, changed, readOnly, readOnlyW
       </li>)}
     </ol>
     {rest.length > 0 && <section className="pl-case" aria-labelledby={`${id}-case`}><h3 id={`${id}-case`}>Used case by case</h3><p className="pl-quiet">The studio uses one of these for each run, depending on what it’s making.</p><ol className="pl-parts">{rest.map((block) => <li key={block.id} className={`pl-part is-${block.editable ? 'block' : 'fixed'}`}>{renderBlock(block)}</li>)}</ol></section>}
-    {!readOnly && count > 0 && <div className="pl-savebar" data-spot="prompts.save" role="region" aria-label="Unsaved changes">
-      <span><strong>{plural(count, 'part')} changed</strong>{problems.length > 0 && <small className="pl-problem-count"><TriangleAlert size={13} aria-hidden="true" />{plural(problems.length, 'thing')} to fix first</small>}</span>
-      <span className="pl-savebar-buttons"><button type="button" className="studio-quiet" disabled={saving} onClick={onDiscard}>Discard</button><button type="button" className="studio-primary" disabled={saving || problems.length > 0} title={problems.length ? 'Fix the problems shown in the changed parts first.' : undefined} onClick={onSave}>Save as version {(Number(detail.version) || 0) + 1}…</button></span>
-      {total > MAX_PROMPT_CHARS && <p className="pl-problem" role="alert">{problems[problems.length - 1]}</p>}
-    </div>}
+    {!readOnly && <SaveBar changes={count} problems={problems.length} saving={saving} saveLabel="Save new version…" onSave={onSave} onDiscard={onDiscard} />}
+    {!readOnly && total > MAX_PROMPT_CHARS && <p className="pl-problem" role="alert">{problems[problems.length - 1]}</p>}
   </div>;
 }
 
@@ -445,7 +445,7 @@ function BlockEditor({ block, text, saved, original, customized, defaultChanged,
 }
 function FixedBlock({ block, text }) {
   return <div className="pl-fixed-block">
-    <div className="pl-slot"><Lock size={14} aria-hidden="true" /><div><strong>{block.label}</strong>{block.reason && <span>{block.reason}</span>}</div></div>
+    <div className="pl-slot"><Lock size={14} aria-hidden="true" /><div><strong>{block.label}</strong>{block.reason && block.reason !== STUDIO_SET && <span>{block.reason}</span>}</div></div>
     {text && <details className="pl-fixed-text"><summary>Show the text<ChevronDown size={13} aria-hidden="true" /></summary><pre>{text}</pre></details>}
   </div>;
 }
@@ -624,8 +624,10 @@ function HistoryTab({ api, detail, viewer, can, confirm, dirty, onChanged, onDet
   const [error, setError] = useState('');
   const rows = list(detail.history);
   const current = Number(detail.version) || 0;
-  const mayRevert = can('revertPrompt') && typeof api?.revertPrompt === 'function' && !detail.lockedForYou;
-  const mayLock = can('setPromptLock') && typeof api?.setPromptLock === 'function';
+  // A prompt the studio sets (nothing editable) has nothing to restore or lock.
+  const studioSet = !list(entry?.blocks).some((block) => block.editable);
+  const mayRevert = can('revertPrompt') && typeof api?.revertPrompt === 'function' && !detail.lockedForYou && !studioSet;
+  const mayLock = can('setPromptLock') && typeof api?.setPromptLock === 'function' && !studioSet;
   async function show(key, from, to, title) {
     if (compare?.key === key) { setCompare(null); return; }
     setCompare({ key, status: 'loading', blocks: [], error: '', title });

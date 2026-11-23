@@ -3,8 +3,18 @@
 // pass, line diffs, hashes and preview trace markers. Pure and main-only (CommonJS): builders, the prompt store and the
 // content workspace use it; the renderer reads prompt-registry.json directly and gets texts through readPrompt.
 const { createHash } = require('crypto');
-const REGISTRY = require('./prompt-registry.json');
+const RAW_REGISTRY = require('./prompt-registry.json');
 const DEFAULTS = require('./prompt-defaults.json');
+// Only the prompts that make channel assets (their words, pictures and videos) can be changed. Every other prompt
+// (research, reports, Ask AI, the data tools) is set by the studio: its blocks are view only for everyone, admins too,
+// so saves, restores and Ask AI's suggested edits are refused and runs use the studio's default text.
+const EDITABLE_GROUPS = new Set(['assets', 'pictures', 'video']);
+const STUDIO_SET = 'Set by the studio. Only the prompts that write channel assets can be changed.';
+const lockPrompt = (entry) => (EDITABLE_GROUPS.has(entry.group) ? entry : {
+  ...entry, viewOnly: true,
+  blocks: (entry.blocks || []).map((block) => (block.editable ? { ...block, editable: false, reason: STUDIO_SET } : block)),
+});
+const REGISTRY = { ...RAW_REGISTRY, prompts: RAW_REGISTRY.prompts.map(lockPrompt) };
 
 const PLACEHOLDER = /\{\{([a-zA-Z][a-zA-Z0-9]*)\}\}/g;
 const MAX_PROMPT_CHARS = 40000; // every editable block of one prompt together

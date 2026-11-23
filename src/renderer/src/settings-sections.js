@@ -77,7 +77,8 @@ export function sectionStatus(id, ctx = {}) {
     if (check && !check.ok) return tone('problem', 'Not working');
     return tone('neutral', 'Not checked');
   }
-  if (id === 'models') return settings.aiRouting?.updatedAt ? tone('ready', 'Customized') : tone('neutral', 'Defaults');
+  // Customized routing isn't a health signal, so it never shows green; AI connections says whether the routes can run.
+  if (id === 'models') return settings.aiRouting?.updatedAt ? tone('neutral', 'Customized') : tone('neutral', 'Defaults');
   if (id === 'brand-knowledge') {
     const studio = state.contentStudio || {};
     const workspace = list(studio.workspaces).find((row) => row.id === studio.activeWorkspaceId);

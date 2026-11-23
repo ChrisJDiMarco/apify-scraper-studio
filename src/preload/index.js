@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   estimateProgramSetup: (payload) => invoke('setup:estimate', payload),
   suggestProgramSetup: (payload) => invoke('setup:suggest', payload),
   saveChannelKnowledge: (payload) => invoke('studio:saveChannelKnowledge', payload),
+  saveCustomChannel: (payload) => invoke('studio:saveCustomChannel', payload),
+  removeCustomChannel: (payload) => invoke('studio:removeCustomChannel', payload),
   saveChannelInstructions: (payload) => invoke('studio:saveChannelInstructions', payload),
   revertChannelInstructions: (payload) => invoke('studio:revertChannelInstructions', payload),
   deleteReferenceDoc: (payload) => invoke('studio:deleteReferenceDoc', payload),

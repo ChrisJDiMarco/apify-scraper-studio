@@ -182,13 +182,19 @@ function createPromptLab({ store, workspace, who, callerRole = () => 'admin', ca
     const result = store.save(w.id, w.editionId, entry.id, { blocks: payload.blocks, expectedVersion: payload.expectedVersion, note: payload.note, by: author, source, conversationId: source === 'ask-ai' ? payload.conversationId : '' });
     return afterChange(w, entry, result);
   }
+  // A prompt the studio sets (no part anyone may change: everything but the channel asset prompts) has nothing to
+  // restore or lock, so both say so instead of reporting a change that didn't happen.
+  const studioSet = (entry) => !(entry.blocks || []).some((block) => block.editable);
+  const refuseStudioSet = (entry) => { if (studioSet(entry)) throw new Error('This prompt is set by the studio. Only the prompts that write channel assets can be changed.'); };
   async function revertPrompt(payload = {}) {
     const author = by(); const w = space(); const entry = entryFor(w, idOf(payload));
+    refuseStudioSet(entry);
     const result = store.revert(w.id, w.editionId, entry.id, { toVersion: Number(payload.toVersion), expectedVersion: payload.expectedVersion, note: payload.note, by: author });
     return afterChange(w, entry, result);
   }
   async function setPromptLock(payload = {}) {
     const author = by(); const w = space(); const entry = entryFor(w, idOf(payload));
+    refuseStudioSet(entry);
     store.setLock(w.id, w.editionId, entry.id, { locked: payload.locked, by: author }); changesCache = null; emit();
     return readPrompt({ id: entry.id });
   }

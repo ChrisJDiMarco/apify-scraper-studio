@@ -54,8 +54,8 @@
 .cs-section-heading h2 { font-size: 24px; letter-spacing: -.6px; line-height: 1.3; font-weight: 600; }
 .cs-section-heading .cs-eyebrow { margin-bottom: 8px; }
 .cs-section-heading p { margin-top: 7px; font-size: 12px; max-width: 720px; }
-.cs-section-heading > button:not(.cs-quiet), .cs-form-actions > button, .cs-knowledge-save > button, .cs-run-cost button, .cs-theme-review > button, .cs-run-actions > button:not(.cs-quiet), .cs-wizard-footer > button:not(.cs-quiet), .cs-empty > button, .cs-generate { background: var(--cs-button-bg); color: var(--cs-button-ink); border: 1px solid var(--cs-button-bg); min-height: 39px; padding: 10px 16px; font-size: 11px; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; border-radius: 8px; }
-.cs-section-heading > button:not(.cs-quiet):hover, .cs-form-actions > button:hover, .cs-knowledge-save > button:hover, .cs-run-cost button:hover, .cs-theme-review > button:hover, .cs-run-actions > button:not(.cs-quiet):hover, .cs-wizard-footer > button:not(.cs-quiet):hover, .cs-empty > button:hover, .cs-generate:hover { filter: brightness(.95); background: var(--cs-button-bg); }
+.cs-section-heading > button:not(.cs-quiet), .cs-form-actions > button, .cs-knowledge-save-buttons > button:not(.cs-quiet), .cs-run-cost button, .cs-theme-review > button, .cs-run-actions > button:not(.cs-quiet), .cs-wizard-footer > button:not(.cs-quiet), .cs-empty > button, .cs-generate { background: var(--cs-button-bg); color: var(--cs-button-ink); border: 1px solid var(--cs-button-bg); min-height: 39px; padding: 10px 16px; font-size: 11px; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; border-radius: 8px; }
+.cs-section-heading > button:not(.cs-quiet):hover, .cs-form-actions > button:hover, .cs-knowledge-save-buttons > button:not(.cs-quiet):hover, .cs-run-cost button:hover, .cs-theme-review > button:hover, .cs-run-actions > button:not(.cs-quiet):hover, .cs-wizard-footer > button:not(.cs-quiet):hover, .cs-empty > button:hover, .cs-generate:hover { filter: brightness(.95); background: var(--cs-button-bg); }
 .cs-panel .cs-section-heading h2 { font-size: 17px; font-weight: 600; letter-spacing: -.3px; }
 .cs-panel .cs-section-heading p { font-size: 11px; }
 .cs-panel-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
@@ -406,8 +406,14 @@
 .cs-product-body { display: grid; gap: 12px; padding: 6px 16px 16px; border-top: 1px solid var(--cs-border); }
 .cs-product-record-foot { display: flex; justify-content: flex-end; }
 .cs-product-record .cs-check { margin-top: 4px; }
-.cs-knowledge-save { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 0 2px 15px; }
+/* Brand knowledge's save bar stays on screen (at the bottom) while any of the form is in view; Save is also at the top. */
+.cs-knowledge-save { position: sticky; bottom: 0; z-index: 4; display: flex; justify-content: space-between; align-items: center; gap: 20px; margin: 4px 0 15px; padding: 11px 12px 11px 18px; background: var(--cs-paper); border: 1px solid var(--cs-border); border-radius: 14px; box-shadow: 0 -8px 24px rgb(24 30 21 / 9%); }
 .cs-knowledge-save p { font-size: 11px; }
+.cs-knowledge-save.is-dirty { border-color: var(--cs-border-accent); box-shadow: 0 -8px 24px rgb(24 30 21 / 12%), inset 3px 0 0 var(--cs-accent); }
+.cs-knowledge-save.is-dirty p { font-size: 12px; color: var(--cs-ink); }
+.cs-knowledge-save-buttons { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cs-section-heading > .cs-save-top.is-dirty { box-shadow: 0 0 0 3px var(--cs-soft); }
+.cs-brand-images { margin: 8px 0 26px; }
 @media (min-width: 1600px) { .cs-create-layout { grid-template-columns: minmax(0,1fr) 310px; } .cs-deliverable-grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 @media (max-width: 1150px) { .cs-entry-card { gap: 15px !important; padding: 22px 20px !important; } .cs-feature-icon { width: 49px; height: 57px; } .cs-entry-card h2 { font-size: 16px; } .cs-entry-card p { font-size: 11px; } .cs-create-layout { grid-template-columns: minmax(0,1fr) 245px; gap: 15px; } .cs-create-main { padding: 20px; } .cs-campaign-summary { padding: 19px; } .cs-create-steps { gap: 8px; } .cs-create-steps > button { flex-direction: column; align-items: flex-start; gap: 8px; } .cs-create-steps > button > svg { display: none; } .cs-create-steps small { display: none; } .cs-research-layout { grid-template-columns: 205px minmax(0,1fr); gap: 16px; } .cs-library-layout { grid-template-columns: 265px minmax(0,1fr); gap: 16px; } .cs-four-fields { grid-template-columns: repeat(2,minmax(0,1fr)); } .cs-thresholds { grid-template-columns: minmax(0,1fr); gap: 12px; } }
 @media (max-width: 940px) { .cs-entry-grid, .cs-overview-grid { grid-template-columns: minmax(0,1fr); gap: 16px; } .cs-entry-card { min-height: 130px !important; } .cs-workspace-bar { flex-wrap: wrap; gap: 12px; margin-bottom: 23px; } .cs-workspace-bar > div { width: 100%; } .cs-workspace-picker { flex: 1; } .cs-workspace-picker select { width: 100%; } .cs-create-layout, .cs-research-layout, .cs-library-layout { grid-template-columns: minmax(0,1fr); } .cs-campaign-summary { position: static; } .cs-summary-config { grid-template-columns: 1fr 1fr; } .cs-summary-config > strong { text-align: right; } .cs-campaign-summary > .cs-field { max-width: 260px; } .cs-summary-outputs { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px 20px; } .cs-generate { max-width: 330px; } .cs-create-steps > button { flex-direction: row; align-items: center; } .cs-program-list { display: flex; flex-wrap: wrap; gap: 10px; } .cs-program-list > .cs-panel-title { width: 100%; margin-bottom: 6px; } .cs-program-choice { flex: 1; min-width: 170px; max-width: 300px; margin: 0 !important; } .cs-library-filters { grid-template-columns: minmax(0,1fr) 160px; align-items: center; } .cs-asset-list { max-height: 270px; overflow-y: auto; } .cs-asset-list > button { align-items: center; } .cs-three-fields { grid-template-columns: repeat(2,minmax(0,1fr)); } .cs-knowledge-grid { grid-template-columns: minmax(0,1fr); } .cs-run-cost { align-items: flex-start; flex-direction: column; } }
@@ -528,7 +534,7 @@
 .content-studio[data-edition="semrush"] .cs-draft-note > span { color: #181e15; }
 .content-studio[data-edition="semrush"] .cs-section-heading > button:not(.cs-quiet),
 .content-studio[data-edition="semrush"] .cs-form-actions > button,
-.content-studio[data-edition="semrush"] .cs-knowledge-save > button,
+.content-studio[data-edition="semrush"] .cs-knowledge-save-buttons > button:not(.cs-quiet),
 .content-studio[data-edition="semrush"] .cs-run-cost button,
 .content-studio[data-edition="semrush"] .cs-theme-review > button,
 .content-studio[data-edition="semrush"] .cs-run-actions > button:not(.cs-quiet),
@@ -539,7 +545,7 @@
 .content-studio[data-edition="semrush"] .cs-generate { background: #c190ff; color: #181e15; border-color: #c190ff; border-radius: 999px; }
 .content-studio[data-edition="semrush"] .cs-section-heading > button:not(.cs-quiet):hover,
 .content-studio[data-edition="semrush"] .cs-form-actions > button:hover,
-.content-studio[data-edition="semrush"] .cs-knowledge-save > button:hover,
+.content-studio[data-edition="semrush"] .cs-knowledge-save-buttons > button:not(.cs-quiet):hover,
 .content-studio[data-edition="semrush"] .cs-run-cost button:hover,
 .content-studio[data-edition="semrush"] .cs-theme-review > button:hover,
 .content-studio[data-edition="semrush"] .cs-wizard-footer > button:not(.cs-quiet):hover,
@@ -823,3 +829,47 @@
 .cs-file-row-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
 .cs-file-row-wrap > .studio-status-wrap { flex-direction: row; }
 .content-studio .cs-asset-head .studio-status-wrap { flex-direction: row; }
+
+/* ── Studio setup › Brand knowledge (design review 2026-11-23) ─────────────────────────────────────────────────────
+   The page kit: the 1080px column the section menu uses, a 36px title with a 16px line under it, the underline tabs
+   every Studio setup page uses, no card-corner icon squares, and text 12px and up in every edition. */
+/* width: 100% as well: centred by auto margins inside a grid, it would otherwise shrink to fit (an empty New workspace form
+   drew in a narrow column). */
+.content-studio.cs-shell-integrated[data-view="knowledge"] { width: 100%; max-width: 1080px; }
+.content-studio .cs-setup-head { margin: 0 0 18px; }
+.content-studio .cs-setup-head h1 { margin: 0; font-size: 36px; font-weight: 650; letter-spacing: -1.1px; line-height: 1.15; color: var(--s-ink, #181e15); }
+.content-studio .cs-setup-head p { margin: 6px 0 0; font-size: 16px; line-height: 1.5; color: var(--s-muted, #62685e); }
+.content-studio .cs-knowledge-tabs { margin: 0 0 24px; }
+.content-studio .cs-knowledge { display: grid; gap: 18px; }
+.content-studio .cs-knowledge .cs-knowledge-form > fieldset { display: grid; gap: 18px; }
+.content-studio .cs-knowledge .cs-panel, .content-studio .cs-knowledge .cs-research-knowledge-card { padding: 24px; border-color: var(--s-line, #e3e8e4); border-radius: 16px; }
+.content-studio .cs-knowledge .cs-mini-icon, .content-studio .cs-knowledge .settings-image-icon { display: none; }
+.content-studio .cs-knowledge .cs-panel-title { margin-bottom: 18px; }
+.content-studio .cs-knowledge .cs-panel-title h3 { font-size: 17px; font-weight: 650; letter-spacing: -.2px; color: var(--s-ink, #181e15); }
+.content-studio .cs-knowledge .cs-panel-title p, .content-studio .cs-knowledge .cs-field-heading p, .content-studio .cs-knowledge .brand-images-intro, .content-studio .cs-knowledge .cs-knowledge-pointer, .content-studio .cs-knowledge .cs-knowledge-empty { max-width: 72ch; font-size: 14px; line-height: 1.55; color: var(--s-muted, #62685e); }
+.content-studio .cs-knowledge .cs-knowledge-pointer { margin: 0 0 16px; }
+.content-studio .cs-knowledge .cs-knowledge-pointer a { margin-left: 4px; font-weight: 600; color: var(--s-ink, #181e15); }
+.content-studio .cs-knowledge .cs-field-heading h4 { font-size: 20px; font-weight: 650; letter-spacing: -.3px; color: var(--s-ink, #181e15); }
+.content-studio .cs-knowledge .cs-research-knowledge { display: grid; gap: 18px; margin-top: 10px; }
+.content-studio .cs-knowledge .cs-knowledge-group-heading { gap: 0; }
+.content-studio .cs-knowledge .cs-knowledge-group-heading h4 { font-size: 15px; font-weight: 650; color: var(--s-ink, #181e15); }
+.content-studio .cs-knowledge .cs-knowledge-group-heading p { font-size: 13.5px; color: var(--s-muted, #62685e); }
+.content-studio .cs-knowledge .cs-field > label { font-size: 13.5px; font-weight: 600; color: var(--s-ink, #181e15); }
+.content-studio .cs-knowledge .cs-field small, .content-studio .cs-knowledge .cs-check small { font-size: 12.5px; line-height: 1.5; color: var(--s-muted, #62685e); }
+.content-studio .cs-knowledge .cs-field input, .content-studio .cs-knowledge .cs-field textarea, .content-studio .cs-knowledge .cs-field select { font-size: 14px; font-weight: 400; line-height: 1.5; color: var(--s-ink, #181e15); }
+.content-studio .cs-knowledge ::placeholder { font-weight: 400; color: #8a9088; }
+/* The one required field on a new workspace; the input itself carries `required` for screen readers. */
+.content-studio .cs-knowledge .cs-field.is-required > label { display: flex; align-items: baseline; gap: 8px; }
+.content-studio .cs-knowledge .cs-field.is-required > label::after { content: 'Required'; font-size: 12px; font-weight: 500; color: var(--s-muted, #62685e); }
+.content-studio .cs-knowledge .cs-product-summary strong { font-size: 14px; }
+.content-studio .cs-knowledge .cs-product-summary small { font-size: 12.5px; color: var(--s-muted, #62685e); }
+.content-studio .cs-knowledge .cs-product-flag, .content-studio .cs-knowledge .badge, .content-studio .cs-knowledge .brand-set-count { font-size: 12px; }
+.content-studio .cs-knowledge .cs-inline-empty { font-size: 14px; line-height: 1.5; color: var(--s-muted, #62685e); }
+.content-studio .cs-knowledge .cs-quiet, .content-studio .cs-knowledge .cs-panel-title > button, .content-studio .cs-knowledge .cs-form-actions > button, .content-studio .cs-knowledge .cs-research-knowledge-card button { min-height: 36px; font-size: 13.5px; }
+.content-studio .cs-knowledge .cs-taxonomy-preview { font-size: 13px; border-color: var(--s-line, #e3e8e4); border-radius: 12px; }
+.content-studio .cs-knowledge .cs-taxonomy-preview > div.head { background: var(--s-bg, #f4f6f5); font-size: 12px; font-weight: 600; color: var(--s-muted, #62685e); }
+.content-studio .cs-knowledge .cs-taxonomy-preview em { font-size: 12px; letter-spacing: 0; text-transform: none; }
+@media (max-width: 700px) {
+  .content-studio .cs-setup-head h1 { font-size: 30px; }
+  .cs-knowledge .cs-panel, .content-studio .cs-knowledge .cs-research-knowledge-card { padding: 18px; }
+}

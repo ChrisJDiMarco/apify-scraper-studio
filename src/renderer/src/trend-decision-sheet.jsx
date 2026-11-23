@@ -3,7 +3,7 @@ import { Check, ChevronDown, LoaderCircle, MessageSquarePlus } from 'lucide-reac
 import { Dialog, DialogClose } from './role-screens.jsx';
 import { useViewer, writeProps } from './viewer.js';
 import { libraryChannels } from '../../shared/library-tree.js';
-import KIT from '../../shared/kit-folders.json';
+import KIT from '../../shared/channel-table.js'; // built-in channels plus the ones added to this workspace
 import './trend-board.css';
 
 // Approving a trend with a note and the channels it is for. "Yes" stays one tap; its caret offers "Yes, with a note…",

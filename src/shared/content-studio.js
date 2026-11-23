@@ -52,6 +52,26 @@ for (const descriptor of CONTENT_DELIVERABLES) {
   else if (descriptor.kind === 'image') descriptor.directions = defaultText('pictures.variations', descriptor.id).split('\n');
 }
 const DELIVERABLE_BY_ID = new Map(CONTENT_DELIVERABLES.map(value => [value.id, value]));
+// Custom channels (custom-channels.js): each one's formats are deliverables of their own (`c-<slug>--<format>`), copies of
+// the built-in format's descriptor filed under the channel (`aliasOf` names the format). They live in CONTENT_DELIVERABLES
+// and DELIVERABLE_BY_ID like the built-in ones, so every lookup by id finds them; checks that belong to one format
+// (PR's journalists, Search Engine Land's headline length) read `baseOf`.
+const customChannels = require('./custom-channels');
+const baseOf = (descriptor) => descriptor?.aliasOf || descriptor?.id || '';
+function syncCustomDeliverables(rows) {
+  for (let index = CONTENT_DELIVERABLES.length - 1; index >= 0; index -= 1) {
+    if (CONTENT_DELIVERABLES[index].aliasOf) { DELIVERABLE_BY_ID.delete(CONTENT_DELIVERABLES[index].id); CONTENT_DELIVERABLES.splice(index, 1); }
+  }
+  for (const row of Array.isArray(rows) ? rows : []) for (const format of row.formats || []) {
+    const base = DELIVERABLE_BY_ID.get(format);
+    if (!base || base.kind !== 'text' || base.aliasOf) continue;
+    const id = customChannels.deliverableIdFor(row.id, format);
+    if (DELIVERABLE_BY_ID.has(id)) continue;
+    const descriptor = { ...base, id, channel: row.name, aliasOf: base.id };
+    CONTENT_DELIVERABLES.push(descriptor); DELIVERABLE_BY_ID.set(id, descriptor);
+  }
+}
+customChannels.onChange(syncCustomDeliverables);
 const SEMRUSH_KNOWLEDGE_PRESET = Object.freeze({
   editionId: 'semrush', name: 'Semrush', version: SEMRUSH_BRAND_2026.version,
   audience: 'SEO and marketing practitioners; enterprise marketing leaders and field sellers; affiliate creators, publishers and agencies. Editorial channels serve their own audiences: beginner practitioners for Backlinko; builders, investors and operators for Exploding Topics; expert search marketers for Search Engine Land.',
@@ -139,7 +159,7 @@ const stringArray = { type: 'array', items: stringSchema };
 function outputSchema(deliverable) {
   const referenceProperties = { evidenceIds: stringArray, productIds: stringArray };
   const properties = { title: stringSchema, summary: stringSchema, sections: { type: 'array', minItems: deliverable.sections.length, maxItems: deliverable.sections.length, items: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', enum: deliverable.sections.map(section => section.id) }, heading: stringSchema, body: stringSchema, items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { label: stringSchema, text: stringSchema, ...referenceProperties }, required: ['label', 'text', 'evidenceIds', 'productIds'] } }, ...referenceProperties }, required: ['id', 'heading', 'body', 'items', 'evidenceIds', 'productIds'] } }, caveats: stringArray };
-  if (deliverable.id === 'pr') properties.journalists = { type: 'array', maxItems: 15, items: { type: 'object', additionalProperties: false, properties: Object.fromEntries(['name', 'outlet', 'region', 'title', 'articleUrl', 'coverageEvidenceId', 'angle', 'email', 'xHandle'].map(key => [key, stringSchema])), required: ['name', 'outlet', 'region', 'title', 'articleUrl', 'coverageEvidenceId', 'angle', 'email', 'xHandle'] } };
+  if (baseOf(deliverable) === 'pr') properties.journalists = { type: 'array', maxItems: 15, items: { type: 'object', additionalProperties: false, properties: Object.fromEntries(['name', 'outlet', 'region', 'title', 'articleUrl', 'coverageEvidenceId', 'angle', 'email', 'xHandle'].map(key => [key, stringSchema])), required: ['name', 'outlet', 'region', 'title', 'articleUrl', 'coverageEvidenceId', 'angle', 'email', 'xHandle'] } };
   if (deliverable.id === 'evidence-report') properties.quotes = { type: 'array', maxItems: 9, items: { type: 'object', additionalProperties: false, properties: { text: stringSchema, evidenceId: stringSchema }, required: ['text', 'evidenceId'] } };
   return { type: 'object', additionalProperties: false, properties, required: Object.keys(properties) };
 }
@@ -188,7 +208,7 @@ function buildContentPlan(request = {}, { trace = false } = {}) {
       return { id, label, channel: descriptor.channel, kind: 'image', extension: 'png', schema: null, prompt, size: descriptor.size, variants, variantPrompts: pictureDirections(id, editionId, prompts, { trace }).slice(0, variants).map((direction, i) => `${prompt}\nVARIATION ${i + 1} OF ${variants}: ${direction}`), referencePolicy: { optional: true, preserveApprovedLogo: true, omitLogoWithoutAsset: true } };
     }
     const sectionRules = descriptor.sections.map(section => `${section.id}: ${section.heading}${section.minItems != null ? `; ${section.minItems === section.maxItems ? `exactly ${section.minItems}` : `${section.minItems}–${section.maxItems}`} structured items` : '; narrative body, empty items allowed'}${section.itemMaxChars ? `; item text at most ${section.itemMaxChars} characters` : ''}`).join('\n');
-    return { id, label, channel: descriptor.channel, kind: 'text', extension: descriptor.extension || 'md', schema: outputSchema(descriptor), sections: descriptor.sections, prompt: `${rules}\n${editionRules}\nDELIVERABLE: ${label}\n${blocks(`assets.${id}`).put('instruction')}${teamNotesBlock(request.teamNotes, { label: 'TEAM NOTES FOR THESE CHANNEL ASSETS' })}${channelNotes(id)}\nREQUIRED SECTIONS IN ORDER:\n${sectionRules}\nReturn schema-valid JSON only. Counts and character limits apply to structured item text, not labels. Use body for prose; do not duplicate counted items in body. Evidence IDs must come from source.evidence. Product IDs must come from the registry. Use an empty productIds list and a caveat when no approved match exists. For product-agnostic copy, mention no registry products or tools.\nUNTRUSTED_SOURCE_AND_BRAND_DATA:\n${context}` };
+    return { id, label, channel: descriptor.channel, kind: 'text', extension: descriptor.extension || 'md', schema: outputSchema(descriptor), sections: descriptor.sections, prompt: `${rules}\n${editionRules}\nDELIVERABLE: ${label}\n${blocks(`assets.${customChannels.baseDeliverableId(id)}`).put('instruction')}${teamNotesBlock(request.teamNotes, { label: 'TEAM NOTES FOR THESE CHANNEL ASSETS' })}${channelNotes(id)}\nREQUIRED SECTIONS IN ORDER:\n${sectionRules}\nReturn schema-valid JSON only. Counts and character limits apply to structured item text, not labels. Use body for prose; do not duplicate counted items in body. Evidence IDs must come from source.evidence. Product IDs must come from the registry. Use an empty productIds list and a caveat when no approved match exists. For product-agnostic copy, mention no registry products or tools.\nUNTRUSTED_SOURCE_AND_BRAND_DATA:\n${context}` };
   });
   return { editionId, source: { id: source.id, title: source.title, kind: source.kind, characters: source.text.length, evidenceCount: source.evidence.length }, deliverables, warnings, contextCharacters: context.length };
 }
@@ -271,21 +291,21 @@ function validateContentOutput(output, context = {}) {
   result.approvedProducts = products.filter(product => usedProducts.has(product.id)).map(({ id, name, url, segment }) => ({ id, name, url, segment }));
   result.evidenceRegister = source.evidence.filter(record => citedIds.has(record.id)).map(record => ({ ...record, text: record.text.slice(0, 1200), excerptTruncated: record.text.length > 1200 }));
   const allText = JSON.stringify({ title, summary, sections, caveats });
-  if (['blogshort', 'bloglong'].includes(descriptor.id) && title.length >= 60) invalid('output.title', 'Blog titles must be under 60 characters.');
-  if (descriptor.id === 'sel' && title.length > 70) invalid('output.title', 'News headlines must be 70 characters or fewer.');
+  if (['blogshort', 'bloglong'].includes(baseOf(descriptor)) && title.length >= 60) invalid('output.title', 'Blog titles must be under 60 characters.');
+  if (baseOf(descriptor) === 'sel' && title.length > 70) invalid('output.title', 'News headlines must be 70 characters or fewer.');
   if (descriptor.segment) {
     const eligible = id => registry.get(id).segment === descriptor.segment && (descriptor.segment !== 'self-serve' || registry.get(id).affiliateEligible);
     const ineligible = registryMentions(allText, products).filter(mention => !mention.owners.some(eligible));
     if (ineligible.length) invalid('output', `A product from an ineligible segment appears in this deliverable: ${ineligible.map(mention => mention.name).join(', ')}.`);
   }
-  if (['ads', 'landingpage'].includes(descriptor.id)) {
+  if (['ads', 'landingpage'].includes(baseOf(descriptor))) {
     const used = new Set(sections.flatMap(section => [...section.productIds, ...section.items.flatMap(item => item.productIds)]));
     if (used.size > 1) invalid('output.sections', 'This deliverable recommends one primary product only.');
   }
   if (editionId === 'semrush' && /\b(Semrush\s+One|flying blind|blind spots?|game-changer|revolutionary|unleash|supercharge)\b/i.test(allText)) invalid('output', 'This draft violates the workspace editorial language policy.');
   if (!sections.some(section => section.evidenceIds.length || section.items.some(item => item.evidenceIds.length))) invalid('output.sections', 'The draft must reference its supplied source evidence.');
-  if (!products.length && !caveats.length && ['ads', 'affiliate', 'enterprise', 'landingpage', 'editorial-toolkit'].includes(descriptor.id)) invalid('output.caveats', 'Explain the missing approved product registry instead of inventing a product fit.');
-  if (descriptor.id === 'pr') {
+  if (!products.length && !caveats.length && ['ads', 'affiliate', 'enterprise', 'landingpage', 'editorial-toolkit'].includes(baseOf(descriptor))) invalid('output.caveats', 'Explain the missing approved product registry instead of inventing a product fit.');
+  if (baseOf(descriptor) === 'pr') {
     result.journalists = list(output.journalists, 'output.journalists', 15).map((entry, index) => {
       object(entry, `output.journalists.${index}`); const field = `output.journalists.${index}`;
       const row = Object.fromEntries(['name', 'outlet', 'region', 'title', 'articleUrl', 'coverageEvidenceId', 'angle', 'email', 'xHandle'].map(key => [key, text(entry[key], `${field}.${key}`, key === 'angle' ? 2000 : 2048, ['name', 'outlet', 'articleUrl', 'coverageEvidenceId', 'angle'].includes(key))]));

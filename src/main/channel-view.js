@@ -27,7 +27,9 @@ const descriptorOf = (id) => content.CONTENT_DELIVERABLES.find((entry) => entry.
 // A deliverable's channel: kitFolderFor(deliverableId, editionId).id, from one lookup table per edition because every
 // projection asks it for each job and file.
 const FOLDER_INDEX = new Map();
+const customChannels = require('../shared/custom-channels');
 function channelOf(deliverableId, editionId = 'general') {
+  const custom = customChannels.channelIdOf(deliverableId); if (custom) return custom; // c-<slug>--<format>
   const edition = String(editionId || 'general');
   let index = FOLDER_INDEX.get(edition);
   if (!index) { index = new Map(kit.kitFolders(edition).flatMap((folder) => folder.deliverableIds.map((id) => [id, folder.id]))); FOLDER_INDEX.set(edition, index); }

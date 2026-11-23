@@ -18,5 +18,5 @@
   "approveModes": { "rules": "Approve by rules", "review": "Wait for someone’s OK", "all": "Approve every trend" },
   "audiences": { "admin": "Admins", "editor": "Editors" },
   "triggers": { "schedule": "On a schedule", "program-run": "Whenever a program runs", "manual": "Only when someone starts it" },
-  "limits": { "workflows": 30, "runsPerWorkflow": 100, "runsTotal": 2000, "playbooks": 30, "steps": 8, "rules": 4, "maxApprove": [1, 6], "waitHours": [1, 336], "defaultWaitHours": 48, "notesChars": 600, "noteChars": 280, "channels": 10, "everyHours": [1, 2, 3, 4, 6, 8, 12], "untilDays": 31, "nameChars": 80, "descriptionChars": 280, "oneOffCapUsd": [0.5, 1000], "budgetUsd": [0.5, 5000], "failuresBeforePause": 3 }
+  "limits": { "workflows": 30, "runsPerWorkflow": 100, "runsTotal": 2000, "playbooks": 30, "steps": 8, "rules": 4, "maxApprove": [1, 6], "waitHours": [1, 336], "defaultWaitHours": 48, "notesChars": 600, "noteChars": 280, "channels": 40, "everyHours": [1, 2, 3, 4, 6, 8, 12], "untilDays": 31, "nameChars": 80, "descriptionChars": 280, "oneOffCapUsd": [0.5, 1000], "budgetUsd": [0.5, 5000], "failuresBeforePause": 3 }
 }

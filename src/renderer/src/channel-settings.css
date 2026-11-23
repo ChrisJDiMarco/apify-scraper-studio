@@ -22,3 +22,44 @@
   .channel-example > img, .channel-example-placeholder { width: 100%; max-height: 240px; }
   .channel-settings .simple-segment { display: flex; flex-wrap: wrap; }
 }
+/* Add channel / Edit channel (channel-settings.jsx ChannelForm) and the "Added" tag on a channel an admin added. */
+.channel-form { display: grid; gap: 14px; max-width: 840px; margin: 0 0 18px; }
+.channel-form .cs-panel-title { margin-bottom: 0; }
+.channel-form-names { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
+.channel-form input[type="text"], .channel-form input:not([type]) { width: 100%; min-height: 40px; padding: 8px 12px; font: inherit; font-size: 14px; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-control); }
+.channel-form .studio-field small { font-weight: 400; color: var(--s-muted); }
+.channel-form-formats { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.channel-form-formats legend { padding: 0; font-size: 14px; font-weight: 650; color: var(--s-ink); }
+.channel-form-formats > .studio-hint { margin: 0; }
+.channel-format-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.channel-format { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-control); cursor: pointer; }
+.channel-format.is-on { border-color: var(--s-line-strong); box-shadow: inset 0 0 0 1px var(--s-line-strong); }
+.channel-format input { margin-top: 3px; }
+.channel-format span { display: grid; gap: 2px; min-width: 0; }
+.channel-format strong { font-size: 13.5px; font-weight: 600; color: var(--s-ink); }
+.channel-format small { font-size: 12px; color: var(--s-muted); }
+.channel-added-tag { display: inline-block; margin-left: 8px; padding: 1px 7px; font-size: 11px; font-weight: 600; color: var(--s-muted); border: 1px solid var(--s-line); border-radius: 999px; vertical-align: middle; }
+@media (max-width: 640px) { .channel-form-names { grid-template-columns: minmax(0, 1fr); } }
+
+/* Design review 2026-11-23: the shared underline tabs, one notice for what needs doing, plain grey facts in the table,
+   whole rows that open a channel, a list under 600px, and read-only text that reads as text. */
+.channel-settings .channel-tabs { margin: -6px 0 0; }
+.channel-settings textarea { font-weight: 400; }
+.channel-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; padding: 12px 14px 12px 18px; font-size: 14px; line-height: 1.5; color: var(--s-ink); background: #fff4dc; border: 1px solid #f1dca8; border-radius: 14px; }
+.channel-notice strong { font-weight: 650; }
+.channel-notice > a { flex: none; display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; font-size: 14px; font-weight: 650; color: var(--s-ink); text-decoration: none; background: var(--s-card); border: 1px solid #e8d29a; border-radius: 999px; }
+.channel-notice > a:hover { background: #fffaf0; }
+.channel-table-note { margin: -8px 0 0; font-size: 14px; line-height: 1.5; color: var(--s-muted); }
+.channel-table .channel-table-none { color: var(--s-muted); font-weight: 400; }
+.channel-table th[scope="row"] { background: transparent; }
+.channel-table .channel-row { cursor: pointer; }
+.channel-table .channel-row:hover > * { background: color-mix(in srgb, var(--s-bg) 70%, var(--s-card)); }
+.channel-list-narrow { display: none; margin: 0; padding: 0; list-style: none; border: 1px solid var(--s-line); border-radius: 16px; overflow: hidden; background: var(--s-card); }
+.channel-list-narrow li + li { border-top: 1px solid var(--s-line); }
+.channel-list-narrow button { display: grid; gap: 3px; width: 100%; min-height: 56px; padding: 12px 16px; text-align: left; font: inherit; color: var(--s-ink); background: transparent; border: 0; cursor: pointer; }
+.channel-list-narrow strong { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: 15px; font-weight: 600; }
+.channel-list-narrow small { font-size: 13px; color: var(--s-muted); }
+@media (max-width: 600px) { .channel-settings .simple-file-table-wrap { display: none; } .channel-list-narrow { display: block; } }
+.channel-readonly-text { padding: 12px 14px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--s-ink); background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 12px; }
+.channel-field-error { display: block; margin-top: 4px; font-size: 13px; font-weight: 500; color: #8a2f1c; }
+.channel-history-note { max-width: 560px; }

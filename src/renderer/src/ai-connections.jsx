@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { StatusLabel } from './studio-kit.jsx';
 import { CircleAlert, ClipboardCopy, KeyRound, LoaderCircle, RefreshCw, ShieldCheck, Terminal } from 'lucide-react';
 import PROVIDERS from '../../shared/ai-providers.json';
-import { Badge, Button } from './ui.jsx';
+import { Button } from './ui.jsx';
 import { isMac } from './platform.js';
 import './ai-settings.css';
 
@@ -14,6 +15,15 @@ const STATUS = {
   ready: ['ready', 'Ready'], 'sign-in': ['warning', 'Sign in'], 'not-installed': ['neutral', 'Not installed'], update: ['warning', 'Update needed'],
   'no-key': ['neutral', 'Add a key'], 'key-unreadable': ['danger', 'Key can’t be read'], checking: ['neutral', 'Checking…'],
 };
+// The card's status in the studio's three words (studio-kit.jsx): Ready only when it is, never over a problem. A Codex
+// sign-in the check couldn't confirm needs attention, and so does anything jobs use that isn't ready.
+const unconfirmed = (row) => row.status === 'ready' && /couldn.t be confirmed/i.test(row.detail || '');
+function cardStatus(row) {
+  if (row.status === 'checking') return ['unset', 'Checking…'];
+  if (row.status === 'ready' && !unconfirmed(row) && !row.keyProblem) return ['ready', ''];
+  if (row.status === 'ready' || ['sign-in', 'update', 'key-unreadable'].includes(row.status) || row.keyProblem || (row.usedBy?.length && row.status !== 'ready')) return ['attention', ''];
+  return ['unset', ''];
+}
 const USES = { claude: 'Writing and research on your Claude plan', codex: 'Writing on your ChatGPT plan (not metered)', 'claude-api': 'Claude models, billed to the key', openai: 'GPT Image pictures and OpenAI models', openrouter: 'Any model through one key', fal: 'Pictures and short videos' };
 
 function CopyCommand({ command }) {
@@ -79,17 +89,17 @@ export function AiConnections({ state = {}, meta = {}, api, busy, onSaveKey, onC
     catch (error) { setPrivacyError(error?.message || 'The setting couldn’t be saved.'); setPrivacyState(''); }
   }
   const rows = ORDER.map((id) => status?.connections?.find((row) => row.id === id) || { id, label: META[id].label, status: status ? 'no-key' : 'checking', detail: '', commands: [], usedBy: [] });
-  const ready = rows.filter((row) => row.status === 'ready').length;
+  const ready = rows.filter((row) => cardStatus(row)[0] === 'ready').length;
   return <section className="settings-block ai-connections" id="ai-connections" aria-labelledby="ai-connections-title" data-spot="settings.ai-connections">
     <div className="panel-head"><div><h3 id="ai-connections-title">AI connections</h3><p>How the studio reaches each AI vendor. {web ? 'Keys are stored on the studio server and never sent to browsers.' : isMac() ? 'Keys are stored in this Mac’s keychain.' : 'Keys are stored on this PC, encrypted with your Windows sign-in.'} Model routing decides which connection each job uses.</p></div>
-      <div className="button-row"><Badge tone={ready ? 'ready' : 'warning'}>{status ? `${ready} of ${rows.length} ready` : 'Checking…'}</Badge><Button type="button" className="ghost" disabled={loading} onClick={() => load(true)}>{loading ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}Check again</Button></div>
+      <div className="button-row"><StatusLabel status={!status ? 'unset' : ready ? 'ready' : 'attention'}>{status ? `${ready} of ${rows.length} ready` : 'Checking…'}</StatusLabel><Button type="button" className="ghost" disabled={loading} onClick={() => load(true)}>{loading ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}Check again</Button></div>
     </div>
     {problem && <p className="error-line" role="alert">{problem}</p>}
     <div className="ai-connection-grid">
       {rows.map((row) => {
-        const info = META[row.id]; const [tone, word] = STATUS[row.status] || STATUS.checking; const cli = info.auth === 'subscription-cli';
+        const info = META[row.id]; const [kind, word] = cardStatus(row); const cli = info.auth === 'subscription-cli';
         return <article className={`ai-connection-card is-${row.status}`} key={row.id} aria-labelledby={`ai-card-${row.id}`}>
-          <header><div><h4 id={`ai-card-${row.id}`}>{info.label}</h4><small>{info.plan || USES[row.id]}</small></div><Badge tone={tone}>{word}</Badge></header>
+          <header><div><h4 id={`ai-card-${row.id}`}>{info.label}</h4><small>{info.plan || USES[row.id]}</small></div><StatusLabel status={kind} title={(STATUS[row.status] || STATUS.checking)[1]}>{word || undefined}</StatusLabel></header>
           {row.detail && <p className="ai-connection-detail">{row.detail}</p>}
           {row.keyProblem && <p className="ai-connection-warning" role="alert"><CircleAlert size={14} aria-hidden="true" />{row.keyProblem === 'mismatch' ? 'This key was saved with a different STUDIO_SECRET_KEY. Start the studio with the original key, or clear it and save it again.' : 'This key can’t be read here. Clear it and save it again.'}</p>}
           {(row.commands || []).map((command) => <CopyCommand key={command.command} command={command.command} />)}
@@ -110,7 +120,7 @@ export function AiConnections({ state = {}, meta = {}, api, busy, onSaveKey, onC
           </div>
           <TestResult result={tests[row.id]} />
           <footer className="ai-connection-footer">
-            <span>{row.usedBy?.length ? `Used by ${row.usedBy.length} ${row.usedBy.length === 1 ? 'job' : 'jobs'}` : 'Not used by any job yet'}</span>
+            <span className={row.usedBy?.length && cardStatus(row)[0] !== 'ready' ? 'ai-uses-warning' : undefined}>{row.usedBy?.length ? (cardStatus(row)[0] !== 'ready' ? `${row.usedBy.length} ${row.usedBy.length === 1 ? 'job uses' : 'jobs use'} this connection. ${cli ? 'Sign in on the server' : 'Add the key'}, or route ${row.usedBy.length === 1 ? 'it' : 'them'} elsewhere.` : `Used by ${row.usedBy.length} ${row.usedBy.length === 1 ? 'job' : 'jobs'}`) : 'Not used by any job yet'}</span>
             {onOpenRouting && <button type="button" className="ai-link" onClick={onOpenRouting}>Open Model routing</button>}
           </footer>
         </article>;

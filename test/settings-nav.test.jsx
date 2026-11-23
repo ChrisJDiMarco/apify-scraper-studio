@@ -23,13 +23,26 @@ const nav = () => screen.getByRole('navigation', { name: 'Settings sections' });
 describe('Settings section nav', () => {
   it('links every section in page order, each with its status', () => {
     render(<SettingsView {...props()} />);
+    // Brand reference images moved to Brand knowledge (Studio setup), so Settings shows every other section.
+    const shown = SETTINGS_SECTION_IDS.filter((id) => id !== 'brand-images');
     const links = within(nav()).getAllByRole('link');
-    expect(links.map((link) => link.getAttribute('href'))).toEqual(SETTINGS_SECTION_IDS.map((id) => `#/settings/${id}`));
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(shown.map((id) => `#/settings/${id}`));
     expect(within(nav()).getByRole('link', { name: /Source collection, Not connected/ })).toBeInTheDocument();
     expect(within(nav()).getByRole('link', { name: /AI connections, Not checked/ })).toBeInTheDocument();
+    // Model routing's own choices aren't a health signal: its dot stays neutral, customized or not.
+    expect(within(nav()).getByRole('link', { name: /Model routing, Defaults/ }).querySelector('.settings-dot')).toHaveClass('tone-neutral');
     // Every section is on the page, wrapped in its anchor.
-    for (const id of SETTINGS_SECTION_IDS) expect(document.querySelector(`[data-settings-section="${id}"]`)).toBeInTheDocument();
+    for (const id of shown) expect(document.querySelector(`[data-settings-section="${id}"]`)).toBeInTheDocument();
+    expect(document.querySelector('[data-settings-section="brand-images"]')).not.toBeInTheDocument();
     expect(within(nav()).getAllByText('Collection')[0]).toHaveClass('settings-nav-group');
+    // Sections say Ready, Needs attention or Not set up.
+    expect(within(document.querySelector('[data-settings-section="sources"]')).getByText('Needs attention', { selector: '.kit-status' })).toBeInTheDocument();
+    expect(within(document.querySelector('[data-settings-section="web-address"]')).getByText('Not set up', { selector: '.kit-status' })).toBeInTheDocument();
+    cleanup();
+    render(<SettingsView {...props({ state: base({ keys: { APIFY_API_TOKEN: true }, settings: { maxItems: 1000, sheets: {}, studioWebAddress: 'https://studio.example.com', aiRouting: { updatedAt: '2026-11-20T10:00:00.000Z' } } }) })} />);
+    expect(within(nav()).getByRole('link', { name: /Model routing, Customized/ }).querySelector('.settings-dot')).toHaveClass('tone-neutral');
+    expect(within(document.querySelector('[data-settings-section="sources"]')).getByText('Ready', { selector: '.kit-status' })).toBeInTheDocument();
+    expect(within(document.querySelector('[data-settings-section="web-address"]')).getByText('Ready', { selector: '.kit-status' })).toBeInTheDocument();
   });
 
   it('jumps to a section and opens it when it is collapsed', () => {

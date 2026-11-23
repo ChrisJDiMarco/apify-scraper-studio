@@ -103,9 +103,18 @@ describe('One frame for every role', () => {
       const studio = await screen.findByRole('navigation', { name: 'Studio setup' });
       expect(within(studio).getAllByRole('button').map((button) => button.textContent)).toEqual(['Brand knowledge', 'Analytics', 'People & access', 'Settings']); // this studio's api has no Prompts
       expect(within(mainNav()).getByRole('button', { name: /^Studio setup/ })).toHaveAttribute('aria-current', 'page');
-      expect(await screen.findByRole('tab', { name: 'Research brand profiles' })).toBeInTheDocument();
-      expect(screen.getByRole('heading', { name: 'Brand knowledge' })).toBeInTheDocument();
-      expect(await screen.findByRole('button', { name: /Save brand knowledge/ })).toBeInTheDocument();
+      expect(await screen.findByRole('tab', { name: 'Product research profiles' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Brand' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('heading', { level: 1, name: 'Brand knowledge' })).toBeInTheDocument();
+      // The whole form, with no save bar until something changes; then the bar is drawn in Studio setup's slot.
+      expect(await screen.findByLabelText('Workspace name')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Save brand knowledge/ })).not.toBeInTheDocument();
+      fireEvent.change(screen.getByRole('textbox', { name: 'Audience', exact: true }), { target: { value: 'Marketing leads at agencies' } });
+      const bar = await screen.findByRole('region', { name: 'Unsaved changes' });
+      expect(document.getElementById('setup-savebar-slot')).toContainElement(bar);
+      expect(within(bar).getByRole('button', { name: 'Save brand knowledge' })).toBeInTheDocument();
+      fireEvent.click(within(bar).getByRole('button', { name: 'Discard' }));
+      expect(screen.queryByRole('region', { name: 'Unsaved changes' })).not.toBeInTheDocument();
       expect(screen.queryByRole('navigation', { name: 'Content studio' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Back to Simple/ })).not.toBeInTheDocument(); // a Simple page, not a peek
       expect(within(studio).getByRole('button', { name: /^Brand knowledge/ })).toHaveAttribute('aria-current', 'page');
@@ -120,13 +129,13 @@ describe('One frame for every role', () => {
       const palette = await screen.findByRole('dialog', { name: 'Command palette' });
       fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'Brand knowledge' } });
       fireEvent.click((await within(palette).findAllByRole('button', { name: /Brand knowledge/ }))[0]);
-      expect(await screen.findByRole('tab', { name: 'Research brand profiles' })).toBeInTheDocument();
+      expect(await screen.findByRole('tab', { name: 'Product research profiles' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Back to Simple/ })).not.toBeInTheDocument();
       // An old link to the Settings section lands on the page too.
       fireEvent.click(within(mainNav()).getByRole('button', { name: /^Home/ }));
       await screen.findByRole('heading', GREETING);
       act(() => { window.location.hash = '#/settings/knowledge'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-      expect(await screen.findByRole('tab', { name: 'Research brand profiles' })).toBeInTheDocument();
+      expect(await screen.findByRole('tab', { name: 'Product research profiles' })).toBeInTheDocument();
     } finally { window.history.replaceState(null, '', '/'); }
   });
 
@@ -146,7 +155,8 @@ describe('One frame for every role', () => {
     await screen.findByRole('heading', GREETING);
     expect(within(mainNav()).queryByRole('button', { name: /^Settings/ })).not.toBeInTheDocument();
     fireEvent.click(within(mainNav()).getByRole('button', { name: /^Brand knowledge/ }));
-    expect(await screen.findByRole('tab', { name: 'Research brand profiles' })).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: 'Product research profiles' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Brand' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('heading', { name: 'Brand knowledge' })).toBeInTheDocument();
   });
 

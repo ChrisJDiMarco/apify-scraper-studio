@@ -17,7 +17,7 @@ const money = (value) => (Number.isFinite(Number(value)) ? new Intl.NumberFormat
 const plural = (count, word) => `${number(count)} ${word}${count === 1 ? '' : 's'}`;
 const sentence = (value) => String(value || '').replace(/^./, (letter) => letter.toUpperCase());
 export const MAX_SOURCE_CHARS = 250000;
-// What each picture set sends the image model besides its prompt (Settings → Brand reference images).
+// What each picture set sends the image model besides its prompt (Studio setup › Brand knowledge › Brand reference images).
 const referenceTitle = (references) => (references?.style || references?.logo ? `Sends ${[references.style ? plural(references.style, 'style example') : '', references.logo ? 'the approved logo' : ''].filter(Boolean).join(' and ')}` : 'No brand reference images yet');
 // The seconds and model of a set's short video, for the chip and the estimate.
 const videoName = (item) => `Short video · ${item.video?.seconds || 8} s`;
@@ -44,7 +44,7 @@ export function kitSourcesFrom(reports, contentRuns) {
 
 // `preset` ({ key, source?, mode?, link?, channels? }): a fixed source opens on the review step; `channels` (channel ids)
 // pre-ticks those channels' assets instead of the person's own (My channels, `focus`).
-export function KitCreator({ api, sources = [], preset, imagesReady, action, busy, picturesOff = '', focus: focusIn = [], onClose, onCreated, onSettings }) {
+export function KitCreator({ api, sources = [], preset, imagesReady, action, busy, picturesOff = '', focus: focusIn = [], onClose, onCreated, onSettings, onBrandImages }) {
   const viewer = useViewer();
   const fixed = preset?.source || null;
   const focus = list(preset?.channels).length ? list(preset.channels).map(String) : list(focusIn);
@@ -196,7 +196,7 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
               </ul>
               {refProblem && <p className="simple-error" role="alert">{refProblem}</p>}
             </div>}
-            {plan.imagesReady && pictures > 0 && <p className="simple-hint" data-spot="kit-dialog.references">{referenceHint(selected, refs.length)}{onSettings && <> <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>{selected.some((item) => item.references?.style || item.references?.logo) ? 'Change them in Settings' : 'Add style examples and logos in Settings'}</button></>}</p>}
+            {plan.imagesReady && pictures > 0 && <p className="simple-hint" data-spot="kit-dialog.references">{referenceHint(selected, refs.length)}{onBrandImages && <> <button type="button" className="simple-link" disabled={starting} onClick={onBrandImages}>{selected.some((item) => item.references?.style || item.references?.logo) ? 'Change them in Brand knowledge' : 'Add style examples and logos in Brand knowledge'}</button></>}</p>}
             {plan.imagesReady && !refs.length && selected.filter((item) => item.kind === 'image' && !item.references?.style && !item.references?.logo).map((item) => <p key={`refs-${item.id}`} className="simple-hint">{sentence(item.label.replace(/^[^—]+—\s*/, ''))} has no reference images yet, so its pictures follow the brand colors only.</p>)}
             {selected.some((item) => item.kind === 'video') && <p className="simple-hint">Words in AI video often come out garbled, so the clip has none; the on-screen lines are saved beside it to add in your editor.</p>}
             {list(plan.folders).flatMap((folder) => folder.items).some((item) => item.kind === 'video' && !item.available) && !selected.some((item) => item.kind === 'video') && <p className="simple-hint">{onSettings ? <>Short videos need fal.ai. <button type="button" className="simple-link" disabled={starting} onClick={onSettings}>Connect it in Settings</button> to add one.</> : 'Videos are off. Ask an admin to turn them on.'}</p>}
@@ -226,7 +226,7 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
 // The asset dialog for any layout outside Simple's Assets. `request` ({ key, source?, channels?, mode?, link? }) opens it
 // once per key; after Make, a toast offers Open folder (onOpenFolder(sourceKey), Simple's Assets or the Library folder).
 // `edition` keeps the Simple sheet's accent in the General studio.
-export function KitCreatorHost({ request, api, sources, imagesReady, action, busy, picturesOff, focus, edition = 'semrush', onSettings, onOpenFolder, onDone }) {
+export function KitCreatorHost({ request, api, sources, imagesReady, action, busy, picturesOff, focus, edition = 'semrush', onSettings, onBrandImages, onOpenFolder, onDone }) {
   const [open, setOpen] = useState(null);
   const [toast, showToast] = useToast(9000);
   const seen = useRef(null);
@@ -242,7 +242,7 @@ export function KitCreatorHost({ request, api, sources, imagesReady, action, bus
   // folder is open here. A refusal still comes back to the dialog (throwOnError).
   const quietAction = (work, _message, throwOnError) => action(work, '', throwOnError);
   return <div className="simple-shell kit-creator-host" data-edition={edition}>
-    {open && <KitCreator key={open.key} api={api} sources={sources} preset={open} imagesReady={imagesReady} action={quietAction} busy={busy} picturesOff={picturesOff} focus={focus} onClose={close} onCreated={created} onSettings={onSettings ? () => { close(); onSettings(); } : undefined} />}
+    {open && <KitCreator key={open.key} api={api} sources={sources} preset={open} imagesReady={imagesReady} action={quietAction} busy={busy} picturesOff={picturesOff} focus={focus} onClose={close} onCreated={created} onSettings={onSettings ? () => { close(); onSettings(); } : undefined} onBrandImages={onBrandImages ? () => { close(); onBrandImages(); } : undefined} />}
     {toast}
   </div>;
 }

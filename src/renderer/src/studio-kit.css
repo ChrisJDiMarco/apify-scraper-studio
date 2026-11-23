@@ -1,0 +1,43 @@
+/* Studio setup's shared page parts (studio-kit.jsx). */
+
+/* The slot above the section menu (simple-mode.jsx). The save bar takes its own place there and never covers the page:
+   while it shows, it stands in for the section menu (so the page barely moves), and on a page without that menu (the
+   New workspace step) it sits above the title. It stays pinned to the top while the page scrolls, on a solid strip of
+   the page colour, so whatever scrolls underneath disappears cleanly instead of showing around the bar. */
+.setup-savebar-slot { position: sticky; top: 0; z-index: 30; width: 100%; max-width: 1080px; margin: 0 auto; }
+.setup-savebar-slot:empty { display: none; }
+.setup-frame:has(> .setup-savebar-slot:not(:empty)) > .setup-nav { display: none; }
+.setup-savebar-slot::before, .kit-savebar-inline::before { content: ''; position: absolute; z-index: -1; inset: -36px -28px -12px; background: var(--s-bg, #f4f6f5); }
+.setup-savebar-slot > .kit-savebar { position: relative; animation: kit-bar-in 160ms ease-out; }
+.kit-savebar-inline { position: sticky; top: 0; z-index: 30; margin-bottom: 12px; }
+.kit-savebar-inline > .kit-savebar { position: relative; }
+.kit-savebar { display: flex; align-items: center; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; min-height: 56px; padding: 9px 10px 9px 18px; color: var(--s-ink, #181e15); background: var(--s-card, #fff); border: 1px solid var(--s-line-strong, #cfd6d0); border-radius: 16px; box-shadow: 0 10px 28px rgb(24 30 21 / 14%); }
+.kit-savebar-text { display: grid; gap: 2px; min-width: 0; }
+.kit-savebar-text strong { font-size: 14px; font-weight: 650; }
+.kit-savebar-problems { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: #8a4b00; }
+.kit-savebar-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.kit-savebar .kit-primary, .kit-savebar .kit-quiet { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 16px; font: inherit; font-size: 14px; font-weight: 650; border-radius: 999px; cursor: pointer; }
+.kit-savebar .kit-primary { color: var(--s-on-accent, #181e15); background: var(--s-accent, #c190ff); border: 1px solid var(--s-accent-strong, #a873f2); }
+.kit-savebar .kit-primary:hover:not(:disabled) { filter: brightness(.96); }
+.kit-savebar .kit-primary:disabled { cursor: not-allowed; opacity: .55; }
+.kit-savebar .kit-quiet { color: var(--s-ink, #181e15); background: transparent; border: 1px solid var(--s-line, #e3e8e4); }
+.kit-savebar .kit-quiet:hover:not(:disabled) { background: var(--s-bg, #f4f6f5); }
+.kit-savebar button:focus-visible { outline: 2px solid var(--s-focus, #181e15); outline-offset: 2px; }
+@keyframes kit-bar-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .setup-savebar-slot > .kit-savebar { animation: none; } }
+@media (max-width: 600px) {
+  .kit-savebar { min-height: 0; padding: 8px 8px 8px 14px; }
+  .kit-savebar .kit-primary, .kit-savebar .kit-quiet { min-height: 40px; padding: 0 14px; }
+}
+
+/* Three statuses, fixed words and colours: Ready (green), Needs attention (amber), Not set up (neutral). */
+.kit-status { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 10px 2px 8px; font-size: 12px; font-weight: 600; line-height: 1.3; white-space: nowrap; border-radius: 999px; }
+.kit-status-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: currentColor; }
+.kit-status.is-ready { color: #1d6b45; background: #e3f3e9; }
+.kit-status.is-attention { color: #7a4a00; background: #fff0d4; }
+.kit-status.is-unset { color: #4b5249; background: #eceeec; }
+
+/* One empty block: a sentence saying what goes here, and the button that adds the first one. */
+.kit-empty { display: grid; justify-items: start; gap: 8px; padding: 18px 20px; color: var(--s-ink, #181e15); background: var(--s-card, #fff); border: 1px dashed var(--s-line-strong, #cfd6d0); border-radius: 14px; }
+.kit-empty strong { font-size: 15px; font-weight: 650; }
+.kit-empty p { margin: 0; max-width: 62ch; font-size: 14px; line-height: 1.5; color: var(--s-muted, #62685e); }

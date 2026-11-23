@@ -9,13 +9,36 @@ const Papa = require('papaparse');
 const { prepareImport, compareSnapshots } = require('../shared/research-data');
 const { assessDatasetCoverage, buildEvidenceRegister, validateResearchReview, renderReviewExport, reviewContentFingerprint } = require('../shared/report-review');
 
-function createResearchWorkspace({ loadData, saveData, emitState, dataPath, readJson, writeJson, readDatasetPayload, toId, dialog, getWindow, shell }) {
+function createResearchWorkspace({ loadData, saveData, emitState, dataPath, readJson, writeJson, readDatasetPayload, toId, dialog, getWindow, shell, brandKnowledge }) {
   const timestamp = () => new Date().toISOString();
   const persist = () => { saveData(); emitState(); };
+  // The brand itself lives in the workspace (Studio setup › Brand knowledge): its name, audience, positioning, ICP, voice
+  // and claims to avoid. A research profile is one product or service of that brand and only adds what's specific to it,
+  // so the data tools get both, and still get the brand when no profile has been made.
+  function workspaceBrand() {
+    let brand = null;
+    try { brand = typeof brandKnowledge === 'function' ? brandKnowledge() : null; } catch (_) { brand = null; }
+    return brand && typeof brand === 'object' && String(brand.name || '').trim() ? brand : null;
+  }
+  const clip = (value, limit) => String(value || '').trim().slice(0, limit);
   function selectedBrand() {
     const data = loadData();
     const profile = data.brandProfiles.find(item => item.id === data.settings.selectedBrandProfileId);
-    return profile ? { ...validateBrandContext(profile), profileId: profile.id, savedAt: profile.updatedAt } : null;
+    const brand = workspaceBrand(); const k = brand?.knowledge || {};
+    if (!profile && !brand) return null;
+    const own = profile ? validateBrandContext(profile) : { name: '', brand: '', offering: '', audience: '', positioning: '', icp: '', brandVoice: '', forbiddenClaims: '', competitors: [] };
+    const merged = {
+      name: own.name || clip(brand?.name, 120),
+      brand: clip(brand?.name, 120) || own.brand,
+      offering: own.offering || clip(k.productContext, 3000),
+      audience: own.audience || clip(k.audience, 800),
+      positioning: own.positioning || clip(k.positioning, 3000),
+      icp: own.icp || clip(k.icp, 3000),
+      brandVoice: clip(k.voice, 2000) || own.brandVoice,
+      forbiddenClaims: [clip(k.forbiddenClaims, 3000), own.forbiddenClaims].filter(Boolean).join('\n').slice(0, 3000),
+      competitors: own.competitors,
+    };
+    return { ...validateBrandContext(merged), ...(profile ? { profileId: profile.id, savedAt: profile.updatedAt } : { fromBrandKnowledge: true }) };
   }
   function saveBrandProfile(payload = {}) {
     const data = loadData();

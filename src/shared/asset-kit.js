@@ -12,6 +12,9 @@ const { promptBlocks, snapshotBlocks } = require('./prompt-template');
 // The table lives in kit-folders.json so the renderer (which can't load this CommonJS file) groups by the same ids.
 const KIT_DATA = require('./kit-folders.json');
 const KIT_FOLDERS = Object.freeze(KIT_DATA.folders.map((folder) => Object.freeze({ ...folder, deliverables: [...folder.deliverables] })));
+// The channels an admin added to the current workspace come after the built-in ones (custom-channels.js).
+const customChannels = require('./custom-channels');
+const allFolders = () => [...KIT_FOLDERS, ...customChannels.customChannels().map(customChannels.folderOf)];
 // n8n's file names: "<label> — <trend> (<date>)", pictures "<label> — <trend> — Variation N (<date>)".
 const SEMRUSH_FILE_LABELS = Object.freeze({ ...KIT_DATA.semrushFileLabels });
 // Typical structured output per written asset (tokens) and per picture brief, for the estimate shown before a run.
@@ -28,7 +31,7 @@ const offered = (id, editionId) => { const descriptor = descriptorOf(id); return
 const round = (value) => Math.round(value * 100) / 100;
 
 function kitFolders(editionId = 'general') {
-  return KIT_FOLDERS.map((folder) => ({ id: folder.id, name: editionId === 'semrush' ? folder.semrush : folder.general, short: editionId === 'semrush' ? folder.semrushShort : folder.generalShort, deliverableIds: folder.deliverables.filter((id) => offered(id, editionId)) })).filter((folder) => folder.deliverableIds.length);
+  return allFolders().map((folder) => ({ id: folder.id, name: editionId === 'semrush' ? folder.semrush : folder.general, short: editionId === 'semrush' ? folder.semrushShort : folder.generalShort, deliverableIds: folder.deliverables.filter((id) => offered(id, editionId)) })).filter((folder) => folder.deliverableIds.length);
 }
 function kitDeliverableIds(editionId = 'general', { images = true } = {}) {
   return kitFolders(editionId).flatMap((folder) => folder.deliverableIds).filter((id) => images || descriptorOf(id).kind !== 'image');
@@ -91,7 +94,7 @@ const taskPrice = (task) => (task?.price?.basis === 'tokens' && task.price.known
 const pricedOn = (task, ai) => (task && task.metered !== false && task.model ? task : { model: ai.model, effort: task?.effort ?? ai.effort });
 function kitCallEstimate(deliverable, ai, task = null) {
   const on = pricedOn(task, ai);
-  return research.callCost(on.model, on.effort, research.estimateTokens(deliverable.prompt.length), OUTPUT_TOKENS[deliverable.id] || 3500, task === on ? taskPrice(task) : {});
+  return research.callCost(on.model, on.effort, research.estimateTokens(deliverable.prompt.length), OUTPUT_TOKENS[customChannels.baseDeliverableId(deliverable.id)] || 3500, task === on ? taskPrice(task) : {});
 }
 function kitBriefEstimate(deliverable, ai, task = null) {
   const on = pricedOn(task, ai);

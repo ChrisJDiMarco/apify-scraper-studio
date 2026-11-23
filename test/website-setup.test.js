@@ -5,6 +5,20 @@ const fact = (text, ...refs) => ({ text, refs });
 const official = { url: 'https://example.com/product', metadata: { title: 'Acme product' }, text: 'Acme makes illustration tools.' };
 
 describe('website setup drafts', () => {
+  it('fills the workspace name with the brand’s name, never a sentence about it', () => {
+    const request = setup.websiteRequest({ websiteMode: 'workspace', website: 'business.adobe.com' });
+    const page = { id: 'S1', kind: 'page', url: 'https://business.adobe.com/', title: 'Adobe: Creative, marketing and document management solutions' };
+    // The model's answer stands when it reads as a name.
+    expect(setup.brandName('Adobe', request, [page])).toBe('Adobe');
+    expect(setup.brandName('Search Engine Land', request, [page])).toBe('Search Engine Land');
+    // A sentence falls back to the site's own title, then to its web address.
+    expect(setup.brandName('Per its homepage, Adobe offers "creative, marketing and document management solutions"', request, [page])).toBe('Adobe');
+    expect(setup.brandName('Adobe offers creative tools.', request, [])).toBe('Adobe');
+    expect(setup.brandName('', setup.websiteRequest({ websiteMode: 'workspace', website: 'bbc.co.uk' }), [])).toBe('Bbc');
+    const draft = setup.cleanWebsiteDraft(request, { about: { company: fact('Per its homepage, Adobe offers creative, marketing and document management solutions.', 'S1') }, knowledge: { audience: fact('Creative teams', 'S1') }, products: [] }, { evidence: [page], warnings: [] });
+    expect(draft.about.company).toBe('Adobe');
+  });
+
   it('normalizes a pasted domain and rejects credentials, local destinations and other protocols', () => {
     expect(setup.websiteRequest({ websiteMode: 'workspace', website: 'EXAMPLE.COM/product?campaign=x#pricing' }).url).toBe('https://example.com/product');
     for (const website of ['http://2130706433', 'http://[::1]', 'localhost', 'example.internal', 'https://me:pass@example.com', 'example.com:8080', 'file:///etc/hosts']) {

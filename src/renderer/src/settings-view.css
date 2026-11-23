@@ -7,7 +7,7 @@
 .settings-column > .settings-view { min-width: 0; margin: 0; }
 
 .settings-nav { position: sticky; top: 16px; display: grid; gap: 4px; max-height: calc(100dvh - 32px); padding: 4px; overflow-y: auto; scrollbar-width: thin; }
-.settings-nav-group { margin: 14px 10px 4px; font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--s-muted, #62685e); }
+.settings-nav-group { margin: 14px 10px 4px; font-size: 12.5px; font-weight: 650; color: var(--s-muted, #62685e); }
 .settings-nav-section:first-child .settings-nav-group { margin-top: 4px; }
 .settings-nav ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .settings-nav-link { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 6px 10px; border-radius: var(--s-radius-control, 12px); font-size: 13.5px; font-weight: 550; line-height: 1.3; color: var(--s-ink, #181e15); text-decoration: none; transition: background-color 140ms var(--s-ease, ease), color 140ms var(--s-ease, ease); }
@@ -15,9 +15,9 @@
 .settings-nav-link[aria-current="location"] { background: var(--s-soft, #f1eaff); color: var(--s-soft-ink, #5a2fa0); font-weight: 650; }
 .settings-nav-link:focus-visible { outline: 2px solid var(--s-focus, var(--s-ink, #181e15)); outline-offset: 2px; }
 .settings-nav-label { min-width: 0; overflow-wrap: anywhere; }
-.settings-dot { flex: none; width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: var(--s-line-strong, #cfd6d0); }
+.settings-dot { flex: none; width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: #7d847b; }
 .settings-dot.tone-ready { background: var(--s-mint-ink, #1f5a4c); }
-.settings-dot.tone-attention { background: var(--s-warn-ink, #6b5413); }
+.settings-dot.tone-attention { background: #b7791f; }
 .settings-dot.tone-problem { background: var(--s-danger, #8a2f1c); }
 
 .settings-jump { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 10px; padding: 10px 0; background: var(--s-bg, #f4f6f5); }
@@ -41,4 +41,16 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .settings-nav-link { transition: none; }
+}
+
+/* Design review 2026-11-23: Settings sits on the section menu's column; hints and labels 12px and up; a field and its
+   Save stay one line high on a phone (the row used to turn into a column and stretch the field into a tall box). */
+.setup-frame .simple-settings { max-width: 1080px; }
+.settings-view .field-grid > label { align-content: start; }
+.settings-view small, .settings-block small { font-size: 12.5px; line-height: 1.5; }
+.ai-uses-warning { font-weight: 600; color: #7a4a00; }
+@media (max-width: 900px) {
+  .settings-view .inline { flex-direction: row; flex-wrap: wrap; align-items: center; width: 100%; }
+  .settings-view .inline input, .settings-view .inline select { flex: 1 1 100%; height: auto; min-height: 42px; }
+  .settings-view .inline button { flex: none; }
 }

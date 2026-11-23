@@ -69,6 +69,8 @@
       "methods": ["saveWorkspaceTaxonomy", "saveReferenceDoc", "deleteReferenceDoc", "addBrandImage", "readBrandImage", "setBrandImageRole", "removeBrandImage", "importProductRegistry", "deleteBrandProfile"] },
     { "id": "manageWorkspaces", "group": "studio", "label": "Switch workspaces", "description": "Switch or create workspaces. Switching moves everyone using the studio.", "defaults": ["admin"], "bases": ["editor"],
       "methods": ["saveContentWorkspace"] },
+    { "id": "manageChannels", "group": "studio", "label": "Add and remove channels", "description": "Add new channels to a workspace, rename them, and remove channels that were added.", "defaults": ["admin"], "bases": ["editor"],
+      "methods": ["saveCustomChannel", "removeCustomChannel"] },
     { "id": "seeAnalytics", "group": "studio", "label": "See team analytics", "description": "Which channels used which trends, and the team’s recent activity.", "defaults": ["admin"], "bases": ["editor"],
       "methods": ["getTrendAnalytics"] },
     { "id": "settings", "group": "admin", "label": "Settings and connections", "description": "Keys, AI routes, connections, setup files and prompt locks.", "lock": "admin", "defaults": ["admin"], "bases": [],

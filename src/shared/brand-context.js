@@ -1,4 +1,6 @@
-const PROFILE_FIELDS = { name: 120, offering: 3000, audience: 800, positioning: 3000, icp: 3000, brandVoice: 2000, forbiddenClaims: 3000 };
+// A research profile is one product or service. `brand` is the workspace's brand (Studio setup › Brand knowledge) the
+// profile belongs to; its voice, claims to avoid and defaults come from there (research-workspace.js selectedBrand).
+const PROFILE_FIELDS = { name: 120, brand: 120, offering: 3000, audience: 800, positioning: 3000, icp: 3000, brandVoice: 2000, forbiddenClaims: 3000 };
 function validateBrandContext(input = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Brand context must be an object.');
   const profile = {};
@@ -7,7 +9,7 @@ function validateBrandContext(input = {}) {
     profile[key] = String(input[key] || '').trim();
     if (profile[key].length > limit) throw new Error(`Brand ${key} must be ${limit} characters or fewer.`);
   }
-  if (!profile.name) throw new Error('Add a brand or company name.');
+  if (!profile.name) throw new Error('Name the product or service.');
   if (input.competitors != null && !Array.isArray(input.competitors)) throw new Error('Competitors must be a list.');
   if ((input.competitors || []).length > 20) throw new Error('Keep this context to 20 competitors or fewer.');
   profile.competitors = (input.competitors || []).map((value) => {

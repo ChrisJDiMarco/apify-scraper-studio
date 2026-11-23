@@ -2,10 +2,10 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { CircleAlert, LoaderCircle, ShieldCheck } from 'lucide-react';
 import { readinessItems } from '../../shared/health.js';
 import { AiConnections } from './ai-connections.jsx';
-import { BrandImages } from './brand-images.jsx';
 import { ModelRouting } from './model-routing.jsx';
 import { SetupShare } from './setup-share.jsx';
 import { Badge, Button, JsonBlock, short, statusTone } from './ui.jsx';
+import { StatusLabel } from './studio-kit.jsx';
 import { normalizeOrigin } from './deep-links.js';
 import { useNarrow } from './role-screens.jsx';
 import { SETTINGS_SECTION_IDS, sectionId, sectionStatus, visibleSections } from './settings-sections.js';
@@ -29,7 +29,7 @@ function WebAddressSection({ settings = {}, busy, onSaveSettings }) {
     setProblem(''); onSaveSettings({ studioWebAddress: value.trim() ? clean : '' });
   }
   return <section className="settings-block settings-links" aria-labelledby="settings-links-title" data-spot="settings.web-address">
-    <div className="panel-head"><div><h3 id="settings-links-title">Studio web address</h3><p>Copy link in reports, the Library and channel briefs builds links on the browser studio’s address, so teammates open them there. Leave it blank and Copy link stays hidden on {place()}.</p></div><Badge tone={saved ? 'ready' : 'neutral'}>{saved ? 'Links on' : 'Optional'}</Badge></div>
+    <div className="panel-head"><div><h3 id="settings-links-title">Studio web address</h3><p>Copy link in reports, the Library and channel briefs builds links on the browser studio’s address, so teammates open them there. Leave it blank and Copy link stays hidden on {place()}.</p></div><StatusLabel status={saved ? 'ready' : 'unset'} /></div>
     <label htmlFor="settings-web-address">Browser studio address</label>
     <div className="inline"><input id="settings-web-address" type="url" inputMode="url" autoComplete="url" spellCheck="false" placeholder="https://studio.example.com" value={value} aria-invalid={problem ? 'true' : undefined} aria-describedby={problem ? 'settings-web-address-error' : undefined} onChange={(event) => { setValue(event.target.value); setProblem(''); }} /><Button type="button" disabled={busy || (!value.trim() && !saved) || (Boolean(clean) && clean === saved)} onClick={save}>Save</Button>{saved && <Button type="button" className="ghost" disabled={busy} onClick={() => { setValue(''); onSaveSettings({ studioWebAddress: '' }); }}>Clear</Button>}</div>
     {problem ? <p id="settings-web-address-error" className="error-line" role="alert">{problem}</p> : <small>{clean && clean !== saved ? `Links will start with ${clean}/#/…` : saved ? `Links start with ${saved}/#/…` : 'Ask whoever runs the browser studio for its address.'}</small>}
@@ -54,7 +54,7 @@ function SourcesSection({ state, busy, semrush, savedHere, onSaveKey, onClearKey
   useEffect(() => setMaxItems(state.settings?.maxItems || 1000), [state.settings?.maxItems]);
   const saved = Boolean(state.keys?.APIFY_API_TOKEN);
   // First, in both editions: without Apify nothing new can be collected.
-  return <section className="settings-block settings-sources" aria-labelledby="settings-sources-title"><div className="panel-head"><div><h3 id="settings-sources-title">Source collection</h3><p>{semrush ? 'Connect Apify to research the accounts and communities you choose.' : 'Connect Apify to run your scrapers and research the accounts and communities you choose.'}</p></div><Badge tone={saved ? 'ready' : 'warning'}>{saved ? 'Credential saved' : 'Setup needed'}</Badge></div>
+  return <section className="settings-block settings-sources" aria-labelledby="settings-sources-title"><div className="panel-head"><div><h3 id="settings-sources-title">Source collection</h3><p>{semrush ? 'Connect Apify to research the accounts and communities you choose.' : 'Connect Apify to run your scrapers and research the accounts and communities you choose.'}</p></div><StatusLabel status={saved ? 'ready' : 'attention'} /></div>
     <div className="field-grid two">
       <label data-spot="settings.apify">Apify API token
         <div className="inline">
@@ -223,7 +223,6 @@ export function SettingsView({ role = 'admin', renderBrandKnowledge, setupApi, o
   const narrow = forcedNarrow ?? mediaNarrow;
   const activeWorkspace = state.contentStudio?.workspaces?.find(workspace => workspace.id === state.contentStudio.activeWorkspaceId);
   const semrush = activeWorkspace?.editionId === 'semrush';
-  const imagesConfigured = Boolean(state.contentStudio?.capabilities?.imagesConfigured ?? state.keys?.OPENAI_API_KEY);
   // What a saved secret's field says. In the browser studio, keys live on the studio server, never in the browser.
   const savedHere = web ? 'Saved on the studio server' : 'Stored securely on this device';
   const common = { state, meta, busy, web, role, layout: layout || state.settings?.uiMode, savedHere, api: setupApi, onSaveKey, onClearKey, onSaveSettings, onSaveMondayBoard, onClearMondayBoard };
@@ -234,7 +233,8 @@ export function SettingsView({ role = 'admin', renderBrandKnowledge, setupApi, o
     ai: () => <AiConnections state={state} meta={meta} api={setupApi} busy={busy} onSaveKey={onSaveKey} onClearKey={onClearKey} onOpenRouting={setupApi?.previewAiRouting ? () => go('models', { viaKeyboard: false }) : undefined} />,
     models: setupApi?.previewAiRouting ? () => <ModelRouting state={state} api={setupApi} busy={busy} role={role} layout={layout || state.settings?.uiMode} /> : null,
     'brand-knowledge': renderBrandKnowledge || null,
-    'brand-images': setupApi?.addBrandImage ? () => <BrandImages api={setupApi} workspace={activeWorkspace} busy={busy} imagesConfigured={imagesConfigured} /> : null,
+    // Brand reference images moved to Studio setup › Brand knowledge (App.jsx renderBrandImages).
+    'brand-images': null,
     'google-drive': setupApi?.connectDriveSync ? () => <DriveSettings {...common} /> : null, // drive-settings.jsx (folder sync)
     'google-docs': () => <GoogleDocsSection {...common} />,
     'google-sheets': () => <GoogleSheetsSection {...common} onTestSheetsBridge={onTestSheetsBridge} onArchiveAndClearSheets={onArchiveAndClearSheets} onImportWorkingSheets={onImportWorkingSheets} onReplaySheetRun={onReplaySheetRun} />,

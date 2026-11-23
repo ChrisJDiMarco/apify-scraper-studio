@@ -85,7 +85,7 @@ describe('Assets: report folders of channel assets', () => {
     expect(await screen.findByRole('region', { name: `Golden Thread — ${TREND} (2026-10-16)` })).toBeInTheDocument();
   });
 
-  it('says which picture sets send brand reference images, and links to them in Settings', async () => {
+  it('says which picture sets send brand reference images, and links to them in Brand knowledge', async () => {
     const api = await openSimple();
     const withReferences = { ...plan, folders: plan.folders.map(folder => ({ ...folder, items: folder.items.map(item => (item.kind === 'image' ? { ...item, references: { style: 2, logo: 1 } } : item)) })) };
     api.planAssetKit.mockResolvedValue(withReferences);
@@ -98,7 +98,7 @@ describe('Assets: report folders of channel assets', () => {
     const review = await screen.findByRole('dialog', { name: 'Check what will be made' });
     expect(await within(review).findByText(/Brand reference images: 1 of 1 picture set, 1 with the approved logo\./)).toBeInTheDocument();
     expect(within(review).getByRole('checkbox', { name: /Hero Graphic/ })).toHaveAttribute('title', 'Sends 2 style examples and the approved logo');
-    fireEvent.click(within(review).getByRole('button', { name: 'Change them in Settings' }));
+    fireEvent.click(within(review).getByRole('button', { name: 'Change them in Brand knowledge' }));
     // The workspace's picture sets arrive with the next state push, as they do from the main process.
     const current = await api.state(); const push = api.onStateChanged.mock.calls.at(-1)[0];
     act(() => push({ ...current, contentStudio: { ...current.contentStudio, workspaces: current.contentStudio.workspaces.map(row => ({ ...row, brandImageSets: [{ id: 'sel-editorial', deliverableId: 'sel-image', label: 'Search Engine Land editorial heroes', hint: '', max: 6, images: [] }] })) } }));

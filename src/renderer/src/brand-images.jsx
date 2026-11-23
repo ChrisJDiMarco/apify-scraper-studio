@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ImagePlus, LoaderCircle, Palette, Trash2 } from 'lucide-react';
+import { ImagePlus, LoaderCircle, Trash2 } from 'lucide-react';
 import { Badge, Button } from './ui.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 
@@ -53,8 +53,8 @@ function BrandImageSets({ api, workspace, busy, imagesConfigured }) {
   };
 
   return <section className="settings-block settings-brand-images" aria-labelledby="settings-brand-images-title" data-spot="settings.brand-images">
-    <div className="settings-image-heading"><span className="settings-image-icon"><Palette size={21} aria-hidden="true" /></span><div><h3 id="settings-brand-images-title">Brand reference images</h3><p>Style examples and approved logos sent with every picture the studio draws.</p></div><Badge tone={total ? 'ready' : 'neutral'}>{total ? `${total} saved` : 'None yet'}</Badge></div>
-    <p className="brand-images-intro">Style examples and approved logos sent with every picture the studio draws: channel asset pictures, Create content pictures, Ask AI pictures and picture test runs in Prompts. Style examples teach the look (palette, type and texture) and are never copied. An approved logo is placed exactly as supplied in a clean footer; without one, pictures draw no logo and leave the footer clean. New runs use what’s here, and a run keeps the images it started with.{imagesConfigured ? '' : ' Pictures are drawn once a picture model is connected under AI connections.'}</p>
+    <div className="settings-image-heading"><div><h3 id="settings-brand-images-title">Brand reference images</h3><p>Style examples and approved logos sent with every picture the studio draws.</p></div><Badge tone={total ? 'ready' : 'neutral'}>{total ? `${total} saved` : 'None yet'}</Badge></div>
+    <p className="brand-images-intro">They go with channel asset pictures, Create content pictures, Ask AI pictures and picture test runs in Prompts. Style examples teach the look (palette, type and texture) and are never copied. An approved logo is placed exactly as supplied in a clean footer; without one, pictures draw no logo and leave the footer clean. New runs use what’s here, and a run keeps the images it started with.{imagesConfigured ? '' : ' Pictures are drawn once a picture model is connected under AI connections.'}</p>
     <div className="brand-sets">{sets.map((set) => {
       const images = list(set.images); const hasLogo = images.some((image) => image.role === 'logo'); const full = images.length >= set.max;
       return <article className="brand-set" key={set.id} aria-labelledby={`brand-set-${set.id}`}>

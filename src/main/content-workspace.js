@@ -15,6 +15,7 @@ const reports = () => require('../shared/research-reports');
 const setupBundle = () => require('../shared/setup-bundle');
 // Asset kits: every channel asset from one report, as the n8n "Generate All Channel Assets" workflow made them.
 const kit = () => require('../shared/asset-kit');
+const customChannels = require('../shared/custom-channels');
 // Brand reference images: the style examples and approved logos kit pictures send to the image model.
 const brandImages = () => require('../shared/brand-images');
 // Reports edited in the studio: Markdown → safe HTML for the edited copy's page.
@@ -105,6 +106,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   const fresh = () => ({ version: 1, activeWorkspaceId: policy.mode === 'single' ? policy.id : ['general', 'semrush'].includes(defaultWorkspaceId) ? defaultWorkspaceId : 'general', workspaces: policy.mode === 'single' ? [editionWorkspace(policy.editionId, policy.id, policy.name)] : ['general', 'semrush'].map(editionId => editionWorkspace(editionId)), ...(policy.mode === 'single' ? { workspacePolicy: { mode: 'single', mainId: policy.id, name: policy.name, appliedAt: stamp() } } : {}), programs: [], researchRuns: [], contentRuns: [], themes: [], history: [], detections: [], assets: [], exports: [], datasetOwners: {} });
   const workspaceContext = new AsyncLocalStorage();
   const currentWorkspaceId = () => workspaceContext.getStore() || getWorkspaceId() || state.activeWorkspaceId;
+  // Custom channels (custom-channels.js): every workspace's, registered once loaded and after each change; the channel
+  // lists show the current workspace's.
+  customChannels.setWorkspaceResolver(currentWorkspaceId);
+  const registerCustomChannels = () => customChannels.setCustomChannels(state.workspaces.flatMap(w => (Array.isArray(w.customChannels) ? w.customChannels : []).map(row => ({ ...row, workspaceId: w.id }))));
   let state;
   try { state = JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw new Error('Studio data could not be read. Restore the saved state before continuing.'); state = fresh(); }
   state.detections ||= [];
@@ -158,7 +163,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   function assetPromptIds(deliverableIds = [], { kit: isKit = false } = {}) {
     const kindOf = id => content.CONTENT_DELIVERABLES.find(d => d.id === id)?.kind;
     const pictures = deliverableIds.some(id => kindOf(id) === 'image'); const video = isKit && deliverableIds.some(id => kindOf(id) === 'video');
-    return ['assets.shared', ...deliverableIds.filter(isTextDeliverable).map(id => `assets.${id}`), ...(pictures || video ? ['pictures.direction'] : []), ...(pictures ? ['pictures.variations', ...(isKit ? ['pictures.kit-brief', 'pictures.kit-image'] : ['pictures.content-image'])] : []), ...(video ? ['video.brief', 'video.clip'] : []), ...(isKit ? ['system.repair'] : [])].filter(id => PROMPT_IDS.has(id));
+    return ['assets.shared', ...new Set(deliverableIds.filter(isTextDeliverable).map(id => `assets.${customChannels.baseDeliverableId(id)}`)), ...(pictures || video ? ['pictures.direction'] : []), ...(pictures ? ['pictures.variations', ...(isKit ? ['pictures.kit-brief', 'pictures.kit-image'] : ['pictures.content-image'])] : []), ...(video ? ['video.brief', 'video.clip'] : []), ...(isKit ? ['system.repair'] : [])].filter(id => PROMPT_IDS.has(id));
   }
   const promptSnapshot = (w, ids) => prompts.snapshot(w.id, w.editionId, ids);
   const pickPrompts = (snapshot, ids) => Object.fromEntries(Object.entries(snapshot || {}).filter(([promptId]) => ids.includes(promptId)));
@@ -168,6 +173,13 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     for (const deliverableId of Array.isArray(deliverableIds) ? deliverableIds : []) { const notes = channelNotesText(saved[kit().kitFolderFor(deliverableId, w.editionId).id]); if (notes) out[deliverableId] = notes; }
     return Object.keys(out).length ? { channelKnowledge: out } : {};
   }
+  // The written formats a custom channel can make: the built-in channel kit's text deliverables, with this edition's names.
+  function channelFormats(editionId = 'general') {
+    const builtIn = kit().kitFolders(editionId).filter(folder => !customChannels.isCustomChannelId(folder.id));
+    return builtIn.flatMap(folder => folder.deliverableIds.map(id => ({ id, folder }))).map(({ id, folder }) => ({ descriptor: content.CONTENT_DELIVERABLES.find(d => d.id === id), folder }))
+      .filter(({ descriptor }) => descriptor && descriptor.kind === 'text' && !descriptor.aliasOf)
+      .map(({ descriptor, folder }) => ({ id: descriptor.id, label: editionId === 'semrush' ? descriptor.semrushLabel || descriptor.label : descriptor.label, channel: folder.name }));
+  }
   // One channel of this workspace's edition, or a refusal ('other' isn't a channel).
   function channelOf(w, channelId) {
     const folder = kit().kitFolders(w.editionId).find((row) => row.id === channelId);
@@ -175,7 +187,9 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     return folder;
   }
   // The Prompt Library prompts that write a channel's assets (assets.<deliverable>), in the channel's own order.
-  const channelPromptIds = (folder) => folder.deliverableIds.map((deliverableId) => `assets.${deliverableId}`).filter((promptId) => PROMPT_REGISTRY.prompts.some((row) => row.id === promptId));
+  const channelPromptIds = (folder) => [...new Set(folder.deliverableIds.map((deliverableId) => `assets.${customChannels.baseDeliverableId(deliverableId)}`))].filter((promptId) => PROMPT_REGISTRY.prompts.some((row) => row.id === promptId));
+  // A custom channel writes with the built-in formats' prompts, which belong to those channels: it shows them, read only.
+  const sharedInstructions = (folder) => customChannels.isCustomChannelId(folder.id);
   // run.prompts: the version of each prompt a run started with, for receipts ("Custom prompts: Find candidate trends v3").
   const promptRecord = snapshot => Object.fromEntries(Object.entries(snapshot || {}).map(([promptId, entry]) => [promptId, { version: entry.version, custom: Boolean(entry.custom) }]));
   function migrateSemrushBrandDefaults() {
@@ -271,7 +285,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // Writing an edit: editStudioAsset and the report editor (report-docs.js, writeReportMarkdown) write the same two files.
   // An edit or restore made outside the editor tells it (hooks.onAssetEdited), so its shared document starts over.
   function checkEditable(asset, markdown) {
-    if (asset.kind !== 'text' || asset.deliverableId === 'landingpage') throw new Error('Pictures and landing pages can’t be edited here.');
+    if (asset.kind !== 'text' || customChannels.baseDeliverableId(asset.deliverableId) === 'landingpage') throw new Error('Pictures and landing pages can’t be edited here.');
     if (typeof markdown !== 'string' || !markdown.trim()) throw new Error('Write the report before saving, or restore the original.');
     if (markdown.length > MAX_EDIT_CHARS) throw new Error('Keep the report under 250,000 characters.');
   }
@@ -330,7 +344,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // Reference documents can be long; state carries their metadata and readReferenceDoc returns the text.
     // Brand reference images arrive grouped by picture set; readBrandImage returns a picture's bytes.
     const activeView = w => ({ ...w, referenceDocs: (w.referenceDocs || []).map(({ text, ...doc }) => ({ ...doc, characters: String(text || '').length })), brandImageSets: brandImages().brandImageFamilies(w.editionId).map(family => ({ ...family, images: (w.brandImages || []).filter(image => image.family === family.id) })) });
-    return { activeWorkspaceId: currentWorkspaceId(), workspaces: copy(state.workspaces.filter(w => !w.archived).map(w => w.id === currentWorkspaceId() ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), workspacePolicy: workspacePolicyView(), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === currentWorkspaceId()).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit', 'scan-report'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() }, promptChanges: recentPromptChanges() };
+    return { activeWorkspaceId: currentWorkspaceId(), customChannels: customChannels.customChannels(currentWorkspaceId()).map(({ id, name, short, formats }) => ({ id, name, short, formats: [...formats] })), channelFormats: channelFormats(state.workspaces.find(w => w.id === currentWorkspaceId())?.editionId || 'general'), workspaces: copy(state.workspaces.filter(w => !w.archived).map(w => w.id === currentWorkspaceId() ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), workspacePolicy: workspacePolicyView(), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === currentWorkspaceId()).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit', 'scan-report'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() }, promptChanges: recentPromptChanges() };
   }
   // `interrupted`: the process stopped under the run (a deploy, a restart), which says nothing about the program. Its
   // schedule stays on and moves to the next occurrence from now, so nothing is bought again the moment the server is
@@ -555,7 +569,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   }
   // The AI tasks a kit deliverable runs: a written asset its channel's task (or Every channel asset), a picture set its art
   // direction and pictures, the short video its plan, clip and (for models that start from a picture) a first frame.
-  const kitTextTask = deliverableId => (KIT_TEXT_TASKS.has(`assets.${deliverableId}`) ? `assets.${deliverableId}` : 'assets.default');
+  const kitTextTask = deliverableId => { const task = `assets.${customChannels.baseDeliverableId(deliverableId)}`; return KIT_TEXT_TASKS.has(task) ? task : 'assets.default'; };
   function kitTaskIds(deliverables) {
     const ids = [];
     for (const deliverable of deliverables) {
@@ -1734,7 +1748,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const sharedOpen = run.kit ? text.length > 0 : open.length > 0 && !picturesStarted;
       if (input.research) ids = [...text.map(job => (job.id === 'evidence-report' ? 'reports.trends-report' : 'reports.editorial-toolkit')), 'system.repair'];
       else if (input.scanReport) ids = open.length ? ['reports.quick-scan', 'system.repair'] : [];
-      else ids = [...text.map(job => `assets.${job.id}`), ...(sharedOpen ? ['assets.shared'] : []), ...(open.length > text.length && !picturesStarted ? pictureIds : []), ...(run.kit ? ['system.repair'] : [])];
+      else ids = [...new Set(text.map(job => `assets.${customChannels.baseDeliverableId(job.id)}`)), ...(sharedOpen ? ['assets.shared'] : []), ...(open.length > text.length && !picturesStarted ? pictureIds : []), ...(run.kit ? ['system.repair'] : [])];
     }
     ids = ids.filter(promptId => PROMPT_IDS.has(promptId));
     if (!ids.length) return;
@@ -1927,6 +1941,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     workspacePolicy: () => copy(state.workspacePolicy || { mode: policy.mode }),
     // baseUpdatedAt (optional, here and on saveResearchProgram): the updatedAt the form opened with. A save over a newer
     // one made since is refused, so two admins editing the same record never silently replace each other's changes.
+    // The current workspace's brand (its name and brand knowledge), for the data tools' research profiles.
+    currentBrand() { try { const w = workspace(); return w ? { name: w.name, knowledge: copy(w.knowledge || {}) } : null; } catch (_) { return null; } },
     saveContentWorkspace(payload) {
       if (policy.mode === 'single' && !payload.id) throw singleRefusal(`This studio has one workspace. Edit ${policy.name}’s brand knowledge instead.`);
       const existing = payload.id ? workspace(payload.id) : null; const editionId = existing?.editionId || payload.editionId || 'general';
@@ -1961,7 +1977,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const saved = (w.channelKnowledge || {})[folder.id] || {};
       const prompts = [];
       for (const promptId of channelPromptIds(folder)) { try { prompts.push(await promptLab().readPrompt({ id: promptId })); } catch (_) { /* a prompt this edition doesn't have */ } }
-      return { channelId: folder.id, channelName: folder.name, fields: CHANNEL_FIELDS, knowledge: Object.fromEntries(CHANNEL_FIELDS.map((field) => [field.id, saved[field.id] || ''])), updatedAt: saved.updatedAt || '', updatedBy: saved.updatedBy || null, prompts, references: channelImages().list({ workspaceId: w.id, channelId: folder.id }) };
+      return { channelId: folder.id, channelName: folder.name, custom: sharedInstructions(folder), fields: CHANNEL_FIELDS, knowledge: Object.fromEntries(CHANNEL_FIELDS.map((field) => [field.id, saved[field.id] || ''])), updatedAt: saved.updatedAt || '', updatedBy: saved.updatedBy || null, prompts, references: channelImages().list({ workspaceId: w.id, channelId: folder.id }) };
     },
     addChannelReference({ channelId, description, name, data } = {}) {
       const w = workspace(); const folder = channelOf(w, String(channelId || ''));
@@ -1984,6 +2000,43 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const result = channelImages().generation({ workspaceId: w.id, channelId: folder.id });
       return { images: result.references, prompt: result.prompt };
     },
+    // ---------- Custom channels (Studio setup › Channels › Add channel; custom-channels.js) ----------
+    // A channel an admin adds: its name, a short name for narrow columns, and the built-in written formats it makes (each
+    // writes with that format's instructions plus this channel's knowledge). Removing one archives it: it leaves every
+    // list and its owner loses it, while the assets it already has keep its name.
+    saveCustomChannel({ channelId = '', name, short, formats } = {}) {
+      const w = workspace();
+      const rows = Array.isArray(w.customChannels) ? w.customChannels : (w.customChannels = []);
+      const label = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      if (!label) throw Object.assign(new Error('Name the channel.'), { status: 400 });
+      const existing = channelId ? rows.find(row => row.id === String(channelId) && !row.archived) : null;
+      if (channelId && !existing) throw Object.assign(new Error('That channel no longer exists.'), { status: 404 });
+      const offered = channelFormats(w.editionId).map(format => format.id);
+      const picked = [...new Set((Array.isArray(formats) ? formats : []).map(String))];
+      if (!picked.length) throw Object.assign(new Error('Choose at least one kind of asset this channel makes.'), { status: 400 });
+      if (picked.length > customChannels.MAX_FORMATS) throw Object.assign(new Error(`Choose up to ${customChannels.MAX_FORMATS} kinds of asset.`), { status: 400 });
+      if (picked.some(format => !offered.includes(format))) throw Object.assign(new Error('Choose kinds of asset from the list.'), { status: 400 });
+      if (kit().kitFolders(w.editionId).some(folder => folder.id !== existing?.id && String(folder.name).toLowerCase() === label.toLowerCase())) throw Object.assign(new Error('A channel already has that name.'), { status: 409 });
+      if (!existing && rows.filter(row => !row.archived).length >= customChannels.MAX_CHANNELS) throw Object.assign(new Error(`A workspace can add up to ${customChannels.MAX_CHANNELS} channels.`), { status: 400 });
+      const shortName = String(short || '').replace(/\s+/g, ' ').trim().slice(0, 24) || label.slice(0, 24);
+      let channel = existing;
+      if (existing) Object.assign(existing, { name: label, short: shortName, formats: picked, updatedAt: stamp(), updatedBy: who() });
+      else {
+        const taken = [...kit().KIT_FOLDERS.map(folder => folder.id), ...state.workspaces.flatMap(row => (Array.isArray(row.customChannels) ? row.customChannels : []).map(entry => entry.id))];
+        channel = { id: customChannels.newChannelId(label, taken), name: label, short: shortName, formats: picked, createdAt: stamp(), createdBy: who() };
+        rows.push(channel);
+      }
+      registerCustomChannels(); w.updatedAt = stamp(); save();
+      return { channel: copy(channel), state: publicState() };
+    },
+    removeCustomChannel({ channelId } = {}) {
+      const w = workspace();
+      const row = (Array.isArray(w.customChannels) ? w.customChannels : []).find(entry => entry.id === String(channelId || '') && !entry.archived);
+      if (!row) throw Object.assign(new Error('That channel no longer exists.'), { status: 404 });
+      Object.assign(row, { archived: true, archivedAt: stamp(), archivedBy: who() });
+      registerCustomChannels(); w.updatedAt = stamp(); save();
+      return { channelId: row.id, removed: true, state: publicState() };
+    },
     saveChannelKnowledge({ channelId, knowledge } = {}) {
       const w = workspace(); const folder = channelOf(w, String(channelId || ''));
       const clean = cleanChannelKnowledge(knowledge);
@@ -1993,11 +2046,13 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     },
     saveChannelInstructions({ channelId, promptId, blocks, expectedVersion, note } = {}) {
       const w = workspace(); const folder = channelOf(w, String(channelId || ''));
+      if (sharedInstructions(folder)) throw Object.assign(new Error('This channel uses the built-in formats’ instructions. Change them on the channel they belong to.'), { status: 403, code: 'outOfScope' });
       if (!channelPromptIds(folder).includes(String(promptId || ''))) throw Object.assign(new Error('That prompt doesn’t write this channel’s assets.'), { status: 403, code: 'outOfScope' });
       return promptLab().savePromptVersion({ id: promptId, blocks, expectedVersion, note });
     },
     revertChannelInstructions({ channelId, promptId, toVersion, expectedVersion, note } = {}) {
       const w = workspace(); const folder = channelOf(w, String(channelId || ''));
+      if (sharedInstructions(folder)) throw Object.assign(new Error('This channel uses the built-in formats’ instructions. Change them on the channel they belong to.'), { status: 403, code: 'outOfScope' });
       if (!channelPromptIds(folder).includes(String(promptId || ''))) throw Object.assign(new Error('That prompt doesn’t write this channel’s assets.'), { status: 403, code: 'outOfScope' });
       return promptLab().revertPrompt({ id: promptId, toVersion, expectedVersion, note });
     },
@@ -2863,6 +2918,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // Persist before exposing the service; startup does not emit events or run providers.
   const policyChanged = migrateWorkspacePolicy();
   if (migrateSemrushBrandDefaults() || policyChanged) write(stateFile, state);
+  registerCustomChannels();
   return api;
 }
 module.exports = { createContentWorkspace };

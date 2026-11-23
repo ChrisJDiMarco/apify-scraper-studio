@@ -168,7 +168,9 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
   const admin = can('saveSettings');
   const web = webIn ?? (Boolean(viewer.web) || viewer.via === 'web');
   const [team, setTeam] = useState(null);
-  const [setupHidden, setSetupHidden] = useState(() => readChoice(viewer, 'setup.hidden', '') === '1');
+  const setupKey = `setup.hidden.${state.contentStudio?.activeWorkspaceId || ''}`; // each workspace keeps its own list
+  const [setupHidden, setSetupHidden] = useState(() => readChoice(viewer, setupKey, '') === '1');
+  useEffect(() => { setSetupHidden(readChoice(viewer, setupKey, '') === '1'); }, [setupKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const setup = useMemo(() => setupChecklist({ state, web, team, channels }), [state, web, team, channels]);
   const showSetup = admin && !setupHidden && !setup.complete;
   useEffect(() => {
@@ -181,7 +183,9 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
   const [setupOpen, setSetupOpen] = useState(false);
   const setupNext = setup.items.find((item) => !item.done && !item.optional) || setup.items.find((item) => !item.done) || null;
   const setupLine = showSetup && setup.done >= 2 && !setupOpen;
-  const hideSetup = () => { setSetupHidden(true); saveChoice(viewer, 'setup.hidden', '1'); };
+  const hideSetup = () => { setSetupHidden(true); saveChoice(viewer, setupKey, '1'); };
+  // While the setup list shows, it is the one place that asks to connect Apify.
+  const nextShown = showSetup ? shownSteps.filter((step) => step.id !== 'setup:apify') : shownSteps;
   const decide = (card, decision) => {
     setProblem('');
     if (onDecide) { onDecide(card, decision); return; }
@@ -218,7 +222,7 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
         {can('startResearchRun') && onStartResearch && <span className="wb-research" data-spot="home.research">
           {programs.length > 1 && <select aria-label="Research program" title="Research program to run" value={program?.id || ''} onChange={(event) => setProgramId(event.target.value)}>{programs.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select>}
           <button type="button" data-spot="home.start-research" className="wb-primary" aria-describedby={needsSetup ? 'wb-research-why' : undefined} {...writeProps(viewer, busy || needsSetup)} onClick={() => onStartResearch(program)}><Radar size={15} aria-hidden="true" />{program || !can('saveResearchProgram') ? 'Find new trends' : 'Set up research'}</button>
-          {needsSetup && <small className="wb-research-why" id="wb-research-why">{can('saveSettings') ? <button type="button" onClick={() => open({ kind: 'page', id: 'settings', page: 'settings', section: 'sources' })}>Connect Apify to run research</button> : `Research is off until ${askAdmin} connects Apify`}</small>}
+          {needsSetup && !showSetup && <small className="wb-research-why" id="wb-research-why">{can('saveSettings') ? <button type="button" onClick={() => open({ kind: 'page', id: 'settings', page: 'settings', section: 'sources' })}>Connect Apify to run research</button> : `Research is off until ${askAdmin} connects Apify`}</small>}
         </span>}
       </div>
     </header>
@@ -240,7 +244,7 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
       <button type="button" className="wb-link" aria-expanded="false" onClick={() => setSetupOpen(true)}>Show all</button></div>}
     {showSetup && !setupLine && <section className="wb-card wb-setup-card" aria-labelledby="wb-setup-title" data-spot="home.setup">
       <header className="wb-card-head"><span className="wb-icon tone-purple" aria-hidden="true"><ListChecks size={17} /></span><h2 id="wb-setup-title"><span className="wb-title-text">Get the studio ready</span> <span className="wb-count">{number(setup.done)} of {number(setup.total)}</span></h2><span className="wb-setup-head-actions">{setup.done >= 2 && <button type="button" className="wb-link" onClick={() => setSetupOpen(false)}>Show less</button>}<button type="button" className="wb-link" onClick={hideSetup}>Hide</button></span></header>
-      <span className="wb-progress" role="progressbar" aria-label="Setup done" aria-valuemin={0} aria-valuemax={setup.total} aria-valuenow={setup.done}><span style={{ width: `${Math.max(4, Math.round((setup.done / Math.max(1, setup.total)) * 100))}%` }} /></span>
+      <span className="wb-progress" role="progressbar" aria-label="Setup done" aria-valuemin={0} aria-valuemax={setup.total} aria-valuenow={setup.done}><span style={{ width: `${Math.round((setup.done / Math.max(1, setup.total)) * 100)}%` }} /></span>
       <ul className="wb-setup-list">{setup.items.map((item) => { const doable = item.action.kind === 'create' ? Boolean(onCreate) : Boolean(onOpenTarget); return <li key={item.id} className={item.done ? 'is-done' : ''}>
         <span className="wb-setup-mark" aria-hidden="true">{item.done ? <Check size={13} /> : null}</span>
         <span className="wb-setup-copy"><strong>{item.label}{item.optional && !item.done ? <em> (optional)</em> : null}</strong><small>{item.done ? 'Done.' : item.detail}</small><span className="sr-only">{item.done ? ', done' : ', to do'}</span></span>
@@ -248,9 +252,9 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
       </li>; })}</ul>
     </section>}
 
-    {shownSteps.length > 0 && <section className="wb-next" aria-labelledby="wb-next-title" data-spot="home.next">
+    {nextShown.length > 0 && <section className="wb-next" aria-labelledby="wb-next-title" data-spot="home.next">
       <h2 id="wb-next-title" className="wb-next-title">Next up</h2>
-      <ul className={`wb-next-list${shownSteps.length === 1 ? ' is-single' : ''}`}>{shownSteps.map((step) => <li key={step.id} className={`wb-next-card tone-${step.tone}`}>
+      <ul className={`wb-next-list${nextShown.length === 1 ? ' is-single' : ''}`}>{nextShown.map((step) => <li key={step.id} className={`wb-next-card tone-${step.tone}`}>
         <span className="wb-next-icon" aria-hidden="true">{step.tone === 'attention' ? <TriangleAlert size={16} /> : <ArrowRight size={16} />}</span>
         <span className="wb-next-copy"><strong>{step.title}</strong>{step.detail && <small>{step.detail}</small>}</span>
         <button type="button" className={step.tone === 'attention' ? 'wb-quiet' : 'wb-primary'} {...(['write-reports', 'retry', 'make-assets'].includes(step.action.kind) ? writeProps(viewer, busy) : {})} onClick={() => runStep(step)}>{step.action.label}</button>

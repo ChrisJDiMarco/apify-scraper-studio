@@ -63,7 +63,7 @@ function jobLine(job, asset, live = true) {
 // runs every set files under Other sources. `workspace` (optional) gives the editor's brand check its Claims to avoid.
 // The person's own channels (prefs.focusChannels, from My channels) open first in a set and are pre-ticked in Make
 // channel assets.
-export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, themes = [], programs = [], editionId = '', adoptionsByTheme = {}, kitRuns, assets, studioImages, sources, request, onRequestDone, cache, onCache, action, busy, imagesReady, googleReady, askAdmin = 'an admin', onDraft, onAsk, onSettings, onOpenReport, onOpenTrends, onViewChange, workspace = null, promptChanges = [], embedded = null, onOpenTrendPage }) {
+export function SimpleAssets({ onBrandImages, api, web, tree, researchRuns = [], contentRuns, themes = [], programs = [], editionId = '', adoptionsByTheme = {}, kitRuns, assets, studioImages, sources, request, onRequestDone, cache, onCache, action, busy, imagesReady, googleReady, askAdmin = 'an admin', onDraft, onAsk, onSettings, onOpenReport, onOpenTrends, onViewChange, workspace = null, promptChanges = [], embedded = null, onOpenTrendPage }) {
   // `onOpenTrendPage(assetId, runId)`: a trend's folder is the Channel assets tab of that trend's page. When the page
   // can open it (it returns true), Assets hands the trend over and stays on its own list.
   // `embedded` ({ reportAssetId }): a trend's channel assets inside its page (trend-page.jsx): this opens on that trend's
@@ -201,7 +201,7 @@ export function SimpleAssets({ api, web, tree, researchRuns = [], contentRuns, t
   // Rows under This week, Last week, then each month.
   const byPeriod = (rows, dateOf) => rows.reduce((all, row) => { const label = periodLabel(dateOf(row)); const last = all[all.length - 1]; if (last?.label === label) last.rows.push(row); else all.push({ label, rows: [row] }); return all; }, []);
   const overlays = <>
-    {creating && canMake && <KitCreator key={creating.key} api={api} sources={sources} preset={creating} imagesReady={imagesReady} action={action} busy={busy} picturesOff={picturesOff} focus={focus} onClose={() => setCreating(null)} onCreated={created} onSettings={onSettings} />}
+    {creating && canMake && <KitCreator key={creating.key} api={api} sources={sources} preset={creating} imagesReady={imagesReady} action={action} busy={busy} picturesOff={picturesOff} focus={focus} onClose={() => setCreating(null)} onCreated={created} onSettings={onSettings} onBrandImages={onBrandImages ? () => { setCreating(null); onBrandImages(); } : undefined} />}
     {reading && <KitFileViewer api={api} web={web} busy={busy} action={action} file={reading} folder={kitFolderOf.get(`${reading.run.id}:${reading.asset.deliverableId}`)} label={list(reading.run.jobs).find((job) => job.id === reading.asset.deliverableId)?.label} brand={brand} onAsk={can('askHelp') ? onAsk : undefined} onNotice={showToast} onClose={() => setReading(null)} onMove={moveFile} />}
     {toast}
     {open && <PictureLightbox api={api} picture={open} cache={cache} busy={busy} web={web} saved={saved === open.key} viewer={viewer} onClose={() => setOpen(null)} onDownload={() => download(open)} onVariation={open.kind === 'image' && imagesReady && can('askHelp') && onAsk ? () => { setOpen(null); onAsk(`Make a variation of the picture “${open.title}”.`, open.prompt ? `EARLIER PICTURE PROMPT (data): ${open.prompt}` : ''); } : undefined} />}

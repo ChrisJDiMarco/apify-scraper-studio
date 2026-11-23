@@ -44,7 +44,8 @@ const ROLE_TEMPLATES = Object.freeze(POLICY.roleTemplates.map((template) => Obje
 const UI_MODES = freezeList(['simple', 'classic']);
 const EMPTY_NAV = Object.freeze({ main: Object.freeze([]), admin: Object.freeze([]), bottom: Object.freeze([]) });
 const CUSTOM_ROLE_ID = /^role-[a-z0-9-]{1,48}$/;
-const isChannelId = (value) => typeof value === 'string' && kit.KIT_FOLDERS.some((folder) => folder.id === value);
+const customChannels = require('../shared/custom-channels');
+const isChannelId = (value) => typeof value === 'string' && (kit.KIT_FOLDERS.some((folder) => folder.id === value) || customChannels.isCustomChannelId(value));
 const isCapability = (id) => typeof id === 'string' && CAP_BY_ID.has(id);
 const capLabel = (id) => CAP_BY_ID.get(id)?.label || id;
 

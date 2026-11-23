@@ -42,17 +42,30 @@ describe('Settings → AI connections', () => {
     render(<SettingsView state={state({ OPENAI_API_KEY: true })} meta={{}} setupApi={setupApi} onSaveKey={onSaveKey} onClearKey={vi.fn()} />);
     await waitFor(() => expect(within(card('Claude Code')).getByText('Signed in · Claude Code 2.1.296')).toBeVisible());
     for (const name of ['Claude Code', 'Codex', 'Anthropic API key', 'OpenAI API key', 'OpenRouter', 'fal.ai']) expect(card(name)).toBeVisible();
-    expect(within(card('Claude Code')).getByText('Ready')).toBeVisible();
+    // Each card says Ready, Needs attention or Not set up; the connection's own word is the label's title.
+    const status = (name, word) => within(card(name)).getByText(word, { selector: '.kit-status' });
+    expect(status('Claude Code', 'Ready')).toBeVisible();
     expect(within(card('Claude Code')).getByText('Used by 2 jobs')).toBeVisible();
-    expect(within(card('Codex')).getByText('Sign in')).toBeVisible();
+    expect(status('Codex', 'Needs attention')).toHaveAttribute('title', 'Sign in');
     expect(within(card('Codex')).getByText('codex login')).toBeVisible();
+    expect(status('OpenRouter', 'Needs attention')).toHaveAttribute('title', 'Key can’t be read');
     expect(within(card('OpenRouter')).getByRole('alert')).toHaveTextContent('saved with a different STUDIO_SECRET_KEY');
-    expect(within(card('fal.ai')).getByText('Add a key')).toBeVisible();
+    expect(status('OpenAI API key', 'Ready')).toBeVisible();
+    expect(status('Anthropic API key', 'Not set up')).toHaveAttribute('title', 'Add a key');
+    expect(status('fal.ai', 'Not set up')).toHaveAttribute('title', 'Add a key');
+    expect(screen.getByText('2 of 6 ready')).toHaveClass('kit-status', 'is-ready');
     // Claude Code's model check costs a few cents, and says so; the others are free.
     expect(within(card('Claude Code')).getByText(/one tiny request per model through Claude Code, a few cents/)).toBeVisible();
     expect(within(card('fal.ai')).getByText('Free: no paid request is sent.')).toBeVisible();
     expect(setupApi.getAiConnections).toHaveBeenCalledWith({ fresh: false });
     expect(setupApi.testAiConnection).not.toHaveBeenCalled(); expect(onSaveKey).not.toHaveBeenCalled(); expect(setupApi.saveAiRouting).not.toHaveBeenCalled();
+    cleanup();
+    // A Codex sign-in the check couldn't confirm isn't Ready, and isn't counted as ready.
+    const unsure = { ...STATUS, connections: STATUS.connections.map((row) => (row.id === 'codex' ? { ...row, status: 'ready', detail: 'Codex 0.156.0 · the sign-in couldn’t be confirmed', commands: [] } : row)) };
+    render(<SettingsView state={state({ OPENAI_API_KEY: true })} meta={{}} setupApi={api({ getAiConnections: vi.fn(async () => unsure) })} onSaveKey={vi.fn()} onClearKey={vi.fn()} />);
+    expect(await within(card('Codex')).findByText('Codex 0.156.0 · the sign-in couldn’t be confirmed')).toBeVisible();
+    expect(status('Codex', 'Needs attention')).toHaveAttribute('title', 'Ready');
+    expect(screen.getByText('2 of 6 ready')).toBeVisible();
   });
 
   it('says on the browser studio that subscription connections use the server’s sign-in', async () => {

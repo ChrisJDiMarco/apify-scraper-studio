@@ -41,7 +41,10 @@ function changedAt(asset) {
 // Research reports carry "TREND:" and "— Comprehensive Trends Report" around the trend's name (library-tree.js cleanTitle).
 const cleanTitle = (value) => clip(String(value || '').replace(/^\s*TREND:\s*/i, '').replace(/\s+—\s+Comprehensive Trends Report\s*$/i, ''), 160);
 // A channel asset's team folder, from its deliverable id (library-tree.js channelOf / channelName).
+const customChannels = require('../shared/custom-channels');
 function channelFolder(deliverableId, editionId) {
+  const customId = customChannels.channelIdOf(deliverableId);
+  if (customId) { const row = customChannels.channelById(customId); return { id: customId, name: row?.name || 'Other' }; }
   const only = KIT.editionOnly?.[deliverableId];
   const folder = (!only || only.includes(editionId || 'general')) ? KIT.folders.find((row) => row.deliverables.includes(deliverableId)) : null;
   return folder ? { id: folder.id, name: folder[editionId === 'semrush' ? 'semrush' : 'general'] } : { id: 'other', name: 'Other' };

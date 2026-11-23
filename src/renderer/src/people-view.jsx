@@ -4,6 +4,7 @@ import { Dialog, DialogClose, useToast } from './role-screens.jsx';
 import { useConfirm } from './confirm-dialog.jsx';
 import { useUnsavedGuard } from './asset-editor.jsx';
 import { CoverageStrip, PeopleTable } from './people-table.jsx';
+import { EmptyBlock } from './studio-kit.jsx';
 import { PersonSheet, RetryNote } from './person-sheet.jsx';
 import { InviteDialog } from './invite-dialog.jsx';
 import { WorkspaceMemberDialog } from './workspace-member-dialog.jsx';
@@ -217,12 +218,10 @@ export function PeopleView({ api, web = false, busy = false, action, viewer = {}
       <div role="tabpanel" id={`${tabsId}-${tab}-panel`} aria-labelledby={`${tabsId}-${tab}`} className="people-panel">
         {tab === 'people' && !web && <MacPeople channels={channels} onPreview={previewTo ? preview : null}
           onOpenDataFolder={typeof api?.openDataFolder === 'function' ? () => (action ? action(() => api.openDataFolder(), 'Data folder opened.') : api.openDataFolder()) : null} />}
-        {tab === 'people' && web && firstRun && <section className="people-first-run" aria-labelledby="people-first-title">
-          <span className="people-mac-icon" aria-hidden="true"><Users size={22} /></span>
-          <div><h2 id="people-first-title">Bring your team in</h2>
-            <ol className="people-steps"><li><span>1</span>Invite people</li><li><span>2</span>Choose their role and channel</li><li><span>3</span>{links ? 'Send their sign-in link' : 'They sign in with their company account'}</li></ol></div>
-          {canInvite && <button type="button" className="studio-primary" {...writeProps(viewer, busy)} onClick={() => setInvite({ preset: {} })}><UserPlus size={16} aria-hidden="true" />Invite people</button>}
-        </section>}
+        {/* Who has access, always starting with you: before anyone is invited, the list is you alone. */}
+        {tab === 'people' && web && !members.length && <div className="simple-file-table-wrap"><table className="simple-file-table people-you-table"><thead><tr><th scope="col">Person</th><th scope="col">Role</th></tr></thead>
+          <tbody><tr><th scope="row">{viewer.name || viewer.email || 'You'}<span className="people-you-tag">You</span></th><td>{viewer.isSuperAdmin ? 'Super Admin' : viewer.roleLabel || 'Admin'}</td></tr></tbody></table></div>}
+        {tab === 'people' && web && firstRun && <EmptyBlock title={members.length ? 'No one else has access yet' : 'Only you have access so far'} action={canInvite ? <button type="button" className="studio-primary" {...writeProps(viewer, busy)} onClick={() => setInvite({ preset: {} })}><UserPlus size={16} aria-hidden="true" />Invite people</button> : null}>Invite editors to approve trends and write reports, and channel owners to get their channel’s briefs. {links ? 'Each person gets their own sign-in link.' : 'They sign in with their company account.'}</EmptyBlock>}
         {/* Before anyone is invited, the table is hidden, so show which channels still need an owner here. */}
         {tab === 'people' && web && !members.length && <CoverageStrip channels={channels} canAssign={canInvite} viewer={viewer} onAssign={(channelId) => setInvite({ preset: { role: 'channel', channelId } })} />}
         {tab === 'people' && web && members.length > 0 && <PeopleTable team={{ ...team, channels }} viewer={viewer} web={web} editable={editable} signIn={signIn} links={links} panel={panel} studioName={name}

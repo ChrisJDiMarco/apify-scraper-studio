@@ -97,15 +97,24 @@ describe('Setup checklist', () => {
   it('lists what a new studio needs, with the web-only steps on the web', () => {
     const empty = { keys: {}, settings: {}, contentStudio: { activeWorkspaceId: 'ws', workspaces: [{ id: 'ws' }] } };
     const mac = setupChecklist({ state: empty, web: false });
-    expect(mac.items.map((item) => item.id)).toEqual(['apify', 'ai', 'program', 'pictures', 'address']);
+    expect(mac.items.map((item) => item.id)).toEqual(['brand', 'apify', 'ai', 'program', 'channels', 'images', 'pictures', 'address']);
     expect(mac).toMatchObject({ done: 0, complete: false });
-    // Each Settings step opens the section that does it (settings-sections.js ids).
+    expect(mac.items.filter((item) => item.optional).map((item) => item.id)).toEqual(['images', 'pictures', 'address']);
+    expect(mac.items.find((item) => item.id === 'brand')).toMatchObject({ label: 'Describe the brand', done: false });
+    expect(mac.items.find((item) => item.id === 'channels')).toMatchObject({ label: 'Set up your channels', done: false });
+    expect(mac.items.find((item) => item.id === 'images')).toMatchObject({ label: 'Add brand reference images', done: false });
+    // Each Settings step opens the section that does it (settings-sections.js ids); the brand and its pictures open
+    // Brand knowledge, and channels Channels.
     expect(Object.fromEntries(mac.items.filter((item) => item.action.target?.page === 'settings').map((item) => [item.id, item.action.target.section]))).toEqual({ apify: 'sources', ai: 'ai', pictures: 'ai', address: 'web-address' });
+    expect(Object.fromEntries(mac.items.filter((item) => item.action.target && item.action.target.page !== 'settings').map((item) => [item.id, item.action.target.page]))).toEqual({ brand: 'knowledge', channels: 'channels', images: 'knowledge' });
     const channels = [{ id: 'blog' }, { id: 'social' }];
     const web = setupChecklist({ state: { ...empty, team: { memberCount: 3 } }, web: true, team: { members: [{ id: 'm1', channelId: 'blog' }] }, channels });
-    expect(web.items.map((item) => item.id)).toEqual(['apify', 'ai', 'program', 'team', 'owners', 'pictures']);
+    expect(web.items.map((item) => item.id)).toEqual(['brand', 'apify', 'ai', 'program', 'channels', 'team', 'owners', 'images', 'pictures']);
     expect(web.items.find((item) => item.id === 'owners')).toMatchObject({ label: 'Give each channel an owner (1 of 2)', done: false });
-    expect(web.items.find((item) => item.id === 'team').done).toBe(true);
+    expect(web.items.find((item) => item.id === 'team')).toMatchObject({ label: 'Invite your team', done: true });
+    // Owners is listed whenever there are channels, and can't be done until the team has been read.
+    expect(setupChecklist({ state: empty, web: true, channels }).items.find((item) => item.id === 'owners')).toMatchObject({ label: 'Give each channel an owner (0 of 2)', done: false });
+    expect(setupChecklist({ state: empty, web: true, team: { members: [] } }).items.map((item) => item.id)).not.toContain('owners');
   });
 
   it('ticks the AI check once Check connections passed on the current route, and names that route', () => {
@@ -117,10 +126,19 @@ describe('Setup checklist', () => {
   });
 
   it('is complete once every required step is done; optional ones can wait', () => {
-    const ready = setupChecklist({ state: { ...state(), settings: {} }, web: false });
-    expect(ready.items.filter((item) => !item.done).map((item) => item.id)).toEqual(['pictures', 'address']);
+    // The workspace has brand knowledge and one channel's knowledge written.
+    const described = { ...state().contentStudio.workspaces[0], knowledge: { audience: 'SEO practitioners' }, channelKnowledge: { blog: { voice: 'Plain.', updatedAt: iso(NOW) } } };
+    const ready = setupChecklist({ state: { ...state({ workspaces: [described] }), settings: {} }, web: false });
+    expect(ready.items.filter((item) => !item.done).map((item) => item.id)).toEqual(['images', 'pictures', 'address']);
     expect(ready.complete).toBe(true);
     expect(ready.allDone).toBe(false);
+    // Brand and channel knowledge count once something is written: blank text or a save stamp alone doesn't.
+    const blank = setupChecklist({ state: { ...state({ workspaces: [{ ...described, knowledge: { audience: '  ', name: 'Semrush' }, channelKnowledge: { blog: { updatedAt: iso(NOW), updatedBy: 'Alex' } } }] }), settings: {} } });
+    expect(blank.items.filter((item) => !item.done).map((item) => item.id)).toEqual(['brand', 'channels', 'images', 'pictures', 'address']);
+    expect(blank.complete).toBe(false);
+    // A brand reference image ticks the optional images step.
+    const pictured = setupChecklist({ state: { ...state({ workspaces: [{ ...described, brandImageSets: [{ id: 'campaign', images: [{ id: 'logo-1', role: 'logo' }] }] }] }), settings: {} } });
+    expect(pictured.items.find((item) => item.id === 'images').done).toBe(true);
   });
 });
 

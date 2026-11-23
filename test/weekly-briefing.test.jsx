@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WeeklyBriefing, briefingData, briefingMarkdown, briefingWeek } from '../src/renderer/src/weekly-briefing.jsx';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const NOW = new Date(2026, 9, 15, 12); // Thursday, Oct 15 (local)
 const iso = (day, hour = 10) => new Date(2026, 9, day, hour).toISOString();
 const theme = (id, name) => ({ id, name, evidenceCount: 8, platforms: ['x'] });
@@ -137,16 +137,34 @@ describe('weekly briefing', () => {
   });
 
   it('shows an admin the setup checklist until the studio is ready, and hides it on request', () => {
-    const fresh = { keys: {}, settings: {}, contentStudio: { activeWorkspaceId: 'semrush', workspaces: [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush' }] } };
+    const stored = new Map(); vi.stubGlobal('localStorage', { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, String(value)), removeItem: (key) => stored.delete(key) });
+    const fresh = { keys: {}, settings: {}, contentStudio: { activeWorkspaceId: 'semrush', workspaces: [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush' }, { id: 'general', name: 'Northwind workspace', editionId: 'general' }] } };
     const onOpenTarget = vi.fn(); const onCreate = vi.fn();
-    render(<WeeklyBriefing state={fresh} viewer={{ ...viewer, id: 'member-setup' }} api={{}} now={NOW} web={false} onOpenTarget={onOpenTarget} onCreate={onCreate} />);
+    const home = (state) => <WeeklyBriefing state={state} viewer={{ ...viewer, id: 'member-setup' }} api={{}} now={NOW} web={false} onOpenTarget={onOpenTarget} onCreate={onCreate} onStartResearch={vi.fn()} />;
+    const { rerender } = render(home(fresh));
     const setup = within(screen.getByRole('region', { name: /Get the studio ready/ }));
-    expect(setup.getByText('0 of 5')).toBeInTheDocument();
+    expect(setup.getByText('0 of 8')).toBeInTheDocument();
+    const progress = setup.getByRole('progressbar', { name: 'Setup done' });
+    expect(progress).toHaveAttribute('aria-valuenow', '0');
+    expect(progress.firstChild).toHaveStyle({ width: '0%' }); // nothing done draws no bar
     fireEvent.click(setup.getByRole('button', { name: 'Start setup' }));
     expect(onCreate).toHaveBeenCalledWith('program');
+    fireEvent.click(setup.getAllByRole('button', { name: 'Open Brand knowledge' })[0]);
+    expect(onOpenTarget).toHaveBeenCalledWith({ kind: 'page', page: 'knowledge' });
     fireEvent.click(setup.getAllByRole('button', { name: 'Open Settings' })[0]);
     expect(onOpenTarget).toHaveBeenCalledWith({ kind: 'page', page: 'settings', section: 'sources' });
+    // While the list shows, it is the one place that asks to connect Apify.
+    expect(screen.queryByRole('button', { name: 'Connect Apify to run research' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Connect Apify to start collecting')).not.toBeInTheDocument();
     fireEvent.click(setup.getByRole('button', { name: 'Hide' }));
+    expect(screen.queryByRole('region', { name: /Get the studio ready/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect Apify to run research' })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Next up' })).getByText('Connect Apify to start collecting')).toBeInTheDocument();
+    // Hidden for this workspace only: another workspace still shows its own list.
+    expect([...stored.keys()]).toEqual(['studio.choice.member-setup.setup.hidden.semrush']);
+    rerender(home({ ...fresh, contentStudio: { ...fresh.contentStudio, activeWorkspaceId: 'general' } }));
+    expect(screen.getByRole('region', { name: /Get the studio ready/ })).toBeInTheDocument();
+    rerender(home(fresh));
     expect(screen.queryByRole('region', { name: /Get the studio ready/ })).not.toBeInTheDocument();
   });
 });

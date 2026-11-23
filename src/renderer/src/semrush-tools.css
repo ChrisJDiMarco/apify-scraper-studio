@@ -108,7 +108,7 @@
 .app-shell[data-edition="semrush"] .playbook-brand-context > span { color: var(--st-ink); background: var(--st-paper); }
 .app-shell[data-edition="semrush"] :is(.playbook-brand-context strong, .playbook-card dd, .brand-context-field > label, .brand-profiles-empty strong, .marketing-field label, .marketing-details dd, .marketing-outline h3, .marketing-outline h4, .marketing-profile-summary strong) { color: var(--st-ink); }
 .app-shell[data-edition="semrush"] :is(.playbook-eyebrow, .playbook-brand-context p, .playbook-count, .playbook-card-top small, .playbook-audience, .playbook-card > p, .playbook-card dt, .playbook-card li, .playbook-scope p, .brand-context-eyebrow, .brand-profile-list-heading, .brand-profile-list small, .brand-profiles-empty p, .brand-profile-snapshot-note p, .brand-form-heading > span, .brand-context-field > label > span, .brand-context-field small, .brand-competitors > div > span) { color: var(--st-muted); }
-.app-shell[data-edition="semrush"] :is(.playbook-card dt, .playbook-scope p, .playbook-count, .brand-context-field small, .brand-profile-list small) { font-size: 11px; }
+.app-shell[data-edition="semrush"] :is(.playbook-card dt, .playbook-scope p, .playbook-count) { font-size: 11px; }
 .app-shell[data-edition="semrush"] :is(.playbook-search, .playbook-card, .playbook-empty, .brand-context-form, .brand-profiles-empty, .brand-competitors, .marketing-template-form, .marketing-template-saved, .marketing-details) { border-color: var(--st-line); }
 .app-shell[data-edition="semrush"] :is(.playbook-search, .playbook-empty, .brand-profiles-empty) { color: var(--st-muted); }
 .app-shell[data-edition="semrush"] .playbook-card-top > span { color: var(--st-ink); background: var(--st-lavender-soft); }

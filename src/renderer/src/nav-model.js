@@ -9,7 +9,7 @@
 //   kind: 'simple' (a Simple tab) · 'studio' (an Advanced studio view) · 'app' (an Advanced app page) · 'admin' (a Studio
 //   page in either layout) · 'settings' · 'channel' (a channel owner's tab). `target` is the id that kind opens.
 //   The unified layout's pipeline stages carry `stage: true` and `children` (their tools, Items with `parent`).
-import KIT from '../../shared/kit-folders.json';
+import KIT from '../../shared/channel-table.js'; // built-in channels plus the ones added to this workspace
 import { ariaKey, isMac } from './platform.js';
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -172,7 +172,9 @@ export function viewAsChoice(viewer = {}, options = viewAsOptions(viewer)) {
 // The channels "My channels" offers: the admin's list from the server, else the edition's kit folders.
 export function focusChannelOptions(viewer = {}, edition = 'general') {
   const given = list(viewer.channels).filter((row) => row?.id);
-  if (given.length) return given.map(({ id, name, short }) => ({ id, name: name || short || id, short: short || name || id }));
+  // An added channel can reach state before the viewer's own list catches up: include it either way.
+  const added = KIT.folders.filter((folder) => folder.custom && !given.some((row) => row.id === folder.id)).map((folder) => ({ id: folder.id, name: folder.general, short: folder.generalShort }));
+  if (given.length) return [...given.map(({ id, name, short }) => ({ id, name: name || short || id, short: short || name || id })), ...added];
   const editionId = edition === 'semrush' ? 'semrush' : 'general';
   const offered = (deliverableId) => { const only = KIT.editionOnly?.[deliverableId]; return !only || only.includes(editionId); };
   return list(KIT.folders).filter((folder) => list(folder.deliverables).some(offered)).map((folder) => ({ id: folder.id, name: folder[editionId] || folder.id, short: folder[`${editionId}Short`] || folder[editionId] || folder.id }));

@@ -225,7 +225,8 @@ function relatedText(related) {
 // The prompt in two parts. `prefix` is the same for every question from this role (instructions, pages, spots and the
 // app guide), so the API route caches it; `body` is this question's own: layout, memory, live context, lookups,
 // conversation and the question. helpPrompt() joins them for callers that need one string.
-// `blocks` is the workspace's saved text for assistant.ask-ai ({ blockId: text }, null = the defaults); `trace` marks the
+// `blocks` is the workspace's saved text for assistant.ask-ai ({ blockId: text }, null = the defaults); since the prompt is
+// set by the studio, saved text is ignored and the defaults always apply. `trace` marks the
 // editable spans for the Prompt Library's preview. `promptAccess` (see promptRights) adds the PROMPTS rules. `related`
 // is earlier conversations that match the question.
 // `attached` is true when LOOKUP RESULTS include what the person attached to this question (a report dragged into the
@@ -237,8 +238,9 @@ function helpPromptParts({ question, history = [], context = {}, guide = '', loo
   const simple = context.layout !== 'classic'; const editor = isEditor(role); const rights = promptRights(promptAccess); const reach = reachOf(access);
   const studio = studioPages(role, rights); const kinds = actionsFor(rights, reach, role);
   const transcript = transcriptOf(history); const earlier = transcriptOf(pending); const recalled = relatedText(related);
-  // The four editable blocks (identity, howToAnswer, trendMemory, pictures) come from the workspace's saved text or the
-  // defaults (src/shared/prompt-defaults.json); the role-specific lines stay computed here, as required {{values}}.
+  // The four blocks (identity, howToAnswer, trendMemory, pictures) are set by the studio (prompt-template.js locks every
+  // prompt outside the channel-asset groups), so they come from src/shared/prompt-defaults.json and any saved text is
+  // ignored; the role-specific lines stay computed here, as required {{values}}.
   const b = promptTemplate.promptBlocks('assistant.ask-ai', 'general', blocks, { trace });
   // A one-workspace build (singleWorkspace: { name }) has no switcher; the sentence is unchanged otherwise (prompt goldens).
   const switcher = singleWorkspace?.name ? `the workspace name (this studio has one workspace, ${singleWorkspace.name}; there is no switcher)` : 'the workspace switcher';

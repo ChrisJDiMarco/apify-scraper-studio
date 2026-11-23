@@ -1,7 +1,7 @@
 // Workflows and playbooks, in words: pure, renderer-side (ESM). The main process decides (src/shared/workflow-core.js
 // validateWorkflow); this mirrors the grammar for instant feedback and writes the sentences the pages show.
 import CATALOG from '../../shared/workflow-steps.json';
-import KIT from '../../shared/kit-folders.json';
+import KIT from '../../shared/channel-table.js'; // built-in channels plus the ones added to this workspace
 import { CODEX_UNCAPPED, money } from './studio-actions.js';
 
 const list = (value) => (Array.isArray(value) ? value : []);

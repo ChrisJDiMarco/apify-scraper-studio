@@ -165,13 +165,20 @@ describe('People & access: the People tab', () => {
     expect(services.removeMember).toHaveBeenCalledTimes(1);
   });
 
-  it('starts with three steps when you’re the only person', async () => {
+  it('says only you have access while you’re the only person, and offers Invite people', async () => {
+    // Nobody invited yet: the list is you alone, tagged You.
+    const alone = render(<PeopleView api={api({ getTeam: vi.fn(async () => team({ members: [] })) })} web viewer={sam} />);
+    expect(await screen.findByText('Only you have access so far')).toBeInTheDocument();
+    const you = screen.getByRole('rowheader', { name: /^Sam Admin/ });
+    expect(within(you).getByText('You')).toBeInTheDocument();
+    expect(you.closest('tr')).toHaveTextContent('Admin');
+    expect(screen.queryByRole('region', { name: 'Bring your team in' })).not.toBeInTheDocument();
+    alone.unmount();
+    // You're the one member: one empty block says so, with the way to invite.
     render(<PeopleView api={api({ getTeam: vi.fn(async () => team({ members: [members()[1]] })) })} web viewer={sam} />);
-    const first = await screen.findByRole('region', { name: 'Bring your team in' });
-    expect(first).toHaveTextContent('Invite people');
-    expect(first).toHaveTextContent('Choose their role and channel');
-    expect(first).toHaveTextContent('Send their sign-in link');
-    fireEvent.click(within(first).getByRole('button', { name: /Invite people/ }));
+    const empty = (await screen.findByText('No one else has access yet')).closest('.kit-empty');
+    expect(empty).toHaveTextContent('Invite editors to approve trends and write reports, and channel owners to get their channel’s briefs. Each person gets their own sign-in link.');
+    fireEvent.click(within(empty).getByRole('button', { name: /Invite people/ }));
     expect(screen.getByRole('dialog', { name: 'Invite people' })).toBeInTheDocument();
   });
 

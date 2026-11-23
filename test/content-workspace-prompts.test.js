@@ -31,16 +31,22 @@ function harness({ role = 'admin', aiProvider = 'claude', fail = () => false } =
   return { api, root, calls, jobs, caller };
 }
 const input = (h, runId) => JSON.parse(fs.readFileSync(path.join(h.root, 'runs', runId, 'input.json'), 'utf8'));
+// Only the prompts that write channel assets (words, pictures, video) can be saved over; research, reports, Ask AI and
+// the data tools are set by the studio.
+const SOCIAL = 'LinkedIn 120–180 words with one CTA. X: 5–7 posts under 280 characters. Facebook 80–120 words, at most two hashtags.';
 const EMPTY = 'Return an empty list when nothing in this batch is a real trend.';
 const OUTLIER = 'OUTLIER RULE: When a viral post has nothing to do with {{outlier}}, set themeId to null and confidence to 0.0.';
+const STUDIO_SET = 'This prompt is set by the studio. Only the prompts that write channel assets can be changed.';
 
 describe('Prompt Library in the content workspace', () => {
   it('lists every prompt for the edition and reads one with its model and history', async () => {
     const h = harness();
     const list = h.api.listPrompts();
     expect(list.groups.map((group) => group.label)).toEqual(['Research', 'Reports', 'Channel assets', 'Pictures', 'Video', 'Assistant', 'Data tools', 'Behind every call']);
-    expect(list.prompts.find((row) => row.id === 'research.discovery')).toMatchObject({ name: 'Find candidate trends', version: 0, custom: false, locked: false, editable: true });
+    expect(list.prompts.find((row) => row.id === 'research.discovery')).toMatchObject({ name: 'Find candidate trends', version: 0, custom: false, locked: false, editable: false });
+    expect(list.prompts.find((row) => row.id === 'assets.social')).toMatchObject({ name: 'Social captions and thread', version: 0, custom: false, locked: false, editable: true });
     expect(list.prompts.find((row) => row.id === 'system.claude')).toMatchObject({ editable: false });
+    expect([...new Set(list.prompts.filter((row) => row.editable).map((row) => row.group))]).toEqual(['assets', 'pictures', 'video']);
     const read = await h.api.readPrompt({ id: 'research.discovery' });
     expect(read).toMatchObject({ version: 0, locked: false, lockedForYou: false, model: 'claude-opus-5-5', effort: 'medium', route: 'claude', metered: true, testable: true, history: [] });
     expect(read.blocks).toEqual(read.defaults);
@@ -50,14 +56,18 @@ describe('Prompt Library in the content workspace', () => {
 
   it('previews for free with the editable spans marked and the draft checked', async () => {
     const h = harness();
-    const preview = await h.api.previewPrompt({ id: 'research.discovery', blocks: { empty: EMPTY }, sample: 'bundled' });
-    expect(preview.text).toContain(EMPTY); expect(preview.text).not.toMatch(/[\uE000-\uE002]/);
-    expect(preview.segments.map((segment) => segment.blockId)).toEqual(['role', 'rules', 'criteria', 'fields', 'empty']);
-    const empty = preview.segments.find((segment) => segment.blockId === 'empty');
-    expect(preview.text.slice(empty.start, empty.end)).toBe(EMPTY);
+    const preview = await h.api.previewPrompt({ id: 'assets.social', blocks: { instruction: SOCIAL }, sample: 'bundled' });
+    expect(preview.text).toContain(SOCIAL); expect(preview.text).not.toMatch(/[\uE000-\uE002]/);
+    expect(preview.segments.map((segment) => segment.blockId)).toEqual(['contentRules', 'editionRules', 'instruction']);
+    const instruction = preview.segments.find((segment) => segment.blockId === 'instruction');
+    expect(preview.text.slice(instruction.start, instruction.end)).toBe(SOCIAL);
     expect(preview).toMatchObject({ chars: preview.text.length, sample: 'bundled', problems: [], kind: 'text' });
     expect(preview.tokens).toBeGreaterThan(0); expect(preview.estimateUsd).toBeGreaterThan(0);
-    expect((await h.api.previewPrompt({ id: 'research.discovery', blocks: { fields: 'x' } })).problems.length).toBeGreaterThan(0);
+    expect((await h.api.previewPrompt({ id: 'video.brief', blocks: { fields: 'x' } })).problems.length).toBeGreaterThan(0);
+    // A prompt the studio sets previews its own text: a draft for it is named as fixed and left out.
+    const fixed = await h.api.previewPrompt({ id: 'research.discovery', blocks: { empty: EMPTY }, sample: 'bundled' });
+    expect(fixed.text).not.toContain(EMPTY);
+    expect(fixed.problems).toEqual([{ blockId: 'empty', message: 'When nothing qualifies is fixed: Set by the studio. Only the prompts that write channel assets can be changed.' }]);
     // No run yet: "Latest run" falls back to the bundled sample and says so.
     expect((await h.api.previewPrompt({ id: 'research.synthesis', sample: 'latest' })).sampleLabel).toMatch(/no recent run has this yet/);
     expect(h.calls).toHaveLength(0);
@@ -65,36 +75,42 @@ describe('Prompt Library in the content workspace', () => {
 
   it('saves versions credited to the caller, refuses stale versions and keeps locked prompts for admins', async () => {
     const h = harness({ role: 'editor' });
-    const saved = await h.api.savePromptVersion({ id: 'research.discovery', blocks: { empty: EMPTY }, expectedVersion: 0, note: 'Plainer empty rule' });
+    const saved = await h.api.savePromptVersion({ id: 'assets.social', blocks: { instruction: SOCIAL }, expectedVersion: 0, note: 'Plainer social rules' });
     expect(saved).toMatchObject({ version: 1, changed: true, prompt: { custom: true, version: 1, updatedBy: { name: 'Sam', role: 'editor' } } });
-    expect(saved.detail.history[0]).toMatchObject({ source: 'library', note: 'Plainer empty rule', by: { id: 'id-sam', name: 'Sam', role: 'editor' } });
-    await expect(h.api.savePromptVersion({ id: 'research.discovery', blocks: { empty: 'Return nothing.' }, expectedVersion: 0, note: 'Two' })).rejects.toMatchObject({ status: 409, code: 'promptConflict' });
-    await expect(h.api.setPromptLock({ id: 'research.discovery', locked: true })).rejects.toMatchObject({ status: 403 });
-    h.caller.role = 'admin'; expect((await h.api.setPromptLock({ id: 'research.discovery', locked: true })).locked).toBe(true);
+    expect(saved.detail.history[0]).toMatchObject({ source: 'library', note: 'Plainer social rules', by: { id: 'id-sam', name: 'Sam', role: 'editor' } });
+    await expect(h.api.savePromptVersion({ id: 'assets.social', blocks: { instruction: 'Write one LinkedIn post.' }, expectedVersion: 0, note: 'Two' })).rejects.toMatchObject({ status: 409, code: 'promptConflict' });
+    await expect(h.api.setPromptLock({ id: 'assets.social', locked: true })).rejects.toMatchObject({ status: 403 });
+    h.caller.role = 'admin'; expect((await h.api.setPromptLock({ id: 'assets.social', locked: true })).locked).toBe(true);
     h.caller.role = 'editor';
-    expect((await h.api.readPrompt({ id: 'research.discovery' })).lockedForYou).toBe(true);
-    await expect(h.api.savePromptVersion({ id: 'research.discovery', blocks: { empty: 'Return nothing.' }, expectedVersion: 1, note: 'Two' })).rejects.toMatchObject({ status: 403, code: 'promptLocked' });
-    await expect(h.api.revertPrompt({ id: 'research.discovery', toVersion: 0, expectedVersion: 1 })).rejects.toMatchObject({ status: 403 });
+    expect((await h.api.readPrompt({ id: 'assets.social' })).lockedForYou).toBe(true);
+    await expect(h.api.savePromptVersion({ id: 'assets.social', blocks: { instruction: 'Write one LinkedIn post.' }, expectedVersion: 1, note: 'Two' })).rejects.toMatchObject({ status: 403, code: 'promptLocked' });
+    await expect(h.api.revertPrompt({ id: 'assets.social', toVersion: 0, expectedVersion: 1 })).rejects.toMatchObject({ status: 403 });
     h.caller.role = 'admin';
-    const reverted = await h.api.revertPrompt({ id: 'research.discovery', toVersion: 0, expectedVersion: 1, note: '' });
+    const reverted = await h.api.revertPrompt({ id: 'assets.social', toVersion: 0, expectedVersion: 1, note: '' });
     expect(reverted).toMatchObject({ version: 2, detail: { customized: [], history: [{ source: 'restore', revertOf: 0 }, { version: 1 }] } });
-    expect(h.api.diffPromptVersions({ id: 'research.discovery', from: 1, to: 2 }).blocks.map((block) => block.blockId)).toEqual(['empty']);
+    expect(h.api.diffPromptVersions({ id: 'assets.social', from: 1, to: 2 }).blocks.map((block) => block.blockId)).toEqual(['instruction']);
+    // A prompt the studio sets can't be saved, restored or locked, by an admin either.
+    await expect(h.api.savePromptVersion({ id: 'research.discovery', blocks: { empty: EMPTY }, expectedVersion: 0, note: 'Plainer empty rule' })).rejects.toMatchObject({ status: 400, code: 'promptInvalid' });
+    await expect(h.api.revertPrompt({ id: 'research.discovery', toVersion: 0, expectedVersion: 0, note: '' })).rejects.toThrow(STUDIO_SET);
+    await expect(h.api.setPromptLock({ id: 'research.discovery', locked: true })).rejects.toThrow(STUDIO_SET);
+    expect(await h.api.readPrompt({ id: 'research.discovery' })).toMatchObject({ version: 0, locked: false, history: [] });
     // The Inbox reads the latest saves from state.
-    expect(h.api.publicState().promptChanges.map((row) => [row.promptId, row.version, row.byName, row.source])).toEqual([['research.discovery', 2, 'Sam', 'restore'], ['research.discovery', 1, 'Sam', 'library']]);
+    expect(h.api.publicState().promptChanges.map((row) => [row.promptId, row.version, row.byName, row.source])).toEqual([['assets.social', 2, 'Sam', 'restore'], ['assets.social', 1, 'Sam', 'library']]);
   });
 
   it('gives a research run its own copy of the prompts, so an edit while it waits for review changes nothing', async () => {
     const h = harness();
-    await h.api.savePromptVersion({ id: 'research.discovery', blocks: { empty: EMPTY }, expectedVersion: 0, note: 'Plainer empty rule' });
     const saved = h.api.saveResearchProgram(program);
     const started = h.api.startResearchRun({ programId: saved.id, datasetIds: ['dataset-a'] }); await h.api.waitForIdle();
     const run = h.api.readStudioRun({ runId: started.id });
     expect(run.status).toBe('awaiting-review');
     expect(Object.keys(input(h, run.id).prompts)).toEqual(['research.discovery', 'research.synthesis', 'research.matching', 'research.tagging', 'reports.trends-report', 'reports.editorial-toolkit', 'system.repair']);
-    expect(run.prompts['research.discovery']).toEqual({ version: 1, custom: true }); expect(run.prompts['research.tagging']).toEqual({ version: 0, custom: false });
-    expect(h.calls.find((call) => call.schema.properties.candidates).prompt).toContain(EMPTY);
-    // A later edit to tagging doesn't reach this run.
-    await h.api.savePromptVersion({ id: 'research.tagging', blocks: { outlier: OUTLIER }, expectedVersion: 0, note: 'Shorter outlier rule' });
+    // Research prompts are set by the studio, so the run's copy is the studio's text.
+    expect(run.prompts['research.discovery']).toEqual({ version: 0, custom: false }); expect(run.prompts['research.tagging']).toEqual({ version: 0, custom: false });
+    expect(input(h, run.id).prompts['research.discovery'].blocks).toEqual(template.defaultsFor('research.discovery', 'general'));
+    expect(h.calls.find((call) => call.schema.properties.candidates).prompt).toContain(template.defaultText('research.discovery', 'empty', 'general'));
+    // An edit to tagging while it waits is refused, and doesn't reach this run.
+    await expect(h.api.savePromptVersion({ id: 'research.tagging', blocks: { outlier: OUTLIER }, expectedVersion: 0, note: 'Shorter outlier rule' })).rejects.toMatchObject({ status: 400, code: 'promptInvalid' });
     h.api.approveResearchThemes({ runId: run.id, themes: run.themes.map((theme) => theme.id) }); h.api.continueResearchRun({ runId: run.id }); await h.api.waitForIdle();
     const tagging = h.calls.filter((call) => call.schema.properties.assignments);
     expect(tagging.length).toBeGreaterThan(0); expect(tagging.every((call) => !call.prompt.includes('When a viral post has nothing to do with'))).toBe(true);
@@ -161,9 +177,14 @@ describe('Prompt Library in the content workspace', () => {
 
   it('hands the host each prompt’s saved text for the callers that build prompts live', async () => {
     const h = harness();
+    // Ask AI's pictures read the brand visual direction live.
+    const direction = 'Restrained editorial design: deep green, warm white, clear type and generous space.';
+    expect(h.api.promptEffective('pictures.direction')).toMatchObject({ version: 0, custom: false, blocks: template.defaultsFor('pictures.direction', 'general') });
+    await h.api.savePromptVersion({ id: 'pictures.direction', blocks: { brand: direction }, expectedVersion: 0, note: 'Warmer palette' });
+    expect(h.api.promptEffective('pictures.direction')).toMatchObject({ version: 1, custom: true, blocks: { brand: direction } });
+    // Ask your datasets is set by the studio: a save is refused, and its callers always get the studio's text.
+    await expect(h.api.savePromptVersion({ id: 'assistant.ask-datasets', blocks: { instructions: 'Answer only from the sample and cite every itemId you use.' }, expectedVersion: 0, note: 'Shorter' })).rejects.toMatchObject({ status: 400, code: 'promptInvalid' });
     expect(h.api.promptEffective('assistant.ask-datasets')).toMatchObject({ version: 0, custom: false, blocks: template.defaultsFor('assistant.ask-datasets', 'general') });
-    await h.api.savePromptVersion({ id: 'assistant.ask-datasets', blocks: { instructions: 'Answer only from the sample and cite every itemId you use.' }, expectedVersion: 0, note: 'Shorter' });
-    expect(h.api.promptEffective('assistant.ask-datasets')).toMatchObject({ version: 1, custom: true, blocks: { instructions: 'Answer only from the sample and cite every itemId you use.' } });
     expect(h.api.promptEffective('nope')).toEqual({ version: 0, custom: false, blocks: null });
   });
 });

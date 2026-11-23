@@ -4,7 +4,7 @@
 //   Then Other sources (sets from Google Docs, files and pasted text), Drafts without a trend, and Pictures.
 // Pure and renderer-side, like trend-board.js: no React, no I/O. Both layouts and Ask AI's folder links use it, so the
 // grouping lives here once.
-import KIT from './kit-folders.json';
+import KIT, { customChannelIdOf } from './channel-table.js'; // built-in channels plus the ones added to this workspace
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const text = (value) => (typeof value === 'string' ? value : '');
@@ -37,6 +37,7 @@ const FOLDER_ORDER = new Map(KIT.folders.map((folder, index) => [folder.id, inde
 const CHANNEL_INDEX = new Map(KIT.folders.flatMap((folder) => folder.deliverables.map((id) => [id, folder.id])));
 const offered = (deliverableId, editionId) => { const only = KIT.editionOnly?.[deliverableId]; return !only || only.includes(editionId || 'general'); };
 export function channelOf(deliverableId, editionId = 'general') {
+  const custom = customChannelIdOf(deliverableId); if (custom) return custom; // an added channel's file: c-<slug>--<format>
   return (offered(deliverableId, editionId) && CHANNEL_INDEX.get(deliverableId)) || 'other';
 }
 const editionKey = (editionId) => (editionId === 'semrush' ? 'semrush' : 'general');
