@@ -43,7 +43,8 @@ subprocesses from reading its starting environment. Do not change the container 
 switching secrets to a root-only file or file descriptor (see `docs/web-deploy.md`).
 
 For the first deployment of the image that includes the supervisor, change Sevalla's process start command to
-`node /app/scripts/backup-supervisor.cjs`. The launcher and web code then come from the same image. The supervisor
+`exec node /app/scripts/backup-supervisor.cjs`. This lets the supervisor receive Sevalla's shutdown signal.
+The launcher and web code then come from the same image. The supervisor
 prepares disk ownership, takes and verifies a pre-start backup, then starts `scripts/studio-web.cjs`. The app drops
 to `node` as before. After verifying deployment, remove the obsolete `GT_BACKUP_LAUNCHER_B64` variable. Keep the
 other `GT_BACKUP_*` settings. To roll back to an image built before this change, restore its original process command
@@ -106,7 +107,8 @@ folder and switch preview off afterwards. Look for `email-sent`, `email-failed` 
 
 ## Updates
 
-Use Sevalla's manual Deploy action for the latest reviewed `main` commit. The public-Git source does not support
+Open **Deployments → Deploy now**, select `main`, and leave **Skip building (restart latest)** off. The startup
+command requires the new image. The public-Git source does not support
 automatic deployments from Git pushes; that requires a connected private-Git integration. The MCP connection
 can trigger and inspect deployments manually.
 

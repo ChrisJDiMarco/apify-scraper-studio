@@ -48,7 +48,8 @@ jobs:
           docker run -d --name golden-thread-ci -p 127.0.0.1:4174:4174 \
             --mount "type=bind,src=$secrets,dst=/run/secrets/studio,readonly" \
             -e STUDIO_SECRETS_FILE=/run/secrets/studio golden-thread-ci
-          curl --fail --silent --show-error --retry 15 --retry-connrefused --retry-delay 1 http://127.0.0.1:4174/readyz ||
+          curl --fail --silent --show-error --connect-timeout 2 --max-time 4 \
+            --retry 15 --retry-all-errors --retry-delay 1 http://127.0.0.1:4174/readyz ||
             { docker logs golden-thread-ci; exit 1; }
           curl --fail --silent --show-error http://127.0.0.1:4174/ | grep -q '<title>Golden Thread</title>'
 
