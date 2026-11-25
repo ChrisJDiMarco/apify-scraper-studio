@@ -1,6 +1,7 @@
 /* Channel settings (channel-settings.jsx): Studio › My channel and Studio › Channels. */
 .channel-settings .simple-segment { margin: 0 0 18px; }
-.channel-knowledge, .channel-prompts { display: grid; gap: 14px; max-width: 760px; }
+.channel-knowledge, .channel-prompts { display: grid; gap: 14px; }
+.channel-knowledge { max-width: 760px; }
 .channel-settings textarea { width: 100%; min-height: 72px; padding: 10px 12px; font: inherit; font-size: 14px; line-height: 1.5; color: var(--s-ink); background: var(--s-card); border: 1px solid var(--s-line); border-radius: var(--s-radius-control); resize: vertical; }
 .channel-settings textarea:focus-visible, .channel-settings input:focus-visible { outline: 2px solid var(--s-focus); outline-offset: 1px; }
 .channel-actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -63,3 +64,37 @@
 .channel-readonly-text { padding: 12px 14px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--s-ink); background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 12px; }
 .channel-field-error { display: block; margin-top: 4px; font-size: 13px; font-weight: 500; color: #8a2f1c; }
 .channel-history-note { max-width: 560px; }
+
+.channel-types-head { display: flex; align-items: center; justify-content: space-between; gap: 12px 22px; flex-wrap: wrap; margin: 2px 0 5px; }
+.channel-types-head h2 { margin: 0 0 5px; font-size: 23px; letter-spacing: -.025em; }
+.channel-types-head p, .channel-type-detail header p, .channel-type-sections > p { margin: 0; color: var(--s-muted); font-size: 14px; line-height: 1.5; }
+.channel-types-grid { display: grid; grid-template-columns: minmax(230px, .9fr) minmax(0, 2.1fr); gap: 18px; align-items: start; }
+.channel-type-list { display: grid; gap: 4px; padding: 6px; margin: 0; list-style: none; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 16px; }
+.channel-type-list button { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 60px; width: 100%; padding: 8px 10px; text-align: left; font: inherit; color: var(--s-ink); background: transparent; border: 1px solid transparent; border-radius: 10px; cursor: pointer; }
+.channel-type-list button:hover { background: var(--s-bg); }
+.channel-type-list button[aria-pressed="true"] { background: color-mix(in srgb, var(--s-focus) 12%, var(--s-card)); border-color: color-mix(in srgb, var(--s-focus) 35%, var(--s-line)); }
+.channel-type-list strong, .channel-type-list small { display: block; overflow-wrap: anywhere; }
+.channel-type-list strong { font-size: 14px; line-height: 1.3; }
+.channel-type-list small { margin-top: 3px; color: var(--s-muted); font-size: 12px; }
+.channel-type-list button > svg { color: var(--s-muted); }
+.channel-type-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; color: var(--s-ink); background: var(--s-bg); }
+.channel-type-archive { padding: 13px 8px; }
+.channel-type-detail { min-width: 0; background: var(--s-card); border: 1px solid var(--s-line); border-radius: 16px; overflow: hidden; scroll-margin-block-start: 16px; }
+.channel-type-detail > header { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; padding: 20px 22px; }
+.channel-type-detail h3 { margin: 4px 0 0; font-size: 22px; line-height: 1.2; overflow-wrap: anywhere; }
+.channel-type-detail h4 { margin: 0; font-size: 14px; }
+.channel-type-sections { display: grid; gap: 9px; padding: 17px 22px; border-top: 1px solid var(--s-line); }
+.channel-type-sections ol { display: flex; flex-wrap: wrap; column-gap: 26px; row-gap: 5px; margin: 0; padding: 0 0 0 20px; font-size: 13px; line-height: 1.45; color: var(--s-muted); }
+.channel-type-sections li { overflow-wrap: anywhere; }
+.channel-type-sections .simple-link { justify-self: start; display: inline-flex; align-items: center; gap: 4px; }
+.channel-type-sections .channel-type-instruction { color: var(--s-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.channel-type-form { display: grid; gap: 15px; max-width: 720px; padding: 20px 22px; }
+.channel-type-form > header { padding: 0; }
+.channel-type-form .studio-field small { font-weight: 400; color: var(--s-muted); }
+@media (max-width: 680px) {
+  .channel-types-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .channel-type-detail > header, .channel-type-sections, .channel-type-form { padding: 15px; }
+  .channel-type-form > header { padding: 0; }
+  .studio-frame .channel-settings .channel-tabs { overflow: visible; }
+  .studio-frame .channel-settings .channel-tabs [role="tab"] { flex: 1 1 auto; justify-content: center; min-width: 0; min-height: 44px; padding: 0 6px; font-size: 13px; white-space: normal; }
+}

@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('apifyStudio', {
   suggestProgramSetup: (payload) => invoke('setup:suggest', payload),
   saveChannelKnowledge: (payload) => invoke('studio:saveChannelKnowledge', payload),
   saveCustomChannel: (payload) => invoke('studio:saveCustomChannel', payload),
+  saveChannelAssetType: (payload) => invoke('studio:saveChannelAssetType', payload),
   removeCustomChannel: (payload) => invoke('studio:removeCustomChannel', payload),
   saveChannelInstructions: (payload) => invoke('studio:saveChannelInstructions', payload),
   revertChannelInstructions: (payload) => invoke('studio:revertChannelInstructions', payload),

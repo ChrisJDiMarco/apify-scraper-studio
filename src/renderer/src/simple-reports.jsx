@@ -44,6 +44,11 @@ function reportMarkdown(payload = {}) {
   if (!output || typeof output !== 'object') return '';
   return [`# ${textOf(output.title)}`, textOf(output.summary), ...list(output.sections).map((section) => `## ${textOf(section.heading)}\n\n${textOf(section.body)}\n\n${list(section.items).map((item) => `- ${item.label ? `**${item.label}** — ` : ''}${textOf(item.text)}`).join('\n')}`)].filter(Boolean).join('\n\n');
 }
+function withoutRepeatedTitle(markdown, trendTitle) {
+  if (!trendTitle) return markdown;
+  const heading = /^(?:[ \t]*\r?\n)* {0,3}#[ \t]+([^\r\n]+)(?:\r?\n|$)/.exec(markdown);
+  return heading?.[1].trim() === trendTitle.trim() ? markdown.slice(heading[0].length) : markdown;
+}
 const CHIPS = [['all', 'All'], ['report', 'Trends reports'], ['toolkit', 'Toolkits'], ['scan', 'Quick scans'], ['draft', 'Drafts']];
 const STATUS_FILTERS = [['any', 'Any status'], ['draft', 'Draft'], ['in-review', 'In review'], ['approved', 'Approved'], ['scheduled', 'Scheduled'], ['published', 'Published']];
 // "Ask AI about this": the marketer's questions about the open report. The first is the one-click default.
@@ -113,7 +118,7 @@ export const reportAskContext = (title, markdown) => `REPORT THE USER IS READING
 // Share, for any reader (Simple's Reports and the Advanced Library): Save or open it in Google Docs (when the studio has
 // a Google connection and the role may publish), copy it for Google Docs, as a slide outline, or as a Slack summary.
 // `onToast(text, { tone })` says how it went; `shareLink` goes into the Slack summary.
-export function ReportShareMenu({ api, studio = null, asset, markdown = '', shareLink = '', action, busy = false, disabled = false, onToast, buttonClassName = '' }) {
+export function ReportShareMenu({ api, studio = null, asset, markdown = '', shareLink = '', action, busy = false, disabled = false, onToast, buttonClassName = '', reportActions = null, drive = null, onOpenDriveSettings }) {
   const can = useCan();
   const viewer = useViewer();
   const googleReady = Boolean(studio?.capabilities?.googlePublishConfigured) && can('publishStudioRun') && typeof api?.publishStudioRun === 'function';
@@ -121,6 +126,7 @@ export function ReportShareMenu({ api, studio = null, asset, markdown = '', shar
   const docUrl = (receipt) => { const rows = list(receipt?.assets).filter((row) => row?.assetId === asset?.id || String(row?.assetId || '').startsWith(`${asset?.id}-edited-`)); return rows.map((row) => list(row.files).find((entry) => /docs\.google\.com/.test(entry?.url || ''))?.url).filter(Boolean).at(-1) || ''; };
   const [published, setPublished] = useState(null);
   useEffect(() => { setPublished(null); }, [asset?.id]);
+  const driveAction = useDriveReportActions({ api, studio, drive, asset: reportActions ? asset : null, onOpenSettings: onOpenDriveSettings, onToast });
   const googleDoc = docUrl(published) || docUrl(reportRun?.googleDelivery);
   const say = (text, tone = '') => onToast?.(text, tone ? { tone } : {});
   async function saveToDocs() {
@@ -132,13 +138,24 @@ export function ReportShareMenu({ api, studio = null, asset, markdown = '', shar
   async function copyDocs() { const done = await copyForGoogleDocs(markdown, asset?.title || ''); say(done.ok ? (done.rich ? 'Copied with formatting. Paste into a Google Doc.' : 'Copied as text. Paste into a Google Doc.') : 'The report couldn’t be copied. Try again.', done.ok ? '' : 'error'); }
   async function copySlides() { const done = await copyText(slideOutline(markdown, asset?.title || '')); say(done ? 'Slide outline copied. Paste it into Slides or Keynote.' : 'The outline couldn’t be copied. Try again.', done ? '' : 'error'); }
   async function copySlack() { const done = await copyText(slackSummary(markdown, { title: asset?.title || '', link: shareLink })); say(done ? 'Summary copied. Paste it into Slack.' : 'The summary couldn’t be copied. Try again.', done ? '' : 'error'); }
-  return <MoreMenu label="Share this report" buttonText="Share" icon={Share2} buttonClassName={buttonClassName} disabled={disabled || !markdown} items={[
-    googleReady && (googleDoc ? { label: 'Open in Google Docs', icon: ExternalLink, onSelect: () => openUrl(googleDoc) } : { label: 'Save to Google Docs', icon: CloudUpload, disabled: busy || viewer.preview || !asset?.runId, onSelect: saveToDocs }),
-    googleReady && googleDoc && { label: 'Save to Google Docs again', icon: CloudUpload, disabled: busy || viewer.preview, onSelect: saveToDocs },
-    { label: 'Copy for Google Docs', icon: FileText, onSelect: copyDocs },
-    { label: 'Copy as slide outline', icon: Presentation, onSelect: copySlides },
-    { label: 'Copy a Slack summary', icon: MessageSquareText, onSelect: copySlack },
-  ]} />;
+  const unavailable = disabled || !markdown;
+  const docsGroup = reportActions ? 'Google Drive' : undefined;
+  const exportGroup = reportActions ? 'Share & export' : undefined;
+  const copyItems = [
+    { label: 'Copy for Google Docs', group: exportGroup, icon: FileText, disabled: unavailable, onSelect: copyDocs },
+    { label: 'Copy as slide outline', group: exportGroup, icon: Presentation, disabled: unavailable, onSelect: copySlides },
+    { label: 'Copy a Slack summary', group: exportGroup, icon: MessageSquareText, disabled: unavailable, onSelect: copySlack },
+  ];
+  const driveItems = [
+    googleReady && (googleDoc ? { label: 'Open in Google Docs', group: docsGroup, icon: ExternalLink, onSelect: () => openUrl(googleDoc) } : { label: 'Save to Google Docs', group: docsGroup, icon: CloudUpload, disabled: unavailable || busy || viewer.preview || !asset?.runId, onSelect: saveToDocs }),
+    googleReady && googleDoc && { label: 'Save to Google Docs again', group: docsGroup, icon: CloudUpload, disabled: unavailable || busy || viewer.preview, onSelect: saveToDocs },
+    reportActions && driveAction.offered && { label: driveAction.label, group: docsGroup, icon: driveAction.Icon, spot: 'report.drive-save', title: driveAction.tip, disabled: driveAction.greyed, onSelect: driveAction.press },
+    reportActions && driveAction.link && { label: 'Open in Drive', group: docsGroup, icon: ExternalLink, spot: 'report.drive', onSelect: () => openDriveUrl(api, driveAction.link) },
+  ];
+  const items = reportActions
+    ? [...reportActions.filter((item) => item && item.group !== 'Create'), ...copyItems, ...driveItems, ...reportActions.filter((item) => item?.group === 'Create')]
+    : [...driveItems, ...copyItems];
+  return <MoreMenu label={reportActions ? 'Report actions' : 'Share this report'} buttonText={reportActions ? 'Report actions' : 'Share'} icon={reportActions ? undefined : Share2} align={reportActions ? 'start' : 'end'} spot={reportActions ? 'report.actions' : undefined} buttonClassName={buttonClassName} disabled={!reportActions && unavailable} items={items} />;
 }
 
 // Open in Drive, for any reader: the report's copy in the admin's Drive folder (Settings → Google Drive), from
@@ -169,20 +186,11 @@ function reportVersion(asset) {
 // greys it with that reason (the Library's older editor is open). Greyed means aria-disabled, not disabled, so hover and
 // keyboard focus still show the reason (aria-describedby reads it out). Open in Drive follows it once the Doc exists;
 // for anything Save to Drive doesn't offer, Open in Drive alone. `onToast(text, options)` confirms.
-export function DriveSaveButton({ api, studio = null, drive = null, asset = null, onOpenSettings, onToast, blocked = '', className = '' }) {
+function useDriveReportActions({ api, studio, drive, asset, onOpenSettings, onToast, blocked = '' }) {
   const can = useCan();
   const viewer = useViewer();
-  const tipId = useId();
-  const wrapRef = useRef(null);
-  const tipRef = useRef(null);
   const [saving, setSaving] = useState(''); // the report being saved
   const [saved, setSaved] = useState(null); // this reader's last save: { assetId, link, version }
-  // The tip shows while the pointer is over it or the button has focus, until Esc (WCAG 1.4.13).
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-  const tipOpen = (hovered || focused) && !dismissed;
-  const [tipLeft, setTipLeft] = useState(0);
   const assetId = asset?.id || '';
   const run = asset ? list(studio?.contentRuns).find((row) => row.id === asset.runId) : null;
   const offered = Boolean(assetId && asset.kind === 'text' && DRIVE_REPORTS.has(asset.deliverableId) && !run?.kit) && can('saveReportToDrive') && typeof api?.saveReportToDrive === 'function';
@@ -208,24 +216,6 @@ export function DriveSaveButton({ api, studio = null, drive = null, asset = null
   };
   const { label, Icon, tip } = step === 'blocked' ? { ...looks[idle], tip: blocked } : looks[step];
   const greyed = ['not-connected', 'auto', 'preview', 'saving', 'blocked'].includes(step);
-  useEffect(() => { setHovered(false); setFocused(false); setDismissed(false); }, [assetId]);
-  // Open from hover alone, Esc hides the tip before anything else hears it (the reader would go back to the list).
-  useEffect(() => {
-    if (!tipOpen || focused) return undefined;
-    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); setDismissed(true); } };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [tipOpen, focused]);
-  // The tip sits under the button, kept 16px inside the window (an absolute box, since the reader's sticky bar can be the
-  // containing block a fixed one would use).
-  useLayoutEffect(() => {
-    if (!tipOpen || !wrapRef.current || !tipRef.current) return;
-    const box = wrapRef.current.getBoundingClientRect(); const width = tipRef.current.offsetWidth || 0;
-    const room = window.innerWidth || document.documentElement.clientWidth || 0;
-    const left = Math.max(16, Math.min(box.left + box.width / 2 - width / 2, room - 16 - width));
-    setTipLeft(Math.round(left - box.left));
-  }, [tipOpen, tip]);
-  if (!offered) return <DriveOpenButton api={api} studio={studio} assetId={assetId} className={className} />;
   async function save() {
     const id = assetId; const at = version;
     setSaving(id);
@@ -241,9 +231,38 @@ export function DriveSaveButton({ api, studio = null, drive = null, asset = null
   }
   function press(event) {
     if (step === 'connect') { onOpenSettings(); return; }
-    if (greyed) { event.preventDefault(); return; }
+    if (greyed) { event?.preventDefault(); return; }
     save();
   }
+  return { assetId, offered, link, step, label, Icon, tip, greyed, press };
+}
+
+export function DriveSaveButton({ api, studio = null, drive = null, asset = null, onOpenSettings, onToast, blocked = '', className = '' }) {
+  const { assetId, offered, link, step, label, Icon, tip, greyed, press } = useDriveReportActions({ api, studio, drive, asset, onOpenSettings, onToast, blocked });
+  const tipId = useId();
+  const wrapRef = useRef(null);
+  const tipRef = useRef(null);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const tipOpen = (hovered || focused) && !dismissed;
+  const [tipLeft, setTipLeft] = useState(0);
+  useEffect(() => { setHovered(false); setFocused(false); setDismissed(false); }, [assetId]);
+  // Escape closes a tooltip opened by hover even when the button does not have focus.
+  useEffect(() => {
+    if (!tipOpen || focused) return undefined;
+    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); setDismissed(true); } };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [tipOpen, focused]);
+  useLayoutEffect(() => {
+    if (!tipOpen || !wrapRef.current || !tipRef.current) return;
+    const box = wrapRef.current.getBoundingClientRect(); const width = tipRef.current.offsetWidth || 0;
+    const room = window.innerWidth || document.documentElement.clientWidth || 0;
+    const left = Math.max(16, Math.min(box.left + box.width / 2 - width / 2, room - 16 - width));
+    setTipLeft(Math.round(left - box.left));
+  }, [tipOpen, tip]);
+  if (!offered) return <DriveOpenButton api={api} studio={studio} assetId={assetId} className={className} />;
   return <>
     <span ref={wrapRef} className="gd-save" onMouseEnter={() => { setHovered(true); setDismissed(false); }} onMouseLeave={() => setHovered(false)}>
       <button type="button" className={['gd-save-button', className].filter(Boolean).join(' ')} data-spot="report.drive-save" aria-describedby={tipId} aria-disabled={greyed ? 'true' : undefined} aria-busy={step === 'saving' ? 'true' : undefined}
@@ -261,7 +280,7 @@ export function DriveSaveButton({ api, studio = null, drive = null, asset = null
 // Docs option and the brand check; `linkOrigin` is the address share links use (deep-links.js shareOrigin; on the web
 // this page's own); `onOpenPrompt(promptId)` opens a prompt on the Prompts page. `drive` (state.driveSync) and
 // `onOpenDriveSettings` (only for people who may change Settings) are for Save to Drive.
-export function SimpleReports({ api, web, reports, selectedId, onSelect, backLabel = 'All reports', onCreateContent, action, busy, onAsk, onFindTrends, onMakeAssets, usesOf, tree, onOpenAssets, studio = null, linkOrigin, onOpenPrompt, drive = null, onOpenDriveSettings, embedded = false }) {
+export function SimpleReports({ api, web, reports, selectedId, onSelect, backLabel = 'All reports', onCreateContent, action, busy, onAsk, onFindTrends, onMakeAssets, usesOf, tree, onOpenAssets, studio = null, linkOrigin, onOpenPrompt, drive = null, onOpenDriveSettings, embedded = false, trendTitle = '' }) {
   // `embedded`: the reader inside a trend's page (trend-page.jsx), which has its own Back, tabs and place in the app,
   // so the reader drops its Back button, its "filed under" line, its document switch and its previous/next pager.
   const can = useCan();
@@ -365,7 +384,11 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, backLab
   }, [selected?.id, previous?.key, next?.key, editing, kind]);
   const markdown = payload ? reportMarkdown(payload) : '';
   // copyText falls back to a hidden selection where the clipboard API is refused (plain HTTP, a denied permission).
-  async function copy() { if (await copyText(markdown)) { setCopied(true); setTimeout(() => setCopied(false), 1800); } else showToast('The text couldn’t be copied. Select it and copy it instead.', { tone: 'error' }); }
+  async function copy() {
+    if (!(await copyText(markdown))) { showToast('The text couldn’t be copied. Select it and copy it instead.', { tone: 'error' }); return; }
+    if (embedded) { showToast('Report text copied.'); return; }
+    setCopied(true); setTimeout(() => setCopied(false), 1800);
+  }
   const shareLink = selected && origin ? linkFor('report', selected.id, { origin }) : '';
   async function copyLink() { const done = await copyText(shareLink); showToast(done ? LINK_COPIED : 'The link couldn’t be copied. Try again.', done ? {} : { tone: 'error' }); }
   // The report goes with the question as an attachment Ask AI reads whole; the text excerpt is the fallback for older servers.
@@ -398,22 +421,36 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, backLab
     // Where this document lives in the Library: research run › trend › document, or its drafts folder.
     const where = pair ? [pair.groupTitle, pair.title, docLabel(selected)] : grouped ? [...pathTo(tree, tree.itemsByKey[`studio:${selected.id}`]?.location).map((node) => node.title), docLabel(selected)] : [];
     const assetsLink = (pair || scanRow) && (pair || scanRow).entry.channelAssets.kits > 0 && onOpenAssets ? (pair || scanRow).entry : null;
-    const both = pair && pair.reportId && pair.toolkitId;
+    const both = !embedded && pair && pair.reportId && pair.toolkitId;
+    const openFile = () => action(() => api.openStudioAsset({ assetId: selected.id }), web ? 'Download started.' : '');
+    const editTool = canEdit && !live && <button type="button" data-spot="report.edit" {...writeProps(viewer, !markdown || loading || Boolean(readError))} onClick={() => setEditing(true)}><PenLine size={15} aria-hidden="true" />Edit</button>;
+    const makeTool = onMakeAssets && can('createAssetKit') && <button type="button" data-spot="report.make-assets" {...writeProps(viewer, busy)} onClick={() => onMakeAssets(selected)}><Images size={15} aria-hidden="true" />Make channel assets</button>;
+    const askTool = onAsk && <span className="simple-split" role="group" aria-label="Ask AI about this report"><button type="button" data-spot="report.ask" className="simple-primary" aria-label="Ask AI about this" {...writeProps(viewer, !markdown)} onClick={() => ask('next')}><Sparkles size={15} aria-hidden="true" /><span>Ask AI<span className="embedded-report-wide-label"> about this</span></span></button>
+      <MoreMenu label="More questions for Ask AI" icon={ChevronDown} disabled={!markdown || viewer.preview} align="end" items={MARKETER_ASKS.map(([id, label, icon]) => ({ label, icon, onSelect: () => ask(id) }))} /></span>;
+    const reportActions = embedded ? [
+      shareLink && { label: 'Copy report link', group: 'Share & export', icon: Link2, spot: 'report.link', onSelect: copyLink },
+      { label: 'Copy text', group: 'Share & export', icon: ClipboardCopy, spot: 'report.copy', disabled: !markdown, onSelect: copy },
+      { label: web ? 'Download' : 'Open file', group: 'Share & export', icon: web ? Download : FolderOpen, spot: 'report.file', disabled: busy, onSelect: openFile },
+      onCreateContent && { label: 'Create content', group: 'Create', icon: SquarePen, spot: 'report.create', ...writeProps(viewer, busy), onSelect: () => onCreateContent(selected.id) },
+    ] : null;
+    const shareMenu = <ReportShareMenu api={api} studio={studio} asset={selected} markdown={markdown} shareLink={shareLink} action={action} busy={busy} disabled={loading} onToast={showToast} reportActions={reportActions} drive={drive} onOpenDriveSettings={onOpenDriveSettings} />;
     return <div className={`simple-page simple-reader${editing ? ' is-editing' : ''}${embedded ? ' is-embedded' : ''}`}>
       {!editing && <div className="simple-reader-bar">
         {!embedded && <button type="button" className="simple-back" title={`Back to ${backLabel === 'All reports' ? 'all reports' : backLabel}`} onClick={() => onSelect('')}><ArrowLeft size={15} aria-hidden="true" />{backLabel}</button>}
-        <div className="simple-reader-tools">
-          {canEdit && !live && <button type="button" data-spot="report.edit" {...writeProps(viewer, !markdown || loading || Boolean(readError))} onClick={() => setEditing(true)}><PenLine size={15} aria-hidden="true" />Edit</button>}
+        {embedded ? <div className="simple-reader-tools embedded-report-tools">
+          <div>{shareMenu}{editTool}</div>
+          {(makeTool || askTool) && <div>{makeTool}{askTool}</div>}
+        </div> : <div className="simple-reader-tools">
+          {editTool}
           <button type="button" data-spot="report.copy" disabled={!markdown} onClick={copy}>{copied ? <Check size={15} aria-hidden="true" /> : <ClipboardCopy size={15} aria-hidden="true" />}{copied ? 'Copied' : 'Copy text'}</button>
-          <button type="button" data-spot="report.file" disabled={busy} onClick={() => action(() => api.openStudioAsset({ assetId: selected.id }), web ? 'Download started.' : '')}>{web ? <Download size={15} aria-hidden="true" /> : <FolderOpen size={15} aria-hidden="true" />}{web ? 'Download' : 'Open file'}</button>
+          <button type="button" data-spot="report.file" disabled={busy} onClick={openFile}>{web ? <Download size={15} aria-hidden="true" /> : <FolderOpen size={15} aria-hidden="true" />}{web ? 'Download' : 'Open file'}</button>
           {shareLink && <button type="button" data-spot="report.link" onClick={copyLink}><Link2 size={15} aria-hidden="true" />Copy link</button>}
-          <ReportShareMenu api={api} studio={studio} asset={selected} markdown={markdown} shareLink={shareLink} action={action} busy={busy} disabled={loading} onToast={showToast} />
+          {shareMenu}
           <DriveSaveButton api={api} studio={studio} drive={drive} asset={selected} onOpenSettings={onOpenDriveSettings} onToast={showToast} />
-          {can('createAssetKit') && <button type="button" data-spot="report.make-assets" {...writeProps(viewer, busy)} onClick={() => onMakeAssets(selected)}><Images size={15} aria-hidden="true" />Make channel assets</button>}
+          {makeTool}
           {onCreateContent && <button type="button" data-spot="report.create" {...writeProps(viewer, busy)} onClick={() => onCreateContent(selected.id)}><SquarePen size={15} aria-hidden="true" />Create content</button>}
-          {onAsk && <span className="simple-split" role="group" aria-label="Ask AI about this report"><button type="button" data-spot="report.ask" className="simple-primary" {...writeProps(viewer, !markdown)} onClick={() => ask('next')}><Sparkles size={15} aria-hidden="true" />Ask AI about this</button>
-            <MoreMenu label="More questions for Ask AI" icon={ChevronDown} disabled={!markdown || viewer.preview} align="end" items={MARKETER_ASKS.map(([id, label, icon]) => ({ label, icon, onSelect: () => ask(id) }))} /></span>}
-        </div>
+          {askTool}
+        </div>}
       </div>}
       {!editing && !embedded && (where.length > 1 || both || assetsLink) && <div className="simple-reader-context">
         {where.length > 1 && <p className="simple-crumbline"><span className="sr-only">Filed under </span>{where.map((part, at) => <React.Fragment key={at}>{at > 0 && <span aria-hidden="true">›</span>}<span>{part}</span></React.Fragment>)}</p>}
@@ -432,7 +469,7 @@ export function SimpleReports({ api, web, reports, selectedId, onSelect, backLab
               onMarkdown={(text) => setPayload((current) => (current ? { ...current, markdown: text } : current))}
               onSaved={(result) => { if (result?.restored) setPayload((current) => ({ ...(current || {}), edited: null })); }}
               onUnsaved={(value) => guard.set(guardKey, value)} />
-            : markdown ? <MarkdownContent>{markdown}</MarkdownContent>
+            : markdown ? <MarkdownContent>{embedded ? withoutRepeatedTitle(markdown, trendTitle) : markdown}</MarkdownContent>
             : <p className="simple-error">This report has no readable text. Try Open file.</p>}
           {!loading && !readError && studio && <HowItWasMade asset={selected} studio={studio} api={api} onOpenPrompt={onOpenPrompt} />}
         </article>}

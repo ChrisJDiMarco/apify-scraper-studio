@@ -58,9 +58,17 @@ const DELIVERABLE_BY_ID = new Map(CONTENT_DELIVERABLES.map(value => [value.id, v
 // (PR's journalists, Search Engine Land's headline length) read `baseOf`.
 const customChannels = require('./custom-channels');
 const baseOf = (descriptor) => descriptor?.aliasOf || descriptor?.id || '';
-function syncCustomDeliverables(rows) {
+function customTypeDescriptor(type) {
+  return { id: type.id, label: type.name, channel: type.channelName, kind: 'text', customType: true,
+    sections: type.sections.map((heading, index) => sec(`section-${index + 1}`, heading)), instruction: type.instruction };
+}
+function syncCustomDeliverables(rows, types) {
   for (let index = CONTENT_DELIVERABLES.length - 1; index >= 0; index -= 1) {
-    if (CONTENT_DELIVERABLES[index].aliasOf) { DELIVERABLE_BY_ID.delete(CONTENT_DELIVERABLES[index].id); CONTENT_DELIVERABLES.splice(index, 1); }
+    if (CONTENT_DELIVERABLES[index].aliasOf || CONTENT_DELIVERABLES[index].customType) { DELIVERABLE_BY_ID.delete(CONTENT_DELIVERABLES[index].id); CONTENT_DELIVERABLES.splice(index, 1); }
+  }
+  for (const type of types) {
+    const descriptor = customTypeDescriptor(type);
+    CONTENT_DELIVERABLES.push(descriptor); DELIVERABLE_BY_ID.set(type.id, descriptor);
   }
   for (const row of Array.isArray(rows) ? rows : []) for (const format of row.formats || []) {
     const base = DELIVERABLE_BY_ID.get(format);
@@ -188,7 +196,8 @@ function buildContentPlan(request = {}, { trace = false } = {}) {
   // brand knowledge and the deliverable's instructions, on every AI route.
   const channelNotes = (id) => { const value = request.channelKnowledge && typeof request.channelKnowledge === 'object' ? request.channelKnowledge[id] : ''; return teamNotesBlock(typeof value === 'string' ? value.slice(0, 20000) : '', { label: 'CHANNEL KNOWLEDGE FROM THE CHANNEL’S TEAM' }); };
   const deliverables = ids.map(id => {
-    const descriptor = DELIVERABLE_BY_ID.get(id);
+    const frozenType = request.assetTypes && Object.hasOwn(request.assetTypes, id) ? request.assetTypes[id] : null;
+    const descriptor = frozenType ? customTypeDescriptor(frozenType) : DELIVERABLE_BY_ID.get(id);
     if (!descriptor || (descriptor.editions && !descriptor.editions.includes(editionId))) invalid('deliverableIds', 'A selected deliverable is not available in this edition.');
     const label = editionId === 'semrush' ? descriptor.semrushLabel || descriptor.label : descriptor.label;
     if (descriptor.kind === 'video') {
@@ -208,7 +217,8 @@ function buildContentPlan(request = {}, { trace = false } = {}) {
       return { id, label, channel: descriptor.channel, kind: 'image', extension: 'png', schema: null, prompt, size: descriptor.size, variants, variantPrompts: pictureDirections(id, editionId, prompts, { trace }).slice(0, variants).map((direction, i) => `${prompt}\nVARIATION ${i + 1} OF ${variants}: ${direction}`), referencePolicy: { optional: true, preserveApprovedLogo: true, omitLogoWithoutAsset: true } };
     }
     const sectionRules = descriptor.sections.map(section => `${section.id}: ${section.heading}${section.minItems != null ? `; ${section.minItems === section.maxItems ? `exactly ${section.minItems}` : `${section.minItems}–${section.maxItems}`} structured items` : '; narrative body, empty items allowed'}${section.itemMaxChars ? `; item text at most ${section.itemMaxChars} characters` : ''}`).join('\n');
-    return { id, label, channel: descriptor.channel, kind: 'text', extension: descriptor.extension || 'md', schema: outputSchema(descriptor), sections: descriptor.sections, prompt: `${rules}\n${editionRules}\nDELIVERABLE: ${label}\n${blocks(`assets.${customChannels.baseDeliverableId(id)}`).put('instruction')}${teamNotesBlock(request.teamNotes, { label: 'TEAM NOTES FOR THESE CHANNEL ASSETS' })}${channelNotes(id)}\nREQUIRED SECTIONS IN ORDER:\n${sectionRules}\nReturn schema-valid JSON only. Counts and character limits apply to structured item text, not labels. Use body for prose; do not duplicate counted items in body. Evidence IDs must come from source.evidence. Product IDs must come from the registry. Use an empty productIds list and a caveat when no approved match exists. For product-agnostic copy, mention no registry products or tools.\nUNTRUSTED_SOURCE_AND_BRAND_DATA:\n${context}` };
+    const instruction = descriptor.customType ? descriptor.instruction : blocks(`assets.${customChannels.baseDeliverableId(id)}`).put('instruction');
+    return { id, label, channel: descriptor.channel, kind: 'text', extension: descriptor.extension || 'md', schema: outputSchema(descriptor), sections: descriptor.sections, ...(descriptor.customType ? { customType: true } : {}), prompt: `${rules}\n${editionRules}\nDELIVERABLE: ${label}\n${instruction}${teamNotesBlock(request.teamNotes, { label: 'TEAM NOTES FOR THESE CHANNEL ASSETS' })}${channelNotes(id)}\nREQUIRED SECTIONS IN ORDER:\n${sectionRules}\nReturn schema-valid JSON only. Counts and character limits apply to structured item text, not labels. Use body for prose; do not duplicate counted items in body. Evidence IDs must come from source.evidence. Product IDs must come from the registry. Use an empty productIds list and a caveat when no approved match exists. For product-agnostic copy, mention no registry products or tools.\nUNTRUSTED_SOURCE_AND_BRAND_DATA:\n${context}` };
   });
   return { editionId, source: { id: source.id, title: source.title, kind: source.kind, characters: source.text.length, evidenceCount: source.evidence.length }, deliverables, warnings, contextCharacters: context.length };
 }
@@ -248,7 +258,7 @@ function registryMentions(textValue, products) {
   return found;
 }
 function validateContentOutput(output, context = {}) {
-  object(output, 'output'); const editionId = edition(context.editionId || output.editionId); const descriptor = DELIVERABLE_BY_ID.get(context.deliverable?.id || context.deliverableId || output.deliverableId);
+  object(output, 'output'); const editionId = edition(context.editionId || output.editionId); const descriptor = context.deliverable?.customType ? context.deliverable : DELIVERABLE_BY_ID.get(context.deliverable?.id || context.deliverableId || output.deliverableId);
   if (!descriptor || descriptor.kind !== 'text') invalid('deliverable', 'Choose a written deliverable to validate.');
   const source = normalizeSource(context.source); const products = validateProductRegistry(context.productRegistry || [], { editionId });
   const evidence = new Map(source.evidence.map(entry => [entry.id, entry])); const registry = new Map(products.map(entry => [entry.id, entry]));

@@ -22,6 +22,34 @@ const api = () => ({
 const show = (ui) => render(<ViewerContext.Provider value={{ id: 'm-alex', role: 'channel', base: 'channel', preview: false, allowed: null }}>{ui}</ViewerContext.Provider>);
 
 describe('a channel’s settings', () => {
+  it('shows the media inventory and lets a manager create a reusable written asset type', async () => {
+    const saved = [];
+    const calls = {
+      ...api(),
+      readChannelSettings: vi.fn(async () => ({
+        ...settings('social'), assetTypes: saved,
+        formats: [{ id: 'social', name: 'Social posts', kind: 'text', promptId: 'assets.social' }, { id: 'brand-image', name: 'Hero graphic', kind: 'image' }, { id: 'social-video', name: 'Short social video', kind: 'video' }],
+      })),
+      saveChannelAssetType: vi.fn(async (draft) => {
+        const assetType = { ...draft, id: 'carousel', revision: 1 };
+        saved.push(assetType);
+        return { assetType };
+      }),
+    };
+    render(<ChannelSettings api={calls} channels={[{ id: 'social', name: 'Semrush Social Team' }]} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Semrush Social Team' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Asset types' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Hero graphic/ }));
+    expect(screen.getByText(/Image generation uses/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Short social video/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add asset type' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Asset type name' }), { target: { value: 'Carousel brief' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /Output sections/ }), { target: { value: 'Hook\nSlides' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /Writing instructions/ }), { target: { value: 'Open with the strongest evidence.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save asset type' }));
+    await waitFor(() => expect(calls.saveChannelAssetType).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'social', name: 'Carousel brief', sections: ['Hook', 'Slides'] })));
+    expect(await screen.findByRole('region', { name: 'Carousel brief' })).toHaveTextContent('Open with the strongest evidence.');
+  });
   it('requires a description before choosing an image and keeps the saved example on the channel', async () => {
     const reference = { id: 'image-1', name: 'example.png', description: 'Bold headline, simple layout.' };
     const calls = { ...api(), addChannelReference: vi.fn(async () => ({ reference, dataUrl: 'data:image/png;base64,YQ==' })), saveChannelReference: vi.fn(async ({ description }) => ({ reference: { ...reference, description } })), removeChannelReference: vi.fn(async () => ({ removed: 'image-1' })) };
@@ -72,20 +100,23 @@ describe('a channel’s settings', () => {
     const calls = { ...api(), readChannelSettings: vi.fn(async ({ channelId }) => ({ ...settings(channelId), prompts: [...settings(channelId).prompts, prompt('assets.newsletter', 'Newsletter', 2)] })) };
     const onNotice = vi.fn();
     show(<ChannelSettings api={calls} channelId="blog" onNotice={onNotice} />);
-    fireEvent.click(await screen.findByRole('tab', { name: 'Asset instructions' }));
-    const short = screen.getByRole('region', { name: 'Blog short' });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Asset types' }));
+    const short = await screen.findByRole('region', { name: 'Blog short' });
     expect(within(short).queryByRole('textbox', { name: 'Blog short: Output' })).not.toBeInTheDocument(); // only the editable parts
     // Locked: its text as text, with nothing to change or restore.
+    fireEvent.click(screen.getByRole('button', { name: /^Blog long/ }));
     const locked = screen.getByRole('region', { name: 'Blog long' });
     expect(within(locked).queryByRole('textbox')).not.toBeInTheDocument();
     expect(within(locked).getByText('Write the Blog long.')).toBeInTheDocument();
-    expect(within(locked).getByText(/Read only: an admin locked it/)).toBeInTheDocument();
+    expect(within(locked).getByText(/Locked by an admin/)).toBeInTheDocument();
     expect(within(locked).queryByRole('button', { name: 'Restore' })).not.toBeInTheDocument();
     // One save bar and one note for the history for every instruction on the tab, once something changed.
     expect(screen.queryByRole('button', { name: /^Save instruction/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Note for the history' })).not.toBeInTheDocument();
-    fireEvent.change(within(short).getByRole('textbox', { name: 'Blog short: Instruction' }), { target: { value: 'Write it in 300 words.' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Blog short/ }));
+    fireEvent.change(within(screen.getByRole('region', { name: 'Blog short' })).getByRole('textbox', { name: 'Blog short: Instruction' }), { target: { value: 'Write it in 300 words.' } });
     expect(within(screen.getByRole('region', { name: 'Unsaved changes' })).getByRole('button', { name: 'Save instruction' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: /^Newsletter/ }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Newsletter: Instruction' }), { target: { value: 'Three stories, one line each.' } });
     fireEvent.change(screen.getByRole('textbox', { name: 'Note for the history' }), { target: { value: 'Shorter posts' } });
     const bar = screen.getByRole('region', { name: 'Unsaved changes' });
@@ -96,6 +127,7 @@ describe('a channel’s settings', () => {
     expect(calls.saveChannelInstructions).toHaveBeenNthCalledWith(2, { channelId: 'blog', promptId: 'assets.newsletter', blocks: { instruction: 'Three stories, one line each.' }, expectedVersion: 2, note: 'Shorter posts' });
     await waitFor(() => expect(onNotice).toHaveBeenCalledWith('Saved 2 instructions. New assets use them.'));
     await waitFor(() => expect(calls.readChannelSettings).toHaveBeenCalledTimes(2)); // the saved versions are read again
+    fireEvent.click(screen.getByRole('button', { name: /^Blog short/ }));
     const again = await screen.findByRole('region', { name: 'Blog short' });
     fireEvent.click(within(again).getByText('Earlier versions'));
     fireEvent.click(within(again).getByRole('button', { name: 'Restore' }));
@@ -109,20 +141,20 @@ describe('a channel’s settings', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Channels' })).toBeInTheDocument();
     const blogRow = (await screen.findByRole('rowheader', { name: 'Semrush Blog' })).closest('tr');
     await waitFor(() => expect(blogRow).toHaveTextContent(`1 of ${FIELDS.fields.length} filled in`));
-    expect(blogRow).toHaveTextContent('2 prompts');
+    expect(blogRow).toHaveTextContent('2 asset types');
     const socialRow = screen.getByRole('rowheader', { name: 'Semrush Social Team' }).closest('tr');
     await waitFor(() => expect(socialRow).toHaveTextContent('None yet'));
     expect(screen.getByText('1 of 2 has no channel knowledge yet: their assets are written from the brand knowledge alone.')).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Owner' })).not.toBeInTheDocument(); // this role can't read People
     expect(screen.queryByRole('status')).not.toBeInTheDocument(); // so nothing is said about owners
-    expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['Channel', 'Channel knowledge', 'Asset instructions', 'Last saved']);
+    expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['Channel', 'Channel knowledge', 'Asset types', 'Last saved']);
     // The row opens that channel (there's no Open column); its picker moves to another, and Back returns to the table.
-    fireEvent.click(within(blogRow).getByText('2 prompts'));
+    fireEvent.click(within(blogRow).getByText('2 asset types'));
     expect(await screen.findByRole('heading', { level: 1, name: 'Semrush Blog' })).toBeInTheDocument();
     expect(screen.getByRole('tablist', { name: 'Channel settings' })).toHaveClass('people-tabs');
     fireEvent.change(screen.getByRole('combobox', { name: 'Channel' }), { target: { value: 'social' } });
     await waitFor(() => expect(calls.readChannelSettings).toHaveBeenLastCalledWith({ channelId: 'social' }));
-    fireEvent.click(await screen.findByRole('tab', { name: 'Asset instructions' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Asset types' }));
     expect(await screen.findByRole('region', { name: 'Social posts' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'All channels' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Channels' })).toBeInTheDocument();

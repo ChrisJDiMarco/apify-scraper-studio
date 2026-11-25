@@ -31,6 +31,7 @@
     "suggestProgramSetup": "setup:suggest",
     "saveChannelKnowledge": "studio:saveChannelKnowledge",
     "saveCustomChannel": "studio:saveCustomChannel",
+    "saveChannelAssetType": "studio:saveChannelAssetType",
     "removeCustomChannel": "studio:removeCustomChannel",
     "saveChannelInstructions": "studio:saveChannelInstructions",
     "revertChannelInstructions": "studio:revertChannelInstructions",

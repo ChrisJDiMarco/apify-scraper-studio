@@ -14,7 +14,12 @@ const KIT_DATA = require('./kit-folders.json');
 const KIT_FOLDERS = Object.freeze(KIT_DATA.folders.map((folder) => Object.freeze({ ...folder, deliverables: [...folder.deliverables] })));
 // The channels an admin added to the current workspace come after the built-in ones (custom-channels.js).
 const customChannels = require('./custom-channels');
-const allFolders = () => [...KIT_FOLDERS, ...customChannels.customChannels().map(customChannels.folderOf)];
+const allFolders = () => {
+  const types = customChannels.activeAssetTypes();
+  return [...KIT_FOLDERS, ...customChannels.customChannels().map(customChannels.folderOf)].map(folder => ({
+    ...folder, deliverables: [...folder.deliverables, ...types.filter(type => type.channelId === folder.id).map(type => type.id)],
+  }));
+};
 // n8n's file names: "<label> — <trend> (<date>)", pictures "<label> — <trend> — Variation N (<date>)".
 const SEMRUSH_FILE_LABELS = Object.freeze({ ...KIT_DATA.semrushFileLabels });
 // Typical structured output per written asset (tokens) and per picture brief, for the estimate shown before a run.
@@ -37,11 +42,13 @@ function kitDeliverableIds(editionId = 'general', { images = true } = {}) {
   return kitFolders(editionId).flatMap((folder) => folder.deliverableIds).filter((id) => images || descriptorOf(id).kind !== 'image');
 }
 function kitFolderFor(deliverableId, editionId = 'general') {
-  return kitFolders(editionId).find((folder) => folder.deliverableIds.includes(deliverableId)) || { id: 'other', name: 'Other', short: 'Other', deliverableIds: [] };
+  const typeChannel = customChannels.assetTypeChannelId(deliverableId);
+  return kitFolders(editionId).find((folder) => folder.id === typeChannel || folder.deliverableIds.includes(deliverableId)) || { id: 'other', name: 'Other', short: 'Other', deliverableIds: [] };
 }
 function kitFileLabel(deliverableId, editionId = 'general') {
   if (editionId === 'semrush' && SEMRUSH_FILE_LABELS[deliverableId]) return SEMRUSH_FILE_LABELS[deliverableId];
   const descriptor = descriptorOf(deliverableId); const label = descriptor?.label || deliverableId;
+  if (descriptor?.customType) return label;
   return `${kitFolderFor(deliverableId, editionId).name} — ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
 }
 const day = (value) => { const date = new Date(value); return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10); };

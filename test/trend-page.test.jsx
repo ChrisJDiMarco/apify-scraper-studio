@@ -47,6 +47,18 @@ describe('TrendPage', () => {
     rerender(<TrendPage card={ready} stage={stageOf(ready, { can: yes })} tab="assets" renderAssets={(id) => <p>Assets of {id}</p>} />);
     expect(screen.getByText('Assets of a-report')).toBeInTheDocument();
   });
+  it('gives trend sharing a distinct name and puts existing assets on the tab', () => {
+    const onCopyLink = vi.fn(); const onTab = vi.fn();
+    page({ ...ready, assetCount: 15 }, { tab: 'report', onCopyLink, onTab, onNext: vi.fn() });
+    const reportTab = screen.getByRole('tab', { name: 'Trends report' });
+    expect(screen.queryByRole('button', { name: 'Open channel assets' })).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Channel assets, 15 files' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy trend link' }));
+    expect(onCopyLink).toHaveBeenCalledOnce();
+    fireEvent.keyDown(reportTab, { key: 'End' });
+    expect(onTab).toHaveBeenCalledWith('assets');
+    expect(screen.getByRole('tab', { name: 'Channel assets, 15 files' })).toHaveFocus();
+  });
   it('falls back to the overview when the tab asked for has nothing yet', () => {
     page(waiting, { tab: 'report' });
     expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');

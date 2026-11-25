@@ -1,8 +1,8 @@
-import React, { useEffect, useId, useState } from 'react';
-import { ArrowLeft, History, ImagePlus, LoaderCircle, Pencil, Plus, Save, Trash2 } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { Archive, ArrowLeft, ChevronRight, FileText, History, Image, ImagePlus, LoaderCircle, Pencil, Plus, Save, Trash2, Video } from 'lucide-react';
 import KIT, { customChannelList, isCustomChannel } from '../../shared/channel-table.js';
 import { EmptyBlock, SaveBar } from './studio-kit.jsx';
-import { can, formatDay, useViewer, writeProps } from './viewer.js';
+import { can, formatDay, plural, useViewer, writeProps } from './viewer.js';
 import { useConfirm } from './confirm-dialog.jsx';
 import './channel-settings.css';
 
@@ -26,11 +26,11 @@ export function ChannelSettings({ api, channels = [], formats = [], channelId: f
   const [reload, setReload] = useState(0);
   useEffect(() => {
     if (!channelId || typeof api?.readChannelSettings !== 'function') return undefined;
-    let live = true; setData(null); setProblem('');
+    let live = true; setProblem('');
     Promise.resolve(api.readChannelSettings({ channelId })).then((result) => { if (live) setData(result || null); }, (failure) => { if (live) setProblem(failure?.message || 'This channel’s settings couldn’t be loaded.'); });
     return () => { live = false; };
   }, [channelId, reload]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setTab('knowledge'); setEditing(false); }, [channelId]); // another channel opens on its knowledge
+  useEffect(() => { setTab('knowledge'); setEditing(false); setData(null); }, [channelId]); // another channel opens on its knowledge
   const name = data?.channelName || list(channels).find((row) => row.id === channelId)?.name || 'this channel';
   if (!fixed && !channelId) return <ChannelTable api={api} channels={channels} formats={formats} onOpen={setChannelId} onNotice={onNotice} />;
   // A channel an admin added (custom-channels.js) can be edited or removed here; its asset instructions are the built-in
@@ -45,15 +45,15 @@ export function ChannelSettings({ api, channels = [], formats = [], channelId: f
   }
   return <div className="simple-page channel-settings" data-spot="channel.settings">
     {!fixed && <button type="button" className="simple-back" onClick={() => setChannelId('')}><ArrowLeft size={15} aria-hidden="true" />All channels</button>}
-    <div className="simple-page-head"><div><h1>{fixed ? 'My channel' : name === 'this channel' ? 'Channel' : name}</h1><p>{fixed ? `What ${name}’s assets should know about the channel, and the instructions that write them.` : 'This channel’s knowledge and the instructions that write its assets. Its owner can edit them too.'}</p></div>
+    <div className="simple-page-head"><div><h1>{fixed ? 'My channel' : name === 'this channel' ? 'Channel' : name}</h1><p>{fixed ? `Publishing settings for ${name}.` : 'Manage what this channel makes and the guidance it uses.'}</p></div>
       {!fixed && list(channels).length > 0 && <div className="simple-head-actions">{mayManage && <><button type="button" className="studio-quiet" {...writeProps(viewer)} onClick={() => setEditing(true)}><Pencil size={14} aria-hidden="true" />Edit channel</button><button type="button" className="studio-quiet" {...writeProps(viewer)} onClick={remove}><Trash2 size={14} aria-hidden="true" />Remove</button></>}<label className="cs-program-pick" htmlFor={pickId}><span className="sr-only">Channel</span><select id={pickId} className="simple-program-pick" value={channelId} onChange={(event) => setChannelId(event.target.value)}>{channels.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label></div>}</div>
     {editing && mayManage && <ChannelForm api={api} formats={formats} channel={{ id: channelId, name: current?.name || name, short: current?.short || '', formats: list(customChannelList().find((row) => row.id === channelId)?.formats) }} onCancel={() => setEditing(false)} onSaved={(saved) => { setEditing(false); onNotice?.(`Saved “${saved?.name || name}”.`); setReload((value) => value + 1); }} />}
-    <div className="people-tabs channel-tabs" role="tablist" aria-label="Channel settings">{[['knowledge', 'Channel knowledge'], ['images', 'Image examples'], ['instructions', 'Asset instructions']].map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div>
+    <div className="people-tabs channel-tabs" role="tablist" aria-label="Channel settings">{[['knowledge', 'Channel knowledge'], ['images', 'Image examples'], ['instructions', 'Asset types']].map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div>
     {problem && <p className="studio-error" role="alert">{problem}</p>}
     {!data && !problem && <p className="studio-hint" role="status">Loading {name}…</p>}
     {data && tab === 'knowledge' && <KnowledgeForm key={data.channelId} api={api} data={data} viewer={viewer} onNotice={onNotice} />}
     {data && tab === 'images' && <ChannelImages key={data.channelId} api={api} data={data} viewer={viewer} onNotice={onNotice} />}
-    {data && tab === 'instructions' && <InstructionsTab key={`${data.channelId}:${reload}`} api={api} data={data} viewer={viewer} channels={channels} onOpenChannel={fixed ? undefined : setChannelId} onNotice={onNotice} onSaved={() => setReload((value) => value + 1)} />}
+    {data && tab === 'instructions' && <InstructionsTab key={data.channelId} api={api} data={data} viewer={viewer} channels={channels} onOpenChannel={fixed ? undefined : setChannelId} onNotice={onNotice} onSaved={() => setReload((value) => value + 1)} />}
   </div>;
 }
 
@@ -142,43 +142,131 @@ function KnowledgeForm({ api, data, viewer, onNotice }) {
   </form>;
 }
 
-// The Asset instructions tab: every prompt that writes this channel's assets, saved together from one save bar with one
-// note for the history. A prompt an admin locked, and an added channel's (borrowed) prompts, are shown read only.
+const TYPE_ICONS = { text: FileText, image: Image, video: Video };
+const TYPE_LABELS = { text: 'Written', image: 'Image', video: 'Video' };
+
 function InstructionsTab({ api, data, viewer, channels = [], onOpenChannel, onNotice, onSaved }) {
+  const confirm = useConfirm();
+  const detailId = useId();
+  const inspection = useRef(null);
+  const [selected, select] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [archiving, setArchiving] = useState(false);
   const [drafts, setDrafts] = useState({}); // promptId → { blockId: text }
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState('');
   const prompts = list(data.prompts);
+  const savedTypes = list(data.assetTypes);
+  const formats = data.formats || prompts.map(detail => ({ id: detail.prompt.id, kind: 'text', name: detail.prompt.name, promptId: detail.prompt.id }));
+  const types = [...formats, ...savedTypes.filter(type => !type.archived).map(type => ({ ...type, kind: 'text', customType: true }))];
+  const current = types.find(type => type.id === selected) || types[0];
+  const detail = prompts.find(row => row.prompt.id === current?.promptId);
+  const mayManageTypes = can(viewer, 'saveChannelAssetType') && typeof api.saveChannelAssetType === 'function';
+  const mayEditInstructions = can(viewer, 'saveChannelInstructions');
   const readOnlyAll = Boolean(data.custom) || viewer.preview;
   const changedOf = (detail) => Object.fromEntries(Object.entries(drafts[detail.prompt.id] || {}).filter(([blockId, text]) => text !== (detail.blocks?.[blockId] ?? '')));
-  const changedPrompts = readOnlyAll ? [] : prompts.filter((detail) => !detail.lockedForYou && Object.keys(changedOf(detail)).length);
+  const changedPrompts = readOnlyAll || !mayEditInstructions ? [] : prompts.filter((detail) => !detail.lockedForYou && Object.keys(changedOf(detail)).length);
   const changes = changedPrompts.reduce((sum, detail) => sum + Object.keys(changedOf(detail)).length, 0);
   // Where a borrowed prompt's own channel is: the built-in channel whose formats include it (assets.<format>).
   const ownerOf = (detail) => { const format = String(detail.prompt?.id || '').replace(/^assets\./, ''); const folder = KIT.folders.find((row) => !row.custom && list(row.deliverables).includes(format)); return folder ? list(channels).find((row) => row.id === folder.id) || { id: folder.id, name: folder.general } : null; };
   async function saveAll() {
+    const saved = new Set();
     setSaving(true); setProblem('');
     try {
-      for (const detail of changedPrompts) await api.saveChannelInstructions({ channelId: data.channelId, promptId: detail.prompt.id, blocks: changedOf(detail), expectedVersion: detail.version, note: note.trim() || 'Changed in Channels' });
+      for (const detail of changedPrompts) {
+        await api.saveChannelInstructions({ channelId: data.channelId, promptId: detail.prompt.id, blocks: changedOf(detail), expectedVersion: detail.version, note: note.trim() || 'Changed in Channels' });
+        saved.add(detail.prompt.id);
+      }
       onNotice?.(changedPrompts.length === 1 ? `Saved “${changedPrompts[0].prompt.name}”. New assets use it.` : `Saved ${changedPrompts.length} instructions. New assets use them.`);
-      setDrafts({}); setNote(''); onSaved?.();
+      setNote('');
     } catch (failure) { setProblem(failure?.message || 'That couldn’t be saved. Try again.'); }
-    finally { setSaving(false); }
+    finally {
+      if (saved.size) {
+        setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !saved.has(id))));
+        onSaved?.();
+      }
+      setSaving(false);
+    }
   }
   async function restore(detail, version) {
     setSaving(true); setProblem('');
-    try { await api.revertChannelInstructions({ channelId: data.channelId, promptId: detail.prompt.id, toVersion: version, expectedVersion: detail.version }); onNotice?.(`Restored version ${version} of “${detail.prompt.name}”.`); onSaved?.(); }
+    try { await api.revertChannelInstructions({ channelId: data.channelId, promptId: detail.prompt.id, toVersion: version, expectedVersion: detail.version }); setDrafts((current) => ({ ...current, [detail.prompt.id]: {} })); onNotice?.(`Restored version ${version} of “${detail.prompt.name}”.`); onSaved?.(); }
     catch (failure) { setProblem(failure?.message || 'That couldn’t be restored. Try again.'); }
     finally { setSaving(false); }
   }
-  if (!prompts.length) return <EmptyBlock title="No asset instructions">{data.channelName} has no asset instructions in this edition.</EmptyBlock>;
-  return <div className="channel-prompts">
+  async function setArchived(type, archived) {
+    if (viewer.preview || archiving) return;
+    if (archived && !(await confirm({ title: `Archive “${type.name}”?`, lines: ['This removes the type from new asset sets. You can restore it here, and existing assets stay available.'], confirmLabel: 'Archive asset type', tone: 'danger' }))) return;
+    setArchiving(true); setProblem('');
+    try {
+      await api.saveChannelAssetType({ channelId: data.channelId, assetTypeId: type.id, revision: type.revision, archived });
+      select(archived ? '' : type.id); onSaved?.(); onNotice?.(`${archived ? 'Archived' : 'Restored'} “${type.name}”.`);
+    } catch (failure) { setProblem(failure?.message || 'That asset type couldn’t be updated. Try again.'); }
+    finally { setArchiving(false); }
+  }
+  const archived = savedTypes.filter(type => type.archived);
+  function inspect(type) {
+    select(type.id);
+    if (window.matchMedia?.('(max-width: 680px)').matches) window.requestAnimationFrame(() => {
+      inspection.current?.focus({ preventScroll: true });
+      inspection.current?.scrollIntoView({ block: 'start' });
+    });
+  }
+  return <div className="channel-prompts" data-spot="channel.asset-types">
+    <header className="channel-types-head">
+      <div><h2>Asset types</h2><p>Choose a format to see its output and instructions. These formats appear in Make channel assets.</p></div>
+      {mayManageTypes && !editing && <button type="button" className="simple-primary" {...writeProps(viewer)} onClick={() => setEditing({})}><Plus size={16} aria-hidden="true" />Add asset type</button>}
+    </header>
     <SaveBar changes={changes} saving={saving} saveLabel={changes && changedPrompts.length > 1 ? 'Save instructions' : 'Save instruction'} onSave={saveAll} onDiscard={() => { setDrafts({}); setNote(''); setProblem(''); }} />
-    {data.custom && <p className="studio-hint" role="note">{data.channelName} writes with the instructions of the formats it makes, plus its own channel knowledge. They belong to the channels below, so they’re read only here.</p>}
-    {changes > 0 && <label className="studio-field channel-history-note"><span>Note for the history</span><input value={note} maxLength={200} placeholder="What changed, and why" onChange={(event) => setNote(event.target.value)} /></label>}
+    {changes > 0 && <label className="studio-field channel-history-note"><span>Note for the history</span><input value={note} maxLength={200} disabled={saving} placeholder="What changed, and why" onChange={(event) => setNote(event.target.value)} /></label>}
     {problem && <p className="studio-error" role="alert">{problem}</p>}
-    {prompts.map((detail) => <InstructionCard key={`${detail.prompt.id}:${detail.version}`} detail={detail} viewer={viewer} readOnly={readOnlyAll} owner={data.custom ? ownerOf(detail) : null} onOpenChannel={onOpenChannel} draftOf={(blockId) => drafts[detail.prompt.id]?.[blockId]} onDraft={(blockId, text) => setDrafts((current) => ({ ...current, [detail.prompt.id]: { ...(current[detail.prompt.id] || {}), [blockId]: text } }))} saving={saving} onRestore={(version) => restore(detail, version)} />)}
+    {editing ? <AssetTypeForm api={api} channelId={data.channelId} assetType={editing} onCancel={() => setEditing(null)} onSaved={(type) => { setEditing(null); select(type.id); onSaved?.(); onNotice?.(`Saved “${type.name}”. It is available in Make channel assets.`); }} /> :
+      <div className="channel-types-grid">
+        <div>
+          {types.length > 0 && <ul className="channel-type-list" aria-label="Available asset types">{types.map(type => {
+            const Icon = TYPE_ICONS[type.kind] || FileText;
+            return <li key={type.id}><button type="button" aria-pressed={current?.id === type.id} aria-controls={detailId} onClick={() => inspect(type)}><span className="channel-type-icon"><Icon size={18} aria-hidden="true" /></span><span><strong>{type.name}</strong><small>{type.customType ? 'Custom · Written' : TYPE_LABELS[type.kind]}</small></span><ChevronRight size={15} aria-hidden="true" /></button></li>;
+          })}</ul>}
+          {mayManageTypes && archived.length > 0 && <details className="channel-history channel-type-archive"><summary><Archive size={14} aria-hidden="true" />{plural(archived.length, 'archived type')}</summary><ul>{archived.map(type => <li key={type.id}><span>{type.name}</span><button type="button" className="simple-link" {...writeProps(viewer, archiving)} onClick={() => setArchived(type, false)}>Restore</button></li>)}</ul></details>}
+        </div>
+        {!current ? <EmptyBlock title="No asset types yet">Add a format to use it when making channel assets.</EmptyBlock> :
+          <section ref={inspection} id={detailId} tabIndex={-1} className="channel-type-detail" aria-label={current.name}>
+            <header><div><p>{current.customType ? 'Custom written format' : `${TYPE_LABELS[current.kind] || 'Asset'} format`}</p><h3>{current.name}</h3></div>{current.customType && mayManageTypes && <div className="channel-actions"><button type="button" className="studio-quiet" {...writeProps(viewer, archiving)} onClick={() => setEditing(current)}><Pencil size={14} aria-hidden="true" />Edit type</button><button type="button" className="studio-quiet" {...writeProps(viewer, archiving)} onClick={() => setArchived(current, true)}><Archive size={14} aria-hidden="true" />Archive</button></div>}</header>
+            {list(current.sections).length > 0 && <div className="channel-type-sections"><h4>Output sections</h4><ol>{current.sections.map((heading, index) => <li key={index}>{heading}</li>)}</ol></div>}
+            {current.customType ? <div className="channel-type-sections"><h4>Writing instructions</h4><p className="channel-type-instruction">{current.instruction}</p></div> :
+              detail ? <InstructionCard key={`${detail.prompt.id}:${detail.version}`} detail={detail} viewer={viewer} readOnly={readOnlyAll || !mayEditInstructions} owner={data.custom ? ownerOf(detail) : null} onOpenChannel={onOpenChannel} draftOf={(blockId) => drafts[detail.prompt.id]?.[blockId]} onDraft={(blockId, text) => setDrafts((current) => ({ ...current, [detail.prompt.id]: { ...(current[detail.prompt.id] || {}), [blockId]: text } }))} saving={saving} onRestore={(version) => restore(detail, version)} /> :
+                <div className="channel-type-sections"><h4>Generation guidance</h4><p>{current.kind === 'image' ? 'Image generation uses the studio’s visual prompts and this channel’s image examples.' : 'Short video uses the studio’s video prompts. Select it when making channel assets to include it in a set.'}</p>{can(viewer, 'listPrompts') && <a className="simple-link" href="#/studio/prompts">Open Prompt Library <ChevronRight size={13} aria-hidden="true" /></a>}</div>}
+          </section>}
+      </div>}
   </div>;
+}
+
+function AssetTypeForm({ api, channelId, assetType, onCancel, onSaved }) {
+  const [name, setName] = useState(assetType.name || '');
+  const [sections, setSections] = useState(list(assetType.sections).join('\n'));
+  const [instruction, setInstruction] = useState(assetType.instruction || '');
+  const [pending, setPending] = useState(false);
+  const [problem, setProblem] = useState('');
+  const title = assetType.id ? 'Edit asset type' : 'New asset type';
+  async function save(event) {
+    event.preventDefault();
+    if (pending) return;
+    setPending(true); setProblem('');
+    try {
+      const result = await api.saveChannelAssetType({ channelId, assetTypeId: assetType.id, revision: assetType.revision, name, sections: sections.split('\n').map(value => value.trim()).filter(Boolean), instruction });
+      onSaved(result.assetType);
+    } catch (failure) { setProblem(failure?.message || 'This asset type couldn’t be saved. Try again.'); }
+    finally { setPending(false); }
+  }
+  return <form className="channel-type-detail channel-type-form" aria-label={title} onSubmit={save}>
+    <header><div><p>Custom written format</p><h3>{title}</h3></div></header>
+    <label className="studio-field"><span>Asset type name</span><input autoFocus required maxLength={80} disabled={pending} value={name} placeholder="e.g. LinkedIn carousel brief" onChange={event => setName(event.target.value)} /></label>
+    <label className="studio-field"><span>Output sections</span><textarea required rows={4} disabled={pending} value={sections} placeholder={'Opening hook\nSlide outline\nCall to action'} onChange={event => setSections(event.target.value)} /><small>One heading per line, in the order they should appear. Use up to 12.</small></label>
+    <label className="studio-field"><span>Writing instructions</span><textarea required rows={5} maxLength={8000} disabled={pending} value={instruction} placeholder="Describe what to write, the intended audience, and any length or style requirements." onChange={event => setInstruction(event.target.value)} /><small>Used alongside brand and channel knowledge when a draft is generated.</small></label>
+    {problem && <p className="studio-error" role="alert">{problem}</p>}
+    <div className="channel-actions"><button type="button" className="studio-quiet" disabled={pending} onClick={onCancel}>Cancel</button><button type="submit" className="simple-primary" disabled={pending}>{pending ? 'Saving…' : 'Save asset type'}</button></div>
+  </form>;
 }
 
 // One prompt that writes this channel's assets: its editable parts (the tab keeps the drafts) and earlier versions to
@@ -187,12 +275,12 @@ function InstructionCard({ detail, viewer, readOnly = false, owner = null, onOpe
   const titleId = useId();
   const editable = list(detail.prompt?.blocks).filter((block) => block.editable && Object.prototype.hasOwnProperty.call(detail.blocks || {}, block.id));
   const locked = Boolean(detail.lockedForYou) || readOnly;
-  return <section className="cs-panel channel-prompt" aria-labelledby={titleId}>
-    <div className="cs-panel-title"><div><h3 id={titleId}>{detail.prompt?.name}</h3><p>{detail.version ? `Version ${detail.version}${detail.updatedBy?.name ? `, saved by ${detail.updatedBy.name}` : ''}${detail.updatedAt ? ` on ${formatDay(detail.updatedAt)}` : ''}` : 'The studio’s default text'}{detail.lockedForYou ? '. Read only: an admin locked it.' : ''}</p></div>
+  return <section className="channel-prompt channel-type-sections" aria-labelledby={titleId}>
+    <div className="cs-panel-title"><div><h4 id={titleId}>Writing instructions</h4><p>{detail.version ? `Version ${detail.version}${detail.updatedBy?.name ? `, saved by ${detail.updatedBy.name}` : ''}${detail.updatedAt ? ` on ${formatDay(detail.updatedAt)}` : ''}` : owner ? `Shared with ${owner.name}` : 'Studio default'}{detail.lockedForYou ? ' · Locked by an admin' : ''}</p></div>
       {owner && onOpenChannel && <button type="button" className="studio-quiet" onClick={() => onOpenChannel(owner.id)}>Open {owner.name}</button>}</div>
     {editable.map((block) => <div key={block.id} className="studio-field"><span>{block.label}</span>
       {locked ? <div className="channel-readonly-text">{detail.blocks?.[block.id] ?? ''}</div>
-        : <textarea rows={6} aria-label={`${detail.prompt?.name}: ${block.label}`} value={draftOf(block.id) ?? detail.blocks?.[block.id] ?? ''} disabled={viewer.preview} onChange={(event) => onDraft(block.id, event.target.value)} />}</div>)}
+        : <textarea rows={6} aria-label={`${detail.prompt?.name}: ${block.label}`} value={draftOf(block.id) ?? detail.blocks?.[block.id] ?? ''} disabled={saving} onChange={(event) => onDraft(block.id, event.target.value)} />}</div>)}
     {list(detail.history).length > 1 && <details className="channel-history"><summary><History size={14} aria-hidden="true" />Earlier versions</summary>
       <ul>{list(detail.history).filter((row) => row.version !== detail.version).map((row) => <li key={row.version}><span>Version {row.version}{row.by?.name ? `, ${row.by.name}` : ''}{row.at ? `, ${formatDay(row.at)}` : ''}{row.note ? `: ${row.note}` : ''}</span>
         {!locked && <button type="button" className="simple-link" {...writeProps(viewer, saving)} onClick={() => onRestore(row.version)}>Restore</button>}</li>)}</ul>
@@ -206,6 +294,7 @@ export function knowledgeFilled(data) {
   const fields = list(data?.fields);
   return { filled: fields.filter((field) => String(data?.knowledge?.[field.id] || '').trim()).length, total: fields.length };
 }
+const assetCount = (data) => list(data.formats || data.prompts).length + list(data.assetTypes).filter(type => !type.archived).length;
 function ChannelTable({ api, channels = [], formats = [], onOpen, onNotice }) {
   const viewer = useViewer();
   const [adding, setAdding] = useState(false);
@@ -235,17 +324,17 @@ function ChannelTable({ api, channels = [], formats = [], onOpen, onNotice }) {
     {unowned > 0 && <div className="channel-notice" role="status"><span><strong>{unowned === list(channels).length ? 'No channel has an owner yet.' : `${unowned} ${unowned === 1 ? 'channel has' : 'channels have'} no owner.`}</strong> Owners get their channel’s briefs and say what they used.</span><a className="studio-quiet" href="#/studio/people">Assign owners</a></div>}
     {loaded.length === list(channels).length && empty > 0 && <p className="channel-table-note">{empty === list(channels).length ? 'No channel has channel knowledge yet' : `${empty} of ${list(channels).length} ${empty === 1 ? 'has' : 'have'} no channel knowledge yet`}: their assets are written from the brand knowledge alone.</p>}
     {list(channels).length ? <div className="simple-file-table-wrap"><table className="simple-file-table channel-table">
-      <thead><tr><th scope="col">Channel</th>{owners && <th scope="col">Owner</th>}<th scope="col">Channel knowledge</th><th scope="col">Asset instructions</th><th scope="col">Last saved</th></tr></thead>
+      <thead><tr><th scope="col">Channel</th>{owners && <th scope="col">Owner</th>}<th scope="col">Channel knowledge</th><th scope="col">Asset types</th><th scope="col">Last saved</th></tr></thead>
       <tbody>{list(channels).map((channel) => { const data = rows[channel.id]; const fill = data && !data.problem ? knowledgeFilled(data) : null; const own = list(owners?.[channel.id]); return <tr key={channel.id} className="channel-row" onClick={(event) => { if (!event.target.closest('button, a')) onOpen(channel.id); }}>
         <th scope="row"><button type="button" className="simple-file-open" onClick={() => onOpen(channel.id)}>{channel.name}</button>{isCustomChannel(channel.id) && <span className="channel-added-tag">Added</span>}</th>
         {owners && <td>{own.length ? own.join(', ') : <span className="channel-table-none">None</span>}</td>}
         <td>{!data ? 'Loading…' : data.problem ? data.problem : fill.filled === 0 ? <span className="channel-table-none">None yet</span> : `${fill.filled} of ${fill.total} filled in`}</td>
-        <td>{fill ? `${list(data.prompts).length} ${list(data.prompts).length === 1 ? 'prompt' : 'prompts'}` : ''}</td>
+        <td>{fill ? plural(assetCount(data), 'asset type') : ''}</td>
         <td className="simple-file-date">{fill && data.updatedAt ? `${formatDay(data.updatedAt)}${data.updatedBy?.name ? `, ${data.updatedBy.name}` : ''}` : fill ? 'Never' : ''}</td>
       </tr>; })}</tbody>
     </table></div> : <EmptyBlock title="No channels yet" action={mayAdd ? <button type="button" className="simple-primary" onClick={() => setAdding(true)}><Plus size={15} aria-hidden="true" />Add channel</button> : null}>Channels are where the team publishes. Each gets its own knowledge, owner and assets.</EmptyBlock>}
     {/* Under 600px the table is a list: the name, then its facts on one line; the whole row opens the channel. */}
-    {list(channels).length > 0 && <ul className="channel-list-narrow" aria-label="Channels">{list(channels).map((channel) => { const data = rows[channel.id]; const fill = data && !data.problem ? knowledgeFilled(data) : null; const own = list(owners?.[channel.id]); return <li key={channel.id}><button type="button" onClick={() => onOpen(channel.id)}><strong>{channel.name}{isCustomChannel(channel.id) && <span className="channel-added-tag">Added</span>}</strong><small>{[owners ? (own.length ? own.join(', ') : 'No owner') : '', !data ? 'Loading…' : data.problem ? data.problem : fill.filled === 0 ? 'No knowledge yet' : `Knowledge ${fill.filled} of ${fill.total}`, fill ? `${list(data.prompts).length} ${list(data.prompts).length === 1 ? 'prompt' : 'prompts'}` : ''].filter(Boolean).join(', ')}</small></button></li>; })}</ul>}
+    {list(channels).length > 0 && <ul className="channel-list-narrow" aria-label="Channels">{list(channels).map((channel) => { const data = rows[channel.id]; const fill = data && !data.problem ? knowledgeFilled(data) : null; const own = list(owners?.[channel.id]); return <li key={channel.id}><button type="button" onClick={() => onOpen(channel.id)}><strong>{channel.name}{isCustomChannel(channel.id) && <span className="channel-added-tag">Added</span>}</strong><small>{[owners ? (own.length ? own.join(', ') : 'No owner') : '', !data ? 'Loading…' : data.problem ? data.problem : fill.filled === 0 ? 'No knowledge yet' : `Knowledge ${fill.filled} of ${fill.total}`, fill ? plural(assetCount(data), 'asset type') : ''].filter(Boolean).join(', ')}</small></button></li>; })}</ul>}
   </div>;
 }
 

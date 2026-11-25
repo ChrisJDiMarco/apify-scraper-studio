@@ -96,7 +96,8 @@ describe('Advanced hand-offs between studio pages', () => {
     sidebar('Trends');
     fireEvent.click((await screen.findAllByRole('button', { name: new RegExp(`^${TREND}`) }))[0]);
     await screen.findByText('Body text for asset-report.');
-    fireEvent.click(document.querySelector('[data-spot="report.create"]'));
+    fireEvent.click(screen.getByRole('button', { name: 'Report actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Create content' }));
     expect((await screen.findAllByRole('heading', { level: 1, name: 'Create content' })).length).toBeGreaterThan(0); // the top bar names the page too
     await waitFor(() => expect(screen.getByLabelText('Source title')).toHaveValue(`${TREND} — Comprehensive Trends Report`));
     expect(screen.getByRole('textbox', { name: 'Source brief' })).toHaveValue('# Draft asset-report\n\nBody text for asset-report.');

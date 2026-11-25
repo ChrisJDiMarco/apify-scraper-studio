@@ -154,6 +154,7 @@ export function ContentStudioView({ state = {}, api = {}, busy = false, onNotice
   const selectedRun = runs.find((run) => run.id === selectedRunId);
   const disabled = Boolean(busy || pending);
   const capabilities = studio.capabilities || {};
+  const assetTypesKey = JSON.stringify([studio.channelAssetTypes || [], studio.customChannels || []]);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,7 +163,7 @@ export function ContentStudioView({ state = {}, api = {}, busy = false, onNotice
       if (!cancelled) { setCatalog({ editions: list(value?.editions), deliverables: list(value?.deliverables) }); setCatalogLoading(false); }
     }).catch((failure) => { if (!cancelled) { setCatalogError(failure?.message || 'Could not load available deliverables.'); setCatalogLoading(false); } });
     return () => { cancelled = true; };
-  }, [api.contentCatalog]);
+  }, [api.contentCatalog, workspaceId, assetTypesKey]);
   useEffect(() => { setSelectedRunId(''); setSelectedAssetId(''); setSourceDraft(null); setError(''); setNewWorkspace(false); }, [workspaceId]);
   // The shell's request to show one report ({ key, assetId }) or channel-asset folder ({ key, folderKey }) in the Library
   // (Ask AI's Open buttons, the ⌘K palette). After the reset above, so it survives this view mounting.

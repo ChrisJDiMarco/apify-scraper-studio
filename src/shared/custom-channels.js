@@ -16,8 +16,11 @@ const CHANNEL_ID = /^c-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SEP = '--';
 const MAX_CHANNELS = 30;
 const MAX_FORMATS = 4;
+const MAX_ASSET_TYPES = 12;
+const ASSET_TYPE_ID = /^a-([a-z0-9]+(?:-[a-z0-9]+)*)--[a-f0-9-]{36}$/;
 
 let registered = []; // [{ id, workspaceId, name, short, formats, archived, createdAt }]
+let types = [];
 let resolveWorkspace = () => '';
 const listeners = new Set();
 
@@ -26,12 +29,13 @@ function setWorkspaceResolver(fn) { resolveWorkspace = typeof fn === 'function' 
 function currentWorkspace() { try { return String(resolveWorkspace() || ''); } catch (_) { return ''; } }
 // Every workspace's custom channels, each with its workspaceId. Malformed rows are dropped, never thrown on: this runs
 // when the studio loads.
-function setCustomChannels(list) {
+function setCustomChannels(list, assetTypes = []) {
   const seen = new Set();
   registered = (Array.isArray(list) ? list : []).filter((row) => row && CHANNEL_ID.test(String(row.id || '')) && clean(row.name, 60) && Array.isArray(row.formats) && row.formats.length)
     .filter((row) => { const key = `${row.workspaceId || ''}:${row.id}`; if (seen.has(key)) return false; seen.add(key); return true; })
     .map((row) => ({ id: row.id, workspaceId: String(row.workspaceId || ''), name: clean(row.name, 60), short: clean(row.short, 24) || clean(row.name, 24), formats: [...new Set(row.formats.map(String))].slice(0, MAX_FORMATS), archived: Boolean(row.archived), createdAt: row.createdAt || '' }));
-  for (const listener of listeners) { try { listener(registered); } catch (_) { /* a listener never stops registration */ } }
+  types = assetTypes;
+  for (const listener of listeners) { try { listener(registered, types); } catch (_) { /* a listener never stops registration */ } }
 }
 function onChange(listener) { listeners.add(listener); return () => listeners.delete(listener); }
 // The current workspace's live channels (or one workspace's, by id).
@@ -50,7 +54,12 @@ function parseDeliverableId(deliverableId) {
 }
 // The built-in deliverable a custom one writes like (its prompt, sections and estimate), or the id itself.
 const baseDeliverableId = (deliverableId) => parseDeliverableId(deliverableId)?.format || String(deliverableId || '');
-const channelIdOf = (deliverableId) => parseDeliverableId(deliverableId)?.channelId || '';
+const assetTypeChannelId = (id) => ASSET_TYPE_ID.exec(String(id || ''))?.[1] || '';
+const channelIdOf = (deliverableId) => assetTypeChannelId(deliverableId) || parseDeliverableId(deliverableId)?.channelId || '';
+const activeAssetTypes = (workspaceId = currentWorkspace()) => {
+  const channels = new Set(customChannels(workspaceId).map(row => row.id));
+  return types.filter(row => row.workspaceId === workspaceId && !row.archived && (!CHANNEL_ID.test(row.channelId) || channels.has(row.channelId)));
+};
 const channelById = (channelId) => registered.find((row) => row.id === channelId) || null;
 // A folder row in kit-folders.json's shape, so asset-kit.js and drive-sync.js treat it like a built-in channel.
 const folderOf = (row) => ({ id: row.id, semrush: row.name, general: row.name, semrushShort: row.short, generalShort: row.short, deliverables: row.formats.map((format) => deliverableIdFor(row.id, format)), custom: true });
@@ -62,4 +71,4 @@ function newChannelId(name, taken = []) {
   return id;
 }
 
-module.exports = { CHANNEL_ID, SEP, MAX_CHANNELS, MAX_FORMATS, setWorkspaceResolver, setCustomChannels, onChange, customChannels, allCustomChannels, isCustomChannelId, deliverableIdFor, parseDeliverableId, baseDeliverableId, channelIdOf, channelById, folderOf, newChannelId };
+module.exports = { CHANNEL_ID, SEP, MAX_CHANNELS, MAX_FORMATS, MAX_ASSET_TYPES, setWorkspaceResolver, setCustomChannels, onChange, customChannels, allCustomChannels, isCustomChannelId, deliverableIdFor, parseDeliverableId, baseDeliverableId, channelIdOf, assetTypeChannelId, activeAssetTypes, channelById, folderOf, newChannelId };

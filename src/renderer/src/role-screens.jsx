@@ -125,7 +125,7 @@ export function useUnclippedMenu(open, button, menu, { align = 'end', placement 
   }, [style]); // eslint-disable-line react-hooks/exhaustive-deps
   return style;
 }
-export function MoreMenu({ label, items, disabled = false, title, align = 'end', placement = 'bottom', icon: Icon = Ellipsis, buttonText = '', describedBy, buttonClassName = '', buttonContent = null }) {
+export function MoreMenu({ label, items, disabled = false, title, align = 'end', placement = 'bottom', icon: Icon = Ellipsis, buttonText = '', describedBy, buttonClassName = '', buttonContent = null, spot }) {
   const [open, setOpen] = useState(false);
   const button = useRef(null); const menu = useRef(null);
   const shown = items.filter(Boolean);
@@ -152,7 +152,7 @@ export function MoreMenu({ label, items, disabled = false, title, align = 'end',
   const renderItem = (item, index) => {
     if (item.type === 'separator') return <div key={`separator-${index}`} role="separator" className="studio-menu-separator" />;
     const radio = item.type === 'radio';
-    return <button key={item.key || item.label} type="button" role={radio ? 'menuitemradio' : 'menuitem'} aria-checked={radio ? Boolean(item.checked) : undefined} className={[item.danger ? 'danger' : '', radio && item.checked ? 'checked' : ''].filter(Boolean).join(' ')} disabled={item.disabled} title={item.title} onClick={() => { close(); item.onSelect(); }}>
+    return <button key={item.key || item.label} type="button" data-spot={item.spot} role={radio ? 'menuitemradio' : 'menuitem'} aria-checked={radio ? Boolean(item.checked) : undefined} className={[item.danger ? 'danger' : '', radio && item.checked ? 'checked' : ''].filter(Boolean).join(' ')} disabled={item.disabled} title={item.title} onClick={() => { close(); item.onSelect(); }}>
       {radio ? <Check className="studio-menu-check" size={15} aria-hidden="true" style={{ visibility: item.checked ? 'visible' : 'hidden' }} /> : item.icon ? <item.icon size={15} aria-hidden="true" /> : null}{item.label}
     </button>;
   };
@@ -160,7 +160,7 @@ export function MoreMenu({ label, items, disabled = false, title, align = 'end',
   const sections = [];
   shown.forEach((item, index) => { const last = sections[sections.length - 1]; if (item.group && last?.group === item.group) last.items.push([item, index]); else sections.push({ group: item.group || '', items: [[item, index]] }); });
   return <span className="studio-menu-wrap">
-    <button ref={button} type="button" className={buttonClassName || (buttonText ? 'studio-quiet small' : 'studio-icon-button')} aria-label={buttonText || buttonContent ? undefined : label} aria-haspopup="menu" aria-expanded={open} aria-describedby={describedBy} disabled={disabled} title={title} onClick={() => setOpen((value) => !value)} onKeyDown={(event) => { if (event.key === 'ArrowDown' && !open) { event.preventDefault(); setOpen(true); } }}>{buttonContent || <><Icon size={17} aria-hidden="true" />{buttonText}</>}</button>
+    <button ref={button} type="button" data-spot={spot} className={buttonClassName || (buttonText ? 'studio-quiet small' : 'studio-icon-button')} aria-label={buttonText || buttonContent ? undefined : label} aria-haspopup="menu" aria-expanded={open} aria-describedby={describedBy} disabled={disabled} title={title} onClick={() => setOpen((value) => !value)} onKeyDown={(event) => { if (event.key === 'ArrowDown' && !open) { event.preventDefault(); setOpen(true); } }}>{buttonContent || <><Icon size={17} aria-hidden="true" />{buttonText}</>}</button>
     {open && <div ref={menu} className={`studio-menu align-${align}${placement === 'top' ? ' placement-top' : ''}`} role="menu" aria-label={label} style={floating || undefined} onKeyDown={onKeyDown}>
       {sections.map((section, index) => (section.group
         ? <div key={`group-${section.group}-${index}`} role="group" aria-label={section.group} className="studio-menu-group"><span className="studio-menu-heading" aria-hidden="true">{section.group}</span>{section.items.map(([item, at]) => renderItem(item, at))}</div>

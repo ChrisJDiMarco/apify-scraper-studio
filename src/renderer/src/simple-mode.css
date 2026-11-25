@@ -624,7 +624,7 @@
 .simple-reader .simple-reader-tools { min-width: 0; }
 
 /* A trend's page (trend-page.jsx): header with the stage and one next step, then tabs. */
-.trend-page { gap: 26px; }
+.trend-page { gap: 10px; }
 .trend-page-head { display: grid; gap: 18px; min-width: 0; }
 .trend-page-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .trend-page-run { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--s-muted); }
@@ -640,7 +640,29 @@
 .trend-page-panel { min-width: 0; display: grid; gap: 26px; }
 /* The embedded reader and folder view are already inside a page: no second page frame or entry animation. */
 .trend-page-panel > .simple-page { max-width: none; margin: 0; animation: none; }
-.trend-page-panel .simple-reader.is-embedded .simple-reader-bar { justify-content: flex-end; }
+.trend-page-context-actions, .trend-page-metadata { display: flex; align-items: center; gap: 6px 12px; min-width: 0; flex-wrap: wrap; }
+.trend-page-context-actions { max-width: 100%; }
+.trend-page-context-actions .trend-page-run, .trend-page-context-actions select { min-width: 0; max-width: 100%; }
+.simple-shell .trend-page .simple-back,
+.simple-shell .trend-page .trend-copy-link { min-height: 36px; padding: 0 6px; background: transparent; border-color: transparent; color: var(--s-muted); }
+.simple-shell .trend-page .simple-back:hover,
+.simple-shell .trend-page .trend-copy-link:hover { background: var(--s-card); color: var(--s-ink); }
+.trend-page-metadata { font-size: 13px; color: var(--s-muted); overflow-wrap: anywhere; }
+.trend-page-metadata > strong { font-weight: 650; color: var(--s-ink); }
+.trend-page-metadata .tp-badge { background: none; color: inherit; padding-inline: 0; font-weight: 550; }
+.trend-page-tabs.trend-document-tabs { justify-self: stretch; display: flex; gap: clamp(8px, 3vw, 28px); padding: 0 2px; border-bottom: 1px solid var(--s-line); }
+.simple-shell .trend-document-tabs button { display: inline-flex; align-items: center; flex: 0 0 auto; min-height: 44px; padding: 0 2px; font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; color: var(--s-muted); border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; }
+.simple-shell .trend-document-tabs button[aria-selected="true"], .simple-shell .trend-document-tabs button:hover:not(:disabled) { color: var(--s-ink); }
+.simple-shell .trend-document-tabs button[aria-selected="true"] { border-bottom-color: var(--s-accent-strong); }
+.simple-shell .trend-document-tabs button:focus-visible { outline-offset: -3px; }
+.trend-tab-compact { display: none; }
+.trend-page .trend-overview { padding-top: 12px; }
+.trend-page-panel .simple-reader.is-embedded { gap: 8px; }
+.trend-page-panel .simple-reader.is-embedded .simple-reader-bar { margin: 0; padding: 4px 0 8px; background: var(--s-bg); backdrop-filter: none; }
+.embedded-report-tools { justify-content: space-between; width: 100%; }
+.embedded-report-tools > div { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.simple-shell .embedded-report-tools > div > button:not(.simple-primary), .simple-shell .embedded-report-tools > div > .studio-menu-wrap > button { padding-inline: 12px; }
+.embedded-report-tools .studio-menu { max-height: calc(100dvh - 12px); overflow: auto; }
 .simple-embed-actions { justify-content: flex-end; }
 
 .stage-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; font-size: 12px; font-weight: 700; border-radius: 999px; color: var(--s-ink); background: var(--s-soft); white-space: nowrap; }
@@ -668,6 +690,20 @@
 @media (max-width: 900px) {
   .trend-overview { grid-template-columns: minmax(0, 1fr); }
   .trend-page-title h1 { font-size: 26px; }
+}
+@media (max-width: 600px) {
+  .trend-page .trend-page-head { gap: 12px; }
+  .trend-tab-wide, .embedded-report-tools .embedded-report-wide-label { display: none; }
+  .trend-tab-compact { display: inline; }
+  .trend-page-tabs.trend-document-tabs { justify-content: space-between; }
+  .trend-document-tabs::-webkit-scrollbar { height: 4px; }
+  .simple-shell .trend-page .simple-back,
+  .simple-shell .trend-page .trend-copy-link,
+  .simple-shell .embedded-report-tools > div > button:not(.simple-primary),
+  .simple-shell .simple-reader-tools.embedded-report-tools > div > .studio-menu-wrap > .studio-quiet,
+  .simple-shell .embedded-report-tools .simple-split > button { min-height: 44px; padding-inline: 9px; font-size: 13px; }
+  .simple-shell .embedded-report-tools .simple-split > .studio-menu-wrap > button { min-width: 44px; padding-inline: 7px; }
+  .simple-shell .embedded-report-tools .studio-menu button[role="menuitem"] { min-height: 44px; }
 }
 
 /* Assets › All files: one table of every file. */

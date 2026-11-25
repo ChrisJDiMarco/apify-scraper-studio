@@ -219,7 +219,7 @@ function StudioApp({ api }) {
   const [state, setState] = useState(EMPTY_STATE);
   // Channels an admin added to this workspace join the built-in ones wherever the app lists channels (channel-table.js).
   // Setting the same list again does nothing, so this is safe on every render.
-  setCustomChannels(state.contentStudio?.customChannels);
+  setCustomChannels(state.contentStudio?.customChannels, state.contentStudio?.channelAssetTypes);
   // Who is looking, as the server projected it. Old mocks and the Mac before its first push act as the local admin.
   const viewer = state.viewer || LOCAL_ADMIN_FALLBACK;
   const can = useCallback((method) => canCall(viewer, method), [viewer]); // shown: in a preview, the previewed role's controls

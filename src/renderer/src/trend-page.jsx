@@ -18,7 +18,7 @@ const list = (value) => (Array.isArray(value) ? value : []);
 const plural = (count, word) => `${number(count)} ${word}${count === 1 ? '' : 's'}`;
 const PLATFORM = { x: 'X', linkedin: 'LinkedIn', reddit: 'Reddit' };
 const readable = (value) => String(value || '').replaceAll('-', ' ').replace(/^./, (letter) => letter.toUpperCase());
-export const TREND_PAGE_TABS = Object.freeze([['overview', 'Overview'], ['report', 'Trends report'], ['toolkit', 'Editorial toolkit'], ['assets', 'Channel assets']]);
+export const TREND_PAGE_TABS = Object.freeze([['overview', 'Overview'], ['report', 'Trends report', 'Report'], ['toolkit', 'Editorial toolkit', 'Toolkit'], ['assets', 'Channel assets', 'Assets']]);
 
 // The document a tab reads: the trends report, or the editorial toolkit.
 export const docOf = (card, tab) => list(card?.reportAssets).find((asset) => asset.deliverableId === (tab === 'toolkit' ? 'editorial-toolkit' : 'evidence-report')) || null;
@@ -40,8 +40,9 @@ export function StageChip({ stage }) {
 export function TrendPage({ card, runs = [], stage, tab = 'overview', onTab, onRun, onBack, backLabel = 'Trends', busy = false, viewer = {}, momentum = null, yes = null, onNext, onSkip, why = null, decided = null, uses = [], onCopyLink, api = {}, renderDoc, renderAssets }) {
   const shown = tabBlocked(card, tab) ? 'overview' : tab;
   const report = docOf(card, 'report'); const toolkit = docOf(card, 'toolkit');
-  // On the Channel assets tab, a button that opens the Channel assets tab says nothing.
-  const next = stage?.next && !(stage.next.id === 'open-assets' && shown === 'assets') ? stage.next : null;
+  const nextId = stage?.next?.id;
+  const next = nextId === 'open-assets' || (nextId === 'make-assets' && shown !== 'overview') ? null : stage?.next;
+  const metadata = [card.programName, card.evidenceCount ? plural(card.evidenceCount, 'source') : ''].filter(Boolean).join(' · ');
   const facts = [
     ['Research program', card.programName],
     ['Found', card.discoveredAt ? formatDate(card.discoveredAt) : ''],
@@ -52,34 +53,52 @@ export function TrendPage({ card, runs = [], stage, tab = 'overview', onTab, onR
     ['Keywords', list(card.keywords).join(', ')],
   ].filter(([, value]) => value);
   const otherRuns = list(runs).filter((row) => row.runId !== card.runId);
+  function moveTab(event) {
+    if (!['Home', 'End', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    const tabs = [...event.currentTarget.querySelectorAll('[role="tab"]:not(:disabled)')];
+    const index = tabs.indexOf(event.target);
+    if (index < 0) return;
+    const step = event.key === 'ArrowLeft' ? -1 : 1;
+    const choice = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs.at(-1) : tabs[(index + step + tabs.length) % tabs.length];
+    event.preventDefault();
+    choice.focus();
+    choice.click();
+  }
   return <div className="simple-page trend-page" data-stage={stage?.id}>
     <header className="trend-page-head">
       <div className="trend-page-top">
         <button type="button" className="simple-back" onClick={onBack}><ArrowLeft size={15} aria-hidden="true" />{backLabel}</button>
-        {otherRuns.length > 0 && <label className="trend-page-run"><span>Research run</span><select aria-label="Research run" value={card.runId} onChange={(event) => onRun?.(event.target.value)}>{list(runs).map((row) => <option key={row.runId} value={row.runId}>{[row.discoveredAt ? formatDate(row.discoveredAt) : 'Undated', row.programName].filter(Boolean).join(' · ')}</option>)}</select></label>}
+        <div className="trend-page-context-actions">
+          {otherRuns.length > 0 && <label className="trend-page-run"><span className="sr-only">Research run</span><select value={card.runId} onChange={(event) => onRun?.(event.target.value)}>{list(runs).map((row) => <option key={row.runId} value={row.runId}>{[row.discoveredAt ? formatDate(row.discoveredAt) : 'Undated', row.programName].filter(Boolean).join(' · ')}</option>)}</select></label>}
+          {onCopyLink && <button type="button" className="simple-quiet trend-copy-link" onClick={onCopyLink}><Link2 size={15} aria-hidden="true" /><span>Copy trend link</span></button>}
+        </div>
       </div>
       <div className="trend-page-title">
         <div>
-          <div className="simple-trend-meta">
-            <StageChip stage={stage} />
-            {card.priorityTier && <span className={`simple-tier tier-${card.priorityTier.toLowerCase().replace(/[^a-z]+/g, '-')}`}>{readable(card.priorityTier.toLowerCase())}</span>}
-            {momentum}
-            <span>{plural(card.evidenceCount, 'source')}</span>
-            {list(card.platforms).length > 0 && <span>{card.platforms.map((platform) => PLATFORM[platform] || platform).join(' · ')}</span>}
-            {card.programName && <span className="simple-trend-program" title={`From the research program “${card.programName}”`}>{card.programName}</span>}
-          </div>
           <h1>{card.name}</h1>
-          {stage?.detail && <p className="trend-page-detail">{stage.detail}</p>}
+          <div className="trend-page-metadata">
+            <StageChip stage={stage} />
+            {card.priorityTier && <strong>{readable(card.priorityTier.toLowerCase())}</strong>}
+            {momentum}
+            {metadata && <span>{metadata}</span>}
+          </div>
+          {stage?.detail && stage.id !== 'assets-ready' && <p className="trend-page-detail">{stage.detail}</p>}
         </div>
-        <div className="simple-head-actions trend-page-actions">
-          {onCopyLink && <button type="button" className="simple-quiet" onClick={onCopyLink}><Link2 size={15} aria-hidden="true" />Copy link</button>}
+        {next && <div className="simple-head-actions trend-page-actions">
           {next?.id === 'decide' && onSkip && <button type="button" className="simple-skip" aria-label={`Skip ${card.name}`} {...writeProps(viewer, busy)} onClick={onSkip}>Skip</button>}
           {next?.id === 'decide' && yes ? yes
-            : next && onNext ? <button type="button" className={['restore', 'unarchive', 'open-assets'].includes(next.id) ? 'simple-quiet' : 'simple-primary'} data-spot="trend.next" {...(next.id === 'open-assets' ? { disabled: false } : writeProps(viewer, busy))} onClick={() => onNext(next)}>{next.label}</button> : null}
-        </div>
+            : next && onNext ? <button type="button" className={['restore', 'unarchive'].includes(next.id) ? 'simple-quiet' : 'simple-primary'} data-spot="trend.next" {...writeProps(viewer, busy)} onClick={() => onNext(next)}>{next.label}</button> : null}
+        </div>}
       </div>
-      <div className="simple-segment trend-page-tabs" role="tablist" aria-label="This trend">
-        {TREND_PAGE_TABS.map(([id, label]) => { const blocked = tabBlocked(card, id); return <button type="button" role="tab" key={id} id={`trend-tab-${id}`} aria-selected={shown === id} aria-controls="trend-panel" disabled={Boolean(blocked)} title={blocked || undefined} onClick={() => onTab?.(id)}>{label}{id === 'assets' && Number(card.assetCount) > 0 && <span className="trend-tab-count">{number(card.assetCount)}</span>}</button>; })}
+      <div className="trend-page-tabs trend-document-tabs" role="tablist" aria-label="This trend" onKeyDown={moveTab}>
+        {TREND_PAGE_TABS.map(([id, label, compact]) => {
+          const blocked = tabBlocked(card, id);
+          const assetCount = id === 'assets' ? Number(card.assetCount) : 0;
+          return <button type="button" role="tab" key={id} id={`trend-tab-${id}`} aria-label={assetCount > 0 ? `${label}, ${plural(assetCount, 'file')}` : label} aria-selected={shown === id} aria-controls="trend-panel" tabIndex={shown === id ? 0 : -1} disabled={Boolean(blocked)} title={blocked || undefined} onClick={() => onTab?.(id)}>
+            {compact ? <><span className="trend-tab-wide">{label}</span><span className="trend-tab-compact">{compact}</span></> : label}
+            {assetCount > 0 && <span className="trend-tab-count" aria-hidden="true">{number(assetCount)}</span>}
+          </button>;
+        })}
       </div>
     </header>
 

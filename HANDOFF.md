@@ -65,7 +65,7 @@ Marketing roles. Every membership has a workspace-specific role; the server enfo
 Admins can add up to 12 **custom roles** built on Editor or Channel owner, from the templates Viewer, Analyst and
 Channel reviewer, and adjust any person's access per capability (deny wins). **Use Ask AI** is on by default for every
 role and template; an admin can switch it off or on for any role or person in People & access (admins always have it).
-The model is 30 capabilities over 206 RPC methods; with no policy edits the defaults are admin 206 methods, editor 129, channel owner 45. Details:
+The model is 30 capabilities over 207 RPC methods; with no policy edits the defaults are admin 207 methods, editor 129, channel owner 45. Details:
 [docs/roles-and-access.md](docs/roles-and-access.md).
 
 Two layouts, chosen per person: **Simple** (the default; Home, Trends, Reports, Assets, Inbox, Calendar, Ask AI) and

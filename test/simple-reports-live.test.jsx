@@ -54,4 +54,16 @@ describe('Simple Reports with the live editor', () => {
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /Text of/ })).not.toBeInTheDocument();
   });
+
+  it('skips an identical leading title only in the embedded Markdown reader', async () => {
+    const onAsk = vi.fn();
+    draw({ api: api({ openReportDoc: undefined }), selectedId: report.id, embedded: true, trendTitle: report.title, onAsk });
+    await screen.findByText('Searches end on the results page.');
+    expect(screen.queryByRole('heading', { name: report.title })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Ask AI about this' }));
+    expect(onAsk).toHaveBeenCalledWith(expect.any(String), expect.stringContaining(MARKDOWN), expect.any(Object));
+    cleanup();
+    draw({ api: api({ openReportDoc: undefined }), selectedId: report.id, embedded: true, trendTitle: 'A distinct trend title' });
+    expect(await screen.findByRole('heading', { name: report.title })).toBeVisible();
+  });
 });

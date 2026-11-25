@@ -17,7 +17,8 @@ const program = { id: 'program-a', name: 'Weekly research', sourceGroups: [{ pla
 function contentOutput(request) {
   const sectionIds = request.schema.properties.sections.items.properties.id.enum;
   const descriptor = content.CONTENT_DELIVERABLES.find((d) => d.kind === 'text' && JSON.stringify(d.sections.map((s) => s.id)) === JSON.stringify(sectionIds));
-  return { title: 'Reporting workflow evidence', summary: 'The sample describes manual reporting work.', sections: descriptor.sections.map((section) => ({ id: section.id, heading: section.heading, body: 'Text.', items: section.minItems ? Array.from({ length: section.minItems }, (_, i) => ({ label: `Item ${i + 1}`, text: 'Short item.', evidenceIds: [], productIds: [] })) : [], evidenceIds: [], productIds: [] })), caveats: [] };
+  const evidenceIds = descriptor.customType ? [JSON.parse(request.prompt.split('\nUNTRUSTED_SOURCE_AND_BRAND_DATA:\n').at(-1)).source.id] : [];
+  return { title: 'Reporting workflow evidence', summary: 'The sample describes manual reporting work.', sections: descriptor.sections.map((section) => ({ id: section.id, heading: section.heading, body: 'Text.', items: section.minItems ? Array.from({ length: section.minItems }, (_, i) => ({ label: `Item ${i + 1}`, text: 'Short item.', evidenceIds: [], productIds: [] })) : [], evidenceIds, productIds: [] })), caveats: [] };
 }
 function harness({ role = 'admin', aiProvider = 'claude', fail = () => false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'content-workspace-prompts-')); roots.push(root);
@@ -39,6 +40,36 @@ const OUTLIER = 'OUTLIER RULE: When a viral post has nothing to do with {{outlie
 const STUDIO_SET = 'This prompt is set by the studio. Only the prompts that write channel assets can be changed.';
 
 describe('Prompt Library in the content workspace', () => {
+  it('saves custom written types in one workspace and freezes their format on a run through edits, archive and retry', async () => {
+    let failing = true;
+    const h = harness({ fail: () => failing });
+    const definition = { channelId: 'social', name: 'Carousel brief', sections: ['Hook', 'Slides'], instruction: 'Give each slide a distinct purpose.' };
+    const { assetType } = h.api.saveChannelAssetType(definition);
+    const runInput = { source: { id: 'brief', kind: 'text', title: 'Reporting friction', text: 'The team spends hours compiling reports each week.', evidence: [] }, deliverableIds: [assetType.id] };
+    expect((await h.api.readChannelSettings({ channelId: 'social' })).assetTypes[0]).toMatchObject(definition);
+    expect(h.api.contentCatalog().deliverables.find(row => row.id === assetType.id)).toEqual({ id: assetType.id, label: 'Carousel brief', channel: 'Social', kind: 'text', customType: true });
+    expect(h.api.withWorkspace('semrush', () => h.api.contentCatalog().deliverables.some(row => row.id === assetType.id))).toBe(false);
+    expect(() => h.api.withWorkspace('semrush', () => h.api.createContentRun(runInput))).toThrow('from this workspace');
+    expect(h.api.planAssetKit(runInput).folders.find(row => row.id === 'social').items).toContainEqual(expect.objectContaining({ id: assetType.id, selected: true }));
+    expect(() => h.api.saveChannelAssetType({ ...definition, name: 'Another format', sections: ['Hook', 'hook'] })).toThrow('different section names');
+    const run = h.api.createContentRun(runInput);
+    await h.api.waitForIdle();
+    const edit = { channelId: 'social', assetTypeId: assetType.id, revision: assetType.revision };
+    const newType = h.api.saveChannelAssetType({ ...definition, ...edit, sections: ['Setup', 'Payoff'], instruction: 'New writing guidance.' }).assetType;
+    expect(() => h.api.saveChannelAssetType({ ...definition, ...edit })).toThrow('changed since');
+    const archived = h.api.saveChannelAssetType({ ...edit, revision: newType.revision, archived: true }).assetType;
+    expect(h.api.contentCatalog().deliverables.some(row => row.id === assetType.id)).toBe(false);
+    expect(() => h.api.planAssetKit(runInput)).toThrow('from this kit');
+    failing = false;
+    h.api.retryStudioRun({ runId: run.id });
+    await h.api.waitForIdle();
+    const completed = h.api.publicState().contentRuns.find(row => row.id === run.id);
+    expect(completed.status, JSON.stringify(completed.jobs)).toBe('succeeded');
+    expect(h.api.readStudioAsset({ assetId: completed.jobs[0].assetId }).markdown).toMatch(/## Hook[\s\S]+## Slides/);
+    expect(h.calls.at(-1).prompt).toContain(definition.instruction);
+    h.api.saveChannelAssetType({ ...edit, revision: archived.revision, archived: false });
+    expect(h.api.contentCatalog().deliverables.some(row => row.id === assetType.id)).toBe(true);
+  });
   it('lists every prompt for the edition and reads one with its model and history', async () => {
     const h = harness();
     const list = h.api.listPrompts();

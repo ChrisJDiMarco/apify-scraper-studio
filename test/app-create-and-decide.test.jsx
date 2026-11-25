@@ -36,12 +36,13 @@ function openStudio({ uiMode = 'classic', api: extra = {} } = {}) {
   render(<App />);
   return { api, server };
 }
-// A trend's report opens from its card on Trends (Ready), and the reader's Create content hands it over.
+// A trend's report opens from its card on Trends (Ready), and Report actions hands it to Create content.
 const createFromTrend = async () => {
   side('trends');
   await h1('Trends');
   fireEvent.click((await screen.findAllByRole('button', { name: /^AI Overviews eat clicks/ })).find((button) => button.matches('[data-spot="trends.ready-card"]') || /read the report$/.test(button.getAttribute('aria-label') || '')));
-  fireEvent.click(await screen.findByRole('button', { name: 'Create content' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Report actions' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Create content' }));
 };
 
 describe('Create content keeps a handed-over report as an attached report', () => {

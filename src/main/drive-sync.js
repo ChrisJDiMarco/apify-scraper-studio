@@ -44,7 +44,10 @@ const cleanTitle = (value) => clip(String(value || '').replace(/^\s*TREND:\s*/i,
 const customChannels = require('../shared/custom-channels');
 function channelFolder(deliverableId, editionId) {
   const customId = customChannels.channelIdOf(deliverableId);
-  if (customId) { const row = customChannels.channelById(customId); return { id: customId, name: row?.name || 'Other' }; }
+  if (customId) {
+    const row = customChannels.channelById(customId) || KIT.folders.find(folder => folder.id === customId);
+    return { id: customId, name: row?.name || row?.[editionId === 'semrush' ? 'semrush' : 'general'] || 'Other' };
+  }
   const only = KIT.editionOnly?.[deliverableId];
   const folder = (!only || only.includes(editionId || 'general')) ? KIT.folders.find((row) => row.deliverables.includes(deliverableId)) : null;
   return folder ? { id: folder.id, name: folder[editionId === 'semrush' ? 'semrush' : 'general'] } : { id: 'other', name: 'Other' };

@@ -44,6 +44,42 @@ describe('program share of voice', () => {
     expect(() => voice.validateTracking({ ...track, brands: [{ name: 'Semrush' }, { name: 'Other', aliases: ['SEMRUSH'] }] })).toThrow('only one tracked brand');
   });
 
+  it('uses a platform-specific denominator and drills into posts without changing dashboard totals', () => {
+    const config = voice.validateTracking({ ...track, terms: ['AI search', 'AI Overviews'] });
+    const rows = [
+      post('a', 'Semrush and Moz on AI search and AI Overviews', 'linkedin'),
+      post('b', 'Moz on AI Overviews', 'x'),
+      post('c', 'AI search advice', 'linkedin'),
+      post('d', 'Moz on AI search', 'linkedin'),
+    ].map(voice.normalizePost);
+    const result = voice.trackingSummary(config, rows, { days: 1, topic: 1, brand: 1, postPlatform: 'linkedin' });
+    expect(result.brandCounts).toEqual([1, 3]);
+    expect(result.brandPlatformCounts).toEqual({ linkedin: [1, 2], x: [0, 1], reddit: [0, 0] });
+    expect(result.topics).toEqual([
+      { term: 'AI search', posts: 3, platforms: { linkedin: 3, x: 0, reddit: 0 } },
+      { term: 'AI Overviews', posts: 2, platforms: { linkedin: 1, x: 1, reddit: 0 } },
+    ]);
+    expect(result.postsCount).toBe(4);
+    expect(result.matches).toBe(1);
+    expect(result.posts.map(({ id }) => id)).toEqual(['linkedin:a']);
+  });
+
+  it('compares equal periods only when both have daily source coverage on the same platforms', () => {
+    const config = voice.validateTracking(track);
+    const rows = [
+      post('a', 'AI search in Semrush on Monday', 'x', '2026-11-25'),
+      post('b', 'AI search and Moz', 'x', '2026-11-24'),
+      post('c', 'An unrelated post gives coverage without a mention', 'reddit', '2026-11-25'),
+      post('d', 'AI search and Moz', 'reddit', '2026-11-24'),
+    ].map(voice.normalizePost);
+    expect(voice.trackingSummary(config, rows, { days: 1 }).comparison).toEqual({
+      start: '2026-11-24', end: '2026-11-24', platforms: ['x', 'reddit'], brandCounts: [0, 2], topicCounts: [2],
+    });
+    expect(voice.trackingSummary(config, rows.slice(0, -1), { days: 1 }).comparison).toBeNull();
+    expect(voice.trackingSummary(config, rows.slice(0, -1), { days: 1, platform: 'x' }).comparison?.brandCounts).toEqual([0, 1]);
+    expect(voice.trackingWindow({ days: 14 }, '2026-11-25').start).toBe('2026-11-12');
+  });
+
   it('counts uncapped stored collection rows only for the selected program', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'voice-tests-')); roots.push(root);
     const base = { root, runAI: async () => { throw new Error('No AI is needed for tracking.'); }, defaultWorkspaceId: 'semrush' };
@@ -70,7 +106,7 @@ describe('program share of voice', () => {
     datasets.find((row) => row.id === 'data-old-run').createdAt = '2026-11-10T07:00:00Z';
     const duplicate = post('once', 'AI search in Semrush');
     const rows = {
-      'data-main-run': [duplicate, post('two', 'AI search'), post('outside', 'AI search in Moz', 'x', '2026-11-30')],
+      'data-main-run': [duplicate, post('two', 'AI search'), post('prior', 'Content that gives coverage for the previous day', 'x', '2026-11-24'), post('outside', 'AI search in Moz', 'x', '2026-11-30')],
       'data-later-run': [duplicate, post('three', 'AI search in Moz')],
       'data-old-run': [post('old-post', 'AI search in Moz', 'linkedin', '2026-11-05')],
       'data-other-run': [post('different-program', 'AI search in Moz')],
@@ -88,6 +124,8 @@ describe('program share of voice', () => {
     expect(result.coverage).toMatchObject({ platforms: ['x', 'reddit'], failed: 0, datasets: 3 });
     expect((await reopened.readShareOfVoice({ programId: 'ai-search', platform: 'reddit' })).postsCount).toBe(1);
     expect(opened).toHaveLength(4);
+    const fixed = await reopened.readShareOfVoice({ programId: 'ai-search', platform: 'x', start: '2026-11-25', end: '2026-11-25' });
+    expect(fixed.comparison).toMatchObject({ start: '2026-11-24', end: '2026-11-24', brandCounts: [0, 0] });
   });
 
   it('persists imported history and settings through ordinary saves and scopes reads to the assigned program and workspace', async () => {

@@ -89,7 +89,8 @@ describe('Create content keeps the report a trend handed it (the original bug)',
     side('trends');
     await h1('Trends');
     fireEvent.click((await screen.findAllByRole('button', { name: /^AI Overviews eat clicks/ })).find((button) => button.matches('[data-spot="trends.ready-card"]') || /read the report$/.test(button.getAttribute('aria-label') || '')));
-    fireEvent.click(await screen.findByRole('button', { name: 'Create content' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Report actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Create content' }));
     await h1('Create content');
     await waitFor(() => expect(api.readStudioAsset).toHaveBeenCalledWith({ assetId: 'asset-aio-report-2' }));
     await waitFor(() => expect(screen.getByLabelText('Source title')).toHaveValue('AI Overviews eat clicks — Comprehensive Trends Report'));
