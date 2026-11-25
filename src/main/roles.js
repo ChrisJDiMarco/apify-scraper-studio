@@ -466,8 +466,8 @@ function projectState(base, viewer, { adoptions = [], admins = [], memberCount =
     contentStudio: {
       activeWorkspaceId: studio.activeWorkspaceId || '',
       workspaces: active ? [{ id: active.id, name: active.name || '', editionId: active.editionId || edition }] : [],
-      programs: list(studio.programs).map((program) => ({ ...pick(program, ['id', 'name', 'query', 'window', 'brand']), sourceGroups: list(program.sourceGroups).map((group) => pick(group, ['id', 'platform', 'name', 'enabled', 'targets'])), schedule: pick(program.schedule || {}, ['frequency', 'enabled', 'time', 'timeZone', 'weekday', 'dayOfMonth', 'lookbackDays']) })),
-      capabilities: { imagesConfigured: Boolean(studio.capabilities?.imagesConfigured) },
+      programs: list(studio.programs).map((program) => ({ ...pick(program, ['id', 'name', 'query', 'window', 'brand', 'shareOfVoiceEnabled', 'shareOfVoiceRevision', 'shareOfVoiceDataAt']), sourceGroups: list(program.sourceGroups).map((group) => pick(group, ['id', 'platform', 'name', 'enabled', 'targets'])), schedule: pick(program.schedule || {}, ['frequency', 'enabled', 'time', 'timeZone', 'weekday', 'dayOfMonth', 'lookbackDays']) })),
+      capabilities: { imagesConfigured: Boolean(studio.capabilities?.imagesConfigured), askImagesConfigured: Boolean(studio.capabilities?.askImagesConfigured ?? studio.capabilities?.imagesConfigured) },
       channelView: buildChannelView({ contentStudio: studio, adoptions, channelId: viewer.channelId, editionId: edition, viewerId: viewer.id, memberSince }),
       ...notesView(studio, noteInbox, viewer, channelNoteScope(studio, viewer.channelId, edition)),
     },

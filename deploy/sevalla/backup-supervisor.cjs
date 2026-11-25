@@ -1,6 +1,6 @@
 'use strict';
 // Sevalla runs this root-owned supervisor; only the web child drops to node.
-// Stored as a runtime configuration bundle so upstream image updates keep backups.
+// Ships in the web image so the launcher and app always use the same source revision.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -8,7 +8,7 @@ const { spawn } = require('node:child_process');
 const { pipeline } = require('node:stream/promises');
 const { Readable } = require('node:stream');
 const RUNTIME = '/run/golden-thread-backups';
-const PREFIX = 'golden-thread/v1/';
+const PREFIX = 'golden-thread/v2/';
 const MAGIC = Buffer.from('GTBACKUP1\n');
 const sha = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const hmac = (key, value) => crypto.createHmac('sha256', key).update(value).digest();
@@ -83,9 +83,15 @@ function storage(config) {
     async remove(key) { const r = await request('DELETE', key, {}); await r.body?.cancel(); },
   };
 }
-function owned(object) { return /^golden-thread\/v1\/(daily|deployment)\/\d{4}-\d{2}-\d{2}\/scraper-studio-backup-[\dTZ-]+\.tar\.gz\.enc$/.test(object.key); }
+function owned(object) { return /^golden-thread\/v2\/(daily|deployment)\/\d{4}-\d{2}-\d{2}\/scraper-studio-backup-[\dTZ-]+-[a-f0-9]{16}\.tar\.gz\.enc$/.test(object.key); }
+const verificationKey = (key) => `${key}.verified.json`;
+function verifiedArchives(objects) {
+  const keys = new Set(objects.filter((object) => object.size > 0).map((object) => object.key));
+  return objects.filter((object) => owned(object) && object.size > 0 && keys.has(verificationKey(object.key)));
+}
 function expired(objects) {
-  return ['daily', 'deployment'].flatMap((kind) => objects.filter((o) => owned(o) && o.key.includes(`/${kind}/`)).sort((a, b) => b.key.localeCompare(a.key)).slice(kind === 'daily' ? 14 : 3));
+  const verified = verifiedArchives(objects);
+  return ['daily', 'deployment'].flatMap((kind) => verified.filter((o) => o.key.includes(`/${kind}/`)).sort((a, b) => b.key.localeCompare(a.key)).slice(kind === 'daily' ? 14 : 3));
 }
 function log(event, fields = {}) { console.log(JSON.stringify({ at: new Date().toISOString(), level: /failed/.test(event) ? 'error' : 'info', event, ...fields })); }
 async function takeBackup(config, reason, options = {}) {
@@ -113,19 +119,37 @@ async function takeBackup(config, reason, options = {}) {
     const before = await s3.list();
     if (before.some((o) => !Number.isFinite(o.size) || o.size < 0)) throw new Error('Invalid storage accounting');
     const total = before.reduce((sum, o) => sum + o.size, 0);
-    if (total + bytes > config.maxBytes) throw new Error('Backup storage budget guard reached; existing backups preserved');
+    if (total + bytes + 1024 > config.maxBytes) throw new Error('Backup storage budget guard reached; existing backups preserved');
     const kind = reason === 'daily' ? 'daily' : 'deployment';
-    const key = `${PREFIX}${kind}/${pacific().day}/${path.basename(result.path)}.enc`;
-    await s3.put(key, encoded);
-    const downloaded = path.join(tmp, 'download.enc'); await s3.get(key, downloaded);
-    if (await fileHash(downloaded) !== await fileHash(encoded)) throw new Error('Uploaded backup checksum mismatch');
-    const plain = path.join(tmp, 'restore.tar.gz'); await decrypt(downloaded, plain, config.encryptionKey);
-    const target = path.join(tmp, 'recovery');
-    const recovered = restore({ from: plain, dataDir: target, yes: true, log: () => {} });
-    if (!recovered.restored) throw new Error('Recovery verification failed');
-    // Only prune our strictly named objects after upload, download, decryption and real isolated restore pass.
-    const toRemove = expired(await s3.list()); for (const object of toRemove) await s3.remove(object.key);
-    const receipt = { key, reason, bytes, files: result.manifest.files.length, restored: true, completedAt: new Date().toISOString(), pruned: toRemove.length };
+    const archiveName = path.basename(result.path).replace(/\.tar\.gz$/, `-${crypto.randomBytes(8).toString('hex')}.tar.gz.enc`);
+    const key = `${PREFIX}${kind}/${pacific().day}/${archiveName}`;
+    const checksum = await fileHash(encoded);
+    try {
+      await s3.put(key, encoded);
+      const downloaded = path.join(tmp, 'download.enc'); await s3.get(key, downloaded);
+      if (await fileHash(downloaded) !== checksum) throw new Error('Uploaded backup checksum mismatch');
+      const plain = path.join(tmp, 'restore.tar.gz'); await decrypt(downloaded, plain, config.encryptionKey);
+      const target = path.join(tmp, 'recovery');
+      const recovered = restore({ from: plain, dataDir: target, yes: true, log: () => {} });
+      if (!recovered.restored) throw new Error('Recovery verification failed');
+    } catch (error) {
+      try { await s3.remove(key); }
+      catch (cleanup) { throw new AggregateError([error, cleanup], 'Backup verification failed and its uploaded object could not be removed'); }
+      throw error;
+    }
+    // A crash before this receipt leaves an archive that retention ignores.
+    const receipt = { key, reason, bytes, files: result.manifest.files.length, sha256: checksum, restored: true, completedAt: new Date().toISOString() };
+    const verification = path.join(tmp, 'verified.json');
+    fs.writeFileSync(verification, JSON.stringify(receipt), { mode: 0o600 });
+    await s3.put(verificationKey(key), verification);
+    receipt.pruned = 0;
+    try {
+      for (const object of expired(await s3.list())) {
+        await s3.remove(object.key);
+        receipt.pruned++;
+        await s3.remove(verificationKey(object.key));
+      }
+    } catch (error) { log('backup-prune-failed', { message: error.message }); }
     fs.writeFileSync(path.join(root, 'last-success.json'), JSON.stringify(receipt), { mode: 0o600 });
     log('backup-success', receipt); return receipt;
   } finally { fs.closeSync(fd); fs.rmSync(lock, { force: true }); fs.rmSync(tmp, { recursive: true, force: true }); }
@@ -155,9 +179,8 @@ async function main() {
   // Fail the deployment before the app starts if its pre-start backup cannot be verified.
   await takeBackup(config, 'before-deployment');
   const objects = await storage(config).list();
-  const latestDaily = objects.filter((o) => owned(o) && o.key.includes('/daily/')).sort((a, b) => b.key.localeCompare(a.key))[0];
-  const local = pacific();
-  let lastDay = latestDaily ? latestDaily.key.split('/')[3] : (local.hour >= 2 ? local.day : '');
+  const latestDaily = verifiedArchives(objects).filter((o) => o.key.includes('/daily/')).sort((a, b) => b.key.localeCompare(a.key))[0];
+  let lastDay = latestDaily?.key.split('/')[3] || '';
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GT_BACKUP_')));
   const child = spawn(process.execPath, ['scripts/studio-web.cjs'], { cwd: '/app', env, stdio: 'inherit' });
   let stopping = false; let busy = false;

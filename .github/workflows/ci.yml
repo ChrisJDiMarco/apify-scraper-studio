@@ -38,6 +38,19 @@ jobs:
         run: node scripts/prompt-goldens.mjs --check
       - name: No high-severity advisories in shipped dependencies
         run: npm audit --omit=dev --audit-level=high
+      - name: Build and start the production image
+        run: |
+          docker build -t golden-thread-ci .
+          docker run --rm --entrypoint node golden-thread-ci --check /app/scripts/backup-supervisor.cjs
+          secrets=$(mktemp)
+          trap 'docker rm -f -v golden-thread-ci >/dev/null 2>&1 || true; rm -f "$secrets"' EXIT
+          printf 'STUDIO_SECRET_KEY=%s\nSTUDIO_PASSWORD=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 24)" > "$secrets"
+          docker run -d --name golden-thread-ci -p 127.0.0.1:4174:4174 \
+            --mount "type=bind,src=$secrets,dst=/run/secrets/studio,readonly" \
+            -e STUDIO_SECRETS_FILE=/run/secrets/studio golden-thread-ci
+          curl --fail --silent --show-error --retry 15 --retry-connrefused --retry-delay 1 http://127.0.0.1:4174/readyz ||
+            { docker logs golden-thread-ci; exit 1; }
+          curl --fail --silent --show-error http://127.0.0.1:4174/ | grep -q '<title>Golden Thread</title>'
 
   test-macos:
     # The desktop app ships on macOS; run the suite once on the real platform too.

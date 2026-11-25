@@ -10,7 +10,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 # --ignore-scripts skips the Electron binary download; the browser build doesn't need it.
 RUN npm ci --ignore-scripts
-COPY . .
+COPY vite.web.config.mjs ./
+COPY src ./src
 RUN npm run build:web
 
 FROM node:24-bookworm-slim
@@ -29,6 +30,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build /app/out/web ./out/web
 COPY src ./src
 COPY scripts/studio-web.cjs scripts/studio-backup.cjs scripts/studio-restore.cjs ./scripts/
+COPY deploy/sevalla/backup-supervisor.cjs ./scripts/
 COPY docs/app-guide.md ./docs/app-guide.md
 RUN mkdir -p /data && chown node:node /data && chmod 700 /data
 VOLUME /data

@@ -784,7 +784,7 @@ function createWindow() {
     finally { releaseStudioOwner?.(); }
   });
 
-  if (process.env.ELECTRON_RENDERER_URL) {
+  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     mainWindow.loadFile(RENDERER_FILE);
@@ -798,7 +798,7 @@ function isAllowedNavigation(targetUrl) {
   try {
     const parsed = new URL(targetUrl);
     if (parsed.protocol === 'file:') return !parsed.host && path.resolve(require('url').fileURLToPath(parsed)).toLowerCase() === RENDERER_FILE.toLowerCase();
-    if (!process.env.ELECTRON_RENDERER_URL) return false;
+    if (app.isPackaged || !process.env.ELECTRON_RENDERER_URL) return false;
     const devUrl = new URL(process.env.ELECTRON_RENDERER_URL);
     return parsed.origin === devUrl.origin;
   } catch (_) {
@@ -1888,12 +1888,12 @@ const falProvider = require('./fal-provider').createFalProvider({ getKey, limits
 const mediaRouter = require('./media-router').createMediaRouter({ routing: aiRouting, openaiImages: imageProvider, fal: falProvider, catalog: aiCatalog, connections: aiConnections });
 // What the renderer shows about AI routes (no spawning: Claude Code and Codex come from the last status check).
 function aiCapabilities() {
-  try { return aiCapabilitiesNow(); } catch (error) { console.warn(`AI routing could not be read: ${error?.message || error}`); return { imagesConfigured: false, videosConfigured: false }; }
+  try { return aiCapabilitiesNow(); } catch (error) { console.warn(`AI routing could not be read: ${error?.message || error}`); return { imagesConfigured: false, askImagesConfigured: false, contentImagesConfigured: false, videosConfigured: false }; }
 }
 function aiCapabilitiesNow() {
-  const text = aiRouting.resolve('assistant.ask-ai'); const picture = aiRouting.resolve('pictures.kit-image'); const clip = aiRouting.resolve('video.social-clip');
+  const text = aiRouting.resolve('assistant.ask-ai'); const picture = aiRouting.resolve('pictures.kit-image'); const contentPicture = aiRouting.resolve('pictures.content-image'); const clip = aiRouting.resolve('video.social-clip');
   const imagesReady = mediaRouter.ready('pictures.kit-image'); const videosReady = mediaRouter.ready('video.social-clip');
-  return { routing: { text: `${text.routeLabel} · ${text.modelLabel}`, textRoute: text.route, imagesReady, videosReady, imageLabel: `${picture.routeLabel} · ${picture.modelLabel}`, imageRoute: picture.route, videoLabel: `${clip.routeLabel} · ${clip.modelLabel}`, videoSeconds: clip.video?.durationSeconds || 0 }, imagesConfigured: imagesReady, videosConfigured: videosReady, imageProvider: picture.routeLabel, imageModel: picture.model };
+  return { routing: { text: `${text.routeLabel} · ${text.modelLabel}`, textRoute: text.route, imagesReady, videosReady, imageLabel: `${picture.routeLabel} · ${picture.modelLabel}`, imageRoute: picture.route, videoLabel: `${clip.routeLabel} · ${clip.modelLabel}`, videoSeconds: clip.video?.durationSeconds || 0 }, imagesConfigured: imagesReady, askImagesConfigured: mediaRouter.ready('pictures.ask-ai'), contentImagesConfigured: mediaRouter.ready('pictures.content-image'), contentImageProvider: contentPicture.routeLabel, contentImageModel: contentPicture.model, videosConfigured: videosReady, imageProvider: picture.routeLabel, imageModel: picture.model };
 }
 const googleDelivery = require('./google-delivery').createGoogleDelivery({ getAccessToken: () => getKey('GOOGLE_DOCS_ACCESS_TOKEN') });
 // What a research program's form says about Drive: whether every new report is added to the admin's folder, and its name.
@@ -1945,6 +1945,7 @@ let reportDocs = null; let reportNotes = null;
 const contentWorkspace = createContentWorkspace({
   // A burst of saves during a run shares one write of the state file every quarter second (content-workspace.js save).
   saveCoalesceMs: 250,
+  isDraining: () => WEB_RUNTIME && Boolean(require('./web-runtime').settings?.draining),
   // A first launch opens in the edition this build is packaged for; saved state always wins after that.
   defaultWorkspaceId: packageConfig.studioDefaultWorkspace || 'general',
   // Single mode keeps one workspace, Main, and hides the others without deleting them (workspace-policy.js).
@@ -1970,8 +1971,11 @@ const contentWorkspace = createContentWorkspace({
   generateVideo: request => mediaRouter.generateVideo(request),
   // Model routing (ai-routing.js): runs snapshot what they resolve when they start; previews price with the same prices.
   routing: { resolve: (taskId, context) => aiRouting.resolve(taskId, context), snapshot: (taskIds, context) => aiRouting.snapshot(taskIds, context), current: () => aiRouting.current(), taskIdForPrompt: (entry) => aiRouting.taskIdForPrompt(entry), priceFor: (route, model, kind, options) => aiCatalog.priceFor(route, model, kind, options), unitsFor: (price, request) => aiCatalog.unitsFor(price, request), mediaProblem: (taskId) => mediaRouter.problem(taskId) },
-  getDatasets: () => [...loadData().datasets, ...studioHost.getDatasets()],
-  readDataset: datasetId => loadData().datasets.some(d => d.id === datasetId) ? readDatasetPayload(datasetId) : studioHost.readDataset(datasetId),
+  getDatasets: () => [...loadData().datasets.map(dataset => ({ ...dataset, workspaceId: dataset.workspaceId || storageWorkspaceId() })), ...studioHost.getDatasets()],
+  readDataset: (datasetId, { strict = false } = {}) => {
+    if (!loadData().datasets.some(dataset => dataset.id === datasetId)) return studioHost.readDataset(datasetId);
+    return strict ? JSON.parse(fs.readFileSync(datasetPayloadPath(datasetId), 'utf8')) : readDatasetPayload(datasetId);
+  },
   cancelProvider: async runId => { noteCancelled(runId); for (const [key, child] of jobProcesses) if (key === runId || key.startsWith(`${runId}::`)) killCliTree(child); for (const [key, controller] of apiRequests) if (key === runId || key.startsWith(`${runId}::`)) controller.abort(); await studioHost.cancelProvider(runId); },
   openFile: openPathOrThrow,
   publishCampaign: request => publishCampaignVia(request, googleDelivery), // the Sheets bridge when connected, else the Drive token
@@ -2134,7 +2138,7 @@ function gated(channel, fn) {
 }
 const handle = (channel, fn) => ipcMain.handle(channel, gated(channel, fn));
 
-const studioMethods = ['saveChannelReference', 'readChannelReference', 'removeChannelReference', 'readChannelSettings', 'saveChannelKnowledge', 'saveCustomChannel', 'removeCustomChannel', 'saveChannelInstructions', 'revertChannelInstructions', 'contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'setTrendArchived', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit', 'readBrandImage', 'setBrandImageRole', 'removeBrandImage', 'editStudioAsset', 'restoreStudioAsset', 'estimateQuickScan', 'startQuickScan', 'readTrendHistory', 'readTrendPosts', 'listPrompts', 'readPrompt', 'previewPrompt', 'diffPromptVersions', 'estimatePromptTest', 'savePromptVersion', 'revertPrompt', 'testPrompt', 'setPromptLock', 'setAssetStatus'];
+const studioMethods = ['saveChannelReference', 'readChannelReference', 'removeChannelReference', 'readChannelSettings', 'saveChannelKnowledge', 'saveCustomChannel', 'removeCustomChannel', 'saveChannelInstructions', 'revertChannelInstructions', 'contentCatalog', 'selectContentWorkspace', 'saveContentWorkspace', 'saveResearchProgram', 'startResearchRun', 'approveResearchThemes', 'decideResearchTheme', 'setTrendArchived', 'continueResearchRun', 'createContentRun', 'cancelStudioRun', 'retryStudioRun', 'readStudioRun', 'exportStudioRun', 'readStudioAsset', 'openStudioAsset', 'importStudioSource', 'publishStudioRun', 'saveWorkspaceTaxonomy', 'saveReferenceDoc', 'readReferenceDoc', 'deleteReferenceDoc', 'importProductRegistry', 'estimateResearchProgram', 'setThemeStatus', 'planAssetKit', 'createAssetKit', 'readBrandImage', 'setBrandImageRole', 'removeBrandImage', 'editStudioAsset', 'restoreStudioAsset', 'estimateQuickScan', 'startQuickScan', 'readTrendHistory', 'readTrendPosts', 'readShareOfVoice', 'saveShareOfVoice', 'importShareOfVoice', 'listPrompts', 'readPrompt', 'previewPrompt', 'diffPromptVersions', 'estimatePromptTest', 'savePromptVersion', 'revertPrompt', 'testPrompt', 'setPromptLock', 'setAssetStatus'];
 // Work that spends checks first that every connection and model it will use is ready (ai-connections.js preflight): the
 // tasks it resolves now (a run's own snapshot for continue and retry), each checked on its own connection.
 const programFor = (payload) => contentWorkspace.publicState().programs.find((program) => program.id === payload?.programId) || null;
@@ -2733,7 +2737,7 @@ function helpContext(page, role = 'admin', promptAccess = null, scope = {}) {
     trendMemory: typeof trendMemory === 'string' ? trendMemory.slice(0, 3500) : trendMemory,
     reports: (studio.assets || []).filter((asset) => asset.kind !== 'image' && !kitIds.has(asset.runId)).slice(0, 50).map((asset) => ({ title: String(asset.title || '').slice(0, 160), type: asset.deliverableId || asset.channel || '', date: String(asset.createdAt || '').slice(0, 10), status: helpAssetStatus(asset), ...(asset.edited?.at ? { edited: `${helpDay(asset.edited.at)}${asset.edited.by?.name ? ` by ${asset.edited.by.name}` : ''}` } : {}) })),
     assetFolders: [...folders.values()].slice(0, 15).map((runs) => ({ title: runs[0].kit.sourceTitle, from: runs[0].kit.sourceKind, runs: runs.slice(0, 3).map((run, at) => ({ folder: run.kit.folderName, status: run.status, ready: `${done(run)} of ${(run.jobs || []).length}`, costUsd: helpMoney(run.costUsd), started: run.createdAt, ...(at === 0 ? { fileStatus: fileStatuses(run) } : {}), ...(['queued', 'running'].includes(run.status) ? {} : { needsAnotherTry: (run.jobs || []).filter((job) => job.status !== 'succeeded').map((job) => job.label).slice(0, 15) }) })) })),
-    channelAssets: { model: kitAi.model, effort: kitAi.effort, writesAtOnce: kitAi.concurrency, pictures: Boolean(getKey('OPENAI_API_KEY')) },
+    channelAssets: { model: kitAi.model, effort: kitAi.effort, writesAtOnce: kitAi.concurrency, pictures: mediaRouter.ready('pictures.kit-image') },
     counts: { scrapers: (data.recipes || []).length, datasets: (data.datasets || []).length, libraryAssets: (studio.assets || []).length, pictures: (studio.assets || []).filter((asset) => asset.kind === 'image').length },
     // The brand visual direction as this workspace saved it in Prompts (pictures.direction), else the default.
     pictures: { available: mediaRouter.ready('pictures.ask-ai'), visualDirection: require('../shared/content-studio').brandImageDirection(workspace.editionId, { blocks: helpSafe(() => contentWorkspace.promptEffective('pictures.direction').blocks) }), brandReferenceImages: (workspace.brandImageSets || []).map((set) => ({ family: set.id, set: set.label, styleExamples: (set.images || []).filter((image) => image.role === 'style').length, approvedLogo: (set.images || []).some((image) => image.role === 'logo') })) },

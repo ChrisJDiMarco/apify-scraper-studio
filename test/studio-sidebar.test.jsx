@@ -138,7 +138,7 @@ describe('StudioSidebar: New, Search and Ask AI', () => {
     expect(create).toHaveAttribute('aria-keyshortcuts', 'Alt+Meta+N');
     fireEvent.click(create);
     const menu = screen.getByRole('menu', { name: 'New' });
-    expect(within(menu).getAllByRole('menuitem').map((row) => row.getAttribute('aria-label') || row.textContent)).toEqual(['Find new trends', 'Quick scan', 'Channel assets', 'Content from a report', 'Picture', 'Research program', 'Playbook', 'Person', 'Workspace']);
+    expect(within(menu).getAllByRole('menuitem').map((row) => row.getAttribute('aria-label') || row.textContent)).toEqual(['Find new trends', 'Quick scan', 'Channel assets', 'Create content', 'Picture', 'Research program', 'Person', 'Workspace']);
     expect(within(menu).getByRole('menuitem', { name: 'Quick scan' })).toHaveAccessibleDescription('A small, recent scan, sized and priced by Ask AI.');
     expect(within(menu).getAllByRole('separator')).toHaveLength(1);
     // Arrow keys move through the rows; Esc closes and gives focus back.
@@ -457,22 +457,11 @@ describe('StudioSidebar: the unified pipeline', () => {
     expect(main().getByRole('button', { name: 'Trends, 3 need your OK' })).toBeInTheDocument();
   });
 
-  it('lists the Workbench’s tools by what they do, without the program form (a program is edited on its own page)', () => {
-    const { onNavigate } = sidebar({ nav: unifiedNav({ dataToolsOpen: true }) });
-    const sets = [...document.querySelectorAll('.sb-subgroup')].map((node) => node.getAttribute('aria-label'));
-    expect(sets).toEqual(['Collect', 'Create', 'Data', 'Automate', 'Activity']);
-    expect(main().queryByRole('button', { name: 'Name & focus' })).not.toBeInTheDocument();
-    fireEvent.click(main().getByRole('button', { name: /^Sheets/ }));
-    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: 'sheets' }));
-    expect(main().getByRole('button', { name: /^Scrapers/ })).toBeInTheDocument();
-    expect(main().getByRole('button', { name: /^Brief starters/ })).toBeInTheDocument();
-  });
-
-  it('opens the Workbench when Ask AI’s Show me points at one of its tools', async () => {
+  it('keeps specialist tools off the main sidebar in either saved state', () => {
     const { rerender, frame } = sidebar({ nav: unifiedNav() });
-    expect(main().queryByRole('button', { name: /^Scrapers/ })).not.toBeInTheDocument();
-    rerender(frame({ nav: unifiedNav({ dataToolsOpen: true }) })); // App opens the group for a Workbench spot (revealNavSpot)
-    expect(await main().findByRole('button', { name: /^Scrapers/ })).toBeInTheDocument();
+    for (const name of ['Workbench', 'Sheets', 'Scrapers', 'Brief starters', 'Name & focus']) expect(main().queryByRole('button', { name })).not.toBeInTheDocument();
+    rerender(frame({ nav: unifiedNav({ dataToolsOpen: true }) }));
+    expect(document.querySelectorAll('.sb-subgroup')).toHaveLength(0);
   });
 
   it('keeps the spine’s nodes in the rail', () => {

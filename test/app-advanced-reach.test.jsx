@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/renderer/src/App.jsx';
 
-afterEach(() => { cleanup(); delete window.apifyStudio; vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); delete window.apifyStudio; window.history.replaceState(null, '', '/'); vi.restoreAllMocks(); });
 const TREND = 'AI Citation Tracking ROI Breakdown';
 const kitRun = { id: 'content-kit', workspaceId: 'semrush', type: 'content', title: TREND, status: 'succeeded', createdAt: '2026-10-16T13:52:00.000Z', jobs: [],
   kit: { sourceKey: 'theme:theme-1', sourceKind: 'trend', sourceTitle: TREND, folderName: `Golden Thread — ${TREND} (2026-10-16)`, reportAssetId: 'asset-report', themeId: 'theme-1' } };
@@ -32,8 +32,8 @@ async function openAdvanced(extra = {}) {
   window.apifyStudio = api;
   render(<App />);
   await screen.findByRole('heading', { level: 1, name: /^This week in/ });
-  if (document.querySelector('[data-spot="nav.data-tools"]')?.getAttribute('aria-expanded') !== 'true') fireEvent.click(document.querySelector('[data-spot="nav.data-tools"]'));
-  fireEvent.click(document.querySelector('[data-spot="nav.create"]'));
+  window.location.hash = '#/workbench/create';
+
   await waitFor(() => expect(document.querySelector('.app-shell')).toHaveAttribute('data-mode', 'classic'));
   return api;
 }
@@ -103,7 +103,7 @@ describe('Advanced hand-offs between studio pages', () => {
     expect(api.readStudioAsset).toHaveBeenCalledWith({ assetId: 'asset-report' });
     // Asking for new content later starts from a blank brief, not the report handed over before.
     sidebar('Assets');
-    sidebar('Create content');
+    fireEvent.click(await screen.findByRole('button', { name: 'Create content' }));
     expect(await screen.findByLabelText('Source title')).toHaveValue('');
   });
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, CheckCheck, ChevronRight, ClipboardCopy, Command, Link2, Globe2, Inbox, ListChecks, LoaderCircle, RefreshCw, ScrollText, Sparkles, UserRound, Workflow, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, CheckCheck, ChevronRight, ClipboardCopy, Command, Link2, Globe2, Inbox, ListChecks, LoaderCircle, RefreshCw, ScrollText, Sparkles, UserRound, Workflow, X } from 'lucide-react';
 import { AutomationView } from './automation-view.jsx';
 import { DatasetsView, ReportsView } from './dataset-report-views.jsx';
 import { CommandPalette } from './command-palette.jsx';
@@ -38,7 +38,7 @@ import { useConfirm } from './confirm-dialog.jsx';
 import { SheetsView } from './sheets-view.jsx';
 import { SimpleMode } from './simple-mode.jsx';
 import { ChannelBottomNav, NAV_ICONS, StudioSidebar, StudioTopBar } from './studio-sidebar.jsx';
-import { DATA_TOOL_IDS, PAGE_LABELS, STUDIO_PAGES, WORKBENCH, buildNav, focusChannelOptions, generalStudioTabs, isChannelViewer, isRealAdmin, navPages } from './nav-model.js';
+import { DATA_TOOL_IDS, PAGE_LABELS, STUDIO_PAGES, buildNav, focusChannelOptions, generalStudioTabs, isChannelViewer, isRealAdmin, navPages } from './nav-model.js';
 import { ChannelSettings } from './channel-settings.jsx';
 import { ProgramSetup } from './program-setup.jsx';
 import { ChannelPrograms } from './programs-page.jsx';
@@ -80,18 +80,9 @@ const CANCEL_JOB = { title: 'Cancel this job?', lines: ['Anything it already fin
 const STUDIO_VIEWS = new Set(['overview', 'research', 'board', 'create', 'library', 'knowledge']);
 const APP_PAGES = new Set(['content-studio', 'dashboard', 'sheets', 'settings', 'inbox', 'calendar', 'playbooks', 'workflows', ...DATA_TOOL_IDS]);
 const ADMIN_PAGES = Object.fromEntries(STUDIO_PAGES.map((page) => [page.id, page]));
-const DATA_TOOL_SPOTS = new Set(['nav.data-tools', ...WORKBENCH.flatMap((set) => set.items.map((item) => item.spot || `nav.${item.id}`))]);
-// Whether Data tools is open, per person on this device. Storage can be missing or blocked (private windows, previews).
-const DATA_TOOLS_KEY = 'studio.nav.dataTools';
 // A key for a one-time request to a page: never the same twice, even within one millisecond.
 let requestSeq = 0;
 const requestKey = () => Date.now() * 1000 + (requestSeq = (requestSeq + 1) % 1000);
-function savedDataToolsOpen() {
-  try { const value = window.localStorage?.getItem(DATA_TOOLS_KEY); return value === '1' ? true : value === '0' ? false : null; } catch { return null; }
-}
-function saveDataToolsOpen(open) {
-  try { window.localStorage?.setItem(DATA_TOOLS_KEY, open ? '1' : '0'); } catch { /* the choice still holds for this session */ }
-}
 // The icon-only rail: the person's choice is saved in their prefs (navRail) and on this device, as a fallback for
 // older servers. With no choice, windows 861–1100px wide get the rail.
 const RAIL_KEY = 'studio.nav.rail';
@@ -103,7 +94,7 @@ function saveRail(on) {
   try { window.localStorage?.setItem(RAIL_KEY, on ? '1' : '0'); } catch { /* the choice still holds for this session */ }
 }
 // Pages folded into a better home. Old links (palette, saved actions, other views) still land somewhere useful.
-const DATASET_TAB_FOR = { signals: 'signals', threads: 'conversations', clusters: 'topics', competitive: 'coverage' };
+const DATASET_TAB_FOR = { reports: 'reports', compare: 'compare', signals: 'signals', threads: 'conversations', clusters: 'topics', competitive: 'coverage' };
 const STUDIO_HOME_FOR = { kanban: 'board', assets: 'library', brands: 'knowledge' };
 // The Advanced Library and Trend board are Simple's Assets and Trends now: one page each, for everyone.
 const SIMPLE_FOR_STUDIO = Object.freeze({ library: 'assets', board: 'trends' });
@@ -278,8 +269,6 @@ function StudioApp({ api }) {
   const busy = pendingActions > 0;
   const [loading, setLoading] = useState(true);
   // Data tools stays as the person left it (null: never chosen, so it opens only where there's no content studio).
-  const [dataToolsChoice, setDataToolsChoice] = useState(savedDataToolsOpen);
-  const dataToolsOpen = dataToolsChoice ?? !api.contentCatalog;
   const [datasetTab, setDatasetTab] = useState('explorer');
   const [knowledgeTab, setKnowledgeTab] = useState('workspace');
   const [creation, setCreation] = useState({ key: null, templateId: '' });
@@ -289,6 +278,7 @@ function StudioApp({ api }) {
   useEffect(() => () => clearTimeout(cardScrollTimer.current), []);
   const [payloadDatasetId, setPayloadDatasetId] = useState('');
   const [selectedDatasetId, setSelectedDatasetId] = useState('');
+  const [askDatasetScope, setAskDatasetScope] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpSeed, setHelpSeed] = useState(null); // a question for the Advanced Ask AI drawer to ask ({ text, key })
@@ -307,6 +297,8 @@ function StudioApp({ api }) {
   const [simpleDetail, setSimpleDetail] = useState({ report: '', folder: '', program: '', trend: '', trendTab: '', trendRun: '' });
   const [channelTab, setChannelTab] = useState('trends');
   const [channelProgramFocus, setChannelProgramFocus] = useState('');
+  const [channelProgramTab, setChannelProgramTab] = useState('');
+  function showChannelProgram(id, tab = '') { setChannelProgramFocus(id); setChannelProgramTab(tab); }
   const [channelFocus, setChannelFocus] = useState('');
   const [channelCache, setChannelCache] = useState({});
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -343,7 +335,7 @@ function StudioApp({ api }) {
   // pages, and Advanced pages not hidden from it. These shapes carry no counts; the sidebar's model (below, once the
   // board is known) adds them. A Studio page needs its method in this studio too; Settings opens wherever it's allowed.
   const navCan = (method) => can(method) && (method === 'saveSettings' || typeof api[method] === 'function');
-  const navBase = { viewer, state, edition: semrushShell ? 'semrush' : 'general', can: navCan, hasStudio: Boolean(api.contentCatalog), dataToolsOpen };
+  const navBase = { viewer, state, edition: semrushShell ? 'semrush' : 'general', can: navCan, hasStudio: Boolean(api.contentCatalog) };
   const simpleShape = buildNav({ ...navBase, layout: 'simple' });
   const classicShape = buildNav({ ...navBase, layout: 'classic' });
   const channelShape = buildNav({ ...navBase, layout: 'channel' });
@@ -367,7 +359,7 @@ function StudioApp({ api }) {
     if (studio) return studioAllowed(studio);
     if (view === 'inbox' || view === 'calendar') return classicIds.has(view);
     // The data-tools pages hide as one group ('data-tools'), as the sidebar (nav-model.js) and Ask AI already read it.
-    if (DATA_TOOL_IDS.includes(view) && hiddenPages.has('data-tools')) return false;
+    if ((DATA_TOOL_IDS.includes(view) || view === 'marketing-template') && hiddenPages.has('data-tools')) return false;
     return !hiddenPages.has(view) && (view !== 'settings' || settingsAllowed) && (!ADMIN_PAGES[view] || adminPages.includes(view));
   }
 
@@ -529,6 +521,7 @@ function StudioApp({ api }) {
   // Every Advanced page change asks about unsaved edits (the Library's report editor, Prompts) once; `confirmed`: the
   // caller already asked.
   function navigate(view, args = {}, { confirmed = false } = {}) {
+    if (view === 'chat' && simpleAllowed('ask')) { openDatasetAsk(args.datasetId, { confirmed }); return; }
     if (!confirmed && view !== active && !guard.confirmLeave()) return;
     withViewTransition(() => applyNavigation(view, args));
   }
@@ -543,6 +536,7 @@ function StudioApp({ api }) {
     setError('');
     // Workflows replaced the old missions page; old links still land there. A workflow (and run) to show rides along.
     if (view === 'missions') view = 'workflows';
+    const nestedDatasetTab = DATASET_TAB_FOR[view];
     if (view === 'workflows' && (args.workflowId || args.runId)) setWorkflowRequest({ key: Date.now(), workflowId: String(args.workflowId || ''), runId: String(args.runId || ''), run: args.run === true });
     // Pages this role can't open (Settings for an editor, an old link to Brand knowledge) say so instead of opening.
     if (!pageAllowed(view)) { setNotice(pageOffNotice(view)); return; }
@@ -555,10 +549,10 @@ function StudioApp({ api }) {
       return;
     }
     if (DATASET_TAB_FOR[view]) { setDatasetTab(DATASET_TAB_FOR[view]); view = 'datasets'; }
-    else if (view === 'datasets' && args.tab) setDatasetTab(args.tab);
+    else if (view === 'datasets') setDatasetTab(args.tab || 'explorer');
     const nextView = (view === 'marketing-template' || ADMIN_PAGES[view] || APP_PAGES.has(view)) ? view : 'dashboard';
     if (args.create || args.templateId || args.reportPresetId || args.analysisId) setCreation((current) => ({ key: (current.key || 0) + 1, templateId: args.templateId || '', reportPresetId: args.reportPresetId || '', analysisId: args.analysisId || '' }));
-    else if (['reports', 'imports'].includes(nextView)) setCreation({ key: null, templateId: '', reportPresetId: '', analysisId: '' });
+    else if (nestedDatasetTab === 'reports' || nextView === 'imports') setCreation({ key: null, templateId: '', reportPresetId: '', analysisId: '' });
     else if (nextView === 'automation') setCreation({ key: null, templateId: '' });
     // Data tools stays as the person left it; when it's closed, its toggle names the page that's open inside.
     setActive(nextView);
@@ -566,6 +560,8 @@ function StudioApp({ api }) {
 
   // Ask AI's "Open" buttons name a studio view (Research programs, Library…) or an app page (Sheets, Settings…).
   function openHelpPage(page) {
+    if (page === 'chat' && simpleAllowed('ask')) { openDatasetAsk(); return; }
+    if (page === 'templates') { openClassicPage('reports'); return; }
     if (page === 'programs') { if (mode === 'channel' && channelIds.includes('programs')) goChannel('programs'); else if (simpleAllowed('programs')) goSimple('programs'); else setNotice(pageOffNotice('research')); return; }
     if (mode === 'simple' && (page === 'knowledge' || page === 'brands')) { openClassicPage(page); return; } // Simple's own page
     if (STUDIO_VIEWS.has(page)) navigateStudio(page);
@@ -586,6 +582,7 @@ function StudioApp({ api }) {
   // until a Simple page is opened from the sidebar again. `args`
   // go with it (Sheets takes { workbookId }; Research programs and Create content take { runId }, the run to show).
   function openClassicPage(view, args = {}, { confirmed = false } = {}) {
+    if (view === 'chat' && simpleAllowed('ask')) { openDatasetAsk(args.datasetId, { confirmed }); return; }
     if (SIMPLE_FOR_STUDIO[view]) { goSimple(SIMPLE_FOR_STUDIO[view], { confirmed }); return; }
     if (!pageAllowed(view)) { setNotice(pageOffNotice(view)); return; }
     // Brand knowledge is a Simple page of its own: Ask AI's Open buttons, the palette and old links land there, not on a peek.
@@ -630,7 +627,9 @@ function StudioApp({ api }) {
   function goChannel(next, focus = '') {
     if (!channelIds.includes(next) && !(next === 'ask' && channelAsk)) return;
     if (next === 'ask' && channelTab !== 'ask') setChannelLastTab(channelTab);
-    setChannelFocus(typeof focus === 'string' ? focus : ''); setChannelTrendFocus(''); withViewTransition(() => setChannelTab(next));
+    setChannelFocus(typeof focus === 'string' ? focus : ''); setChannelTrendFocus('');
+    if (next === 'programs') showChannelProgram('');
+    withViewTransition(() => setChannelTab(next));
   }
   // { key, section }: the Settings section to jump to (settings-sections.js ids; '' = the top), once per key.
   const [settingsRequest, setSettingsRequest] = useState(null);
@@ -645,10 +644,6 @@ function StudioApp({ api }) {
     if (!adminPages.includes(id)) return;
     if (mode === 'simple' || (mode === 'classic' && simpleAllowed(id))) goSimple(id);
     else navigate(id);
-  }
-  function toggleDataTools() {
-    const next = !dataToolsOpen;
-    setDataToolsChoice(next); saveDataToolsOpen(next);
   }
   // The rail (⌘\ and the collapse button): saved in the person's prefs, and on this device for older servers. A refused
   // save (a preview, an older main process) still leaves the choice in place for this window.
@@ -671,6 +666,7 @@ function StudioApp({ api }) {
     if (row.kind === 'setup') { const sections = list(row.children); openNavItem(sections.find((section) => section.id === lastSetup.current) || sections[0]); return; }
     if (row.kind === 'admin') { openAdminPage(row.target); return; }
     if (row.kind === 'settings') { openSettings(); return; }
+    if (row.target === 'chat' && simpleAllowed('ask')) { openDatasetAsk(); return; }
     if (mode === 'simple') { openClassicPage(row.target); return; }
     if (row.kind === 'studio') navigateStudio(row.target);
     else navigate(row.target);
@@ -688,6 +684,16 @@ function StudioApp({ api }) {
   // Ask AI with a question, in either layout: Simple's Ask AI tab, or Advanced's drawer. `draft` puts words in the box
   // for the person to finish (New › Quick scan, New › Picture) instead of asking them; `context` goes with the question
   // as background the person doesn't have to paste (a prompt's text from Prompts, a report under review).
+  function openDatasetAsk(datasetId = '', { confirmed = false } = {}) {
+    if (!navCan('askFindings') || !pageAllowed('chat')) return;
+    if (!simpleAllowed('ask')) { openClassicPage('chat', { datasetId }); return; }
+    if (!confirmed && (mode !== 'simple' || simpleTabRef.current !== 'ask') && !guard.confirmLeave()) return;
+    if (datasetId) setSelectedDatasetId(datasetId);
+    setPaletteOpen(false);
+    setAskDatasetScope(true);
+    goSimple('ask', { confirmed: true });
+  }
+
   function openAskAi(text = '', { draft = '', context = '', attachments } = {}) {
     const question = String(text || '').trim();
     const start = String(draft || '');
@@ -695,6 +701,7 @@ function StudioApp({ api }) {
     if (!askAllowed) return;
     if (mode === 'simple') {
       if (!simpleAllowed('ask') || (simpleTabRef.current !== 'ask' && !guard.confirmLeave())) return;
+      setAskDatasetScope(false);
       if (question) setShellRequest({ key: Date.now(), kind: 'ask', text: question, context: background, ...(Array.isArray(attachments) ? { attachments } : {}) });
       else if (start) setShellRequest({ key: Date.now(), kind: 'ask', draft: start });
       withViewTransition(() => setSimpleTab('ask'));
@@ -794,7 +801,7 @@ function StudioApp({ api }) {
     // A note's Inbox row: the report (or the channel's brief) opens with its notes panel at that note.
     if (target.noteId && id) requestNoteFocus(id, target.noteId);
     if (mode === 'channel') {
-      if (kind === 'program') { goChannel('programs'); setChannelProgramFocus(String(id)); return; }
+      if (kind === 'program') { goChannel('programs'); showChannelProgram(String(id), target.tab); return; }
       // A trend, or a report (a share link from Reports or the Slack briefing), opens that trend's brief.
       const trends = list(channelView?.trends);
       if (kind === 'trend' || kind === 'report') {
@@ -907,6 +914,7 @@ function StudioApp({ api }) {
     }
     if (ADMIN_PAGES[tabId]) { if (adminPages.includes(tabId)) openAdminPage(tabId); else setNotice(pageOffNotice(tabId)); return; }
     if (simpleAllowed(tabId)) { goSimple(tabId); return; }
+    if (tabId === 'chat' && simpleAllowed('ask')) { openDatasetAsk(); return; }
     if (mode === 'simple') { openClassicPage(tabId); return; }
     const classic = { home: 'overview' }[tabId] || tabId;
     if (STUDIO_VIEWS.has(classic)) navigateStudio(classic); else navigate(classic);
@@ -955,8 +963,7 @@ function StudioApp({ api }) {
     }
     if (kind === 'quick-scan') { openAskAi('', { draft: 'Plan a quick scan on ' }); return; }
     if (kind === 'picture') {
-      const imagesReady = Boolean(state.keys?.OPENAI_API_KEY) || Boolean(studioState.capabilities?.imagesConfigured);
-      if (!imagesReady) { if (settingsAllowed) openSettings(); else setNotice(`Pictures are off for your team. Ask ${askAdmin} to turn them on.`); return; }
+      if (!askImagesReady) { if (settingsAllowed) openSettings(); else setNotice(`Pictures are off for your team. Ask ${askAdmin} to turn them on.`); return; }
       openAskAi('', { draft: 'Create a picture of ' });
       return;
     }
@@ -1033,8 +1040,9 @@ function StudioApp({ api }) {
   // The page on screen as a route (deep-links.js): a Simple page (with the report open in its reader, the Assets folder
   // open, or Trends' program), an Advanced page (a Workbench tool, a program's editor at its section or its runs), Settings.
   function screenRoute() {
-    if (mode === 'channel') return channelTab === 'programs' && channelProgramFocus ? { kind: 'page', page: 'program', id: channelProgramFocus } : { kind: 'page', page: ['programs', 'assets', 'plan', 'inbox', 'ask', 'mychannel'].includes(channelTab) ? channelTab : 'trends' };
+    if (mode === 'channel') return channelTab === 'programs' && channelProgramFocus ? { kind: 'page', page: 'program', id: channelProgramFocus, section: channelProgramTab } : { kind: 'page', page: ['programs', 'assets', 'plan', 'inbox', 'ask', 'mychannel'].includes(channelTab) ? channelTab : 'trends' };
     if (mode === 'simple') {
+      if (simpleTab === 'ask' && askDatasetScope) return { kind: 'page', page: 'ask', section: 'datasets' };
       if (simpleTab === 'programs' && simpleDetail.programPage) return { kind: 'page', page: 'program', id: simpleDetail.programPage, section: simpleDetail.programTab && simpleDetail.programTab !== 'runs' ? simpleDetail.programTab : '' };
       if (simpleTab === 'trends' && simpleDetail.trend) return { kind: 'trend', id: simpleDetail.trend, tab: simpleDetail.trendTab || 'overview', run: simpleDetail.trendRun || '' };
       if (simpleDetail.report) return { kind: 'report', id: simpleDetail.report };
@@ -1047,6 +1055,10 @@ function StudioApp({ api }) {
       if (studioView === 'knowledge') return { kind: 'page', page: 'knowledge' };
       return { kind: 'page', page: 'workbench', id: studioView };
     }
+    if (active === 'datasets') return { kind: 'page', page: 'data', id: datasetTab === 'explorer' ? '' : datasetTab };
+    if (['search', 'automation', 'imports', 'templates', 'dashboard'].includes(active)) return { kind: 'page', page: 'data', id: active === 'dashboard' ? 'overview' : active };
+    if (active === 'runs') return { kind: 'page', page: 'home', section: 'activity' };
+    if (active === 'workflows' || active === 'playbooks') return { kind: 'page', page: 'automations', id: active === 'playbooks' ? 'templates' : '' };
     if (active === 'settings') return { kind: 'settings', id: settingsRequest?.section || '' };
     if (ADMIN_PAGES[active]) return { kind: 'page', page: active };
     return { kind: 'page', page: 'workbench', id: { reports: 'dataset-reports', 'marketing-template': 'templates' }[active] || active };
@@ -1056,10 +1068,23 @@ function StudioApp({ api }) {
     if (!route?.kind) return;
     if (route.kind !== 'page') { const target = deepLinkTarget(route); if (target) openTarget(target); return; }
     const { page } = route;
-    if (mode === 'channel') { if (page === 'program' && channelIds.includes('programs')) { goChannel('programs'); setChannelProgramFocus(String(route.id || '')); } else goChannel(channelIds.includes(page) || (page === 'ask' && channelAsk) ? page : 'trends'); return; }
+    if (mode === 'channel') { if (page === 'program' && channelIds.includes('programs')) { goChannel('programs'); showChannelProgram(String(route.id || ''), route.section); } else goChannel(channelIds.includes(page) || (page === 'ask' && channelAsk) ? page : 'trends'); return; }
+    if (page === 'program' && route.section === 'share-of-voice') { if (!openProgramPage(route.id, route.section)) setNotice('This research program is unavailable.'); return; }
     if (page === 'program') { if (route.section) openProgramSection(route.section, route.id); else openProgram(route.id); return; }
-    if (page === 'workbench') { openClassicPage({ 'dataset-reports': 'reports' }[route.id] || route.id); return; }
-    if (page === 'ask') { openAskAi(''); return; }
+    if (page === 'workbench') {
+      if (route.id === 'chat') openDatasetAsk();
+      else if (route.id === 'dataset-reports') openClassicPage('reports');
+      else openClassicPage(route.id);
+      return;
+    }
+    if (page === 'data') {
+      if (['search', 'automation', 'imports', 'templates', 'overview'].includes(route.id)) openClassicPage(route.id === 'overview' ? 'dashboard' : route.id);
+      else openClassicPage('datasets', { tab: route.id || 'explorer' });
+      return;
+    }
+    if (page === 'automations') { openClassicPage(route.id === 'templates' ? 'playbooks' : 'workflows'); return; }
+    if (page === 'home' && route.section === 'activity') { openClassicPage('runs'); return; }
+    if (page === 'ask') { if (route.section === 'datasets') openDatasetAsk(); else if (mode === 'classic' && simpleAllowed('ask')) { setAskDatasetScope(false); goSimple('ask'); } else openAskAi(''); return; }
     if (ADMIN_PAGES[page]) { if (adminPages.includes(page)) openAdminPage(page); else setNotice(pageOffNotice(page)); return; }
     if (page === 'trends') setShellRequest({ key: Date.now(), kind: 'trends', program: route.program || '' });
     // The page already open (Back from its report or folder, or its address typed again): back to the page itself.
@@ -1121,7 +1146,6 @@ function StudioApp({ api }) {
   // A "Show me" step on a sidebar control that's folded away: the Workbench opens (and stays open, as a click would), and
   // a stage's tool asks the sidebar to show that stage's tools (studio-sidebar.jsx listens for studio-nav-reveal).
   function revealNavSpot(spotId) {
-    if (DATA_TOOL_SPOTS.has(spotId) && !dataToolsOpen) { setDataToolsChoice(true); saveDataToolsOpen(true); }
     window.dispatchEvent(new CustomEvent('studio-nav-reveal', { detail: spotId }));
   }
   // Steps on Simple's tabs (home.*, reports.*, trends.*, assets.* …) don't exist here, so they are left out; with
@@ -1356,7 +1380,7 @@ function StudioApp({ api }) {
   function renderBrandImages() {
     if (typeof api.addBrandImage !== 'function' || !can('addBrandImage')) return null;
     const workspace = list(state.contentStudio?.workspaces).find((row) => row.id === state.contentStudio?.activeWorkspaceId) || null;
-    return <BrandImages api={api} workspace={workspace} busy={busy} imagesConfigured={Boolean(state.contentStudio?.capabilities?.imagesConfigured ?? state.keys?.OPENAI_API_KEY)} />;
+    return <BrandImages api={api} workspace={workspace} busy={busy} imagesConfigured={Boolean(state.contentStudio?.capabilities?.imagesConfigured)} />;
   }
   // Advanced's whole Brand knowledge page (the content studio on its knowledge view, without its tab bar), for Simple's
   // Settings. It shares the knowledge tab and New workspace's request with the Advanced page.
@@ -1365,15 +1389,18 @@ function StudioApp({ api }) {
   }
   const renderSimplePage = (id) => (id === 'settings' ? renderSettings() : id === 'knowledge' ? renderBrandKnowledge() : SHARED_PAGES[id] && !ADMIN_PAGES[id] ? renderSharedPage(id) : renderAdminPage(id));
 
+  const datasetAssistant = (onOpenAskAi) => <FindingsChatView state={state} busy={busy || viewer.preview} selectedDatasetId={selectedDatasetId}
+    onDatasetSelect={setSelectedDatasetId} onAskQuestion={(request) => runBackground('ask', 'Answering your question', () => api.askFindings(request), '', true)}
+    onOpenSourceUrl={(url) => api.openSourceUrl(url)} onNavigate={(page, args) => openClassicPage(page, args)} onOpenAskAi={onOpenAskAi} />;
+
   const content = useMemo(() => {
     const common = { state, busy };
     if (active === 'content-studio') return <ContentStudioView state={state} api={api} busy={busy} activeView={studioView} libraryRequest={libraryRequest} runRequest={runRequest} createRequest={createRequest} onViewChange={(view) => { if (view !== studioView && !guard.confirmLeave()) return; withViewTransition(() => setStudioView(view)); }} shellNavigation={semrushShell} workspaceControlsInShell={Boolean(contentWorkspace)} programRequest={programRequest} onProgramRequestHandled={(key) => setProgramRequest((current) => (current?.key === key ? null : current))} onAsk={askAllowed ? (text, context, extra) => openAskAiRef.current(text, { context, attachments: extra?.attachments }) : undefined} linkOrigin={linkOrigin} onOpenPrompt={(promptId) => openPromptRef.current(promptId)} onMakeAssets={(request) => openKitDialogRef.current(request)} onContextChange={setClassicContext} briefingActions={briefingActionsRef.current} web={web} onOpenTarget={(target) => openTargetRef.current(target)} createWorkspaceKey={createWorkspaceKey} onWorkspaceCreationHandled={() => setCreateWorkspaceKey(0)} onNavigate={navigate} onNotice={(message) => setNotice(message)} knowledgeTab={knowledgeTab} onKnowledgeTabChange={setKnowledgeTab} renderResearchProfiles={renderResearchProfiles} renderBrandImages={renderBrandImages} onWorkspaceCreated={onWorkspaceCreated} onCreatingChange={setCreatingWorkspace} renderLegacyLibrary={() => <LegacyLibrary state={state} busy={busy} onOpenAsset={(assetId) => runAction(() => api.openAsset(assetId), fileNotice('Asset opened.'))} onRevealAsset={(assetId) => runAction(() => api.revealAsset(assetId), fileNotice(`Asset ${revealed}.`))} />} />;
     if (active === 'sheets') return <SheetsView api={api} state={state} initialWorkbookId={sheetRequest.id} workbookRequestKey={sheetRequest.key} onNavigate={(target, args = {}) => (target === 'research-programs' ? (args?.runId ? openTargetRef.current({ kind: 'run', id: String(args.runId), page: 'research' }) : navigateStudio('research')) : target === 'trend-board' ? navigateStudio('board') : navigate(target))} />;
     if (active === 'templates') return <TemplateLibraryView {...common} onChooseTemplate={choosePlaybook} onNavigate={navigate} />;
     if (active === 'imports') return <ImportDataView key={creation.key || 'import'} {...common} templateId={creation.templateId} reportPresetId={creation.reportPresetId} onPickFile={() => api.pickImportFile()} onPreview={(request) => api.previewImportDataset(request)} onImport={(request) => runAction(() => api.importDataset(request), '', true)} onNavigate={navigate} />;
-    if (active === 'compare') return <CompareView {...common} onCompare={(request) => runAction(() => api.compareDatasets(request), '', true)} onSaveMonitor={(request) => runAction(() => api.saveMonitor(request), '', true)} onNavigate={navigate} />;
     if (active === 'search') return <SearchView {...common} onPreviewSearch={(request) => api.previewSearchSources(request)} onSearch={(request) => runBackground('search', 'Platform search', () => api.searchSources(request), '', true)} onRefreshActors={() => runAction(() => api.refreshApifyActors(), 'Apify Actors synced.', true)} onNavigate={navigate} />;
-    if (active === 'chat') return <FindingsChatView {...common} selectedDatasetId={selectedDatasetId} onDatasetSelect={setSelectedDatasetId} onAskQuestion={(request) => runBackground('ask', 'Answering your question', () => api.askFindings(request), '', true)} onOpenSourceUrl={(url) => api.openSourceUrl(url)} onNavigate={navigate} onOpenAskAi={askAllowed ? () => openAskAiRef.current('') : undefined} />;
+    if (active === 'chat') return datasetAssistant(askAllowed ? () => openAskAiRef.current('') : undefined);
     if (active === 'marketing-template') return <MarketingTemplateView key={creation.key} templateId={creation.templateId} busy={busy} brandProfiles={state.brandProfiles} selectedBrandProfileId={state.settings.selectedBrandProfileId} onSelectBrandProfile={(id) => api.selectBrandProfile(id)} onManageProfiles={() => navigate('brands')} onOpenScrapers={() => navigate('automation')} onCancel={() => navigate('templates')} onSave={(recipe) => runAction(() => api.saveRecipe(recipe), 'Collection saved. Open Scrapers to collect pages, then Dataset reports to create the brief.', true)} />;
     if (active === 'automation') {
       return (
@@ -1392,9 +1419,29 @@ function StudioApp({ api }) {
       );
     }
     if (active === 'runs') return <ActivityView {...common} onRunRecipe={(recipeId) => runBackground(`recipe:${recipeId}`, 'Scraper run', () => api.runRecipe(recipeId), 'Scraper run complete. New rows are in Datasets.')} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenStudio={(view, runId) => (runId && (view === 'research' || view === 'create') ? openTargetRef.current({ kind: 'run', id: String(runId), page: view }) : navigateStudio(view))} onCancelJob={async (jobId) => ((await confirm(CANCEL_JOB)) ? runAction(() => api.cancelJob(jobId), 'Job cancelled.') : null)} />;
+    const renderDatasetReports = () => (
+        <ReportsView
+          {...common}
+          initialReportPresetId={creation.reportPresetId}
+          initialAnalysisId={creation.analysisId}
+          onReadResearchReview={(id) => api.readResearchReview(id)}
+          onSaveResearchReview={(request) => runAction(() => api.saveResearchReview(request), 'Review and actions saved.', true)}
+          onExportResearchReview={(request) => runAction(() => api.exportResearchReview(request), 'Review package exported with evidence and receipt.', true)}
+          onNavigate={navigate}
+          selectedDatasetId={selectedDatasetId}
+          onDatasetSelect={setSelectedDatasetId}
+          onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)}
+          onAnalyze={(datasetId, kind, options = {}) => runBackground(`analyze:${datasetId}:${kind}`, 'Dataset report', () => api.analyzeDataset({ datasetId, kind, ...options }), 'Dataset report ready.')}
+          onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), fileNotice('Analysis output opened.'))}
+          onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), fileNotice(`Analysis output ${revealed}.`))}
+        />
+    );
     if (active === 'datasets') {
       const datasetPayload = payloadDatasetId === selectedDataset?.id ? payload : null;
-      return <DatasetHub state={state} tab={datasetTab} onTabChange={setDatasetTab} selectedDataset={selectedDataset} payload={datasetPayload} payloadError={payloadError} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} onOpenSourceUrl={(url) => api.openSourceUrl(url)}
+      return <DatasetHub state={state} tab={datasetTab} onTabChange={(next) => { if (next === 'reports') navigate('reports'); else setDatasetTab(next); }} selectedDataset={selectedDataset} payload={datasetPayload} payloadError={payloadError} onDatasetSelect={setSelectedDatasetId} onNavigate={navigate} pageAllowed={pageAllowed} onOpenSourceUrl={(url) => api.openSourceUrl(url)}
+        onAsk={navCan('askFindings') ? openDatasetAsk : undefined}
+        renderReports={renderDatasetReports}
+        renderCompare={() => <CompareView key={selectedDataset?.id} {...common} currentDatasetId={selectedDataset?.id} onCompare={(request) => runAction(() => api.compareDatasets(request), '', true)} onSaveMonitor={can('saveMonitor') && !viewer.preview ? (request) => runAction(() => api.saveMonitor(request), '', true) : undefined} onNavigate={navigate} />}
         renderExplorer={() => (
         <DatasetsView
           {...common}
@@ -1411,30 +1458,11 @@ function StudioApp({ api }) {
         />)}
         renderConversations={() => <ThreadsView {...common} payload={datasetPayload} selectedDataset={selectedDataset} onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)} onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), fileNotice('Analysis output opened.'))} onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), fileNotice(`Analysis output ${revealed}.`))} onAnalyze={(datasetId, kind) => runBackground(`analyze:${datasetId}:${kind}`, 'Conversation summary', () => api.analyzeDataset({ datasetId, kind }), 'Conversation summary complete.')} />} />;
     }
-    if (active === 'reports') {
-      return (
-        <ReportsView
-          {...common}
-          initialReportPresetId={creation.reportPresetId}
-          initialAnalysisId={creation.analysisId}
-          onReadResearchReview={(id) => api.readResearchReview(id)}
-          onSaveResearchReview={(request) => runAction(() => api.saveResearchReview(request), 'Review and actions saved.', true)}
-          onExportResearchReview={(request) => runAction(() => api.exportResearchReview(request), 'Review package exported with evidence and receipt.', true)}
-          onNavigate={navigate}
-          selectedDatasetId={selectedDatasetId}
-          onDatasetSelect={setSelectedDatasetId}
-          onReadAnalysis={(analysisId) => api.readAnalysis(analysisId)}
-          onAnalyze={(datasetId, kind, options = {}) => runBackground(`analyze:${datasetId}:${kind}`, 'Dataset report', () => api.analyzeDataset({ datasetId, kind, ...options }), 'Dataset report ready.')}
-          onOpenAnalysisOutput={(analysisId) => runAction(() => api.openAnalysisOutput(analysisId), fileNotice('Analysis output opened.'))}
-          onRevealAnalysisOutput={(analysisId) => runAction(() => api.revealAnalysisOutput(analysisId), fileNotice(`Analysis output ${revealed}.`))}
-        />
-      );
-    }
     if (active === 'settings') return renderSettings();
     if (active === 'inbox' || active === 'calendar') return renderSharedPage(active);
     if (ADMIN_PAGES[active]) return renderAdminPage(active);
     // Automate: Playbooks and Workflows (workflows-view.jsx, playbooks-view.jsx); the setup sheet opens at the shell.
-    if (active === 'workflows') return <WorkflowsView state={state} api={api} viewer={viewer} can={can} confirm={confirm} action={runAction} onOpenTarget={openTarget} onOpenPlaybooks={pageAllowed('playbooks') ? () => navigate('playbooks') : undefined} initial={workflowRequest} desktop={!web} edition={semrushShell ? 'semrush' : 'general'} settingsAllowed={settingsAllowed} />;
+    if (active === 'workflows') return <WorkflowsView state={state} api={api} viewer={viewer} can={can} confirm={confirm} action={runAction} onOpenTarget={openTarget} onOpenPlaybooks={pageAllowed('playbooks') && can('estimateWorkflow') ? () => navigate('playbooks') : undefined} initial={workflowRequest} desktop={!web} edition={semrushShell ? 'semrush' : 'general'} settingsAllowed={settingsAllowed} />;
     if (active === 'playbooks') return <PlaybooksView state={state} api={api} viewer={viewer} can={can} confirm={confirm} action={runAction} onSetUp={(id) => openPlaybook(id)} onOpenWorkflow={(id) => navigate('workflows', { workflowId: id })} edition={semrushShell ? 'semrush' : 'general'} />;
     // Home, and where an unknown or retired page id lands.
     return <HomeView state={state} busy={busy} web={web} onNavigate={navigate} />;
@@ -1454,7 +1482,7 @@ function StudioApp({ api }) {
     const listedIds = new Set(navPages(nav).map((row) => row.target));
     const extra = (row) => !['admin', 'settings'].includes(row.kind) && !listedIds.has(row.target) && !listed.has(`Open ${row.label}`);
     const tabs = !semrushShell ? generalStudioTabs({ viewer, hasStudio: Boolean(api.contentCatalog) }).filter(extra).map((row) => entry(classicShape, row, { id: `studio-${row.id}`, hint: 'Content studio', keywords: 'content studio' })) : [];
-    const peeks = mode !== 'channel' ? navPages(classicShape).filter(extra).map((row) => entry(classicShape, row, { hint: groupOf(classicShape, row), keywords: `advanced ${groupOf(classicShape, row)}`.trim() })) : [];
+    const peeks = mode !== 'channel' ? navPages(classicShape).filter((row) => extra(row) && row.id !== 'playbooks').map((row) => entry(classicShape, row, { hint: groupOf(classicShape, row), keywords: `advanced ${groupOf(classicShape, row)}`.trim() })) : [];
     const create = nav.actions.create.filter((row) => !row.disabled && !(row.id === 'research' && (row.programId || row.choices.length))).map((row) => ({ id: `create-${row.id}`, label: row.label, hint: row.hint, icon: iconOf(row.icon), group: PALETTE_GROUPS.create, keywords: 'new create make start', action: 'create', args: { kind: row.id, programId: row.programId || '' } }));
     const content = api.contentCatalog && state.contentStudio ? paletteContent({ studio: state.contentStudio, board: classicActions.board, canStartResearch: Boolean(api.startResearchRun) && can('startResearchRun'), canDecide: can('decideResearchTheme'), folders: mode !== 'channel' && (mode === 'simple' ? simpleAllowed('assets') : studioAllowed('library')) }) : [];
     // Next up: the same rows as Home's rail, first when nothing is typed.
@@ -1506,6 +1534,7 @@ function StudioApp({ api }) {
   // Ask AI announces each picture it makes, so the Library lists it while the drawer is still open over it.
   const askApi = useAnnouncingApi(api);
   const studioState = state.contentStudio || {};
+  const askImagesReady = Boolean(studioState.capabilities?.askImagesConfigured ?? studioState.capabilities?.imagesConfigured);
   const channelView = studioState.channelView;
   const dismiss = () => { setError(''); setNotice(''); };
   const inWorkspace = (run) => !studioState.activeWorkspaceId || !run.workspaceId || run.workspaceId === studioState.activeWorkspaceId;
@@ -1520,7 +1549,8 @@ function StudioApp({ api }) {
   const setupIds = list(nav.setup).map((row) => row.id);
   const shownNavId = mode === 'channel' ? channelTab : mode === 'simple' ? simpleTab : active === 'content-studio' ? (studioView === 'research' ? (programSection ? `program-${programSection}` : 'programs') : studioView) : active === 'marketing-template' ? 'templates' : active === 'reports' ? 'dataset-reports' : active;
   if (setupIds.includes(shownNavId)) lastSetup.current = shownNavId;
-  const activeNavId = setupIds.includes(shownNavId) ? 'setup' : shownNavId === 'inbox' && !nav.groups.some((group) => group.items.some((row) => row.id === 'inbox')) ? 'home' : shownNavId;
+  const parentNavId = mode === 'classic' ? (shownNavId === 'create' ? 'assets' : shownNavId === 'sheets' ? 'trends' : ['datasets', 'search', 'automation', 'imports', 'reports', 'dataset-reports', 'templates', 'chat', 'runs', 'workflows', 'playbooks', 'dashboard'].includes(shownNavId) ? 'home' : '') : '';
+  const activeNavId = parentNavId || (setupIds.includes(shownNavId) ? 'setup' : shownNavId === 'inbox' && !nav.groups.some((group) => group.items.some((row) => row.id === 'inbox')) ? 'home' : shownNavId);
   keysRef.current = { mode, order: nav.order, openNavItem, settingsAllowed, openSettings, canAsk: Boolean(nav.actions.ask), toggleAsk, canRail: !narrow, toggleRail, canCreate: nav.actions.create.length > 0, openNew: openNewMenu };
   // Share links (#/report/…, #/trend/…, #/assets/…, #/prompt/…), opened once the studio has loaded and this person has a
   // role (a link opened while signed out was kept through sign-in by web/main.jsx). Someone without a role keeps the link
@@ -1574,16 +1604,20 @@ function StudioApp({ api }) {
     ];
   const quickWork = backgroundLabels.length === 1 ? `${backgroundLabels[0]}…` : backgroundLabels.length > 1 ? `${backgroundLabels.length} tasks running` : mode !== 'classic' && busy ? 'Working…' : '';
   const working = { label: liveRows.length ? `${new Intl.NumberFormat().format(liveRows.length)} running` : quickWork, runs: liveRows };
-  const classicTitle = active === 'content-studio' ? (semrushShell ? PAGE_LABELS[studioView] || 'Home' : 'Content studio') : semrushShell && active === 'dashboard' ? 'Collection overview' : PAGE_LABELS[active] || 'Overview';
+  const classicTitle = active === 'datasets' ? 'Research data' : active === 'workflows' ? 'Automations' : active === 'playbooks' ? 'Workflow templates' : active === 'runs' ? 'Run history' : active === 'content-studio' ? (semrushShell ? PAGE_LABELS[studioView] || 'Home' : 'Content studio') : semrushShell && active === 'dashboard' ? 'Collection overview' : PAGE_LABELS[active] || 'Overview';
   const pageTitle = mode === 'channel' ? viewer.channelName || 'Your channel'
     : mode === 'simple' ? (navPages(nav).find((row) => row.id === simpleTab)?.label || (simpleTab === 'ask' ? 'Ask AI' : simpleTab === 'settings' ? 'Settings' : ''))
     : classicTitle;
   const signOut = web && api.signOut ? () => api.signOut() : undefined;
   // The shell's own ways, for Simple's Ask AI and Home (SimpleMode's nav and Next up). makeAssets opens the asset dialog
   // over the Simple page the person is on (KitCreatorHost), so Cancel leaves them there.
-  const simpleShellNav = { inboxRead: () => setInboxSeen((value) => value + 1), copyLink, openInvite, viewAs: viewAsFromNav, openProgramDraft, newProgram: openProgramSetup, create: (kind) => createFromNav(kind), makeAssets: (request) => openKitDialog(request),
+  const simpleShellNav = {
+    ...(navCan('readDataset') && pageAllowed('datasets') ? { openResearchData: () => openClassicPage('datasets', { tab: 'explorer' }) } : {}),
+    ...(navCan('readDataset') && pageAllowed('runs') ? { openActivity: () => openClassicPage('runs') } : {}),
+    ...(navCan('askFindings') && pageAllowed('chat') && (state.datasets.length || askDatasetScope) ? { datasetAsk: { selected: askDatasetScope, open: openDatasetAsk, close: () => setAskDatasetScope(false), render: datasetAssistant } } : {}),
+    inboxRead: () => setInboxSeen((value) => value + 1), copyLink, openInvite, viewAs: viewAsFromNav, openProgramDraft, newProgram: openProgramSetup, create: (kind) => createFromNav(kind), makeAssets: (request) => openKitDialog(request),
     ...(navCan('createContentRun') && pageAllowed('create') ? { createFrom: (assetId) => openStudioWith('create', () => setCreateRequest({ key: Date.now(), assetId: String(assetId || '') })) } : {}), ...(navCan('saveResearchProgram') && studioAllowed('research') ? { editProgram: (programId, section = 'basics') => openProgramSection(section, programId) } : {}) };
-  const kitHost = mode !== 'channel' && <KitCreatorHost request={kitRequest} api={api} sources={kitSourcesFrom(classicActions.reports, list(studioState.contentRuns).filter(inWorkspace))} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} action={runAction} busy={busy} picturesOff={`Pictures are off for your team. ${askAdmin} can turn them on.`} focus={list(viewer.prefs?.focusChannels)} edition={semrushShell ? 'semrush' : 'general'} onSettings={settingsAllowed ? openSettings : undefined} onBrandImages={can('addBrandImage') ? openBrandImages : undefined} onOpenFolder={(key) => openTarget({ kind: 'folder', id: key, page: 'assets' })} onDone={() => setKitRequest(null)} />;
+  const kitHost = mode !== 'channel' && <KitCreatorHost request={kitRequest} api={api} sources={kitSourcesFrom(classicActions.reports, list(studioState.contentRuns).filter(inWorkspace))} action={runAction} busy={busy} picturesOff={`Pictures are off for your team. ${askAdmin} can turn them on.`} focus={list(viewer.prefs?.focusChannels)} edition={semrushShell ? 'semrush' : 'general'} onSettings={settingsAllowed ? openSettings : undefined} onBrandImages={can('addBrandImage') ? openBrandImages : undefined} onOpenFolder={(key) => openTarget({ kind: 'folder', id: key, page: 'assets' })} onDone={() => setKitRequest(null)} />;
   // Guided setup of a research program, over whatever page is open.
   const activeWorkspace = list(studioState.workspaces).find((row) => row.id === studioState.activeWorkspaceId) || null;
   const workspaceGuideHost = mode !== 'channel' && workspaceGuide && <WorkspaceSetupGuide key={workspaceGuide.key} name={workspaceGuide.name} steps={workspaceGuideSteps()} onClose={() => closeWorkspaceGuide()} onTour={() => closeWorkspaceGuide({ tour: true })} />;
@@ -1601,7 +1635,7 @@ function StudioApp({ api }) {
         ? <ChannelAskPage api={askApi} state={state} viewer={viewer} can={can} canRun={canRun} action={runAction} askAdmin={askAdmin} web={web} seed={channelSeed} lastTab={channelLastTab}
           onOpenTrend={(themeId) => { goChannel('trends'); setChannelTrendFocus(themeId || ''); }} onOpenFolder={(themeId) => goChannel('assets', themeId || '')} onOpenTab={(tab) => goChannel(tab)} />
         : channelTab === 'programs'
-        ? <ChannelPrograms key={studioState.activeWorkspaceId} programs={studioState.programs} viewer={viewer} workspaceName={contentWorkspace?.name || ''} initialProgramId={channelProgramFocus} onProgramChange={setChannelProgramFocus} />
+        ? <ChannelPrograms key={studioState.activeWorkspaceId} programs={studioState.programs} api={api} viewer={viewer} workspaceName={contentWorkspace?.name || ''} initialProgramId={channelProgramFocus} initialTab={channelProgramTab} onProgramChange={showChannelProgram} />
         : channelTab === 'mychannel'
         ? <ChannelSettings api={api} channelId={viewer.channelId || ''} onNotice={setNotice} />
         : channelTab === 'assets'
@@ -1614,10 +1648,13 @@ function StudioApp({ api }) {
       : <main className="workspace" key={`classic-${roleEpoch}`}>
         <Header title={classicTitle} workspaceName={contentWorkspace?.name || (web ? 'Shared studio' : 'Workspace')} busy={busy} background={backgroundLabels} onRefresh={() => runAction(refresh)} />
         <div className={`content${active === 'sheets' ? ' content-fill' : active === 'chat' ? ' content-fit' : ''}`} ref={contentRef}>
+          {['search', 'automation', 'imports', 'marketing-template'].includes(active) && <button type="button" className="simple-back tool-parent" onClick={() => navigate('datasets', { tab: 'explorer' })}><ArrowLeft size={15} aria-hidden="true" />Research data</button>}
+          {active === 'playbooks' && <button type="button" className="simple-back tool-parent" onClick={() => navigate('workflows')}><ArrowLeft size={15} aria-hidden="true" />Automations</button>}
+          {active === 'runs' && simpleAllowed('home') && <button type="button" className="simple-back tool-parent" onClick={() => goSimple('home')}><ArrowLeft size={15} aria-hidden="true" />Home</button>}
           {(error || notice) && <div className="feedback" onMouseEnter={() => setNoticeHeld(true)} onMouseLeave={() => setNoticeHeld(false)}><StatusBanner error={error} notice={notice} /><Button className="ghost icon-button" aria-label="Dismiss notification" onClick={dismiss}><X size={16} /></Button></div>}
           {loading ? <div className="loading-state" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><h2>Opening your workspace</h2><p>Loading your research, sheets and reports.</p></div> : <ErrorBoundary page key={active} resetKey={`${active}:${studioView}`}>{content}</ErrorBoundary>}
         </div>
-        {askAllowed && <HelpAssistant api={askApi} open={helpOpen} imagesReady={Boolean(state.keys?.OPENAI_API_KEY)} copy={settingsAllowed ? {} : { noPictures: `Pictures are off for your team. ${askAdmin} can turn them on.` }} onClose={() => setHelpOpen(false)} page={{ id: active === 'content-studio' ? studioView : active, label: classicTitle || '', layout: 'classic', ...(active === 'content-studio' ? Object.fromEntries(['report', 'folder', 'run', 'trend'].filter((key) => classicContext[key]).map((key) => [key, String(classicContext[key]).slice(0, 160)])) : {}) }} onOpenPage={openHelpPage} onOpenSettings={settingsAllowed ? () => navigate('settings') : undefined} seed={helpSeed} state={state} nav={classicStudioNav} onAction={classicActions.runAiAction} onShow={showClassicTour} />}
+        {askAllowed && <HelpAssistant api={askApi} open={helpOpen} imagesReady={askImagesReady} copy={settingsAllowed ? {} : { noPictures: `Pictures are off for your team. ${askAdmin} can turn them on.` }} onClose={() => setHelpOpen(false)} page={{ id: active === 'content-studio' ? studioView : active, label: classicTitle || '', layout: 'classic', ...(active === 'content-studio' ? Object.fromEntries(['report', 'folder', 'run', 'trend'].filter((key) => classicContext[key]).map((key) => [key, String(classicContext[key]).slice(0, 160)])) : {}) }} onOpenPage={openHelpPage} onOpenSettings={settingsAllowed ? () => navigate('settings') : undefined} seed={helpSeed} state={state} nav={classicStudioNav} onAction={classicActions.runAiAction} onShow={showClassicTour} />}
       </main>;
 
   // One frame for every layout and role: the sidebar is never remounted, only the main column changes, so focus stays
@@ -1626,7 +1663,7 @@ function StudioApp({ api }) {
     <div ref={frameRef} className={`app-shell studio-frame${web ? '' : ' is-desktop'}`} data-platform={isMac() ? 'mac' : 'other'} data-edition={semrushShell ? 'semrush' : 'general'} data-mode={mode} data-rail={rail ? '' : undefined}>
       <StudioSidebar edition={semrushShell ? 'semrush' : 'general'} meta={meta} web={web} viewer={viewer} nav={nav} activeId={activeNavId} mode={mode} busy={busy} workspaces={contentWorkspaces} activeWorkspaceId={contentWorkspace?.id || ''}
         rail={rail} onToggleRail={toggleRail} drawerOpen={drawerOpen} onCloseDrawer={() => setDrawerOpen(false)}
-        onNavigate={openNavItem} onCreate={createFromNav} onSearch={() => setPaletteOpen(true)} onAsk={toggleAsk} askCurrent={(mode === 'simple' && simpleTab === 'ask') || (mode === 'channel' && channelTab === 'ask')} askExpanded={mode === 'classic' && helpOpen} onToggleDataTools={toggleDataTools}
+        onNavigate={openNavItem} onCreate={createFromNav} onSearch={() => setPaletteOpen(true)} onAsk={toggleAsk} askCurrent={(mode === 'simple' && simpleTab === 'ask') || (mode === 'channel' && channelTab === 'ask')} askExpanded={mode === 'classic' && helpOpen}
         onSelectWorkspace={switchWorkspace} onNewWorkspace={newWorkspace} singleWorkspace={singleWorkspace} onViewAs={api.setViewAs && realAdmin ? viewAs : undefined} onSignOut={signOut}
         working={working} onSaveFocusChannels={typeof api.setViewPrefs === 'function' ? saveFocusChannels : undefined} newMenuKey={newMenuKey} toolsOpen={usedAdvanced} />
       <div className="studio-main">

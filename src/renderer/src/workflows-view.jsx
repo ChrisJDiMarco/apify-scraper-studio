@@ -178,8 +178,10 @@ export function WorkflowsView({ state = {}, api = {}, viewer = {}, can = () => t
       <div><h1 ref={headingRef}>Workflows</h1><p>Saved automations: what runs, when, and what it may spend.{desktop ? ' Schedules run while the studio is open.' : ''}</p></div>
       <div className="studio-head-actions">
         {admin && workflows.some((row) => row.status === 'active') && can('setWorkflowStatus') && <button type="button" className="studio-quiet" {...writeProps(viewer, busy)} onClick={pauseAll}><Pause size={14} aria-hidden="true" />Pause all</button>}
-        {onOpenPlaybooks && <button type="button" className="studio-quiet" onClick={onOpenPlaybooks}><LayoutGrid size={14} aria-hidden="true" />From a playbook</button>}
-        {can('saveWorkflow') && <button type="button" className="studio-primary" {...writeProps(viewer, !programs.length)} title={programs.length ? undefined : 'Save a research program first.'} onClick={() => { setRunDetail(null); setEditing(blankWorkflow(programs[0]?.id || '')); }}><Plus size={15} aria-hidden="true" />New workflow</button>}
+        {(onOpenPlaybooks || can('saveWorkflow')) && <details className="ws-collect"><summary className="studio-primary"><Plus size={15} aria-hidden="true" />New workflow</summary><div>
+          {onOpenPlaybooks && <button type="button" onClick={onOpenPlaybooks}>Start from a template</button>}
+          {can('saveWorkflow') && <button type="button" {...writeProps(viewer, !programs.length)} title={programs.length ? undefined : 'Save a research program first.'} onClick={(event) => { event.currentTarget.closest('details').open = false; setRunDetail(null); setEditing(blankWorkflow(programs[0]?.id || '')); }}>Start from scratch</button>}
+        </div></details>}
       </div>
     </div>
 
@@ -190,7 +192,7 @@ export function WorkflowsView({ state = {}, api = {}, viewer = {}, can = () => t
       {showCosts && Number.isFinite(summary.monthSpentUsd) && <div><dt>Spent this month</dt><dd>{money(summary.monthSpentUsd)}{summary.monthCapUsd ? <span className="wf-hint"> of {money(summary.monthCapUsd)}</span> : null}</dd></div>}
     </dl>
 
-    {!workflows.length ? <div className="studio-empty"><strong>No workflows yet.</strong><span>Start from a playbook to set up research, approvals, reports and assets in one go.</span>{onOpenPlaybooks && <button type="button" className="studio-primary small" onClick={onOpenPlaybooks}>Browse playbooks</button>}</div>
+    {!workflows.length ? <div className="studio-empty"><strong>No workflows yet.</strong><span>Start from a playbook to set up research, approvals, reports and assets in one go.</span>{onOpenPlaybooks && <button type="button" className="studio-primary small" onClick={onOpenPlaybooks}>Browse workflow templates</button>}</div>
       : <ul className="wf-list" aria-label="Workflows">{workflows.map((workflow, index) => {
         const status = workflowStatus(workflow); const last = runsOf(workflow.id)[0];
         const share = showCosts && workflow.budget?.perMonthUsd ? Math.min(100, Math.round((workflow.monthSpentUsd || 0) / workflow.budget.perMonthUsd * 100)) : null;
@@ -264,7 +266,7 @@ export function AutomationsCard({ state = {}, api = {}, viewer = {}, can = () =>
   const workflows = list(studio.workflows);
   const runs = list(studio.workflowRuns);
   const [busyId, setBusyId] = useState('');
-  if (!can('estimateWorkflow') || !workflows.length) return null;
+  if (!can('estimateWorkflow')) return null;
   const waitingOf = (workflow) => runs.find((run) => run.workflowId === workflow.id && ['waiting-review', 'waiting-budget'].includes(run.status));
   const shown = [...workflows].sort((a, b) => Number(Boolean(waitingOf(b))) - Number(Boolean(waitingOf(a))) || Number(b.running) - Number(a.running) || String(a.nextRunAt || '9').localeCompare(String(b.nextRunAt || '9'))).slice(0, 4);
   async function toggle(workflow) {
@@ -275,12 +277,13 @@ export function AutomationsCard({ state = {}, api = {}, viewer = {}, can = () =>
   }
   return <section className="wb-card wf-home" aria-labelledby="wb-automations-title" data-spot="home.automations">
     <header className="wb-card-head"><span className="wb-icon tone-ink" aria-hidden="true"><LayoutGrid size={17} /></span><h2 id="wb-automations-title"><span className="wb-title-text">Automations</span> <span className="wb-count">{workflows.length}</span></h2></header>
+    {!shown.length && <p className="wb-empty">Set up a recurring research and content workflow.</p>}
     <ul className="wb-list">{shown.map((workflow) => { const status = workflowStatus(workflow); const waiting = waitingOf(workflow); return <li key={workflow.id} className="wf-home-row">
       <button type="button" className="wb-title-link" onClick={() => onOpenTarget?.({ kind: 'workflow', id: workflow.id, page: 'workflows' })}>{workflow.name}</button>
       <small className="wb-muted">{status.label}{workflow.running ? ' · running now' : ''}{workflow.nextRunAt ? ` · next ${when(workflow.nextRunAt)}` : workflow.trigger?.kind === 'manual' ? ' · runs when started' : ''}{desktop && workflow.trigger?.kind === 'schedule' ? ' (while the studio is open)' : ''}</small>
       {waiting && <small className="wf-warning-line">{runLine(waiting)}</small>}
       {can('setWorkflowStatus') && !(workflow.status !== 'active' && workflow.needsBudget) && <button type="button" className="studio-link" {...writeProps(viewer, busyId === workflow.id)} onClick={() => toggle(workflow)}>{workflow.status === 'active' ? 'Pause' : 'Resume'}</button>}
     </li>; })}</ul>
-    <button type="button" className="studio-link" onClick={() => onOpenTarget?.({ kind: 'page', page: 'workflows' })}>Manage</button>
+    <button type="button" className="studio-link" onClick={() => onOpenTarget?.({ kind: 'page', page: 'workflows' })}>Open automations</button>
   </section>;
 }

@@ -28,7 +28,7 @@ const PREFIX = 'scraper-studio-backup-';
 const MAX_PASSES = 5;
 const SKIP_NAMES = new Set(['.studio-owner.json', '.studio-owner-recovery']);
 const SKIP_PATTERN = /(?:\.tmp|\.beat)$|^\.studio-ready-|^\.studio-healthz/;
-const SKIP_TOP = /^(?:web-transfers|\.pre-restore-.*|\.restore-.*)$/;
+const SKIP_TOP = /^(?:web-transfers|web-sessions\.json|\.pre-restore-.*|\.restore-.*)$/;
 // On Windows, Windows' own tar (bsdtar, in System32 since Windows 10 1803) by its full path: a bare "tar" is looked up in
 // the working folder before PATH, and Git Bash puts GNU tar first on PATH, which reads C:\… in -f as a remote host.
 const tarCommand = (platform = process.platform, env = process.env) => (platform === 'win32' ? path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar');
@@ -47,7 +47,16 @@ function parseArgs(argv) {
 }
 const defaultDataDir = () => path.resolve(process.env.STUDIO_DATA_DIR || path.join(os.homedir(), '.scraper-studio-web'));
 const stamp = (date = new Date()) => date.toISOString().replace(/[:.]/g, '-'); // 2026-10-17T13-24-05-123Z: sortable, no colons
-const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+function sha256(file) {
+  const hash = crypto.createHash('sha256');
+  const buffer = Buffer.allocUnsafe(256 * 1024);
+  const fd = fs.openSync(file, 'r');
+  try {
+    let bytes;
+    while ((bytes = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, bytes));
+    return hash.digest('hex');
+  } finally { fs.closeSync(fd); }
+}
 const appVersion = () => { try { return require('../package.json').version || ''; } catch (_) { return ''; } };
 
 // Every regular file under `root` the backup keeps, as relative POSIX paths → { size, mtimeMs }.

@@ -182,3 +182,15 @@
 .ws-replies { display: grid; gap: 6px; margin: 0; padding: 0 0 0 14px; list-style: none; border-left: 2px solid var(--ws-line); font-size: 12px; line-height: 1.5; color: var(--ws-ink); }
 @media (max-width: 800px) { .ws-summary-cta { grid-template-columns: auto 1fr; } .ws-summary-cta > button { grid-column: 1 / -1; justify-self: start; } }
 
+
+.ws-collect { position: relative; }
+.ws-collect > summary { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; cursor: pointer; list-style: none; padding: 7px 11px; border-radius: 8px; }
+.ws-collect > summary::-webkit-details-marker { display: none; }
+.ws-collect > div { position: absolute; z-index: 4; inset-inline-end: 0; top: calc(100% + 7px); min-width: 179px; display: grid; gap: 2px; padding: 5px; border: 1px solid var(--s-border, #e4e3e0); border-radius: 9px; background: var(--s-panel, #fff); box-shadow: 0 8px 24px #21172c20; }
+.ws-collect > div button { font: inherit; text-align: start; color: inherit; background: transparent; border: 0; border-radius: 6px; padding: 9px 10px; cursor: pointer; }
+.ws-collect > div button:hover, .ws-collect > div button:focus-visible { background: var(--s-soft, #f2eafa); }
+.ws-collect > div button:disabled { opacity: .55; cursor: default; }
+@media (max-width: 640px) { .ws-datasets .ws-collect > div { inset-inline: 0 auto; } }
+.tool-parent { margin-bottom: 12px; }
+.dataset-ask-tabs { display: flex; gap: 6px; padding: 10px clamp(14px, 3vw, 34px); }
+.dataset-ask-scope { padding: 0 clamp(14px, 3vw, 34px) 24px; }

@@ -104,7 +104,7 @@ const { createStudioServer } = require('../src/main/studio-server');
 let studio;
 try {
   studio = createStudioServer({
-    webRoot, runtime, password,
+    webRoot, runtime, password, sessionSecret: secretKey,
     secureCookies: process.env.STUDIO_SECURE_COOKIES === '1',
     trustedEmailHeader: process.env.STUDIO_TRUSTED_EMAIL_HEADER,
     allowedEmailDomains: process.env.STUDIO_ALLOWED_EMAIL_DOMAINS,

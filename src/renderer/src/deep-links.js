@@ -63,10 +63,15 @@ export function parseRoute(hash) {
     if (!parts.length) return { kind: 'page', page: 'programs' };
     if (!ID.test(parts[0])) return null;
     if (parts.length === 1) return { kind: 'page', page: 'program', id: parts[0], section: '' };
+    if (parts.length === 2 && parts[1] === 'share-of-voice') return { kind: 'page', page: 'program', id: parts[0], section: 'share-of-voice' };
     const section = parts[2] || 'basics';
     return parts[1] === 'edit' && parts.length <= 3 && PAGE_ID.test(section) ? { kind: 'page', page: 'program', id: parts[0], section } : null;
   }
   if (head === 'studio') return parts.length === 1 && STUDIO_ROUTES.has(parts[0]) ? { kind: 'page', page: parts[0] } : null;
+  if (head === 'data' && parts.length <= 1 && (!parts.length || ['signals', 'conversations', 'topics', 'coverage', 'reports', 'compare', 'search', 'automation', 'imports', 'templates', 'overview'].includes(parts[0]))) return { kind: 'page', page: 'data', id: parts[0] || '' };
+  if (head === 'automations' && (!parts.length || parts.length === 1 && parts[0] === 'templates')) return { kind: 'page', page: 'automations', id: parts[0] || '' };
+  if (head === 'home' && parts.length === 1 && parts[0] === 'activity') return { kind: 'page', page: 'home', section: 'activity' };
+  if (head === 'ask' && parts.length === 1 && parts[0] === 'datasets') return { kind: 'page', page: 'ask', section: 'datasets' };
   if (head === 'workbench') return parts.length === 1 && PAGE_ID.test(parts[0]) ? { kind: 'page', page: 'workbench', id: parts[0] } : null;
   if (!PAGE_ROUTES.includes(head) || parts.length) return null;
   let program = '';
@@ -79,8 +84,12 @@ export function hashForRoute(route) {
   if (route.kind === 'trend') return ID.test(String(route.id || '')) ? trendHash(route) : '';
   if (route.kind !== 'page') return LINK_KINDS.includes(route.kind) && validId(route.kind, route.id) ? hashFor(route.kind, route.id ?? '') : '';
   const id = String(route.id || '');
+  if (route.page === 'program' && route.section === 'share-of-voice' && ID.test(id)) return `#/programs/${encodeURIComponent(id)}/share-of-voice`;
   if (route.page === 'program') return ID.test(id) ? (route.section && PAGE_ID.test(route.section) ? `#/programs/${encodeURIComponent(id)}/edit/${route.section}` : `#/programs/${encodeURIComponent(id)}`) : '#/programs';
   if (STUDIO_ROUTES.has(route.page)) return `#/studio/${route.page}`;
+  if (route.page === 'data' || route.page === 'automations') return `#/${route.page}${id && PAGE_ID.test(id) ? `/${id}` : ''}`;
+  if (route.page === 'home' && route.section === 'activity') return '#/home/activity';
+  if (route.page === 'ask' && route.section === 'datasets') return '#/ask/datasets';
   if (route.page === 'workbench') return PAGE_ID.test(id) ? `#/workbench/${id}` : '';
   if (route.page === 'trends' && route.program && ID.test(route.program)) return `#/trends?program=${encodeURIComponent(route.program)}`;
   return PAGE_ROUTES.includes(route.page) ? `#/${route.page}` : '';
@@ -100,32 +109,46 @@ export function useRoutes({ enabled = true, current = '', onOpen }) {
   const open = useRef(onOpen); open.current = onOpen;
   const latest = useRef(current); latest.current = current;
   const shown = useRef(''); // the address the studio last wrote or opened
-  const held = useRef(null); // { from }: an address being opened; the bar waits until the page leaves `from`
+  const held = useRef(null); // an address being opened; the bar waits until the page leaves its previous destination
+  function writeHash(hash, replace) {
+    if (!hash) return;
+    if (window.location.hash !== hash) {
+      const url = `${window.location.pathname}${window.location.search}${hash}`;
+      try { window.history[replace ? 'replaceState' : 'pushState'](null, '', url); } catch { /* a sandboxed frame can refuse */ }
+    }
+    shown.current = hash;
+  }
   useEffect(() => {
     if (!enabled || typeof window === 'undefined') return undefined;
+    let timer;
     const take = () => {
       const hash = window.location.hash || '';
       if (!hash || hash === shown.current) return;
       const route = parseRoute(hash);
       if (!route) return;
-      shown.current = hash; held.current = { from: latest.current, at: Date.now() };
+      const pending = { from: latest.current };
+      shown.current = hash; held.current = pending;
       try { open.current?.(route); } catch { /* the page says what went wrong */ }
+      clearTimeout(timer);
+      // A refused route or an alias for the same screen may never change the current value.
+      timer = setTimeout(() => {
+        if (held.current !== pending) return;
+        held.current = null;
+        writeHash(latest.current, true);
+      }, 500);
     };
     take();
     window.addEventListener('hashchange', take);
     window.addEventListener('popstate', take);
-    return () => { window.removeEventListener('hashchange', take); window.removeEventListener('popstate', take); };
+    return () => { clearTimeout(timer); held.current = null; window.removeEventListener('hashchange', take); window.removeEventListener('popstate', take); };
   }, [enabled]);
   useEffect(() => {
     if (!enabled || !current || typeof window === 'undefined') return;
     const hold = held.current;
     // Still on the page that was showing when an address was opened (it may take a frame to arrive): leave the bar.
-    if (hold && current === hold.from && Date.now() - hold.at < 2000) return;
+    if (hold && current === hold.from) return;
     held.current = null;
-    if (window.location.hash === current) { shown.current = current; return; }
-    const url = `${window.location.pathname}${window.location.search}${current}`;
-    try { window.history[hold || !shown.current ? 'replaceState' : 'pushState'](null, '', url); } catch { /* a sandboxed frame can refuse */ }
-    shown.current = current;
+    writeHash(current, Boolean(hold || !shown.current));
   }, [enabled, current]);
 }
 

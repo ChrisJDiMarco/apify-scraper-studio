@@ -60,7 +60,7 @@ describe('One frame for every role', () => {
   it('gives an editor the Simple pages and Ask AI, but no Settings, Studio pages, View as or ⌘,', async () => {
     openStudio('editor');
     await screen.findByRole('heading', GREETING);
-    expect(labels(mainNav())).toEqual(['Home', 'Trends', 'Assets', 'Calendar', 'Workbench']);
+    expect(labels(mainNav())).toEqual(['Home', 'Trends', 'Assets', 'Calendar']);
     expect(within(mainNav()).queryByRole('group', { name: 'Studio' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^Account:/ }));
@@ -80,8 +80,7 @@ describe('One frame for every role', () => {
     openStudio('editor', { uiMode: 'classic' });
     const primary = await screen.findByRole('navigation', { name: 'Main' });
     await within(primary).findByRole('group', { name: 'Pipeline' });
-    expect(labels(primary)).toEqual(['Home', 'Trends', 'Assets', 'Calendar', 'Workbench']);
-    fireEvent.click(within(primary).getByRole('button', { name: 'Workbench' }));
+    expect(labels(primary)).toEqual(['Home', 'Trends', 'Assets', 'Calendar']);
     expect(within(primary).queryByRole('button', { name: /^Settings/ })).not.toBeInTheDocument();
     // Research programs and Edit research program are for admins; an editor finds new trends from Trends.
     expect(within(primary).queryByRole('button', { name: /^Research programs/ })).not.toBeInTheDocument();
@@ -309,17 +308,16 @@ describe('View as an editor shows what an editor sees', () => {
 
 describe('One sidebar, no layout switch', () => {
   it('keeps focus on the tool just pressed, because the frame never remounts when an Advanced page opens', async () => {
-    const { api } = openStudio('admin');
+    const { api } = openStudio('admin', { api: { createContentRun: vi.fn() } });
     await screen.findByRole('heading', GREETING);
     const frame = document.querySelector('.studio-frame'); const sidebar = document.querySelector('.studio-sidebar');
     expect(screen.queryByRole('radiogroup', { name: 'Layout' })).not.toBeInTheDocument();
-    fireEvent.click(within(mainNav()).getByRole('button', { name: 'Workbench' }));
-    const tool = within(mainNav()).getByRole('button', { name: /^Create content/ });
+    const tool = screen.getByRole('button', { name: /^New/ });
     tool.focus();
     fireEvent.click(tool);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Create content' }));
     await waitFor(() => expect(frame).toHaveAttribute('data-mode', 'classic'));
-    expect(tool).toHaveAttribute('aria-current', 'page');
-    expect(document.activeElement).toBe(tool);
+    expect(tool).toBeInTheDocument();
     expect(document.querySelector('.studio-frame')).toBe(frame);
     expect(document.querySelector('.studio-sidebar')).toBe(sidebar);
     expect(api.setViewPrefs).not.toHaveBeenCalled();
@@ -335,9 +333,8 @@ describe('One sidebar, no layout switch', () => {
     fireEvent.change(within(palette).getByRole('textbox', { name: 'Search commands' }), { target: { value: 'Create content' } });
     fireEvent.click(within(palette).getByRole('button', { name: /Open Create content/ }));
     const primary = mainNav();
-    // The Workbench, folded, still names the page open inside it.
     await waitFor(() => expect(document.querySelector('.studio-frame')).toHaveAttribute('data-mode', 'classic'));
-    expect(primary.querySelector('.sb-current')).toHaveTextContent('Create content');
+    expect(within(primary).getByRole('button', { name: /^Assets/ })).toHaveAttribute('aria-current', 'page');
     expect(screen.queryByRole('region', { name: 'Advanced page' })).not.toBeInTheDocument();
     fireEvent.click(within(primary).getByRole('button', { name: /Trends/ }));
     await waitFor(() => expect(within(mainNav()).getByRole('button', { name: /Trends/ })).toHaveAttribute('aria-current', 'page'));

@@ -41,7 +41,7 @@ async function fixture({ people, handlers = {}, ...extra } = {}) {
     ...handlers,
   }, people ? { people } : {});
   const logs = [];
-  const { server } = createStudioServer({ webRoot, password: PASSWORD, runtime, logEvent: (entry) => logs.push(entry), ...extra });
+  const { server } = createStudioServer({ webRoot, password: PASSWORD, sessionSecret: 'isolated test session key only', runtime, logEvent: (entry) => logs.push(entry), ...extra });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve)); const base = `http://127.0.0.1:${server.address().port}`;
   resources.push({ server, root });
   async function request(route, { method = 'GET', body, raw, cookie, origin = base, headers = {}, redirect = 'follow' } = {}) {
@@ -473,8 +473,12 @@ describe('one-time links, emailed links, Google sign-in and saved sessions', () 
     const second = await fixture({ people, sessionFile: file });
     expect((await (await second.request('/api/session', { cookie: alex })).json()).viewer.name).toBe('Alex');
     expect((await second.request('/api/session', { cookie: admin })).status).toBe(200);
+    await new Promise((resolve) => second.server.close(resolve));
+    const rotated = await fixture({ people, sessionFile: file, password: 'rotated-fixture-password-67890' });
+    expect((await rotated.request('/api/session', { cookie: alex })).status).toBe(200);
+    expect((await rotated.request('/api/session', { cookie: admin })).status).toBe(401);
     people.members.get('member-alex').sessionEpoch = 1;
-    expect((await second.request('/api/session', { cookie: alex })).status).toBe(401);
+    expect((await rotated.request('/api/session', { cookie: alex })).status).toBe(401);
   });
 
   describe('Google sign-in', () => {

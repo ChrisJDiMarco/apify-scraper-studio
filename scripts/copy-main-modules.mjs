@@ -48,6 +48,7 @@ const copies = [
   ['src/shared/anthropic-runner.js', 'out/shared/anthropic-runner.js'],
   ['src/shared/xlsx-writer.js', 'out/shared/xlsx-writer.js'],
   ['src/main/content-workspace.js', 'out/main/content-workspace.js'],
+  ['src/shared/share-of-voice.js', 'out/shared/share-of-voice.js'],
   // One workspace or several (package.json studioWorkspace, STUDIO_WORKSPACE_MODE).
   ['src/main/workspace-policy.js', 'out/main/workspace-policy.js'],
   ['src/main/workspace-legacy.js', 'out/main/workspace-legacy.js'],

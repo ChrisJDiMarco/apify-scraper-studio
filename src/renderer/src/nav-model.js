@@ -68,17 +68,6 @@ export const PIPELINE = Object.freeze([
   { id: 'assets', label: 'Assets', icon: 'Images', tools: [] },
   { id: 'calendar', label: 'Calendar', icon: 'CalendarDays', tools: [] },
 ]);
-// The unified Workbench (collapsed by default, remembered as Data tools was): collecting, creating, data work,
-// automation, then Activity. A research program is edited on its own page (program-page.jsx), so it has no items here.
-// Dataset reports opens the Advanced 'reports' page under its own id.
-// The General edition's collection Overview leads the data set (`general`).
-export const WORKBENCH = Object.freeze([
-  { id: 'collect', label: 'Collect', items: [{ id: 'search', label: 'Search platforms', icon: 'ScanSearch', data: true, spot: 'nav.search' }, { id: 'automation', label: 'Scrapers', icon: 'Globe', data: true, spot: 'nav.scrapers' }, { id: 'imports', label: 'Import research', icon: 'FileUp', data: true, spot: 'nav.imports' }] },
-  { id: 'create', label: 'Create', items: [{ id: 'create', label: 'Create content', icon: 'SquarePen', kind: 'studio', spot: 'nav.create' }, { id: 'templates', label: 'Brief starters', icon: 'FileStack', data: true, spot: 'nav.brief-starters' }] },
-  { id: 'analyze', label: 'Data', items: [{ id: 'dashboard', label: 'Overview', icon: 'Gauge', general: true }, { id: 'sheets', label: 'Sheets', icon: 'Sheet' }, { id: 'datasets', label: 'Datasets', icon: 'Database', data: true, spot: 'nav.datasets' }, { id: 'dataset-reports', target: 'reports', label: 'Dataset reports', icon: 'FileChartColumn', data: true, spot: 'nav.dataset-reports' }, { id: 'compare', label: 'Compare snapshots', icon: 'GitCompareArrows', data: true, spot: 'nav.compare' }, { id: 'chat', label: 'Ask your datasets', icon: 'MessagesSquare', data: true, spot: 'nav.ask-datasets' }] },
-  { id: 'automate', label: 'Automate', items: [{ id: 'playbooks', label: 'Playbooks', icon: 'LayoutGrid', spot: 'nav.playbooks', method: 'estimateWorkflow' }, { id: 'workflows', label: 'Workflows', icon: 'Workflow', spot: 'nav.workflows', method: 'estimateWorkflow' }] },
-  { id: 'activity', label: '', items: [{ id: 'runs', label: 'Activity', icon: 'Activity', data: true, spot: 'nav.activity' }] },
-]);
 // Data tools: three labelled sets, then Activity on its own. Ids are App's page ids; spots keep their old names.
 export const DATA_TOOLS = Object.freeze([
   { id: 'collect', label: 'Collect', items: [{ id: 'search', label: 'Search platforms', icon: 'ScanSearch', spot: 'nav.search' }, { id: 'automation', label: 'Scrapers', icon: 'Globe', spot: 'nav.scrapers' }, { id: 'imports', label: 'Import research', icon: 'FileUp', spot: 'nav.imports' }, { id: 'templates', label: 'Brief starters', icon: 'FileStack', spot: 'nav.brief-starters' }] },
@@ -225,7 +214,8 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
   // (viewer.nav, from Use Ask AI) too. A channel owner's Ask AI answers from their channel only (the server's side).
   const askAllowed = can('askHelp') && (layout === 'classic' || ((!listedMain || listedMain.has('ask')) && !hidden.has('ask')));
   // Research programs needs the content studio and Manage research programs (the server's nav says the same for roles).
-  const simpleAllowed = (id) => (!listedMain || listedMain.has(id)) && !hidden.has(id) && (id !== 'programs' || (hasStudio && can('saveResearchProgram')));
+  const canSeeTrackedProgram = hasStudio && can('readShareOfVoice') && list(studio.programs).some((program) => mine(program) && program.shareOfVoiceEnabled);
+  const simpleAllowed = (id) => (id === 'programs' && canSeeTrackedProgram) || (!listedMain || listedMain.has(id)) && !hidden.has(id) && (id !== 'programs' || (hasStudio && can('saveResearchProgram')));
 
   // Live work and warnings, from state; counts of work waiting on this person, from the caller.
   const researchRuns = list(studio.researchRuns).filter(mine);
@@ -281,11 +271,7 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
       return [item(stage, { kind: 'simple', stage: true, children, ...marks(stage.id) })];
     });
     if (stages.length) groups.push({ id: 'pipeline', label: 'Pipeline', collapsible: false, open: true, pipeline: true, items: stages });
-    const subgroups = WORKBENCH.map((set) => ({ id: set.id, label: set.label, items: set.items.filter(toolAllowed).map((page) => item(page, {
-      kind: page.kind || 'app', target: page.target || page.id, ...(page.section ? { section: page.section } : {}), ...marks(page.id),
-      ...(page.id === 'workflows' ? { ...(workflowsWaiting ? { badge: workflowsWaiting, badgeLabel: `${workflowsWaiting} waiting on you` } : {}), live: workflowRunning, liveLabel: 'a workflow is running' } : {}),
-    })) })).filter((set) => set.items.length);
-    if (subgroups.length) groups.push({ id: 'data', label: 'Workbench', collapsible: true, open: Boolean(dataToolsOpen), spot: 'nav.data-tools', items: subgroups.flatMap((set) => set.items), subgroups });
+
   } else if (layout === 'simple') {
     groups.push({ id: 'work', label: '', collapsible: false, open: true, items: SIMPLE_PAGES.filter((page) => simpleAllowed(page.id)).map((page) => item(page, {
       kind: 'simple',
@@ -337,7 +323,7 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
 
   // Quick create (the New menu and the palette's Create group). Admin-only rows come after a separator.
   const programs = list(studio.programs).filter(mine);
-  const imagesReady = Boolean(state?.keys?.OPENAI_API_KEY) || Boolean(studio.capabilities?.imagesConfigured);
+  const imagesReady = Boolean(studio.capabilities?.askImagesConfigured ?? studio.capabilities?.imagesConfigured);
   const preview = Boolean(viewer.preview);
   const assetsPossible = modes.includes('simple') && simpleAllowed('assets');
   const workspaces = list(studio.workspaces);
@@ -345,13 +331,12 @@ export function buildNav({ viewer: given, layout = 'simple', state = {}, counts 
     hasStudio && can('startResearchRun') && { id: 'research', label: 'Find new trends', icon: 'Radar', hint: programs.length ? 'Runs a research program. You’ll see the cost first.' : 'Set up a research program first.', section: 'main', choices: programs.length > 1 ? programs.map((program) => ({ id: program.id, label: program.name || 'Untitled program' })) : [], programId: programs.length === 1 ? programs[0].id : '' },
     askAllowed && can('startQuickScan') && { id: 'quick-scan', label: 'Quick scan', icon: 'ScanSearch', hint: 'A small, recent scan, sized and priced by Ask AI.', section: 'main' },
     assetsPossible && can('planAssetKit') && can('createAssetKit') && { id: 'assets', label: 'Channel assets', icon: 'Images', hint: 'From a report, a Google Doc or pasted text.', section: 'main' },
-    hasStudio && modes.includes('classic') && !hidden.has('create') && can('createContentRun') && { id: 'content', label: 'Content from a report', icon: 'SquarePen', hint: unified ? 'Opens Create content, in the Workbench.' : 'Opens Create content in the Advanced layout.', section: 'main' },
+    hasStudio && modes.includes('classic') && !hidden.has('create') && can('createContentRun') && { id: 'content', label: 'Create content', icon: 'SquarePen', hint: 'Choose a report, a document or a brief and turn it into drafts.', section: 'main' },
     askAllowed && can('createHelpImage') && (imagesReady
       ? { id: 'picture', label: 'Picture', icon: 'ImagePlus', hint: 'Ask AI drafts it with you. You see the cost first.', section: 'main' }
       : settingsAllowed ? { id: 'picture', label: 'Picture', icon: 'ImagePlus', hint: 'Pictures are off. Turn them on in Settings.', section: 'main' }
         : { id: 'picture', label: 'Picture', icon: 'ImagePlus', hint: 'Ask an admin to turn on pictures.', section: 'main', disabled: true, title: 'Pictures are off for your team.' }),
     hasStudio && !hidden.has('research') && can('saveResearchProgram') && { id: 'program', label: 'Research program', icon: 'Radar', hint: 'What to follow, the window and the budgets.', section: 'admin' },
-    hasStudio && !hidden.has('playbooks') && can('applyPlaybook') && { id: 'playbook', label: 'Playbook', icon: 'LayoutGrid', hint: 'Research, approvals, reports and assets set up in one go. You see the cost first.', section: 'admin' },
     // Inviting is the browser studio's (People on the Mac has no invite), so the Mac never offers it.
     viewer.web && groups.some((group) => group.items.some((row) => row.id === 'people' || list(row.children).some((child) => child.id === 'people'))) && (can('inviteMembers') || can('saveMember')) && { id: 'person', label: 'Person', icon: 'UserPlus', hint: 'Invite someone and choose their role.', section: 'admin' },
     viewer.isSuperAdmin && isRealAdmin(viewer) && workspaces.length > 0 && studio.workspacePolicy?.mode !== 'single' && can('saveContentWorkspace') && can('selectContentWorkspace') && { id: 'workspace', label: 'Workspace', icon: 'Building2', hint: 'A separate set of programs, trends and reports.', section: 'admin' },

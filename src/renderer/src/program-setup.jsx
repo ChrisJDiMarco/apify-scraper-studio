@@ -165,7 +165,7 @@ export function ProgramSetup({ api, workspace, firstRun = false, onClose, onSave
           <label className="studio-field"><span>Collection cap per run (USD)</span><input type="number" min={1} max={1000} value={schedule.collectionUsd} onChange={set(setSchedule)('collectionUsd')} /></label>
           <label className="studio-field"><span>AI cap per run (USD)</span><input type="number" min={1} max={1000} value={schedule.aiUsd} onChange={set(setSchedule)('aiUsd')} /></label>
         </div>
-        <p className="studio-hint">A run never spends past these caps, and Run now shows its estimate first. Change anything later in Workbench › Edit research program.</p>
+        <p className="studio-hint">A run never spends past these caps, and Run now shows its estimate first. Change anything later in Research programs → Edit.</p>
       </>}
       {STEPS[step][0] === 'review' && <dl className="program-setup-review">
         <dt>Program</dt><dd>{name || '—'}</dd>

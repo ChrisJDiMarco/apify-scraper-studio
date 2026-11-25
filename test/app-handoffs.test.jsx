@@ -120,7 +120,7 @@ describe('Opening a run shows that run', () => {
   it('the Working popover’s Open selects the live run, not the newest program’s run', async () => {
     const live = { id: 'r3', workspaceId: 'general', programId: 'p2', title: 'Live run of older', status: 'running', stage: 'collecting', createdAt: '2026-10-01T00:00:00Z' };
     await boot({ programs: [newest, older], researchRuns: [runOfNewest, live] }, { uiMode: 'classic' });
-    side('data-tools'); side('create'); // from an Advanced page, Open shows the run where its progress is (from Simple it opens Home)
+    window.location.hash = '#/workbench/create'; // from an Advanced page, Open shows the run where its progress is (from Simple it opens Home)
     await h1('Create content');
     fireEvent.click(document.querySelector('[data-spot="top.working"]'));
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'Working now' })).getByRole('button', { name: 'Open Live run of older' }));
@@ -241,8 +241,7 @@ describe('Requests are spent once their page is left', () => {
     await h1('Assets');
     // A research run started meanwhile: a plain visit to Sheets opens it, as Sheets does for new runs.
     listWorkbooks.mockResolvedValue([listing('r1', '2026-10-11T00:00:00Z'), listing('r9', '2026-10-13T00:00:00Z')]);
-    side('data-tools'); // Sheets is in the Workbench
-    side('sheets');
+    window.location.hash = '#/workbench/sheets';
     await waitFor(() => expect(readWorkbook).toHaveBeenCalledWith({ workbookId: 'r9' }));
   });
 
@@ -261,11 +260,11 @@ describe('Requests are spent once their page is left', () => {
 });
 
 describe('Links and openers land on what they name', () => {
-  it('New › Content from a report opens Create content on Use a report', async () => {
+  it('New › Create content opens Create content on Use a report', async () => {
     openStudio('admin', { uiMode: 'classic', api: { createContentRun: vi.fn() } });
     await h1(GREETING.name);
     fireEvent.click(document.querySelector('[data-spot="nav.new"]'));
-    fireEvent.click(await screen.findByRole('menuitem', { name: /Content from a report/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Create content/ }));
     await h1('Create content');
     expect(screen.getByRole('button', { name: /Use a report/ })).toHaveAttribute('aria-pressed', 'true');
   });
@@ -273,7 +272,7 @@ describe('Links and openers land on what they name', () => {
   it('the Working popover’s Open on a live channel-asset set opens its folder in Assets, even from an Advanced page', async () => {
     openStudio('admin', { uiMode: 'classic' });
     await h1(GREETING.name);
-    side('data-tools'); side('create');
+    window.location.hash = '#/workbench/create';
     await h1('Create content');
     fireEvent.click(document.querySelector('[data-spot="top.working"]'));
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'Working now' })).getByRole('button', { name: 'Open Local packs shrink' }));

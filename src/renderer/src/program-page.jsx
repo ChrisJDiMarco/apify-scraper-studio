@@ -18,6 +18,7 @@ import { formatDate, friendlyMessage, number } from './ui.jsx';
 import { researchCostLinesFrom } from './studio-actions.js';
 import { PROGRAM_GROUPS, ProgramEditorFields, checkDraft, draftKey, programDraft, programPayload } from './program-editor.jsx';
 import { scheduleSummary, scheduledDate } from './program-summary.js';
+import { ShareOfVoice } from './share-of-voice.jsx';
 import './program-drawer.css';
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -26,7 +27,7 @@ const conflictOf = (error) => error?.status === 409 || error?.code === 'saveConf
 const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value) || 0);
 // Shorter names on the tabs than the form's own group titles.
 const TAB_LABELS = { basics: 'Name & focus', sources: 'Sources', when: 'Schedule', budgets: 'Budget', ai: 'AI models', automation: 'Automation', advanced: 'Advanced' };
-export const PROGRAM_TABS = Object.freeze([['runs', 'Runs'], ...PROGRAM_GROUPS.map(([id, label]) => [id, TAB_LABELS[id] || label])]);
+export const PROGRAM_TABS = Object.freeze([['runs', 'Runs'], ['share-of-voice', 'Share of voice'], ...PROGRAM_GROUPS.map(([id, label]) => [id, TAB_LABELS[id] || label])]);
 export const programTab = (value) => (PROGRAM_TABS.some(([id]) => id === value) ? value : 'runs');
 const RUN_STATUS = { queued: 'Queued', running: 'Running', 'awaiting-review': 'Waiting for your OK', succeeded: 'Finished', partial: 'Finished in part', failed: 'Stopped', cancelled: 'Cancelled' };
 const RUN_TONE = { queued: 'working', running: 'working', 'awaiting-review': 'action', succeeded: 'done', partial: 'attention', failed: 'attention', cancelled: 'muted' };
@@ -63,7 +64,8 @@ export function ProgramPage({ program, missing = false, workspace, state = {}, a
   const codex = state.contentStudio?.capabilities?.aiProvider === 'codex';
   const seeCosts = hasCapability(viewer, 'seeCosts');
   // Spending caps are for roles that see costs, here as in the header and on Research programs.
-  const tabs = seeCosts ? PROGRAM_TABS : PROGRAM_TABS.filter(([id]) => id !== 'budgets');
+  const hasVoice = typeof api.readShareOfVoice === 'function' && (mayEdit || program?.shareOfVoiceEnabled);
+  const tabs = PROGRAM_TABS.filter(([id]) => (id !== 'budgets' || seeCosts) && (id !== 'share-of-voice' || hasVoice));
   const shown = tabs.some(([id]) => id === programTab(tab)) ? programTab(tab) : 'runs';
 
   useEffect(() => { guard.set(guardKey, dirty); }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -140,7 +142,7 @@ export function ProgramPage({ program, missing = false, workspace, state = {}, a
   }
   const status = dirty ? 'Unsaved changes' : note;
 
-  return <div className="simple-page program-page" data-spot="program.page">
+  return <div className="simple-page program-page" data-view={shown} data-spot="program.page">
     <header className="trend-page-head">
       <div className="trend-page-top"><button type="button" className="simple-back" onClick={leave}><ArrowLeft size={15} aria-hidden="true" />Research programs</button></div>
       <div className="trend-page-title">
@@ -151,6 +153,7 @@ export function ProgramPage({ program, missing = false, workspace, state = {}, a
             : canRunNow && <button type="button" className="simple-primary" data-spot="program.run" title={dirty ? 'Save your changes first' : undefined} {...writeProps(viewer, busy || dirty || saving || Boolean(live))} onClick={() => onStartResearch(program)}><Radar size={15} aria-hidden="true" />Run now</button>}
         </div>
       </div>
+      {shown === 'share-of-voice' && <label className="voice-program-sections"><span className="sr-only">Program section</span><select value={shown} onChange={(event) => onTab?.(event.target.value)}>{tabs.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>}
       <div className="simple-segment trend-page-tabs" role="tablist" aria-label="This program">
         {tabs.map(([id, label]) => <button type="button" role="tab" key={id} id={`program-tab-${id}`} aria-selected={shown === id} aria-controls="program-panel" onClick={() => onTab?.(id)}>{label}{id === 'runs' && rows.length > 0 && <span className="trend-tab-count">{number(rows.length)}</span>}{error?.group === id && <span className="pd-chip-dot" aria-label=", has a problem" />}</button>)}
       </div>
@@ -169,8 +172,9 @@ export function ProgramPage({ program, missing = false, workspace, state = {}, a
       </table></div>
         : <div className="simple-empty"><p>This program hasn’t run yet.{canRunNow ? ' Run now reads the sources it follows and brings back the trends it finds.' : ''}</p></div>)}
 
+      {shown === 'share-of-voice' && <ShareOfVoice api={api} program={program} viewer={viewer} editable={mayEdit} brand={workspace?.knowledge?.name || ''} />}
       {/* Every group stays mounted (one draft, and checks that cross groups); the tab decides which one shows. */}
-      <form className="pd-sheet pp-fields" data-show={shown} hidden={shown === 'runs'} noValidate onSubmit={save}>
+      <form className="pd-sheet pp-fields" data-show={shown} hidden={shown === 'runs' || shown === 'share-of-voice'} noValidate onSubmit={save}>
         <fieldset disabled={saving || preview || !mayEdit}>
           <ProgramEditorFields grouped idPrefix="pp" draft={draft} setDraft={setDraft} capabilities={state.contentStudio?.capabilities || {}} api={api} canEstimate={can('estimateResearchProgram')} onEdit={() => setError(null)} onEstimate={(result) => { estimate.current = result; }} nameRef={nameRef} errorGroup={error?.group || ''} />
         </fieldset>

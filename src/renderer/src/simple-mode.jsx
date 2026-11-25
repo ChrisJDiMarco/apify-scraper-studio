@@ -9,7 +9,7 @@ import { Spotlight, spotFor } from './spotlight.jsx';
 import { DecidedBy, MOMENTUM_COPY, MomentumBadge, WhyItMatters, decisionOf } from './trend-pulse.jsx';
 import { TrendYesButton, channelLabel, fitsFor, routingChannels } from './trend-decision-sheet.jsx';
 import { WeeklyBriefing } from './weekly-briefing.jsx';
-import { ProgramsPage } from './programs-page.jsx';
+import { ChannelPrograms, ProgramsPage } from './programs-page.jsx';
 import { TrendPage, tabOfDoc } from './trend-page.jsx';
 import { ProgramPage, programTab } from './program-page.jsx';
 import { rememberThumb, thumbSnapshot } from './thumb-cache.js';
@@ -304,7 +304,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   function showTour(steps) {
     const shown = list(steps).filter((step) => { const spot = spotFor(step?.target); return spot && (spot.layout !== 'classic' || spot.id.startsWith('nav.')); });
     if (shown.length) setTour({ steps: shown, key: Date.now() });
-    else onNotice?.('That’s on a Workbench page. Use the page button under the answer to open it.');
+    else onNotice?.('Use the page button under the answer to open that tool.');
   }
   // A request from the shell, acted on once: open a report, ask Ask AI (a question with its background, or words left in
   // the box to finish: New › Quick scan, New › Picture), or open Assets (a folder, or the asset dialog: New › Channel
@@ -333,7 +333,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   }
 
   const admin = settingsAllowed;
-  const imagesReady = Boolean(state.keys?.OPENAI_API_KEY);
+  const imagesReady = Boolean(studio.capabilities?.askImagesConfigured ?? studio.capabilities?.imagesConfigured);
   const latestTrend = (board.cards.find((card) => list(card.reportAssets).length) || waiting[0] || null)?.name || '';
   const starters = startersFor(can, { admin, imagesReady, waiting: waiting.length, approved: approved.length, reports: reports.length, stopped: stopped.length + list(studio.contentRuns).filter(mine).filter((run) => ['failed', 'partial'].includes(run.status)).length, latestTrend });
   const askCopy = { ...ASK_COPY, intro: askIntro(can, { admin }), ...(admin ? {} : { noPictures: `Pictures are off for your team. ${askAdmin} can turn them on.` }) };
@@ -344,7 +344,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
   const openTrendFolder = (assetId, kitRunId = '') => { const card = assetId ? board.cards.find((row) => list(row.reportAssets).some((asset) => asset.id === assetId)) : null; if (!card || !tabs.includes('trends')) return false; openTrend(card, 'assets', kitRunId); return true; };
   // The asset dialog's brand-image link opens Brand knowledge at its reference images (they moved there from Settings).
   const openBrandImages = can('addBrandImage') && onOpenTarget ? () => { onOpenTarget({ kind: 'page', page: 'knowledge' }); setTimeout(() => document.querySelector('.cs-brand-images')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 350); } : undefined;
-  const assetsView = (extra = {}) => <SimpleAssets onBrandImages={openBrandImages} onOpenTrendPage={openTrendFolder} api={api} web={web} tree={libraryTree} programs={programs} editionId={workspace?.editionId || 'general'} contentRuns={list(studio.contentRuns).filter(mine)} kitRuns={kitRuns} assets={list(studio.assets).filter(mine)} studioImages={studioImages} sources={kitSourcesFrom(reports, list(studio.contentRuns).filter(mine))} request={assetRequest} onRequestDone={() => setAssetRequest(null)} cache={imageCache} onCache={cacheThumb} action={action} busy={busy} imagesReady={imagesReady} googleReady={Boolean(studio.capabilities?.googlePublishConfigured)} askAdmin={askAdmin} onDraft={draftAsk} onAsk={ask} onSettings={openSettings} onOpenReport={(id) => openReport(id, 'assets')} onOpenTrends={() => go('trends')} onViewChange={(title, key = '') => { setAssetFolder(title); setAssetFolderKey(key); }} workspace={workspace} promptChanges={list(studio.promptChanges)} {...extra} />;
+  const assetsView = (extra = {}) => <SimpleAssets onCreateContent={shellNav.createFrom ? () => shellNav.createFrom() : undefined} onBrandImages={openBrandImages} onOpenTrendPage={openTrendFolder} api={api} web={web} tree={libraryTree} programs={programs} editionId={workspace?.editionId || 'general'} contentRuns={list(studio.contentRuns).filter(mine)} kitRuns={kitRuns} assets={list(studio.assets).filter(mine)} studioImages={studioImages} sources={kitSourcesFrom(reports, list(studio.contentRuns).filter(mine))} request={assetRequest} onRequestDone={() => setAssetRequest(null)} cache={imageCache} onCache={cacheThumb} action={action} busy={busy} imagesReady={imagesReady} googleReady={Boolean(studio.capabilities?.googlePublishConfigured)} askAdmin={askAdmin} onDraft={draftAsk} onAsk={ask} onSettings={openSettings} onOpenReport={(id) => openReport(id, 'assets')} onOpenTrends={() => go('trends')} onViewChange={(title, key = '') => { setAssetFolder(title); setAssetFolderKey(key); }} workspace={workspace} promptChanges={list(studio.promptChanges)} {...extra} />;
   // A trend's page: the header's next step does what the same button does on Trends, Home and Assets.
   function trendNext(card, next) {
     if (next.id === 'write-reports') return writeReports({ runId: next.runId || card.runId });
@@ -384,21 +384,26 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
     {(error || notice) && <div className={`simple-toast ${error ? 'error' : ''}`} role={error ? 'alert' : 'status'}><span>{error || notice}</span><button type="button" aria-label="Dismiss" onClick={onDismiss}><X size={15} /></button></div>}
     <main className="simple-main" data-tab={tab}>
       {loading ? <div className="simple-loading" role="status"><LoaderCircle className="spin" size={26} aria-hidden="true" /><p>Opening your studio…</p></div>
-        : tab === 'home' ? <WeeklyBriefing onInboxRead={shellNav.inboxRead} state={state} viewer={viewer} api={api} layout="simple" busy={busy} board={board} onNotice={onNotice} onOpenProgramPage={onOpenClassic ? (programId) => onOpenClassic('research', { programId }) : undefined} onOpenTarget={openTarget} onDecide={decideUndoable} onDecideWithNote={decideWithNote} onAsk={onAsk || undefined} onOpenTracker={can('readWorkbook') ? () => nav.openSheets('trend-tracker') : undefined} onStartResearch={startAndRemember} linkOrigin={linkOrigin} postsApi={postsApi} onWriteReports={canWriteReports(can) ? writeReports : undefined} onRetryRun={retryRun} onMakeAssets={can('planAssetKit') && can('createAssetKit') ? makeAssets : undefined} onCreate={shellNav.create} web={web} />
-        : tab === 'programs' ? (openProgramRow
+        : tab === 'home' ? <WeeklyBriefing onOpenResearchData={shellNav.openResearchData} onOpenActivity={shellNav.openActivity} onInboxRead={shellNav.inboxRead} state={state} viewer={viewer} api={api} layout="simple" busy={busy} board={board} onNotice={onNotice} onOpenProgramPage={onOpenClassic ? (programId) => onOpenClassic('research', { programId }) : undefined} onOpenTarget={openTarget} onDecide={decideUndoable} onDecideWithNote={decideWithNote} onAsk={onAsk || undefined} onOpenTracker={can('readWorkbook') ? () => nav.openSheets('trend-tracker') : undefined} onStartResearch={startAndRemember} linkOrigin={linkOrigin} postsApi={postsApi} onWriteReports={canWriteReports(can) ? writeReports : undefined} onRetryRun={retryRun} onMakeAssets={can('planAssetKit') && can('createAssetKit') ? makeAssets : undefined} onCreate={shellNav.create} web={web} />
+        : tab === 'programs' ? (!can('saveResearchProgram') ? <ChannelPrograms api={api} programs={programs} viewer={viewer} workspaceName={workspace?.name} initialProgramId={programOpen?.id || ''} initialTab={programOpen?.tab || ''} onProgramChange={(id, next) => setProgramOpen(id ? { id, tab: next || 'runs' } : null)} /> : openProgramRow
           ? <ProgramPage key={openProgramRow.id} program={openProgramRow} workspace={workspace} state={state} api={api} viewer={viewer} busy={busy} tab={programOpen.tab} onTab={(next) => withViewTransition(() => setProgramOpen((current) => (current ? { ...current, tab: next } : current)))}
             runs={list(studio.researchRuns).filter(mine).filter((run) => run.programId === openProgramRow.id && run.origin !== 'quick-scan').sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))}
             onOpenRun={(runId) => openTarget({ kind: 'run', id: runId, page: 'research' })} onStartResearch={startAndRemember} onBack={() => withViewTransition(() => setProgramOpen(null))} onNotice={onNotice} />
           : <ProgramsPage state={state} api={api} busy={busy} needsSetup={needsSetup} onStartResearch={startAndRemember} onOpenTarget={openTarget} onNotice={onNotice} onEditProgram={shellNav.editProgram} onAddProgram={shellNav.newProgram} />)
         : trendPage ? trendPage
         : reportId && tab === reportTab ? reader(tab === 'trends' ? 'Trends' : 'Assets')
-        : tab === 'trends' ? <SimpleTrends board={programBoard} waiting={waiting.filter(inProgram)} approved={approved.filter(inProgram)} programs={programs} program={shownProgram ? programs.find((row) => row.id === shownProgram) : program} programFilter={shownProgram} onProgramFilter={setTrendProgram} trendOf={trendOf} researchRuns={list(studio.researchRuns).filter(mine)} channels={channels} focusChannels={list(viewer.prefs?.focusChannels)} busy={busy} needsSetup={needsSetup} askAdmin={askAdmin} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk || undefined} onWriteReports={writeReports} onArchive={typeof api.setTrendArchived === 'function' ? archiveTrend : undefined} onStartResearch={startAndRemember} onOpenReport={openReport} onOpenTrend={openTrend} onOpenClassic={onOpenClassic} onSettings={openSettings} stopped={stopped.filter(inProgram)} onRetry={retryRun} postsApi={postsApi} monday={state.monday} mondayApi={api} />
+        : tab === 'trends' ? <SimpleTrends onOpenTracker={can('readWorkbook') && onOpenSheets ? () => onOpenSheets('trend-tracker') : undefined} board={programBoard} waiting={waiting.filter(inProgram)} approved={approved.filter(inProgram)} programs={programs} program={shownProgram ? programs.find((row) => row.id === shownProgram) : program} programFilter={shownProgram} onProgramFilter={setTrendProgram} trendOf={trendOf} researchRuns={list(studio.researchRuns).filter(mine)} channels={channels} focusChannels={list(viewer.prefs?.focusChannels)} busy={busy} needsSetup={needsSetup} askAdmin={askAdmin} onDecide={decideUndoable} onDecideWithNote={typeof api.decideResearchTheme === 'function' ? decideWithNote : undefined} onAsk={onAsk || undefined} onWriteReports={writeReports} onArchive={typeof api.setTrendArchived === 'function' ? archiveTrend : undefined} onStartResearch={startAndRemember} onOpenReport={openReport} onOpenTrend={openTrend} onOpenClassic={onOpenClassic} onSettings={openSettings} stopped={stopped.filter(inProgram)} onRetry={retryRun} postsApi={postsApi} monday={state.monday} mondayApi={api} />
         : tab === 'assets' ? assetsView()
         : tab === 'settings' ? setup(<div className="simple-page simple-settings"><div className="simple-page-head"><div><h1>Settings</h1><p>{settingsAllowed ? 'Connections, AI and integrations for the whole studio.' : 'Brand knowledge for the whole studio.'}</p></div></div>{page('settings')}</div>)
         : SHELL_PAGES.has(tab) ? setup(page(tab))
         : null}
-      <div className="simple-ask-wrap" hidden={tab !== 'ask' || loading}>
-        <HelpAssistant api={api} variant="page" open={tab === 'ask'} seed={seed} starters={starters} copy={askCopy} imagesReady={imagesReady} page={{ id: 'simple-mode', label: 'Simple mode', layout: 'simple', tab: lastTab, ...(lastTab === reportTab && reportId ? { report: reports.find((row) => row.id === reportId)?.title || '' } : {}), ...(lastTab === 'assets' && assetFolder ? { folder: assetFolder } : {}) }} onOpenPage={openPage} onOpenSettings={openSettings} onAction={runAiAction} onShow={showTour} state={state} nav={nav} onOpenAssets={() => go('assets')} onClose={() => go('home')} />
+      {tab === 'ask' && !loading && shellNav.datasetAsk && <div className="simple-segment dataset-ask-tabs" role="group" aria-label="Ask AI scope">
+        <button type="button" aria-pressed={!shellNav.datasetAsk.selected} onClick={shellNav.datasetAsk.close}>Studio</button>
+        <button type="button" aria-pressed={shellNav.datasetAsk.selected} onClick={() => shellNav.datasetAsk.open()}>Datasets</button>
+      </div>}
+      {tab === 'ask' && !loading && shellNav.datasetAsk?.selected && <div className="dataset-ask-scope">{shellNav.datasetAsk.render(shellNav.datasetAsk.close)}</div>}
+      <div className="simple-ask-wrap" hidden={tab !== 'ask' || loading || shellNav.datasetAsk?.selected}>
+        <HelpAssistant api={api} variant="page" open={tab === 'ask' && !shellNav.datasetAsk?.selected} seed={seed} starters={starters} copy={askCopy} imagesReady={imagesReady} page={{ id: 'simple-mode', label: 'Simple mode', layout: 'simple', tab: lastTab, ...(lastTab === reportTab && reportId ? { report: reports.find((row) => row.id === reportId)?.title || '' } : {}), ...(lastTab === 'assets' && assetFolder ? { folder: assetFolder } : {}) }} onOpenPage={openPage} onOpenSettings={openSettings} onAction={runAiAction} onShow={showTour} state={state} nav={nav} onOpenAssets={() => go('assets')} onClose={() => go('home')} />
       </div>
     </main>
     {spotHost ? createPortal(spotlight, spotHost) : spotlight}
@@ -414,7 +419,7 @@ export function SimpleMode({ api: apiIn, state, meta, busy, loading, notice, err
 // waits for the save); `onAsk(text)` adds "What people are saying" to a card that needs an OK, and `postsApi` (an api with
 // readTrendPosts) shows two real posts in place. `stopped` are research runs that failed before finding trends, each
 // with Try again (`onRetry(runId)`, behind its cost confirmation) and See why.
-function SimpleTrends({ board, waiting, approved, programs, program, programFilter = '', onProgramFilter, trendOf = () => null, researchRuns = [], channels = [], focusChannels = [], busy, needsSetup, askAdmin, onDecide, onDecideWithNote, onAsk, onWriteReports, onArchive, onStartResearch, onOpenReport, onOpenTrend, onOpenClassic, onSettings, stopped = [], onRetry, postsApi = null, monday = null, mondayApi = null }) {
+function SimpleTrends({ onOpenTracker, board, waiting, approved, programs, program, programFilter = '', onProgramFilter, trendOf = () => null, researchRuns = [], channels = [], focusChannels = [], busy, needsSetup, askAdmin, onDecide, onDecideWithNote, onAsk, onWriteReports, onArchive, onStartResearch, onOpenReport, onOpenTrend, onOpenClassic, onSettings, stopped = [], onRetry, postsApi = null, monday = null, mondayApi = null }) {
   const can = useCan();
   const viewer = useViewer();
   // The filter bar narrows both layouts, and is remembered for this person on this device (trend-filters.js).
@@ -470,6 +475,7 @@ function SimpleTrends({ board, waiting, approved, programs, program, programFilt
     <div className="simple-page-head"><div><h1>Trends</h1><p>Research finds them. {canDecide ? 'You decide which ones become reports.' : 'Editors decide which ones become reports.'}</p></div>
       <div className="simple-head-actions"><div className="simple-segment simple-layout-switch" role="tablist" aria-label="Show trends as">{[['list', 'List', LayoutList], ['board', 'Board', SquareKanban]].map(([id, label, Icon]) => <button type="button" role="tab" key={id} data-spot={`trends.layout-${id}`} aria-selected={layout === id} onClick={() => chooseLayout(id)}><Icon size={15} aria-hidden="true" />{label}</button>)}</div>
         {programs.length > 1 && <select className="simple-program-pick" data-spot="trends.program" aria-label="Research program" title={canResearch && !programFilter && program ? `Find new trends runs “${program.name}”` : undefined} value={programFilter} onChange={(event) => onProgramFilter(event.target.value)}><option value="">All programs</option>{programs.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select>}
+        {onOpenTracker && <button type="button" className="simple-quiet" onClick={onOpenTracker}><TrendingUp size={15} aria-hidden="true" />Trend tracker</button>}
         <MondayStatusLine monday={monday} api={mondayApi} compact canSetup={Boolean(onSettings)} disabled={busy} />
         {canResearch && <button type="button" data-spot="trends.find" className="simple-primary" title={blocked ? setupHint : undefined} {...writeProps(viewer, busy || blocked)} onClick={() => onStartResearch(program)}><Radar size={15} aria-hidden="true" />Find new trends</button>}</div></div>
 

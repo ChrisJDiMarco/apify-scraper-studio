@@ -42,10 +42,12 @@ app drops to `node` after reading them; the current Linux runtime uses that priv
 subprocesses from reading its starting environment. Do not change the container to start as `node` without also
 switching secrets to a root-only file or file descriptor (see `docs/web-deploy.md`).
 
-The process start command loads `GT_BACKUP_LAUNCHER_B64` into the root-owned
-`/run/golden-thread-backups/runner.cjs` and runs its supervisor. The supervisor prepares disk ownership,
-takes and verifies a pre-start backup, then starts `scripts/studio-web.cjs`. The app drops to `node` as before.
-Keep this process start command when deploying GitHub updates.
+For the first deployment of the image that includes the supervisor, change Sevalla's process start command to
+`node /app/scripts/backup-supervisor.cjs`. The launcher and web code then come from the same image. The supervisor
+prepares disk ownership, takes and verifies a pre-start backup, then starts `scripts/studio-web.cjs`. The app drops
+to `node` as before. After verifying deployment, remove the obsolete `GT_BACKUP_LAUNCHER_B64` variable. Keep the
+other `GT_BACKUP_*` settings. To roll back to an image built before this change, restore its original process command
+and encoded launcher from the previous release first.
 
 `STUDIO_AI_CONCURRENCY=1` limits concurrent AI requests on the small instance. This does not cap total spending.
 Personal links are bearer credentials: the admin should provision only `semrush.com` addresses. Password/link
@@ -111,8 +113,8 @@ can trigger and inspect deployments manually.
 The supervisor automatically takes a pre-start backup while the studio is stopped, before the new app process
 opens the data folder. It verifies that backup before starting the app. If backup storage is unavailable or the
 backup fails verification, startup fails; fix the backup problem before retrying. Reuse the existing disk,
-secrets, backup environment variables and process start command. Allow running work to drain when replacing
-the instance; password/link sessions must sign in again after restart. Check `/readyz`, sign-in, saved settings
+secrets and backup configuration, with the image's process command above. Allow running work to drain when replacing
+the instance. Unexpired sessions persist on the existing disk. Check `/readyz`, sign-in, saved settings
 and People after deployment.
 
 Keep the last working image/commit. A rollback that changes the stored-data format may also require restoring
@@ -123,11 +125,13 @@ the corresponding backup. Never delete the disk when replacing a container or de
 - Bucket: **Golden Thread Backups**, `<bucket name>`, ID `<id>`.
 - Private Sevalla object storage in Eastern North America; public access is off.
 - Nightly at **2 a.m. America/Los_Angeles**; on the spring DST day when 2 a.m. does not exist, it runs at 3 a.m.
-- Retains the newest **14 daily archives**, plus **3 pre-start/manual deployment archives**.
+- Retains the newest **14 verified daily archives**, plus **3 verified pre-start/manual deployment archives**.
 - A backup runs in the same container as the app; there is no separately billed worker or cron process.
 - Runs the app's `studio-backup.cjs`, encrypts the archive with AES-256-GCM, uploads it over HTTPS, downloads it
   again, compares SHA-256, decrypts it, and actually restores it into an isolated temporary folder. Live data is
-  never replaced by verification. Old backups are pruned only after the new backup passes these checks.
+  never replaced by verification. The launcher writes a `.verified.json` receipt beside a `golden-thread/v2/`
+  archive only after it passes. Retention counts archives with those receipts. Older `v1` backups and uploads left
+  without a receipt are preserved for manual review and still count against the storage budget.
 - Nightly backups are live copies that must settle. They are not strict filesystem snapshots. Pre-start backups
   are taken with no running studio process. No backup contains the studio encryption key or backup storage keys.
 - Temporary archive and recovery files are deleted after each attempt. Insufficient scratch-disk space,
@@ -171,19 +175,17 @@ In Sevalla's root web terminal, or through the MCP process-exec operation:
 
 ```sh
 # Extra deployment backup, including upload/download/decrypt/isolated-restore checks.
-node /run/golden-thread-backups/runner.cjs --once
+node /app/scripts/backup-supervisor.cjs --once
 
 # Manually exercise the daily backup path (counts toward the 14 daily archives).
-node /run/golden-thread-backups/runner.cjs --once --daily
+node /app/scripts/backup-supervisor.cjs --once --daily
 
 # Last successful backup receipt; contains no credentials.
 cat /run/golden-thread-backups/last-success.json
 ```
 
-The launcher source is `deploy/sevalla/backup-supervisor.cjs`; its focused tests run with
-`npm test -- deploy/sevalla/backup-supervisor.test.mjs`. To change it, base64-encode that file into the
-`GT_BACKUP_LAUNCHER_B64` runtime variable and restart the current build. It lives in runtime configuration,
-so a regular upstream GitHub deployment retains it without modifying the upstream image.
+The launcher source is `deploy/sevalla/backup-supervisor.cjs`. Run its tests with
+`npm test -- deploy/sevalla/backup-supervisor.test.mjs`. Changes ship in the next web image.
 
 ### Disaster recovery
 

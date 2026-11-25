@@ -5,7 +5,7 @@
 // Work belongs to a program through its research run: a research run carries programId; a trend's report run names its
 // research run (researchRunId, or the run's reportRunIds); a channel-asset set or a Create content draft follows the
 // report it was made from; a file follows its run. Work that belongs to no program (a draft from a pasted brief, a set
-// made from a Google Doc, a dataset) is everyone's.
+// made from a Google Doc, a standalone dataset) is everyone's.
 //
 // scopeOf(viewer) → Set of program ids, or null for "every program"
 // indexStudio({ researchRuns, contentRuns, assets, themes }) → { ofRun(id), ofAsset(id), ofTheme(id) } (program ids, '' none)
@@ -73,6 +73,7 @@ function scopeStudio(studio, scope) {
     ...studio,
     programs: list(studio.programs).filter((program) => scope.has(program?.id)),
     researchRuns, contentRuns, assets, themes,
+    ...(Array.isArray(studio.availableDatasets) ? { availableDatasets: studio.availableDatasets.filter((row) => allowed(scope, row.programId)) } : {}),
     ...(Array.isArray(studio.workflows) ? { workflows: studio.workflows.filter((flow) => allowed(scope, flow?.steps?.[0]?.programId || '')) } : {}),
     // The report picker (Create content) and maps keyed by a report's or run's id: note counts, Drive links.
     ...(Array.isArray(studio.availableReports) ? { availableReports: studio.availableReports.filter((row) => allowed(scope, index.ofAsset(row?.assetId || row?.id))) } : {}),

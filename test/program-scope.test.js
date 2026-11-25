@@ -20,6 +20,7 @@ const studio = {
     { id: 'c-pasted' },
   ],
   assets: [{ id: 'a-report', runId: 'c-report' }, { id: 'a-weekly', runId: 'c-weekly-report' }, { id: 'a-kit', runId: 'c-kit' }, { id: 'a-draft', runId: 'c-draft' }, { id: 'a-pasted', runId: 'c-pasted' }],
+  availableDatasets: [{ id: 'd-pulse', programId: 'pulse' }, { id: 'd-weekly', programId: 'weekly' }, { id: 'd-import' }],
   themes: [{ id: 't-aio' }, { id: 't-local' }],
   workflows: [{ id: 'f-pulse', steps: [{ programId: 'pulse' }] }, { id: 'f-weekly', steps: [{ programId: 'weekly' }] }],
   adoptionsByTheme: { 't-aio': { blog: {} }, 't-local': { blog: {} } },
@@ -49,6 +50,7 @@ describe('a person invited to Weekly only', () => {
     expect(seen.researchRuns.map((row) => row.id)).toEqual(['r-weekly']);
     expect(seen.contentRuns.map((row) => row.id)).toEqual(['c-weekly-report', 'c-pasted']);
     expect(seen.assets.map((row) => row.id)).toEqual(['a-weekly', 'a-pasted']);
+    expect(seen.availableDatasets.map((row) => row.id)).toEqual(['d-weekly', 'd-import']);
     expect(seen.themes.map((row) => row.id)).toEqual(['t-local']);
     expect(seen.workflows.map((row) => row.id)).toEqual(['f-weekly']);
     expect(Object.keys(seen.adoptionsByTheme)).toEqual(['t-local']);

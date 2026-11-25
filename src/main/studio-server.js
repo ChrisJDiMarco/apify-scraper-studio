@@ -14,7 +14,7 @@ const os = require('os');
 const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
-const { randomBytes, timingSafeEqual, createHash } = require('crypto');
+const { randomBytes, timingSafeEqual, createHash, createHmac } = require('crypto');
 const { methods } = require('../shared/studio-api-channels.json');
 const { copy: COPY, capabilities: CAPABILITIES = [], readMethods: READ_METHODS = [], paidMethods: PAID_METHODS = [] } = require('../shared/roles.json');
 const { effectiveRole } = require('./roles');
@@ -107,7 +107,7 @@ const peerOf = (req) => { const raw = String(req.socket?.remoteAddress || ''); r
 // Node's own errors (a missing file, a full disk, a bug) carry server paths and internals; people get a reference instead.
 const systemError = (error) => Boolean(error) && !error.status && (typeof error.syscall === 'string' || typeof error.errno === 'number' || /^ERR_[A-Z0-9_]+$/.test(String(error.code || '')) || error instanceof TypeError || error instanceof ReferenceError);
 
-function createStudioServer({ webRoot, password, secureCookies = false, runtime, transferDir, trustedEmailHeader = '', allowedEmailDomains = '', publicOrigin = '', logEvent = null, trustProxy = false, trustedProxies = '', proxySecret = '', maxEventStreams = DEFAULT_EVENT_STREAMS, maxStreamsPerPerson = DEFAULT_STREAMS_PER_PERSON, serverLog = null, lockRoot = '', minFreeMb = 256, buildId = null, streamTuning = {}, googleClientId = '', googleClientSecret = '', googleDomains = '', sessionFile = undefined, fetchImpl = globalThis.fetch } = {}) {
+function createStudioServer({ webRoot, password, sessionSecret, secureCookies = false, runtime, transferDir, trustedEmailHeader = '', allowedEmailDomains = '', publicOrigin = '', logEvent = null, trustProxy = false, trustedProxies = '', proxySecret = '', maxEventStreams = DEFAULT_EVENT_STREAMS, maxStreamsPerPerson = DEFAULT_STREAMS_PER_PERSON, serverLog = null, lockRoot = '', minFreeMb = 256, buildId = null, streamTuning = {}, googleClientId = '', googleClientSecret = '', googleDomains = '', sessionFile = undefined, fetchImpl = globalThis.fetch } = {}) {
   const trustedHeader = String(trustedEmailHeader || '').trim().toLowerCase();
   // Behind a proxy that rewrites Host, the page's public origin (https://studio.example.com) is the same-origin reference.
   const publicHost = publicOrigin ? new URL(publicOrigin).host : '';
@@ -148,23 +148,26 @@ function createStudioServer({ webRoot, password, secureCookies = false, runtime,
   const sessions = new Map(); const proxySessions = new Map(); const attempts = new Map(); const uploads = new Map(); const downloads = new Map(); const streams = new Set();
   const googlePending = new Map(); const emailAsks = new Map();
   const storePath = sessionFile !== undefined ? sessionFile : runtime.settings?.dataDir ? path.join(runtime.settings.dataDir, 'web-sessions.json') : '';
+  const passwordGeneration = !trustedHeader && sessionSecret ? createHmac('sha256', sessionSecret).update('studio password sessions\0').update(password).digest('hex') : '';
   let savedJson = '';
   function loadSessions() {
     if (!storePath) return;
     let parsed; try { parsed = JSON.parse(fs.readFileSync(storePath, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') slog.log('warn', 'sessions-unreadable', { code: error.code || 'parse' }); return; }
     const now = Date.now();
+    const keepPassword = Boolean(passwordGeneration) && parsed?.passwordGeneration === passwordGeneration;
     for (const [key, entry] of Array.isArray(parsed?.sessions) ? parsed.sessions : []) {
       if (typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key) || !entry || typeof entry !== 'object' || !(entry.expires > now)) continue;
-      if (entry.kind === 'password') sessions.set(key, { kind: 'password', expires: entry.expires, createdAt: entry.createdAt || 0, viewAs: entry.viewAs ?? null, workspaceId: typeof entry.workspaceId === 'string' ? entry.workspaceId : '' });
+      if (entry.kind === 'password' && keepPassword) sessions.set(key, { kind: 'password', expires: entry.expires, createdAt: entry.createdAt || 0, viewAs: entry.viewAs ?? null, workspaceId: typeof entry.workspaceId === 'string' ? entry.workspaceId : '' });
       else if (entry.kind === 'member' && typeof entry.memberId === 'string') sessions.set(key, { kind: 'member', memberId: entry.memberId, epoch: Number(entry.epoch) || 0, via: typeof entry.via === 'string' ? entry.via : 'link', expires: entry.expires, createdAt: entry.createdAt || 0, viewAs: entry.viewAs ?? null, workspaceId: typeof entry.workspaceId === 'string' ? entry.workspaceId : '' });
     }
-    savedJson = JSON.stringify({ version: 1, sessions: [...sessions] });
+    savedJson = JSON.stringify(parsed);
+    saveSessions();
   }
   // Writes the table when it changed (durable-write: temp file, fsync, rename; 0600). View as changes the entries in place, so the sweep
   // also saves. Best effort: a failed save only means a restart would sign people out.
   function saveSessions() {
     if (!storePath) return;
-    const text = JSON.stringify({ version: 1, sessions: [...sessions] }); if (text === savedJson) return;
+    const text = JSON.stringify({ version: 1, passwordGeneration, sessions: [...sessions].filter(([, entry]) => entry.kind !== 'password' || passwordGeneration) }); if (text === savedJson) return;
     try { writeFileDurable(storePath, text, { mode: 0o600 }); savedJson = text; }
     catch (error) { slog.log('warn', 'sessions-save-failed', { code: error.code || '' }); }
   }

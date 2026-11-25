@@ -259,7 +259,6 @@ export function ReportsView({ state, selectedDatasetId, initialReportPresetId, i
   return (
     <section className="view-grid reports-view report-workspace">
       <div className="panel report-builder">
-        <span className="data-eyebrow">MAKE SENSE OF YOUR DATA</span>
         <h3>Create a report</h3>
         <p>Choose your data and what you want to learn. AI will turn the results into a useful starting point.</p>
         <label className="report-field">Dataset<select value={datasetId} disabled={busy} onChange={(event) => onDatasetSelect(event.target.value)}>{state.datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{datasetLabel(dataset, { rows: true })}</option>)}</select></label>

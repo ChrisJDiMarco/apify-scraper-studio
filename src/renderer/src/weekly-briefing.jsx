@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, ArrowUp, Check, CircleCheck, ClipboardCopy, ExternalLink, FileText, ListChecks, LoaderCircle, Megaphone, Radar, Rocket, Sparkles, TrendingUp, TriangleAlert, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, Check, CircleCheck, ClipboardCopy, ExternalLink, FileText, History, ListChecks, LoaderCircle, Megaphone, Radar, Rocket, Sparkles, TrendingUp, TriangleAlert, X } from 'lucide-react';
 import { WhatChanged, DecidedBy, WhyItMatters, decisionOf, decidedLine } from './trend-pulse.jsx';
 import { TrendYesButton, channelLabel, routingChannels } from './trend-decision-sheet.jsx';
 import { copyText } from './role-screens.jsx';
@@ -119,7 +119,7 @@ export function briefingMarkdown(data, { changes = null, origin = '' } = {}) {
   return parts.length > 1 ? [...parts, studio].filter(Boolean).join('\n\n') : [`${title}\n\nQuiet week so far. New trends show up here after the next research run.`, studio].filter(Boolean).join('\n\n');
 }
 
-export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout = 'simple', busy = false, board = null, now = null, onInboxRead, onOpenTarget, onDecide, onDecideWithNote, onAsk, onOpenTracker, onStartResearch, linkOrigin = '', postsApi = null, onWriteReports, onRetryRun, onMakeAssets, onCreate, web: webIn, onNotice, onOpenProgramPage }) {
+export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout = 'simple', busy = false, board = null, now = null, onInboxRead, onOpenTarget, onDecide, onDecideWithNote, onAsk, onOpenTracker, onStartResearch, linkOrigin = '', postsApi = null, onWriteReports, onRetryRun, onMakeAssets, onCreate, web: webIn, onNotice, onOpenProgramPage, onOpenResearchData, onOpenActivity }) {
   const contextViewer = useViewer(); const viewer = viewerIn || contextViewer;
   const can = (method) => canCall(viewer, method); const canRun = (method) => canRunCall(viewer, method);
   const data = useMemo(() => briefingData({ state, viewer, now: now || new Date(), board }), [state.contentStudio, viewer, board, now]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -310,14 +310,16 @@ export function WeeklyBriefing({ state = {}, viewer: viewerIn, api = {}, layout 
       </div>
 
       <div className="wb-col wb-col-side">
-        {live.length > 0 && <section className="wb-card wb-working" aria-labelledby="wb-working-title" data-spot="home.working">
-          <header className="wb-card-head"><span className="wb-icon tone-ink" aria-hidden="true"><LoaderCircle className="spin" size={17} /></span><h2 id="wb-working-title"><span className="wb-title-text">Working now</span> <span className="wb-count">{number(live.length)}</span></h2></header>
+        {(live.length > 0 || onOpenActivity) && <section className="wb-card wb-working" aria-labelledby="wb-working-title" data-spot="home.working">
+          <header className="wb-card-head"><span className="wb-icon tone-ink" aria-hidden="true">{live.length ? <LoaderCircle className="spin" size={17} /> : <History size={17} />}</span><h2 id="wb-working-title"><span className="wb-title-text">Working now</span> {live.length > 0 && <span className="wb-count">{number(live.length)}</span>}</h2>{onOpenActivity && <button type="button" className="studio-link" data-spot="home.run-history" onClick={onOpenActivity}>Run history</button>}</header>{!live.length && <p className="wb-empty">No jobs running.</p>}
           <ul className="wb-list">{live.slice(0, 5).map((run) => { const progress = run.progress?.total > 0 ? Math.min(100, Math.round(((run.progress.completed ?? run.progress.done ?? 0) / run.progress.total) * 100)) : null; return <li key={run.id} className="wb-run">
             <button type="button" className="wb-title-link" onClick={() => open(run.kit ? { kind: 'folder', id: run.kit.sourceKey || '', page: 'assets' } : { kind: 'run', id: run.id, page: run.runKind === 'research' ? 'research' : 'create' })}>{run.kit ? `Channel assets · ${run.kit.sourceTitle || run.title}` : run.title || 'Research run'}</button>
             <small className="wb-muted">{run.status === 'queued' ? 'Starting soon' : run.message || (run.stage ? `${readable(run.stage)}…` : 'Working…')}</small>
             {progress !== null && <span className="wb-progress" role="progressbar" aria-label={`${run.title || 'Run'} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${Math.max(4, progress)}%` }} /></span>}
           </li>; })}</ul>
         </section>}
+
+        {onOpenResearchData && <section className="wb-card"><header className="wb-card-head"><span className="wb-icon tone-ink" aria-hidden="true"><ListChecks size={17} /></span><h2 className="wb-title-text">Research data</h2><button type="button" className="studio-link" data-spot="home.research-data" onClick={onOpenResearchData}>Open research data <ArrowRight size={14} /></button></header><p className="wb-muted">Search, import and explore collected datasets.</p></section>}
 
         {/* Research programs (admins who manage them): schedule, runs, sources and budgets, with Run now and a quick editor. */}
         {can('saveResearchProgram') && typeof api.saveResearchProgram === 'function' && <ProgramsPanel onAddProgram={onCreate ? () => onCreate('program') : undefined} state={state} viewer={viewer} api={api} busy={busy} needsSetup={Boolean(needsSetup)} onStartResearch={onStartResearch} onOpenTarget={onOpenTarget} onNotice={onNotice || ((message) => { setCopied(message); setTimeout(() => setCopied(''), 4800); })} onOpenProgramPage={onOpenProgramPage} />}

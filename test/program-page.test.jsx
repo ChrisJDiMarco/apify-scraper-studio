@@ -31,7 +31,7 @@ describe('runRows', () => {
 
 describe('programTab', () => {
   it('knows the page’s tabs and falls back to Runs', () => {
-    expect(PROGRAM_TABS.map(([id]) => id)).toEqual(['runs', 'basics', 'sources', 'when', 'budgets', 'ai', 'automation', 'advanced']);
+    expect(PROGRAM_TABS.map(([id]) => id)).toEqual(['runs', 'share-of-voice', 'basics', 'sources', 'when', 'budgets', 'ai', 'automation', 'advanced']);
     expect(programTab('budgets')).toBe('budgets');
     expect(programTab('prompts')).toBe('runs');
     expect(programTab('')).toBe('runs');

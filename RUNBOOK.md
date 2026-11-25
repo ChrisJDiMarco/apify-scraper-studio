@@ -197,8 +197,7 @@ Kubernetes ignores `HEALTHCHECK`: define the probes.
 `docker stop -t 150`, `systemctl stop` or a rollout sends SIGTERM: `/readyz` turns 503, tabs show "The studio is
 restarting for an update.", new paid work gets 503 `restarting`, running work gets `STUDIO_DRAIN_SECONDS`, then the
 server stops what's left (it shows as stopped and can be retried) and releases the data-folder lock last. A second
-signal stops at once. After the restart, open tabs offer a reload, and link and password users sign in again (sessions
-are in memory).
+signal stops at once. After a new build starts, open tabs offer a reload. Unexpired sessions are kept on the data volume.
 
 Workflows: the drain stops the workflow engine with the research scheduler; a scheduled workflow that comes due while
 the server is draining or stopped is not made up later (its next time is computed from the restart), and a run that
@@ -280,7 +279,7 @@ open the app again.
 | --- | --- |
 | A provider key (Apify, Anthropic, OpenAI, Google token) | Revoke it at the provider, then **Settings** → save the new one. Re-export setup files that carried the old Apify token. |
 | The Monday.com token | Make a new token on Monday (ideally for a shared studio account), then Settings → Monday.com → **Disconnect…** → **Disconnect Monday.com completely** (keep the item map) → **Connect** with the new one. The board link and item map stay; to re-create the instant-update webhooks press **Edit setup** → **Save changes**. Revoke the old token on Monday last. |
-| `STUDIO_PASSWORD` | Change it in the secrets file and restart. Every password session ends at restart. |
+| `STUDIO_PASSWORD` | Change it in the secrets file and restart. Existing admin-password sessions expire. Member sessions stay signed in. |
 | A person's sign-in link | People & access → the person → **Make a new sign-in link** (ends the old one) or **Turn off link**. |
 | `STUDIO_PROXY_SECRET` | Change it in the proxy's configuration and the secrets file together, then restart both. |
 | `STUDIO_SECRET_KEY` | There is no re-encryption tool. Note which keys are saved, put the new value in the secrets file, restart: saved keys now show as saved under a different key (the startup `secrets-check` log line names them). In Settings choose **Clear** for each and save it again. |

@@ -332,9 +332,10 @@ process mid-drain: Docker's default is 10 seconds (`docker stop -t`, Compose `st
 
 **After a deploy**, open tabs keep running the old page until reloaded. Every API answer carries the server's build
 (`X-Studio-Build`, and the first event of each live-update stream), so a tab that is older than the server shows "A new
-version of the studio is ready. Reload to use it." with a Reload button. Signed-in browsers stay signed in: sessions
-are saved in the data folder (`web-sessions.json`, only a SHA-256 of each cookie, 0600), so a restart or deploy signs
-nobody out.
+version of the studio is ready. Reload to use it." with a Reload button. Unexpired sessions stay signed in through a
+routine restart. The data folder keeps a SHA-256 of each cookie in `web-sessions.json` (0600). Admin-password sessions
+expire when the password changes and once when upgrading from a build that predates password rotation. Restoring a
+backup requires a fresh sign-in.
 
 **The data-folder lock** (`content-studio/.studio-owner.json`) keeps a second server off the same folder. It records
 the process, the host or container, the boot, and a heartbeat refreshed every 30 seconds. A lock left by a killed

@@ -8,6 +8,7 @@ const content = require('../shared/content-studio');
 const research = require('../shared/research-program');
 const researchPrompts = require('../shared/research-prompts');
 const intel = require('../shared/research-intel');
+const voice = require('../shared/share-of-voice');
 const { validateResearchSchedule, nextResearchScheduleAt, latestResearchScheduleAt, researchScheduleWindow } = require('../shared/research-schedule');
 // Golden Thread trend report + editorial toolkit (loaded on use so older hosts keep starting).
 const reports = () => require('../shared/research-reports');
@@ -83,7 +84,7 @@ const LEGACY_SEMRUSH_BRAND_FIELDS = Object.freeze({
 // onRunEvent (optional) hears when a run started from an Ask AI conversation reaches a point worth posting there (a quick
 // scan's trends report, trends waiting for an OK, reports written, a stop): { type, key, identityId, conversationId, run,
 // report?, error?, attempt? } → { messageId } | null (src/main/ask-followups.js). It never fails a run.
-function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, getCallerPrograms, trackJob, onRunEvent, routing: routingHost = null, generateVideo = null, hooks = {}, isWorkflowCall = () => false, workspacePolicy = null, saveCoalesceMs = 0, getWorkspaceId = () => '' } = {}) {
+function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], readDataset, emit = () => {}, cancelProvider = () => {}, generateImage, publishCampaign, capabilities = () => ({}), importSource, openFile, clock = () => new Date(), defaultWorkspaceId = 'general', actor = () => SYSTEM, getAiProvider, getCallerRole, getCallerCapabilities, getCallerPrograms, trackJob, onRunEvent, routing: routingHost = null, generateVideo = null, hooks = {}, isWorkflowCall = () => false, workspacePolicy = null, saveCoalesceMs = 0, getWorkspaceId = () => '', isDraining = () => false } = {}) {
   if (!root || typeof runAI !== 'function') throw new Error('Studio storage and AI host are required.');
   // One workspace or several (src/main/workspace-policy.js). Single mode keeps one workspace of the package's edition,
   // shown as policy.name (Main); the others are hidden (archived), never deleted. See migrateWorkspacePolicy below.
@@ -130,7 +131,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   let writtenAt = 0; let pendingWrite = null;
   function writeState() { if (pendingWrite) { clearTimeout(pendingWrite); pendingWrite = null; } writtenAt = Date.now(); write(stateFile, state); }
   function flushSave() { if (pendingWrite) writeState(); }
-  if (saveCoalesceMs > 0) process.once('exit', () => { try { flushSave(); } catch (_) { /* nothing left to do while exiting */ } });
+  if (saveCoalesceMs > 0) process.prependOnceListener('exit', () => { try { flushSave(); } catch (_) { /* nothing left to do while exiting */ } });
   function save() {
     if (!(saveCoalesceMs > 0)) write(stateFile, state);
     else if (!pendingWrite) {
@@ -274,6 +275,74 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   }
   function workspace(workspaceId = currentWorkspaceId(), enforce = true) { safeId(workspaceId); const result = state.workspaces.find(w => w.id === workspaceId); if (!result || (enforce && workspaceId !== currentWorkspaceId())) throw new Error('Select the workspace that owns this record.'); return result; }
   function owned(list, recordId) { safeId(recordId); const item = list.find(row => row.id === recordId); if (!item || item.workspaceId !== currentWorkspaceId()) throw new Error('Record not found in the selected workspace.'); return item; }
+  function scopedProgram(programId) {
+    const program = owned(state.programs, programId);
+    const allowed = callerPrograms();
+    if (allowed && !allowed.has(program.id)) throw new Error('Research program unavailable.');
+    return program;
+  }
+  const datasetOwner = (dataset) => state.datasetOwners[dataset.id] || dataset.workspaceId || datasetFallback();
+  function researchDatasets(workspaceId) {
+    const runs = new Map(state.researchRuns.filter((run) => run.workspaceId === workspaceId).map((run) => [run.id, run]));
+    return getDatasets().filter((dataset) => datasetOwner(dataset) === workspaceId).flatMap((dataset) => {
+      if (!dataset.researchRunId) return [dataset];
+      const programId = runs.get(dataset.researchRunId)?.programId;
+      return programId ? [{ ...dataset, programId }] : [];
+    });
+  }
+  function checkResearchDatasets(program, datasetIds) {
+    if (!Array.isArray(datasetIds) || datasetIds.length > 50) throw new Error('Choose up to 50 datasets.');
+    if (!datasetIds.length) return;
+    const allowed = new Set(researchDatasets(program.workspaceId).filter((dataset) => !dataset.programId || dataset.programId === program.id).map((dataset) => dataset.id));
+    if (datasetIds.some((id) => !allowed.has(id))) throw Object.assign(new Error('Choose datasets from this program or standalone datasets from this workspace.'), { status: 403 });
+  }
+  const voiceImportFile = (programId) => path.join(root, 'voice-imports', `${safeId(programId)}.json`);
+  function voiceImport(programId) {
+    try { return read(voiceImportFile(programId)); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; return { posts: [], importedAt: '' }; }
+  }
+  // Saved collections are immutable. Keep date bounds for history and only a small working set of post text in memory.
+  const voiceDatasets = new Map();
+  let voiceCacheSize = 0;
+  async function voiceDataset(dataset, workspaceId, planned, window, fixedEnd) {
+    const key = `${workspaceId}:${dataset.id}`;
+    const version = JSON.stringify([dataset.createdAt, dataset.itemCount, planned?.startDate, planned?.startAt, planned?.endDate]);
+    const cached = voiceDatasets.get(key);
+    if (cached?.version === version) {
+      if (cached.posts || !cached.lastDate || (window && (cached.lastDate < window.start || (fixedEnd && cached.firstDate > window.end)))) return cached;
+    }
+    const payload = await readDataset(dataset.id, { strict: true });
+    if (!Array.isArray(payload?.items)) throw new Error('Missing dataset rows.');
+    const posts = payload.items.map(voice.normalizePost).filter((post) => post && (
+      !planned || ((!planned.startAt || post.publishedAt >= planned.startAt) &&
+        (!planned.startDate || post.publishedAt.slice(0, 10) >= planned.startDate) &&
+        (!planned.endDate || post.publishedAt.slice(0, 10) <= planned.endDate))));
+    const size = posts.reduce((total, post) => total + 240 + post.id.length + post.author.length + post.url.length + post.text.length, 0);
+    const entry = { version, ...voice.postDateRange(posts), posts, size };
+    const previous = voiceDatasets.get(key);
+    if (previous?.posts) voiceCacheSize -= previous.size;
+    voiceDatasets.delete(key);
+    if (size <= 12 * 1024 * 1024) {
+      voiceDatasets.set(key, entry);
+      voiceCacheSize += size;
+    } else voiceDatasets.set(key, { ...entry, posts: null });
+    for (const record of voiceDatasets.values()) {
+      if (voiceCacheSize <= 12 * 1024 * 1024) break;
+      if (record.posts) { record.posts = null; voiceCacheSize -= record.size; }
+    }
+    if (voiceDatasets.size > 2000) {
+      const oldest = voiceDatasets.keys().next().value;
+      const record = voiceDatasets.get(oldest);
+      if (record.posts) voiceCacheSize -= record.size;
+      voiceDatasets.delete(oldest);
+    }
+    return { ...entry, posts };
+  }
+  function updateVoiceSetting(program, config) {
+    program.shareOfVoice = config;
+    program.shareOfVoiceEnabled = config.enabled;
+    save();
+  }
   function runRecord(runId) { return owned([...state.contentRuns, ...state.researchRuns], runId); }
   // A report edited in the studio keeps its generated files and adds <id>.edited.md and <id>.edited.html. Everything that
   // reads a report's text or page goes through assetFile or assetResult, so drafts, kits, exports, Drive and Ask AI all
@@ -340,11 +409,12 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   function publicRun(run) { const value = withoutAsk(copy(run)); if (run.type === 'research') { value.ownCostUsd = run.costUsd; value.costUsd += [...(run.reportRunIds || []).map(entry => entry.runId), ...(run.scanReport?.runId ? [run.scanReport.runId] : [])].reduce((sum, childId) => sum + (state.contentRuns.find(child => child.id === childId)?.costUsd || 0), 0); } return value; }
   function publicState() {
     const scoped = list => copy(list.filter(row => row.workspaceId === currentWorkspaceId()));
-    const datasets = getDatasets().filter(d => (state.datasetOwners[d.id] || d.workspaceId || datasetFallback()) === currentWorkspaceId()).map(d => ({ id: d.id, name: d.name, platform: d.platform, itemCount: d.itemCount, createdAt: d.createdAt }));
+    const datasets = researchDatasets(currentWorkspaceId()).map(d => ({ id: d.id, name: d.name, platform: d.platform, itemCount: d.itemCount, createdAt: d.createdAt, ...(d.programId ? { programId: d.programId } : {}) }));
     // Reference documents can be long; state carries their metadata and readReferenceDoc returns the text.
     // Brand reference images arrive grouped by picture set; readBrandImage returns a picture's bytes.
     const activeView = w => ({ ...w, referenceDocs: (w.referenceDocs || []).map(({ text, ...doc }) => ({ ...doc, characters: String(text || '').length })), brandImageSets: brandImages().brandImageFamilies(w.editionId).map(family => ({ ...family, images: (w.brandImages || []).filter(image => image.family === family.id) })) });
-    return { activeWorkspaceId: currentWorkspaceId(), customChannels: customChannels.customChannels(currentWorkspaceId()).map(({ id, name, short, formats }) => ({ id, name, short, formats: [...formats] })), channelFormats: channelFormats(state.workspaces.find(w => w.id === currentWorkspaceId())?.editionId || 'general'), workspaces: copy(state.workspaces.filter(w => !w.archived).map(w => w.id === currentWorkspaceId() ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), workspacePolicy: workspacePolicyView(), programs: scoped(state.programs).map(program => ({ ...program, schedule: program.schedule || validateResearchSchedule() })), researchRuns: state.researchRuns.filter(run => run.workspaceId === currentWorkspaceId()).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit', 'scan-report'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() }, promptChanges: recentPromptChanges() };
+    const programs = scoped(state.programs).map(({ shareOfVoice, ...program }) => ({ ...program, shareOfVoiceRevision: shareOfVoice?.revision || '', schedule: program.schedule || validateResearchSchedule() }));
+    return { activeWorkspaceId: currentWorkspaceId(), customChannels: customChannels.customChannels(currentWorkspaceId()).map(({ id, name, short, formats }) => ({ id, name, short, formats: [...formats] })), channelFormats: channelFormats(state.workspaces.find(w => w.id === currentWorkspaceId())?.editionId || 'general'), workspaces: copy(state.workspaces.filter(w => !w.archived).map(w => w.id === currentWorkspaceId() ? activeView(w) : { id: w.id, name: w.name, editionId: w.editionId, createdAt: w.createdAt, updatedAt: w.updatedAt })), workspacePolicy: workspacePolicyView(), programs, researchRuns: state.researchRuns.filter(run => run.workspaceId === currentWorkspaceId()).map(publicRun), contentRuns: scoped(state.contentRuns), themes: scoped(state.themes), assets: scoped(state.assets), availableDatasets: datasets, availableReports: scoped(state.assets).filter(a => ['evidence-report', 'editorial-toolkit', 'scan-report'].includes(a.deliverableId)).map(a => ({ id: a.id, assetId: a.id, title: a.title, createdAt: a.createdAt })), capabilities: { imagesConfigured: !!generateImage, googleConfigured: false, googlePublishConfigured: !!publishCampaign, ...capabilities() }, promptChanges: recentPromptChanges() };
   }
   // `interrupted`: the process stopped under the run (a deploy, a restart), which says nothing about the program. Its
   // schedule stays on and moves to the next occurrence from now, so nothing is bought again the moment the server is
@@ -623,7 +693,11 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     return { ...legacy, model: task.model || legacy.model, effort: task.route === 'codex' ? legacy.effort : task.effort, route: task.route, metered: task.metered };
   }
   // Pictures need an image provider on this host and a key in Settings (publicState's capabilities, without building it).
-  function picturesReady() { const extra = capabilities(); return Boolean(generateImage) && Boolean(extra.imagesConfigured ?? true); }
+  function picturesReady(taskId = 'pictures.kit-image') {
+    const { imagesConfigured, contentImagesConfigured } = capabilities();
+    const ready = taskId === 'pictures.content-image' ? contentImagesConfigured ?? imagesConfigured : imagesConfigured;
+    return Boolean(generateImage) && (ready ?? true);
+  }
   // Videos need the host's video maker and a ready connection for the video task (fal.ai).
   function videosReady() { const extra = capabilities(); return typeof generateVideo === 'function' && Boolean(extra.videosConfigured ?? false); }
   // The active workspace's research programs as Model routing reads them (their own stage choices; the newest one's report
@@ -845,14 +919,18 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     if (completed.length === deliverable.variants) return;
     const unresolved = job.imageCalls.some(call => (!call.callbackMode && call.status !== 'succeeded') || call.attempts.some(receipt => !completedIndices.has(receipt.variantIndex) && (['dispatched', 'unknown'].includes(receipt.status) || (receipt.status !== 'succeeded' && !knownCost(receipt)))));
     if (unresolved) throw new Error('An earlier image request may have been billed but has no saved result. Automatic repeat is blocked. Check the provider request receipts and billing before starting a new run; increasing this run budget does not resolve an unknown request.');
-    if (!generateImage || !publicState().capabilities.imagesConfigured) throw new Error('Connect the image provider in Settings to generate this image. Written outputs can complete independently.');
+    const taskId = run.kit ? 'pictures.kit-image' : 'pictures.content-image';
+    const imageProblem = routing.mediaProblem?.(taskId, { run });
+    if (!generateImage || imageProblem || (!routing.mediaProblem && !picturesReady(taskId))) {
+      throw new Error(imageProblem || 'Connect the image provider in Settings to generate this image. Written outputs can complete independently.');
+    }
     const allowance = Math.floor((run.maxBudgetUsd - run.reservedUsd) / Math.max(1, run.jobs.filter(row => row.status !== 'succeeded').length) * 100) / 100;
     if (allowance < .01) throw new Error('Image budget exhausted. Increase the total budget before retrying.');
     const call = { id: id('image-call'), status: 'running', allowanceUsd: allowance, callbackMode: false, attempts: [], startedAt: stamp() };
     job.imageCalls.push(call); imageAccounting(run, job); save();
     let failure;
     try {
-      const images = await generateImage({ task: runTask(run, run.kit ? 'pictures.kit-image' : 'pictures.content-image'), deliverable, runId: run.id, input, maxBudgetUsd: allowance, isCancelled: () => stopped.has(run.id), completedVariants: completed,
+      const images = await generateImage({ task: runTask(run, taskId), deliverable, runId: run.id, input, maxBudgetUsd: allowance, isCancelled: () => stopped.has(run.id), completedVariants: completed,
         onRequest: async receipt => {
           check(run);
           if (completedIndices.has(receipt?.variantIndex)) throw new Error('This image variant is already saved and must not be generated again.');
@@ -1120,7 +1198,10 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     if (fs.existsSync(file(run.id, 'evidence.json'))) evidence = read(file(run.id, 'evidence.json'));
     else {
       let all = [];
-      if (input.datasetIds.length) for (const datasetId of input.datasetIds) { check(run); const result = await readDataset(datasetId); all.push(...withRaw(result.items || [], result.rawItems).map(item => ({ ...item, datasetId }))); }
+      if (input.datasetIds.length) {
+        checkResearchDatasets(program, input.datasetIds);
+        for (const datasetId of input.datasetIds) { check(run); const result = await readDataset(datasetId); all.push(...withRaw(result.items || [], result.rawItems).map(item => ({ ...item, datasetId }))); }
+      }
       else {
         if (!collect) throw new Error('Source collection is unavailable on this host. Import a dataset first.');
         run.stage = 'collecting'; save(); const collection = await collect({ program, workspaceId: run.workspaceId, runId: run.id, isCancelled: () => stopped.has(run.id), onProgress: message => { run.message = message; save(); } });
@@ -1130,6 +1211,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
         if (collection.datasetIds?.length) { const rawById = new Map(); for (const datasetId of collection.datasetIds) { try { const stored = await readDataset(datasetId); for (const item of withRaw(stored.items || [], stored.rawItems)) if (item.raw) rawById.set(item.id, item.raw); } catch (_) { /* Normalized rows remain usable. */ } } all = all.map(item => (rawById.has(item.id) && !item.raw ? { ...item, raw: rawById.get(item.id) } : item)); }
       }
       evidence = research.prepareResearchEvidence({ runId: run.id, program, items: all }); write(file(run.id, 'evidence.json'), evidence); run.coverage = evidence.receipt;
+      const savedProgram = !quick && state.programs.find((row) => row.id === run.programId && row.workspaceId === run.workspaceId);
+      if (savedProgram?.shareOfVoiceEnabled) savedProgram.shareOfVoiceDataAt = stamp();
     }
     const discovery = research.buildDiscoveryBatches({ runId: run.id, items: evidence.items, batchSize: program.discoveryBatchSize });
     const tagging = research.buildAssignmentBatches({ runId: run.id, items: evidence.items, batchSize: program.taggingBatchSize, batchSizes: program.taggingBatchSizes });
@@ -1854,6 +1937,7 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
   // The latest prompt saves in this workspace (newest first) for the Inbox. Never fails the state.
   function recentPromptChanges() { try { return promptLab().recentChanges(20); } catch (_) { return []; } }
   function checkDueResearchSchedules() {
+    if (isDraining()) return [];
     const now = stamp(); const results = [];
     for (const program of state.programs) workspaceContext.run(program.workspaceId, () => {
       const schedule = program.schedule;
@@ -2137,12 +2221,114 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     },
     saveResearchProgram(payload) {
       const w = workspace(payload.workspaceId);
-      if (state.programs.some(p => p.id === payload.id && p.workspaceId !== w.id)) throw new Error('Program belongs to another workspace.');
-      const existing = state.programs.find(row => row.id === payload.id);
-      staleSave(existing, payload.baseUpdatedAt, 'this program');
       const p = { ...research.validateResearchProgram(payload), workspaceId: w.id, updatedAt: stamp() };
+      const existing = state.programs.find(row => row.id === p.id);
+      if (existing && existing.workspaceId !== w.id) throw new Error('Program belongs to another workspace.');
+      if (existing) scopedProgram(existing.id);
+      staleSave(existing, payload.baseUpdatedAt, 'this program');
+      if (existing?.shareOfVoice) Object.assign(p, { shareOfVoice: existing.shareOfVoice, shareOfVoiceEnabled: existing.shareOfVoice.enabled, shareOfVoiceDataAt: existing.shareOfVoiceDataAt });
       p.schedule = scheduleState(p.schedule, existing?.schedule);
       state.programs = state.programs.filter(row => row.id !== p.id); state.programs.push(p); save(); return copy(p);
+    },
+    saveShareOfVoice({ programId, config, revision } = {}) {
+      const program = scopedProgram(programId);
+      const previous = program.shareOfVoice;
+      if ((previous?.revision || '') !== (revision || '')) throw Object.assign(new Error('Tracking settings changed. Reopen them before saving.'), { status: 409 });
+      const next = { ...voice.validateTracking(config), revision: randomUUID() };
+      updateVoiceSetting(program, next);
+      return copy(next);
+    },
+    importShareOfVoice({ programId, csv } = {}) {
+      const program = scopedProgram(programId);
+      const batch = voice.csvPosts(csv);
+      const saved = voiceImport(program.id);
+      const merged = new Map(saved.posts.map((post) => [post.id, post]));
+      for (const post of batch.posts) merged.set(post.id, post);
+      if (merged.size > 100000) throw new Error('This program already holds the maximum of 100,000 imported posts.');
+      const target = voiceImportFile(program.id);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      const importedAt = stamp();
+      const imported = JSON.stringify({ importedAt, posts: [...merged.values()] });
+      if (Buffer.byteLength(imported) > 32 * 1024 * 1024) throw new Error('This program’s imported history has reached the 32 MB storage limit.');
+      writeBytes(target, imported);
+      program.shareOfVoiceDataAt = importedAt; save();
+      return { accepted: batch.posts.length, added: merged.size - saved.posts.length, skipped: batch.skipped, duplicates: batch.duplicates };
+    },
+    async readShareOfVoice({ programId, ...query } = {}) {
+      const program = scopedProgram(programId);
+      const config = program.shareOfVoice || { ...voice.validateTracking(), revision: '' };
+      const caps = callerCaps();
+      const mayConfigure = caps.has('*') || caps.has('managePrograms');
+      const settings = mayConfigure ? config : { enabled: config.enabled, source: config.source, terms: config.terms, brands: config.brands.map(({ name }) => ({ name })) };
+      if (!config.enabled) return { settings };
+      const now = clock();
+      if (config.source === 'import') {
+        const { posts, importedAt } = voiceImport(program.id);
+        const summary = voice.trackingSummary(config, posts, query, now);
+        const platforms = new Set(posts.filter((post) => post.publishedAt.slice(0, 10) >= summary.start && post.publishedAt.slice(0, 10) <= summary.end).map((post) => post.platform));
+        return { settings, ...summary, refreshedAt: importedAt, coverage: { platforms: [...platforms], failed: 0, partial: 0, datasets: importedAt ? 1 : 0 } };
+      }
+      const runs = state.researchRuns.filter((run) => run.workspaceId === program.workspaceId && run.programId === program.id && run.origin !== 'quick-scan');
+      const runById = new Map(runs.map((run) => [run.id, run]));
+      const windowOf = (run, capturedAt = '') => {
+        const planned = run?.collectionReceipt?.window || run?.window;
+        if (!planned) return null;
+        const capturedDay = String(capturedAt).match(/^\d{4}-\d{2}-\d{2}(?=T|$)/)?.[0] || '';
+        const endDate = [planned.endDate, capturedDay].filter(Boolean).sort()[0] || '';
+        return { ...planned, endDate };
+      };
+      const overlaps = (window, range) => !window || (!window.startDate || window.startDate <= range.end) && (!window.endDate || window.endDate >= range.start);
+      const datasets = new Map(researchDatasets(program.workspaceId).filter((dataset) => !dataset.researchRunId || runById.has(dataset.researchRunId)).map((dataset) => [dataset.id, dataset]));
+      const sources = new Map([...datasets.values()].filter((dataset) => runById.has(dataset.researchRunId)).map((dataset) => [dataset.id, dataset]));
+      // Runs that start with an existing dataset keep its ID in their input. Use the same workspace ownership as the picker.
+      for (const run of runs) {
+        if (run.collectionReceipt) continue;
+        let input;
+        try { input = read(runPath(run.id, 'input.json')); } catch { continue; }
+        for (const datasetId of Array.isArray(input?.datasetIds) ? input.datasetIds : []) {
+          if (datasets.has(datasetId) && !sources.has(datasetId)) sources.set(datasetId, datasets.get(datasetId));
+        }
+      }
+      const dates = { firstDate: '', lastDate: '' };
+      // With a fixed end the window is known immediately. Otherwise the newest saved post sets it as we scan sources.
+      let window = query.end ? voice.trackingWindow(query, '', now) : null;
+      if (query.start && !query.end) voice.trackingWindow({ start: query.start, end: query.start }, '', now);
+      const posts = new Map();
+      const coverage = [];
+      let refreshedAt = '';
+      for (const dataset of sources.values()) {
+        const planned = windowOf(runById.get(dataset.researchRunId), dataset.createdAt);
+        try {
+          const result = await voiceDataset(dataset, program.workspaceId, planned, window, Boolean(query.end));
+          if (result.firstDate && (!dates.firstDate || result.firstDate < dates.firstDate)) dates.firstDate = result.firstDate;
+          if (result.lastDate > dates.lastDate) {
+            dates.lastDate = result.lastDate;
+            if (!query.end) {
+              // Until all sources have been read the newest date can still move forward.
+              const rolling = voice.trackingWindow({ days: query.days }, dates.lastDate, now);
+              window = { start: query.start || rolling.start, end: rolling.end };
+              for (const [key, post] of posts) if (post.publishedAt.slice(0, 10) < window.start) posts.delete(key);
+            }
+          }
+          if (window) for (const post of result.posts || []) {
+            const date = post.publishedAt.slice(0, 10);
+            if (date >= window.start && date <= window.end) posts.set(post.id, post);
+          }
+          coverage.push({ platform: dataset.platform, partial: Boolean(dataset.collectionReceipt?.salvaged), window: planned || (result.firstDate ? { startDate: result.firstDate, endDate: result.lastDate } : null) });
+          if ((dataset.createdAt || '') > refreshedAt) refreshedAt = dataset.createdAt;
+        } catch { coverage.push({ failed: true, window: planned }); }
+        // A cold report over old collections lets other requests make progress between datasets.
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const summary = voice.trackingSummary(config, posts.values(), query, now, dates);
+      const relevant = coverage.filter((entry) => overlaps(entry.window, summary));
+      const failedRuns = runs.filter((run) => !run.collectionReceipt && run.stage === 'collecting' && ['failed', 'partial', 'cancelled'].includes(run.status) && overlaps(windowOf(run, run.finishedAt || run.updatedAt || run.createdAt), summary));
+      const expected = [...new Set(program.sourceGroups.filter((group) => group.enabled).map((group) => group.platform))];
+      return { settings, ...summary, refreshedAt, coverage: {
+        platforms: [...new Set(relevant.map((entry) => entry.platform).filter(Boolean))],
+        expected, failed: relevant.filter((entry) => entry.failed).length + failedRuns.length,
+        partial: relevant.filter((entry) => entry.partial).length, datasets: relevant.length,
+      } };
     },
     // Share your setup: the workspace's research knowledge and programs as one portable bundle.
     // Never includes run history, datasets, assets, themes, detections, workbooks, receipts or keys
@@ -2162,7 +2348,11 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
       const enterprise = source.enterpriseProducts && enterpriseList(source.enterpriseProducts);
       // Imported schedules arrive paused (cadence kept, no next run), so a tester never starts spending
       // by accident; a re-import keeps this machine's run history for programs it already has.
-      const programs = plan.bundle.programs.map(program => ({ ...program, workspaceId, updatedAt: now, schedule: scheduleState({ ...program.schedule, enabled: false }, state.programs.find(row => row.id === program.id)?.schedule) }));
+      const programs = plan.bundle.programs.map(program => {
+        const existing = state.programs.find(row => row.id === program.id && row.workspaceId === workspaceId);
+        const { shareOfVoice, shareOfVoiceEnabled, shareOfVoiceDataAt } = existing || {};
+        return { ...program, workspaceId, updatedAt: now, schedule: scheduleState({ ...program.schedule, enabled: false }, existing?.schedule), ...(shareOfVoice ? { shareOfVoice, shareOfVoiceEnabled, shareOfVoiceDataAt } : {}) };
+      });
       const w = plan.target;
       Object.assign(w, { knowledge: source.knowledge, products: source.products, ...(w.editionId === 'semrush' ? { brandDefaults: copy(content.SEMRUSH_BRAND_2026) } : {}), referenceDocs: source.referenceDocs.map(doc => ({ id: id('doc'), ...doc, updatedAt: now })), updatedAt: now });
       if (enterprise) w.enterpriseProducts = enterprise; else delete w.enterpriseProducts;
@@ -2177,7 +2367,8 @@ function createContentWorkspace({ root, runAI, collect, getDatasets = () => [], 
     // trends that need an OK and the finished reports are posted.
     startResearchRun({ programId, datasetIds = [], again = false, ask = null } = {}) {
       const by = who();
-      const program = owned(state.programs, programId); if (!Array.isArray(datasetIds) || datasetIds.length > 50) throw new Error('Choose up to 50 datasets.'); const allowed = new Set(publicState().availableDatasets.map(d => d.id)); if (datasetIds.some(key => !allowed.has(key))) throw new Error('Choose datasets from this workspace.');
+      const program = scopedProgram(programId);
+      checkResearchDatasets(program, datasetIds);
       api.checkResearchIdle({ programId, again });
       return withoutAsk(startResearchRun(program, datasetIds, '', by, { ask: askLink(ask, by) }));
     },

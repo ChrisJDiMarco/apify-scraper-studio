@@ -25,6 +25,7 @@ function seed() {
   put('content-studio/.studio-owner.json', JSON.stringify({ pid: exited, nonce: 'left-by-a-crash' })); // stale: not copied, not "running"
   put('content-studio/state.json.123.tmp', 'partial');
   put('web-transfers/saves/call-1/setup.json', 'apify_api_fixture');
+  put('web-sessions.json', '{"sessions":[]}');
   return { root, data, out: path.join(root, 'backups') };
 }
 
@@ -38,7 +39,7 @@ describe('studio backups', () => {
     expect(made.manifest.files.map((file) => file.path)).toEqual(['config.json', 'content-studio/runs/run-1/report.md', 'content-studio/state.json', 'content-studio/team.json', 'data.json']);
     expect(made.manifest.files[0]).toEqual({ path: 'config.json', size: 11, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
     const listing = execFileSync('tar', ['-tzf', path.basename(made.path)], { cwd: path.dirname(made.path), encoding: 'utf8' }); // no drive letter in -f
-    expect(listing).not.toMatch(/web-transfers|studio-owner|\.tmp/);
+    expect(listing).not.toMatch(/web-transfers|web-sessions|studio-owner|\.tmp/);
     expect(fs.readdirSync(out)).toEqual([path.basename(made.path)]); // no work folder left behind
   });
 
@@ -72,6 +73,25 @@ describe('studio restores', () => {
     const { root, data, out } = seed(); const made = backup({ dataDir: data, outDir: out, log: quiet });
     const target = path.join(root, 'target'); releases.push(ownership.acquireStudioOwnerLock(path.join(target, 'content-studio')));
     expect(() => restore({ from: made.path, dataDir: target, yes: true, log: quiet })).toThrow(/A studio server is using/);
+  });
+
+  it('puts the existing data back if installing a verified backup fails partway', () => {
+    const { root, data, out } = seed();
+    const made = backup({ dataDir: data, outDir: out, archive: false, log: quiet });
+    const target = path.join(root, 'target');
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, 'config.json'), '{"current":true}');
+    fs.writeFileSync(path.join(target, 'data.json'), '{"current":true}');
+    const rename = fs.renameSync;
+    const fail = vi.spyOn(fs, 'renameSync').mockImplementation((source, dest) => {
+      if (dest === path.join(target, 'data.json') && source.includes('.restore-') && !source.includes('.pre-restore-')) throw new Error('Fixture swap failure');
+      return rename(source, dest);
+    });
+    try { expect(() => restore({ from: made.path, dataDir: target, yes: true, log: quiet })).toThrow('Fixture swap failure'); }
+    finally { fail.mockRestore(); }
+    expect(fs.readdirSync(target).sort()).toEqual(['config.json', 'data.json']);
+    expect(fs.readFileSync(path.join(target, 'config.json'), 'utf8')).toBe('{"current":true}');
+    expect(fs.readFileSync(path.join(target, 'data.json'), 'utf8')).toBe('{"current":true}');
   });
 
   it('refuses a backup whose files changed, or one from a newer studio', () => {

@@ -35,8 +35,12 @@ test('encrypted archive decrypts and rejects tampering', async () => {
 });
 
 test('retention keeps 14 daily and 3 deployment archives, ignores unrelated objects', () => {
-  const key = (kind, n) => `golden-thread/v1/${kind}/2026-10-${String(n).padStart(2, '0')}/scraper-studio-backup-2026-10-${String(n).padStart(2, '0')}T01-00-00-000Z.tar.gz.enc`;
-  const objects = Array.from({ length: 16 }, (_, n) => ({ key: key('daily', n + 1) })).concat(Array.from({ length: 4 }, (_, n) => ({ key: key('deployment', n + 1) })), [{ key: 'other/document.txt' }]);
+  const key = (kind, n) => `golden-thread/v2/${kind}/2026-10-${String(n).padStart(2, '0')}/scraper-studio-backup-2026-10-${String(n).padStart(2, '0')}T01-00-00-000Z-1234567890abcdef.tar.gz.enc`;
+  const verified = (key) => [{ key, size: 2000 }, { key: `${key}.verified.json`, size: 200 }];
+  const objects = Array.from({ length: 16 }, (_, n) => key('daily', n + 1)).concat(Array.from({ length: 4 }, (_, n) => key('deployment', n + 1))).flatMap(verified);
+  objects.push({ key: key('daily', 17), size: 2000 }, { key: key('deployment', 5), size: 2000 }, { key: 'other/document.txt', size: 200 });
+  objects.push({ key: `${key('deployment', 5)}.verified.json`, size: 0 });
+  objects.push(...verified(key('daily', 19).replace('/v2/', '/v1/')));
   assert.deepEqual(expired(objects).map((o) => o.key).sort(), [key('daily', 1), key('daily', 2), key('deployment', 1)].sort());
 });
 
@@ -44,21 +48,26 @@ test('upload is downloaded, decrypted and restored; corrupted uploads never prun
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gt-backup-'));
   const dataDir = path.join(dir, 'data'); fs.mkdirSync(dataDir); fs.writeFileSync(path.join(dataDir, 'settings.json'), '{"example":true}');
   const config = { dataDir, encryptionKey: crypto.randomBytes(32).toString('hex'), maxBytes: 10000000 };
-  let content; let storedKey; let corrupt = false; let removals = 0;
+  const stored = new Map();
+  let corrupt = false;
+  const removals = [];
   const store = {
-    async list() { return content ? [{ key: storedKey, size: content.length }] : []; },
-    async put(key, file) { storedKey = key; content = fs.readFileSync(file); },
-    async get(key, file) { const copy = Buffer.from(content); if (corrupt) copy[copy.length - 1] ^= 1; fs.writeFileSync(file, copy); },
-    async remove() { removals++; },
+    async list() { return [...stored].map(([key, content]) => ({ key, size: content.length })); },
+    async put(key, file) { stored.set(key, fs.readFileSync(file)); },
+    async get(key, file) { const copy = Buffer.from(stored.get(key)); if (corrupt) copy[copy.length - 1] ^= 1; fs.writeFileSync(file, copy); },
+    async remove(key) { removals.push(key); stored.delete(key); },
   };
   const options = { storage: store, runtime: path.join(dir, 'runtime'), appRoot: path.resolve(moduleDir, '../..') };
   try {
     const result = await takeBackup(config, 'daily', options);
     assert.equal(result.restored, true); assert.equal(result.files, 1);
+    const receipt = JSON.parse(stored.get(`${result.key}.verified.json`));
+    assert.equal(receipt.sha256, crypto.createHash('sha256').update(stored.get(result.key)).digest('hex'));
     assert.equal(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'), '{"example":true}');
     corrupt = true;
     await assert.rejects(takeBackup(config, 'daily', options), /checksum/);
-    assert.equal(removals, 0);
+    assert.equal(removals.length, 1);
+    assert.deepEqual([...stored.keys()], [result.key, `${result.key}.verified.json`]);
     assert.equal(fs.existsSync(path.join(options.runtime, 'backup.lock')), false);
     config.maxBytes = 1;
     await assert.rejects(takeBackup(config, 'daily', options), /budget guard/);

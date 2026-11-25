@@ -96,7 +96,7 @@ describe('Home’s Automations card', () => {
     render(<AutomationsCard state={state()} api={{}} viewer={admin} onOpenTarget={onOpenTarget} />);
     expect(screen.getByRole('heading', { name: /Automations/ })).toBeInTheDocument();
     expect(screen.getByText('Waiting for your OK on 2 trends')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Manage' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open automations' }));
     expect(onOpenTarget).toHaveBeenCalledWith({ kind: 'page', page: 'workflows' });
   });
 });

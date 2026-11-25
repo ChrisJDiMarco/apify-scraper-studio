@@ -12,8 +12,11 @@ coverage
 studio-backups
 *.zip
 *.bundle
-# The deploy kit (and any filled-in secrets.env in it) never goes into the image.
-deploy
+# Only the versioned Sevalla supervisor from the deploy kit can enter the image.
+deploy/*
+!deploy/sevalla
+deploy/sevalla/*
+!deploy/sevalla/backup-supervisor.cjs
 *.log
 .env
 .env.*

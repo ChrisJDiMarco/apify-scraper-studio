@@ -191,7 +191,7 @@ describe('research and content studio workspace', () => {
   });
 
   it('keeps image output separate from text and blocks unavailable image providers', async () => {
-    const handlers = props({ state: { contentStudio: fresh({ capabilities: { imagesConfigured: false } }) } }); await setupCreate(handlers);
+    const handlers = props({ state: { contentStudio: fresh({ capabilities: { imagesConfigured: true, contentImagesConfigured: false } }) } }); await setupCreate(handlers);
     expect(screen.getByRole('checkbox', { name: 'Campaign graphic' })).toBeDisabled();
     expect(screen.getByRole('checkbox', { name: 'Social captions' })).toBeEnabled();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
@@ -199,9 +199,10 @@ describe('research and content studio workspace', () => {
   });
 
   it('shows the configured image route and describes the spending allowance honestly', async () => {
-    const handlers = props({ state: { contentStudio: fresh({ capabilities: { imagesConfigured: true, imageProvider: 'OpenAI', imageModel: 'fixture-image-model' } }) } });
+    const handlers = props({ state: { contentStudio: fresh({ capabilities: { imagesConfigured: false, contentImagesConfigured: true, contentImageProvider: 'fal.ai', contentImageModel: 'fixture-image-model' } }) } });
     await setupCreate(handlers);
-    expect(screen.getByText('OpenAI · fixture-image-model')).toBeVisible();
+    expect(screen.getByText('fal.ai · fixture-image-model')).toBeVisible();
+    expect(screen.getByRole('checkbox', { name: 'Campaign graphic' })).toBeEnabled();
     expect(screen.getByLabelText('Spending allowance (USD)')).toHaveValue(5);
     expect(screen.getByText('Authorizes requests; it is not a hard cap on provider charges.')).toBeVisible();
     expect(handlers.api.createContentRun).not.toHaveBeenCalled();
@@ -404,10 +405,18 @@ describe('research and content studio workspace', () => {
   });
 
   it('only offers scoped datasets and sends the explicit selected evidence collection', async () => {
-    const handlers = props({ state: { datasets: [{ id: 'global', name: 'Global hidden collection' }], contentStudio: fresh({ programs: [program], availableDatasets: [{ id: 'd1', name: 'Saved posts', itemCount: 15, platform: 'x' }, { id: 'foreign', workspaceId: 'semrush', name: 'Other client data' }] }) } });
+    const availableDatasets = [
+      { id: 'd1', name: 'Saved posts', itemCount: 15, platform: 'x' },
+      { id: 'own', programId: 'p1', name: 'Earlier collection' },
+      { id: 'other-program', programId: 'p2', name: 'Other program collection' },
+      { id: 'foreign', workspaceId: 'semrush', name: 'Other client data' },
+    ];
+    const handlers = props({ state: { datasets: [{ id: 'global', name: 'Global hidden collection' }], contentStudio: fresh({ programs: [program], availableDatasets }) } });
     render(<ContentStudioView {...handlers} initialView="research" />);
     fireEvent.click(screen.getByRole('radio', { name: 'Use saved collections' }));
     expect(screen.queryByText('Other client data')).not.toBeInTheDocument(); expect(screen.queryByText('Global hidden collection')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Earlier collection/ })).toBeInTheDocument();
+    expect(screen.queryByText('Other program collection')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: /Saved posts/ })); fireEvent.click(screen.getByRole('button', { name: 'Start research' }));
     await waitFor(() => expect(handlers.api.startResearchRun).toHaveBeenCalledWith({ programId: 'p1', datasetIds: ['d1'] }));
   });

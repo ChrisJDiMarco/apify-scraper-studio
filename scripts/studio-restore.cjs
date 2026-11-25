@@ -96,19 +96,36 @@ function restore({ from, dataDir = defaultDataDir(), yes = false, force = false,
     if (manifest.settled === false) log('Note: files were still changing while that backup was made, so some may be from slightly different moments.');
     if (!yes) { fs.rmSync(staging, { recursive: true, force: true }); log('Nothing was changed. Run again with --yes to restore it.'); return { restored: false, manifest }; }
     // The current data moves aside (to undo, move it back), then the backup's data moves in.
-    const aside = path.join(dataDir, `.pre-restore-${when}`); fs.mkdirSync(aside, { mode: 0o700 });
-    for (const entry of fs.readdirSync(dataDir)) if (!STAGING.test(entry)) fs.renameSync(path.join(dataDir, entry), path.join(aside, entry));
     const restored = path.join(root, 'data'); const owner = fs.statSync(dataDir);
     if (typeof process.getuid === 'function' && process.getuid() === 0 && owner.uid !== 0) chownTree(restored, owner.uid, owner.gid);
-    for (const entry of fs.readdirSync(restored)) fs.renameSync(path.join(restored, entry), path.join(dataDir, entry));
-    fs.rmSync(staging, { recursive: true, force: true }); fs.chmodSync(dataDir, 0o700);
+    fs.chmodSync(dataDir, 0o700);
+    const aside = path.join(dataDir, `.pre-restore-${when}`); fs.mkdirSync(aside, { mode: 0o700 });
+    const moved = [];
+    function move(source, target) { fs.renameSync(source, target); moved.push([source, target]); }
+    try {
+      for (const entry of fs.readdirSync(dataDir)) if (!STAGING.test(entry)) move(path.join(dataDir, entry), path.join(aside, entry));
+      for (const entry of fs.readdirSync(restored)) if (entry !== 'web-sessions.json') move(path.join(restored, entry), path.join(dataDir, entry));
+    } catch (error) {
+      const failures = [];
+      for (const [source, target] of moved.reverse()) {
+        try { fs.renameSync(target, source); } catch (failure) { failures.push(failure); }
+      }
+      if (failures.length) throw new AggregateError([error, ...failures], `Restore was interrupted and rollback was incomplete. Check ${aside} before starting the studio.`);
+      fs.rmdirSync(aside);
+      throw error;
+    }
+    fs.rmSync(staging, { recursive: true, force: true });
     log(`Restored into ${dataDir}. The data that was there is in ${aside}; delete it once the studio works.`);
     log('Before people use it again:');
     log('- Start the studio with the same STUDIO_SECRET_KEY as when the backup was made, or the saved keys can’t be read (Settings names them).');
     log('- Check People & access: anyone added since the backup is missing, anyone removed since is back, and sign-in links made since don’t work. Send new links where needed.');
+    log('- Everyone signs in again. Recheck any previously revoked access or sign-in links.');
     log('- Runs that were in progress when the backup was made show as stopped; Retry finishes them.');
     return { restored: true, manifest, aside };
-  } catch (error) { fs.rmSync(staging, { recursive: true, force: true }); throw error; }
+  } catch (error) {
+    if (!(error instanceof AggregateError)) fs.rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function main() {

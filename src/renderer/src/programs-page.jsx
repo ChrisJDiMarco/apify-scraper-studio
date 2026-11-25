@@ -1,4 +1,6 @@
 import React, { useEffect, useId, useState } from 'react';
+import { ArrowLeft } from 'lucide-react';
+import { ShareOfVoice } from './share-of-voice.jsx';
 import { ProgramsPanel } from './home-programs.jsx';
 import { Dialog, DialogClose, copyText } from './role-screens.jsx';
 import { useViewer } from './viewer.js';
@@ -23,25 +25,31 @@ export function ProgramsPage({ state = {}, api = {}, busy = false, needsSetup = 
 
 // The server supplies only programs this person can see. Render known descriptive fields, rather than passing a
 // program into the admin editor: that editor also contains models, budgets and controls this role cannot use.
-export function ChannelPrograms({ programs = [], viewer = {}, workspaceName = '', initialProgramId = '', onProgramChange }) {
+export function ChannelPrograms({ programs = [], api = {}, viewer = {}, workspaceName = '', initialProgramId = '', initialTab = '', onProgramChange }) {
   const detailTitle = useId(); const requestTitle = useId(); const messageId = useId();
   const [selected, setSelected] = useState(initialProgramId);
+  const [tab, setTab] = useState(initialTab);
   const [request, setRequest] = useState(false);
   const [message, setMessage] = useState('');
   const [copied, setCopied] = useState('');
-  useEffect(() => { setSelected(initialProgramId); }, [initialProgramId]);
+  useEffect(() => { setSelected(initialProgramId); setTab(initialTab); }, [initialProgramId, initialTab]);
   const rows = list(programs); const program = rows.find((row) => row.id === selected);
-  const select = (id) => { setSelected(id); onProgramChange?.(id); };
+  const select = (id, next = '') => { setSelected(id); setTab(next); onProgramChange?.(id, next); };
+  const hasVoice = (row) => row?.shareOfVoiceEnabled && typeof api.readShareOfVoice === 'function';
   function contact(name = '') {
     setMessage(`Hi ${viewer.askAdmin || 'team'}, I’d like to request a research program ${name ? `change for “${name}”` : 'addition or update'} in ${workspaceName || 'our workspace'}.\n\nWhat I need:\n`);
     setCopied(''); select(''); setRequest(true);
   }
   const schedule = (value = {}) => value.frequency && value.frequency !== 'manual' ? `${value.enabled ? 'Runs' : 'Paused'} ${value.frequency}${value.time ? ` at ${value.time}` : ''}${value.timeZone ? ` (${value.timeZone})` : ''}` : 'On demand';
+  if (tab === 'share-of-voice' && hasVoice(program)) return <div className="simple-page program-page channel-voice">
+    <header className="trend-page-head"><button type="button" className="simple-back" onClick={() => select('')}><ArrowLeft size={15} aria-hidden="true" />Research programs</button><div className="trend-page-title"><h1>{program.name}</h1></div></header>
+    <ShareOfVoice key={program.id} api={api} program={program} viewer={viewer} />
+  </div>;
   return <div className="wb-page simple-page simple-programs channel-programs" data-spot="programs.page">
     <div className="simple-page-head"><div><h1>Research programs</h1><p>Research starts here. Each program defines what to monitor and generates trends for your team to review.</p></div></div>
     <div className="program-readonly-note"><p>You can view the programs available to you. To add or edit a research program, contact {viewer.askAdmin || 'a workspace admin'}.</p><button type="button" className="studio-quiet" onClick={() => contact()}>Contact admin</button></div>
     <section className="wb-card hp-card" aria-label="Available research programs"><header className="wb-card-head"><h2>{rows.length} research {rows.length === 1 ? 'program' : 'programs'}</h2></header>
-      {rows.length ? <ul className="hp-list">{rows.map((row) => <li className="hp-row" key={row.id}><div className="hp-head"><div className="hp-title"><h3>{row.name}</h3><p className="program-focus">{row.query || 'An admin defines what this program follows.'}</p><p className="hp-meta">{schedule(row.schedule)}</p></div><button type="button" className="studio-quiet" aria-label={`View ${row.name}`} onClick={() => select(row.id)}>View program</button></div></li>)}</ul> : <p className="wb-empty">No research programs are available to you yet. Contact an admin to request access.</p>}
+      {rows.length ? <ul className="hp-list">{rows.map((row) => <li className="hp-row" key={row.id}><div className="hp-head"><div className="hp-title"><h3>{row.name}</h3><p className="program-focus">{row.query || 'An admin defines what this program follows.'}</p><p className="hp-meta">{schedule(row.schedule)}</p></div><button type="button" className="studio-quiet" aria-label={`View ${row.name}`} onClick={() => select(row.id)}>View program</button>{hasVoice(row) && <button type="button" className="studio-primary" onClick={() => select(row.id, 'share-of-voice')}>Share of voice</button>}</div></li>)}</ul> : <p className="wb-empty">No research programs are available to you yet. Contact an admin to request access.</p>}
     </section>
     {program && <Dialog labelledBy={detailTitle} onClose={() => select('')} className="program-readonly-detail">
       <header className="studio-dialog-head"><div><h2 id={detailTitle}>{program.name}</h2><p className="studio-dialog-meta">Research program · Read only</p></div><DialogClose onClose={() => select('')} /></header>
@@ -51,7 +59,7 @@ export function ChannelPrograms({ programs = [], viewer = {}, workspaceName = ''
         {(program.window?.startDate || program.window?.endDate) && <p>Research dates: {program.window.startDate || 'Start not set'} to {program.window.endDate || 'End not set'}</p>}
         {program.schedule?.lookbackDays > 0 && <p>Each scheduled run looks back {program.schedule.lookbackDays} days.</p>}
         {program.brand?.mode === 'own' && <><h3>Brand context</h3><p><strong>{program.brand.name}</strong></p>{program.brand.audience && <p>Audience: {program.brand.audience}</p>}{program.brand.positioning && <p>{program.brand.positioning}</p>}{program.brand.voice && <p>Voice: {program.brand.voice}</p>}</>}
-      </div><footer className="workspace-tour-actions"><button type="button" className="studio-quiet" onClick={() => contact(program.name)}>Request a change</button><button type="button" className="studio-primary" onClick={() => select('')}>Done</button></footer>
+      </div><footer className="workspace-tour-actions"><button type="button" className="studio-quiet" onClick={() => contact(program.name)}>Request a change</button>{hasVoice(program) && <button type="button" className="studio-quiet" onClick={() => select(program.id, 'share-of-voice')}>Share of voice</button>}<button type="button" className="studio-primary" onClick={() => select('')}>Done</button></footer>
     </Dialog>}
     {request && <Dialog labelledBy={requestTitle} onClose={() => setRequest(false)} className="program-admin-request"><header className="studio-dialog-head"><div><h2 id={requestTitle}>Request a research program change</h2><p className="studio-dialog-meta">Send this to {viewer.askAdmin || 'a workspace admin'} in your usual work chat or email.</p></div><DialogClose onClose={() => setRequest(false)} /></header>
       <div className="studio-dialog-body"><label htmlFor={messageId}>Message to your workspace admin</label><textarea id={messageId} rows={7} value={message} onChange={(event) => { setMessage(event.target.value); setCopied(''); }} />{copied && <p role="status">{copied}</p>}</div>

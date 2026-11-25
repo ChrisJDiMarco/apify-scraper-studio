@@ -44,7 +44,7 @@ export function kitSourcesFrom(reports, contentRuns) {
 
 // `preset` ({ key, source?, mode?, link?, channels? }): a fixed source opens on the review step; `channels` (channel ids)
 // pre-ticks those channels' assets instead of the person's own (My channels, `focus`).
-export function KitCreator({ api, sources = [], preset, imagesReady, action, busy, picturesOff = '', focus: focusIn = [], onClose, onCreated, onSettings, onBrandImages }) {
+export function KitCreator({ api, sources = [], preset, action, busy, picturesOff = '', focus: focusIn = [], onClose, onCreated, onSettings, onBrandImages }) {
   const viewer = useViewer();
   const fixed = preset?.source || null;
   const focus = list(preset?.channels).length ? list(preset.channels).map(String) : list(focusIn);
@@ -226,7 +226,7 @@ export function KitCreator({ api, sources = [], preset, imagesReady, action, bus
 // The asset dialog for any layout outside Simple's Assets. `request` ({ key, source?, channels?, mode?, link? }) opens it
 // once per key; after Make, a toast offers Open folder (onOpenFolder(sourceKey), Simple's Assets or the Library folder).
 // `edition` keeps the Simple sheet's accent in the General studio.
-export function KitCreatorHost({ request, api, sources, imagesReady, action, busy, picturesOff, focus, edition = 'semrush', onSettings, onBrandImages, onOpenFolder, onDone }) {
+export function KitCreatorHost({ request, api, sources, action, busy, picturesOff, focus, edition = 'semrush', onSettings, onBrandImages, onOpenFolder, onDone }) {
   const [open, setOpen] = useState(null);
   const [toast, showToast] = useToast(9000);
   const seen = useRef(null);
@@ -242,7 +242,7 @@ export function KitCreatorHost({ request, api, sources, imagesReady, action, bus
   // folder is open here. A refusal still comes back to the dialog (throwOnError).
   const quietAction = (work, _message, throwOnError) => action(work, '', throwOnError);
   return <div className="simple-shell kit-creator-host" data-edition={edition}>
-    {open && <KitCreator key={open.key} api={api} sources={sources} preset={open} imagesReady={imagesReady} action={quietAction} busy={busy} picturesOff={picturesOff} focus={focus} onClose={close} onCreated={created} onSettings={onSettings ? () => { close(); onSettings(); } : undefined} onBrandImages={onBrandImages ? () => { close(); onBrandImages(); } : undefined} />}
+    {open && <KitCreator key={open.key} api={api} sources={sources} preset={open} action={quietAction} busy={busy} picturesOff={picturesOff} focus={focus} onClose={close} onCreated={created} onSettings={onSettings ? () => { close(); onSettings(); } : undefined} onBrandImages={onBrandImages ? () => { close(); onBrandImages(); } : undefined} />}
     {toast}
   </div>;
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowRight, Check, CheckCircle2, Copy, Database, ExternalLink, Eye, Heart, MessageCircle, Repeat2, Search, Upload } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Check, CheckCircle2, Copy, Database, ExternalLink, Eye, Heart, MessageCircle, Repeat2, Search, Upload, ChevronDown, Sparkles } from 'lucide-react';
 import { buildCoverage, buildSignals, buildTopics, coverageChecks, authorName } from '../../shared/dataset-insights.js';
 import { Button, datasetLabel, formatDate, label, number, withViewTransition } from './ui.jsx';
 import './workspace-pages.css';
@@ -10,6 +10,8 @@ export const DATASET_TABS = [
   { id: 'conversations', label: 'Conversations' },
   { id: 'topics', label: 'Topics' },
   { id: 'coverage', label: 'Coverage' },
+  { id: 'reports', label: 'Reports' },
+  { id: 'compare', label: 'Compare' },
 ];
 const PAGE = 40;
 const PLATFORM_NAMES = { x: 'X', twitter: 'X', linkedin: 'LinkedIn', reddit: 'Reddit', web: 'Web', youtube: 'YouTube', tiktok: 'TikTok', instagram: 'Instagram', facebook: 'Facebook' };
@@ -20,32 +22,38 @@ function Stat({ label: name, value, detail }) {
   return <div className="ws-stat"><span>{name}</span><strong>{value}</strong>{detail && <small>{detail}</small>}</div>;
 }
 
-export function DatasetHub({ state, tab, onTabChange, selectedDataset, payload, payloadError = '', onDatasetSelect, onNavigate, onOpenSourceUrl, renderExplorer, renderConversations }) {
+export function DatasetHub({ state, tab, onTabChange, selectedDataset, payload, payloadError = '', onDatasetSelect, onNavigate, pageAllowed, onOpenSourceUrl, onAsk, renderExplorer, renderConversations, renderReports, renderCompare }) {
   const [signalQuery, setSignalQuery] = useState('');
   const items = payload?.items || [];
   const datasets = state.datasets || [];
   const loading = Boolean(selectedDataset) && !payload && !payloadError;
   const setTab = (next) => withViewTransition(() => onTabChange(next), ['trend-move']);
-  if (!datasets.length) return renderExplorer();
+  const tabs = DATASET_TABS.filter(({ id }) => id === 'explorer' || (['reports', 'compare'].includes(id) ? pageAllowed(id) : datasets.length > 0));
+  const shown = tabs.some((item) => item.id === tab) ? tab : 'explorer';
   return <section className="ws ws-datasets">
     <header className="ws-page-head">
-      <div><span className="ws-eyebrow">Your data</span><h2>Datasets</h2><p>Explore every row, then read it as signals, conversations, topics, and coverage before you trust a finding.</p></div>
+      <div><h2>Research data</h2><p>Collect, explore, and compare the source data behind your research.</p></div>
       <div className="ws-head-actions">
-        {tab !== 'explorer' && <label className="ws-select"><span className="sr-only">Dataset</span><select aria-label="Dataset" value={selectedDataset?.id || ''} onChange={(event) => onDatasetSelect(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{datasetLabel(dataset, { rows: true })}</option>)}</select></label>}
-        <Button className="ghost" onClick={() => onNavigate('imports')}><Upload size={15} aria-hidden="true" />Import</Button>
+        {datasets.length > 0 && !['explorer', 'reports', 'compare'].includes(shown) && <label className="ws-select"><span className="sr-only">Dataset</span><select aria-label="Dataset" value={selectedDataset?.id || ''} onChange={(event) => onDatasetSelect(event.target.value)}>{datasets.map((dataset) => <option key={dataset.id} value={dataset.id}>{datasetLabel(dataset, { rows: true })}</option>)}</select></label>}
+        {onAsk && datasets.length > 0 && !['compare', 'reports'].includes(shown) && <Button className="ghost" onClick={() => onAsk(selectedDataset?.id)}><Sparkles size={15} aria-hidden="true" />Ask AI about data</Button>}
+        {(pageAllowed('search') || pageAllowed('automation')) && <details className="ws-collect"><summary className="ghost">Collect data <ChevronDown size={14} aria-hidden="true" /></summary><div>{pageAllowed('search') && <button type="button" onClick={() => onNavigate('search')}>Search platforms</button>}{pageAllowed('automation') && <button type="button" onClick={() => onNavigate('automation')}>Saved scrapers</button>}</div></details>}
+        {pageAllowed('imports') && <Button className="ghost" onClick={() => onNavigate('imports')}><Upload size={15} aria-hidden="true" />Import</Button>}
+        {shown === 'reports' && pageAllowed('templates') && <Button className="ghost" onClick={() => onNavigate('templates')}>Brief starters</Button>}
       </div>
     </header>
     <div className="ws-tabs" role="tablist" aria-label="Dataset views">
-      {DATASET_TABS.map((item) => <button key={item.id} type="button" role="tab" id={`ds-tab-${item.id}`} aria-selected={tab === item.id} aria-controls={`ds-panel-${item.id}`} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.label}{item.id === 'signals' && items.length > 0 && <span className="ws-tab-count">{number(items.length)}</span>}</button>)}
+      {tabs.map((item) => <button key={item.id} type="button" role="tab" id={`ds-tab-${item.id}`} aria-selected={shown === item.id} aria-controls={`ds-panel-${item.id}`} className={shown === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.label}{item.id === 'signals' && items.length > 0 && <span className="ws-tab-count">{number(items.length)}</span>}</button>)}
     </div>
-    <div role="tabpanel" id={`ds-panel-${tab}`} aria-labelledby={`ds-tab-${tab}`} className="ws-tab-panel">
-      {tab === 'explorer' && renderExplorer()}
-      {tab !== 'explorer' && loading && <div className="ws-skeleton-list" aria-busy="true" aria-label="Loading dataset">{[0, 1, 2].map((i) => <div key={i} className="ws-skeleton" />)}</div>}
-      {tab !== 'explorer' && payloadError && <div className="ws-callout attention" role="alert">This dataset didn’t open: {payloadError}</div>}
-      {tab === 'signals' && !loading && !payloadError && <SignalsTab key={selectedDataset?.id} items={items} initialQuery={signalQuery} onOpenSourceUrl={onOpenSourceUrl} />}
-      {tab === 'conversations' && !loading && !payloadError && renderConversations()}
-      {tab === 'topics' && !loading && !payloadError && <TopicsTab key={selectedDataset?.id} items={items} onSearchSignals={(term) => { setSignalQuery(term); setTab('signals'); }} />}
-      {tab === 'coverage' && !loading && !payloadError && <CoverageTab items={items} dataset={selectedDataset} datasets={datasets} onDatasetSelect={onDatasetSelect} onNavigate={onNavigate} />}
+    <div role="tabpanel" id={`ds-panel-${shown}`} aria-labelledby={`ds-tab-${shown}`} className="ws-tab-panel">
+      {shown === 'explorer' && renderExplorer()}
+      {shown === 'reports' && renderReports?.()}
+      {shown === 'compare' && renderCompare?.()}
+      {!['explorer', 'reports', 'compare'].includes(shown) && loading && <div className="ws-skeleton-list" aria-busy="true" aria-label="Loading dataset">{[0, 1, 2].map((i) => <div key={i} className="ws-skeleton" />)}</div>}
+      {!['explorer', 'reports', 'compare'].includes(shown) && payloadError && <div className="ws-callout attention" role="alert">This dataset didn’t open: {payloadError}</div>}
+      {shown === 'signals' && !loading && !payloadError && <SignalsTab key={selectedDataset?.id} items={items} initialQuery={signalQuery} onOpenSourceUrl={onOpenSourceUrl} />}
+      {shown === 'conversations' && !loading && !payloadError && renderConversations()}
+      {shown === 'topics' && !loading && !payloadError && <TopicsTab key={selectedDataset?.id} items={items} onSearchSignals={(term) => { setSignalQuery(term); setTab('signals'); }} />}
+      {shown === 'coverage' && !loading && !payloadError && <CoverageTab items={items} dataset={selectedDataset} datasets={datasets} onDatasetSelect={onDatasetSelect} onNavigate={onNavigate} />}
     </div>
   </section>;
 }

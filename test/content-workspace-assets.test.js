@@ -40,6 +40,12 @@ describe('studio assets, budgets and source continuity', () => {
     const filenames = fs.readdirSync(path.join(exported.path, 'Design')); expect(filenames.filter(name => name.endsWith('.svg'))).toHaveLength(3);
     const svg = fs.readFileSync(path.join(exported.path, 'Design', filenames.find(name => name.endsWith('.svg'))), 'utf8'); expect(svg).toContain('pixels are not editable vectors'); expect(svg).toContain('data:image/png;base64,');
   });
+  it('generates content pictures when their provider is ready and the kit provider is off', async () => {
+    const generateImage = vi.fn(async () => images());
+    const run = await completed(harness({ generateImage, capabilities: () => ({ imagesConfigured: false, contentImagesConfigured: true }) }));
+    expect(run.status).toBe('succeeded');
+    expect(generateImage).toHaveBeenCalledWith(expect.objectContaining({ task: expect.objectContaining({ taskId: 'pictures.content-image' }) }));
+  });
   it.each(['missing variant', 'invalid PNG'])('retains valid legacy images and blocks an ambiguous repeated charge when %s occurs', async failure => {
     const generateImage = vi.fn(async () => failure === 'missing variant' ? images(2) : [...images(2), { png: Buffer.from('not a png'), receipt: { costUsd: 0.02 } }]);
     const h = harness({ generateImage }); const run = await completed(h);

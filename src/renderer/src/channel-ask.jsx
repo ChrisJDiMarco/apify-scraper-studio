@@ -138,14 +138,15 @@ export function channelAskRunner({ api, state, viewer = {}, canRun = () => true,
 export function ChannelAskPage({ api, state, viewer, can, canRun, action, askAdmin = 'an admin', web = false, seed = null, lastTab = 'trends', onOpenTrend, onOpenFolder, onOpenTab }) {
   const confirm = useConfirm();
   const view = viewOf(state) || {}; const channel = view.channel || {};
-  const imagesReady = Boolean(state?.contentStudio?.capabilities?.imagesConfigured) && can('createHelpImage') && list(viewer?.capabilities).includes('makeAssets');
+  const kitImagesReady = Boolean(state?.contentStudio?.capabilities?.imagesConfigured);
+  const imagesReady = Boolean(state?.contentStudio?.capabilities?.askImagesConfigured ?? kitImagesReady) && can('createHelpImage') && list(viewer?.capabilities).includes('makeAssets');
   const nav = {
     openTrend: (themeId) => onOpenTrend?.(themeId), openFolder: (themeId) => onOpenFolder?.(themeId), openTab: (tab) => onOpenTab?.(tab),
     // Cards and links: a trend card's Open report opens its brief; a folder card opens My assets on that trend.
     openReport: (assetId) => { const trend = list(view.trends).find((row) => list(row.reportAssets).some((asset) => asset.id === assetId)); if (trend) onOpenTrend?.(trend.themeId); else onOpenTab?.('trends'); },
     openTarget: ({ kind, id, page } = {}) => { if (kind === 'trend') onOpenTrend?.(id); else if (kind === 'folder') onOpenFolder?.(id); else if (kind === 'page') onOpenTab?.(TABS.includes(page || id) ? page || id : 'trends'); else onOpenTab?.('trends'); },
   };
-  const runner = channelAskRunner({ api, state, viewer, canRun, action, confirm, nav, askAdmin, imagesReady, web });
+  const runner = channelAskRunner({ api, state, viewer, canRun, action, confirm, nav, askAdmin, imagesReady: kitImagesReady, web });
   const name = channel.name || viewer?.channelName || 'your channel';
   const copy = {
     title: 'What can I help with?',

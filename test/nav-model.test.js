@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DATA_TOOL_IDS, PAGE_LABELS, PIPELINE, WORKBENCH, ariaKeys, buildNav, findNavItem, focusChannelOptions, generalStudioTabs, isChannelViewer, isRealAdmin, itemName, navPages, viewAsChoice, viewAsOptions } from '../src/renderer/src/nav-model.js';
+import { DATA_TOOL_IDS, PAGE_LABELS, PIPELINE, ariaKeys, buildNav, findNavItem, focusChannelOptions, generalStudioTabs, isChannelViewer, isRealAdmin, itemName, navPages, viewAsChoice, viewAsOptions } from '../src/renderer/src/nav-model.js';
 
 const channels = [{ id: 'blog', name: 'Semrush Blog', short: 'Blog' }, { id: 'social', name: 'Semrush Social Team', short: 'Social' }];
 const admin = (over = {}) => ({ id: 'local', name: 'Alex Rivera', role: 'admin', realRole: 'admin', preview: false, modes: ['simple', 'classic'], channels, prefs: {}, allowed: null, ...over });
@@ -157,7 +157,7 @@ describe('buildNav: channel owners', () => {
 describe('buildNav: New', () => {
   it('offers every kind of new thing, with the admin rows last, and lists programs when there are several', () => {
     const nav = buildNav({ viewer: admin({ web: true, isSuperAdmin: true }), layout: 'simple', state: state({ programs: [{ id: 'p1', name: 'SEO weekly', workspaceId: 'w1' }, { id: 'p2', name: 'AI search', workspaceId: 'w1' }, { id: 'p3', name: 'Elsewhere', workspaceId: 'w2' }] }), edition: 'semrush' });
-    expect(nav.actions.create.map((row) => `${row.id}:${row.section}`)).toEqual(['research:main', 'quick-scan:main', 'assets:main', 'content:main', 'picture:main', 'program:admin', 'playbook:admin', 'person:admin', 'workspace:admin']);
+    expect(nav.actions.create.map((row) => `${row.id}:${row.section}`)).toEqual(['research:main', 'quick-scan:main', 'assets:main', 'content:main', 'picture:main', 'program:admin', 'person:admin', 'workspace:admin']);
     // People on the Mac has no invite, so New › Person is the browser studio's only.
     expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).not.toContain('person');
     expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).not.toContain('workspace');
@@ -171,9 +171,11 @@ describe('buildNav: New', () => {
   });
 
   it('turns pictures into a Settings errand for admins and an explanation for editors when they are off', () => {
-    const off = state({}, { APIFY_API_TOKEN: true, OPENAI_API_KEY: false });
+    const off = state({ capabilities: { imagesConfigured: true, askImagesConfigured: false } });
     expect(buildNav({ viewer: admin(), layout: 'simple', state: off, edition: 'semrush' }).actions.create.find((row) => row.id === 'picture')).toMatchObject({ disabled: false, hint: 'Pictures are off. Turn them on in Settings.' });
     expect(buildNav({ viewer: editor(), layout: 'simple', state: off, edition: 'semrush' }).actions.create.find((row) => row.id === 'picture')).toMatchObject({ disabled: true, hint: 'Ask an admin to turn on pictures.' });
+    const on = state({ capabilities: { imagesConfigured: false, askImagesConfigured: true } }, {});
+    expect(buildNav({ viewer: editor(), layout: 'simple', state: on, edition: 'semrush' }).actions.create.find((row) => row.id === 'picture')).toMatchObject({ disabled: false, hint: 'Ask AI drafts it with you. You see the cost first.' });
   });
 
   it('turns the admin rows off while previewing', () => {
@@ -237,8 +239,8 @@ describe('buildNav: Automate', () => {
     expect(buildNav({ viewer, layout: 'classic', state: state(), edition: 'semrush' }).groups.some((group) => group.id === 'automate')).toBe(false);
     expect(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).groups[0].items.map((row) => row.id)).not.toContain('workflows');
   });
-  it('offers New › Playbook only to someone who can set one up', () => {
-    expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).toContain('playbook');
+  it('keeps workflow templates out of the global New menu', () => {
+    expect(ids(buildNav({ viewer: admin(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).not.toContain('playbook');
     expect(ids(buildNav({ viewer: editor(), layout: 'simple', state: state(), edition: 'semrush' }).actions.create)).not.toContain('playbook');
   });
 });
@@ -247,11 +249,10 @@ describe('buildNav: unified', () => {
   const unified = (viewer, over = {}) => buildNav({ viewer, layout: 'unified', state: state(), edition: 'semrush', ...over });
   const stage = (nav, id) => findNavItem(nav, id);
 
-  it('lists Home, the pipeline (Research programs, Trends, Assets, Calendar), the Workbench and one Studio setup row, with no layout switch', () => {
+  it('lists Home, the pipeline (Research programs, Trends, Assets, Calendar), and one Studio setup row, with no layout switch', () => {
     const nav = unified(admin(), { dataToolsOpen: true });
     expect(labels(nav)).toEqual([
       ['top', ['Home']], ['pipeline', ['Research programs', 'Trends', 'Assets', 'Calendar']],
-      ['data', ['Search platforms', 'Scrapers', 'Import research', 'Create content', 'Brief starters', 'Sheets', 'Datasets', 'Dataset reports', 'Compare snapshots', 'Ask your datasets', 'Playbooks', 'Workflows', 'Activity']],
       ['studio', ['Studio setup']],
     ]);
     // Studio setup's sections are pages of their own: its section menu lists them, and the palette and addresses find them.
@@ -262,9 +263,7 @@ describe('buildNav: unified', () => {
     expect(findNavItem(nav, 'inbox')).toMatchObject({ kind: 'simple', target: 'inbox' });
     expect(findNavItem(unified(admin(), { inboxUnread: 3 }), 'home')).toMatchObject({ badge: 3, badgeLabel: '3 new in Recent' });
     expect(nav.groups.find((group) => group.id === 'pipeline')).toMatchObject({ label: 'Pipeline', pipeline: true });
-    const workbench = nav.groups.find((group) => group.id === 'data');
-    expect(workbench).toMatchObject({ label: 'Workbench', collapsible: true, open: true, spot: 'nav.data-tools' });
-    expect(workbench.subgroups.map((set) => set.label)).toEqual(['Collect', 'Create', 'Data', 'Automate', '']);
+    expect(nav.groups.some((group) => group.id === 'data')).toBe(false);
     // No stage carries tools: Trends has its own List | Board, and Assets holds every file.
     expect(PIPELINE.every((row) => stage(nav, row.id).children.length === 0)).toBe(true);
     expect(stage(nav, 'programs')).toMatchObject({ kind: 'simple', stage: true, target: 'programs', icon: 'Radar' });
@@ -272,7 +271,8 @@ describe('buildNav: unified', () => {
     // A program is edited on its own page (program-page.jsx), so the Workbench doesn't list the form's sections.
     expect(findNavItem(nav, 'program-sources')).toBeNull();
     expect(findNavItem(nav, 'program-prompts')).toBeNull();
-    expect(findNavItem(nav, 'create')).toMatchObject({ kind: 'studio', group: 'data' });
+    expect(findNavItem(nav, 'create')).toBeNull();
+    expect(nav.actions.create.find((row) => row.id === 'content')?.label).toBe('Create content');
     expect(nav.footer.layouts).toEqual([]);
   });
 
@@ -280,9 +280,9 @@ describe('buildNav: unified', () => {
     expect(unified(admin()).order.map((row) => `${row.id} ${row.shortcut}`)).toEqual(['home ⌘1', 'programs ⌘2', 'trends ⌘3', 'assets ⌘4', 'calendar ⌘5', 'setup ⌘6']);
   });
 
-  it('opens Dataset reports under its own id', () => {
+  it('keeps Dataset reports off the sidebar', () => {
     const nav = unified(admin());
-    expect(findNavItem(nav, 'dataset-reports')).toMatchObject({ target: 'reports', kind: 'app', spot: 'nav.dataset-reports' });
+    expect(findNavItem(nav, 'dataset-reports')).toBeNull();
     expect(navPages(nav).filter((row) => row.id === 'reports')).toHaveLength(0);
   });
 
@@ -290,7 +290,7 @@ describe('buildNav: unified', () => {
     const nav = buildNav({ viewer: admin(), layout: 'unified', edition: 'semrush', counts: { waiting: 2 }, state: state({ researchRuns: [{ id: 'r', workspaceId: 'w1', status: 'running' }], contentRuns: [{ id: 'c', workspaceId: 'w1', status: 'running' }] }) });
     expect(stage(nav, 'programs')).toMatchObject({ live: true, liveLabel: 'research running' });
     expect(stage(nav, 'trends')).toMatchObject({ live: true, liveLabel: 'reports being written', badge: 2, badgeLabel: '2 need your OK' });
-    expect(stage(nav, 'create')).toMatchObject({ live: true });
+    expect(stage(nav, 'create')).toBeNull();
     expect(stage(nav, 'assets').live).toBe(false);
   });
 
@@ -299,7 +299,7 @@ describe('buildNav: unified', () => {
     const ed = unified(editor({ nav: { main: ['home', 'trends', 'assets', 'calendar', 'ask'], admin: ['prompts'], bottom: [] } }));
     expect(labels(ed).find(([id]) => id === 'pipeline')[1]).toEqual(['Trends', 'Assets', 'Calendar']);
     expect(findNavItem(ed, 'program-basics')).toBeNull();
-    expect(ed.groups.find((group) => group.id === 'data').subgroups.map((set) => set.id)).not.toContain('program');
+    expect(ed.groups.some((group) => group.id === 'data')).toBe(false);
     const noData = unified(editor({ hiddenPages: ['data-tools', 'create'] }));
     expect(findNavItem(noData, 'datasets')).toBeNull();
     expect(findNavItem(noData, 'search')).toBeNull();
@@ -313,11 +313,10 @@ describe('buildNav: unified', () => {
     expect(simpleOnly.groups.some((group) => group.id === 'data')).toBe(false);
   });
 
-  it('leads the General edition’s Data set with its collection Overview', () => {
+  it('keeps the collection overview out of both editions’ sidebars', () => {
     const general = buildNav({ viewer: admin(), layout: 'unified', state: state(), edition: 'general' });
-    expect(general.groups.find((group) => group.id === 'data').subgroups.find((set) => set.id === 'analyze').items[0]).toMatchObject({ id: 'dashboard', label: 'Overview' });
+    expect(findNavItem(general, 'dashboard')).toBeNull();
     expect(findNavItem(unified(admin()), 'dashboard')).toBeNull();
-    expect(WORKBENCH.flatMap((set) => set.items).find((row) => row.id === 'dashboard').general).toBe(true);
   });
 
   it('makes Ask AI the drawer while an Advanced page is open, and the page otherwise', () => {

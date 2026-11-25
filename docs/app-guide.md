@@ -46,8 +46,8 @@ A **quick scan**, started from Ask AI, is the short version: a few hours of post
 | Every research program, with **Run now** and **Edit** | **Research programs** (admins) |
 | A program's settings (sources, schedule, budget, AI) | The program's page: **Edit** on **Research programs** |
 | Run progress, theme review, retry, run history | The **Runs** tab of a program's page; **Open** on a run |
-| Every collected post with its tags and theme totals | **Sheets**, in the **Workbench** (one workbook per run) |
-| New content from a report or brief | **Create content**, in the **Workbench** |
+| Every collected post with its tags and theme totals | **Open in Sheets** on a research run (one workbook per run) |
+| New content from a report or brief | **Create content**, from New, Assets or the report reader |
 
 ## Getting around
 
@@ -56,10 +56,10 @@ A **quick scan**, started from Ask AI, is the short version: a few hours of post
 One left sidebar serves everyone. There is no Simple or Advanced layout any more, and no switch between them. Top to bottom:
 
 - **The head**: the studio's wordmark, the collapse button (⌘\) and the workspace switcher, which shows the workspace with your role under its name. Every member opens it to switch between their accessible workspaces. Only Super Admins can start a **New workspace**. It's turned off while an admin previews someone.
-- **New** (⌥⌘N), **Search…** (⌘K) and **Ask AI** (⌘J). **New** lists what you can start: **Find new trends** (with a list of programs when there are several), **Quick scan**, **Channel assets**, **Content from a report** and **Picture**; admins also get **Research program** (the guided setup), **Playbook**, **Person** and **Workspace** below a line. Paid work still shows its estimate before it starts. **Quick scan** and **Picture** open Ask AI with the first words typed; **Channel assets** opens its dialog over the page you're on; **Content from a report** opens Create content; **Person** opens the invite dialog. **Ask AI** opens the Ask AI page; while a Workbench page is open it opens the Ask AI drawer beside that page instead (press it again to close the drawer).
+- **New** (⌥⌘N), **Search…** (⌘K) and **Ask AI** (⌘J). **New** lists what you can start: **Find new trends** (with a list of programs when there are several), **Quick scan**, **Channel assets**, **Create content** and **Picture**; admins also get **Research program** (the guided setup), **Person** and **Workspace** below a line. Paid work still shows its estimate before it starts. **Quick scan** and **Picture** open Ask AI with the first words typed; **Channel assets** opens its dialog over the page you're on; **Create content** opens Create content; **Person** opens the invite dialog. **Ask AI** opens the Ask AI page; while a specialist tool is open it opens the Ask AI drawer beside that page instead (press it again to close the drawer).
 - **Home**, which carries the Inbox's unread count; the Inbox opens from **Recent** on Home or from Search. A role without Home has **Inbox** here instead.
 - **Pipeline**, in the order work happens: **Research programs** (admins, or a role with **Manage research programs**), **Trends**, **Assets** and **Calendar**.
-- **Workbench**: a group of specialist tools that opens and closes and stays as you left it on this computer. It starts closed where the studio has a content workspace, and while it's closed its button names the Workbench page you have open. Inside: **Collect** (**Search platforms**, **Scrapers**, **Import research**); **Create** (**Create content**, **Brief starters**); **Data** (**Sheets**, **Datasets**, **Dataset reports**, **Compare snapshots**, **Ask your datasets**; the General workspace lists **Overview**, the collection overview, first); **Automate** (**Playbooks**, **Workflows**, for roles that can see workflows); then **Activity**. You see only the tools your role includes. A Workbench page opens in place of the page you were on, under a top bar with the workspace name and the page (workspace › page), a working note while quick tasks run, and **Refresh workspace**. Any other page in the sidebar closes it.
+- **Research data** opens from Home for people with data-tool access. Use **Collect data** to run a platform search or open saved scrapers, **Import** for existing files, and the dataset’s **Reports** and **Compare** tabs to analyze what came back. **Ask AI about data** opens Dataset mode in Ask AI with the selected dataset attached. **Run history** on Home opens job status and logs. **Automations** on Home manages workflows and their templates.
 - **Studio setup**: one row for everything that configures the studio, opening the section you used last: **Brand knowledge** (roles that can edit it; admins by default), **Prompts** and **Channels** (admins and editors by default), **Analytics**, **People & access** and **Settings** (admins, ⌘,). You see only your role's sections; with one section the sidebar shows that page's name instead. An amber dot means Apify isn't connected.
 - **The footer**: **N running** while research, quick scans, channel assets or other jobs run (it opens **Working now**, each with **Open** and **Stop**); and your account (your name and role, and the app version). The account menu has **View as** (admins), **My channels…**, **Keyboard shortcuts** and, in the browser studio, **Sign out**.
 
@@ -79,7 +79,7 @@ Numbers on pages count only work waiting on you: **Trends** counts trends that n
 | ⌘\ | Collapse or expand the sidebar |
 | Esc | Close the open menu, dialog or search |
 
-The page numbers follow the sidebar, so they depend on what your role shows. For an admin: Home ⌘1, Research programs ⌘2, Trends ⌘3, Assets ⌘4, Calendar ⌘5, Studio setup ⌘6. An editor has no Research programs, so Trends is ⌘2. Workbench pages take no number.
+The page numbers follow the sidebar, so they depend on what your role shows. For an admin: Home ⌘1, Research programs ⌘2, Trends ⌘3, Assets ⌘4, Calendar ⌘5, Studio setup ⌘6. An editor has no Research programs, so Trends is ⌘2. specialist tools take no number.
 
 **My channels.** **My channels…** in the account menu picks the channels you make content for (up to 6). Assets then shows those channels first, **Make channel assets** starts with only their files ticked, trend cards say which of them a trend fits ("Fits Social"), and the weekly briefing gets a **Ready for your channels** card. Choose none to see every channel the same way.
 
@@ -88,13 +88,13 @@ The page numbers follow the sidebar, so they depend on what your role shows. For
 **Search (⌘K).** One search for the studio, with results in groups:
 
 - **Next up**: the same rows as Home's Next up, listed first before you type.
-- **Pages**: every page you can open, Workbench pages included.
+- **Pages**: every page you can open, research tools included.
 - **Trends waiting for you**: **Review: <trend>** opens Trends at that trend's card. Roles that can't decide see **Open: <trend>** under **Trends waiting for an OK**.
 - **Reports**: **Read: <trend>**, one per trend, opens its Trends report in the reader. **Asset folders** opens a trend's folder in Assets.
 - **Research programs**: **Find new trends with <program>** shows the estimate and asks before it starts.
 - **Prompts** (**Open prompt: <name>**) and **People** (**People: <name>**), for admins.
 - **Create**: the same things as **New**.
-- **Actions**: **Open Ask AI**, **Write reports**, **Copy briefing for Slack**, **Copy link to this page**, **Mark Inbox read**, **Create a new scraper** (while a Workbench page is open), and **Run <workflow>…** and **Workflows: <name>** for each workflow.
+- **Actions**: **Open Ask AI**, **Write reports**, **Copy briefing for Slack**, **Copy link to this page**, **Mark Inbox read**, **Create a new scraper** (while a specialist tool is open), and **Run <workflow>…** and **Workflows: <name>** for each workflow.
 - Whatever you type can go to Ask AI: the last result is **Ask AI: <what you typed>**.
 
 Pages show their ⌘ number. ↑ and ↓ move, Enter opens, Esc closes.
@@ -134,7 +134,7 @@ A channel asset kit is the Golden Thread "Generate All Channel Assets" n8n workf
 
 ### Ask AI
 
-**Ask AI** answers questions, does work for you after you confirm, plans and prices quick scans, and can take you to a control and point at it. **Ask AI** sits at the top of the left sidebar (⌘J) and opens the Ask AI page; while a Workbench page is open it opens a drawer beside that page instead. Both show the same saved conversations. Every role has Ask AI unless an admin turns **Use Ask AI** off for that role or person; it only points people at pages they can open. Channel owners get one that sees only their channel (see [For channel owners](#for-channel-owners)).
+**Ask AI** answers questions, does work for you after you confirm, plans and prices quick scans, and can take you to a control and point at it. **Ask AI** sits at the top of the left sidebar (⌘J) and opens the Ask AI page; while a specialist tool is open it opens a drawer beside that page instead. Both show the same saved conversations. Every role has Ask AI unless an admin turns **Use Ask AI** off for that role or person; it only points people at pages they can open. Channel owners get one that sees only their channel (see [For channel owners](#for-channel-owners)).
 
 - **What it sees**: this guide plus a picture of your studio: the page, report, folder, run or trend you were on; the workspace and its channels; which connections are saved (yes or no only); the AI route and model; research programs (last and next run); recent runs and the last five quick scans; what's running; what needs your attention (failed runs this week, trends waiting and for how long, approved trends with no report, asset sets that need another try, reports in review over 3 days, published files with no link, channel plans due this week); each waiting trend with its run and earlier decisions; ready trends with each channel's answer; the trend memory (new, rising and fading, from the Trend tracker); report titles with status and last editor; asset folders with file statuses; the team (admins); and the prompts with their versions (people who can see prompts). It never sees API keys or tokens.
 - **It reads when it needs to**: titles aren't contents, so for questions like "what does the AI citation report say about budgets?" or "what are people saying about zero-click results?" it first looks up to three things, then answers: a report, an asset folder, one channel asset file, a run, one trend's history, collected posts (a keyword search of this workspace's recent runs and quick scans: the top 12 by engagement, with platform, author, text and link), anything by a loose name, what was spent and on what (people who see costs; Apify charges and Ask AI's own answers aren't included), earlier conversations, older memory, or one prompt with its last five changes (people who can see prompts). It also recalls related earlier conversations by itself. The answer notes what it read. Reading adds a second AI call.
@@ -152,7 +152,7 @@ A channel asset kit is the Golden Thread "Generate All Channel Assets" n8n workf
   - **Never**: change settings, keys or connections, delete anything for good, switch workspace, remove people, change roles or access, or send a message or email. It says who can, and **Show me** points at the control.
   - Studio items an answer names become buttons under it. Web addresses Ask AI wasn't given show as plain text.
 - **Needs you now**: an empty conversation starts with up to three buttons for what needs you (trends waiting for your OK, an asset set that needs another try, a run that didn't finish). They cost no AI; paid ones still show their confirmation.
-- **Show me**: when you ask where something is or how to do something, the answer can take you there: it switches tabs or pages, opens the report, folder or dialog it needs, and rings the exact control with a note on what to do. From the Ask AI page it covers the main pages, the sidebar, Settings and Ask AI itself; from the drawer beside a Workbench page, the sidebar, Ask AI, Settings, Inbox, Calendar, Prompts, People & access and the Trend tracker's momentum chips. **Next** (or →) moves on, clicking the highlighted control does too, and **Back to chat** returns. When it isn't taking you there right away, the answer has a **Show me** button.
+- **Show me**: when you ask where something is or how to do something, the answer can take you there: it switches tabs or pages, opens the report, folder or dialog it needs, and rings the exact control with a note on what to do. From the Ask AI page it covers the main pages, the sidebar, Settings and Ask AI itself; from the drawer beside a specialist tool, the sidebar, Ask AI, Settings, Inbox, Calendar, Prompts, People & access and the Trend tracker's momentum chips. **Next** (or →) moves on, clicking the highlighted control does too, and **Back to chat** returns. When it isn't taking you there right away, the answer has a **Show me** button.
 - **Stop**: answers appear as they are written. While one is coming, **Stop** (or Esc) stops it and nothing more is spent. What was written so far is kept in the conversation with "Stopped. What was written so far is kept." and no buttons; an answer stopped before any text says so and offers **Ask again**. **Retry** (↻, under your last answer) asks the same question again and keeps up to two earlier answers to page back through (view-only; their buttons are off). If an answer fails, **Try again** retries without paying twice for an answer that did arrive. A question sent from Trends or the reader while an answer is still coming waits: "Your question will be asked as soon as this answer is done."
 - **Cost**: each question uses the connection, model and effort **Model routing** sets for Ask AI answers (the studio's writing model at medium effort by default), capped at $0.75 per call (more for pricier models). People who see costs get the current estimate on the line under the question box; everyone else reads "Saved for you only. AI can be mistaken." there. Through the API key, the first question after five quiet minutes costs about $0.35–0.40 (it stores the guide in Claude's cache) and follow-ups within five minutes about $0.07–0.10. On the Claude app nothing is cached: about $0.30 a question. Reading something adds a second call: about $0.15 with a warm cache, else about $0.30. The Claude app's first question of a session also checks the model (a few cents). Codex uses its own model and doesn't report costs. Each answer shows its model and cost.
 - **Prompts**: people who can see prompts can ask how a prompt works ("what does the trends report prompt tell Claude about quotes?"); Ask AI reads the prompt before it answers. People whose role can edit prompts can also ask for a change ("make the toolkit headlines shorter"). Ask AI then offers one edit at a time, on a card that shows the part it changes, the lines added and removed, and anything the studio's checks would refuse. Nothing changes until you press **Apply as version N** (free), which saves a new version marked as made with Ask AI (see [Prompts](#prompts)); **Open in Prompts** opens the prompt instead. If someone saved the prompt after the suggestion, or an admin locked it, **Apply** is off and the card says why. Ask AI never says a prompt was changed unless you applied it.
@@ -391,7 +391,7 @@ Use this list for a new Mac install (on Windows, step 1 is in [On Windows](#on-w
 5. **Import the team setup file.** In **Settings → Share your setup**, click **Import setup…** and choose the JSON file (or use the **Got a setup file from your team?** banner on Research programs). Review the preview. If the file carries the Apify token, **Save the Apify token from this file** is ticked when this Mac has no token yet. Click **Import this setup**. With no setup file, **New → Research program** builds a program with you instead (see [Research programs](#research-programs)).
 6. **Check Claude again**, as the confirmation suggests.
 7. **Do a small first run.** On **Research programs**, click **Edit** on the program; it opens the program's own page on its settings tabs. For a cheap first run, set a short window (**Search the last (days)**, or **Look back (days)** on a scheduled program: 3), and under **Advanced research controls** lower **Target items per platform** (for example 300) and set **Maximum themes** to 2 or 3. Check that both budgets cover **Estimated cost per run**, click **Save program**, then click **Run now** at the top of the page. Your edits stay on your Mac. Importing the team file again restores the team's version.
-8. **Follow the run.** Watch progress on Home (**Working now**) or in the program's **Runs and results**, say **Yes** to the trends you want on **Trends**, click **Write reports**, then read each report from its card on Trends, and the posts in **Sheets** (in the Workbench).
+8. **Follow the run.** Watch progress on Home (**Working now**) or in the program's **Runs and results**, say **Yes** to the trends you want on **Trends**, click **Write reports**, then read each report from its card on Trends, and the posts with **Open in Sheets** on the run.
 
 ## Research programs
 
@@ -404,6 +404,14 @@ Research programs are the starting point for the pipeline. A workspace can have 
 **Who sees a program.** Admins see every program; everyone else sees all programs or only the ones chosen for them, and someone who doesn't see a program doesn't see its trends, reports or assets. **People who see it** lists everyone with a switch, saved at once (see [Roles and access](#roles-and-access)).
 
 **A program's page** has its name, schedule, caps and **Run now** at the top, then tabs. **Runs** (where **Runs and results** opens) lists each run: started, how it ended, trends found and approved, reports and, for people who see costs, cost; **Open** shows that run. The other tabs are its settings: **Name & focus**, **Sources**, **Schedule**, **Budget**, **AI models**, **Automation**, **Advanced**. It is one draft: an edit on any tab shows one bar with **Discard** and **Save program** (Run now waits for it; a failed check opens its tab; a newer save by someone else offers **Use their version** or **Save mine anyway**). Its prompts are in **Studio setup → Prompts**.
+
+### Share of voice
+
+Open a program and select **Share of voice → Set up tracking**. Enter one topic keyword or phrase per line. Put your brand first, then one competitor per line. Add aliases after a pipe and separate aliases with commas. Save to enable the dashboard for people who can view that program.
+
+Choose **Saved program collections** to measure the posts already collected by that program or **Tracker CSV export** to load the social team’s keyword-search sample. For the import, include all on-topic posts, including those with no tracked brand. CSV columns are `platform`, `published_at`, and `text`. Optional columns are `post_id`, `url`, `author`, and `type`. Re-importing overlapping posts merges duplicates.
+
+**Share of conversation** divides posts mentioning your brand by all on-topic posts. **Competitive share of voice** divides that brand’s mentions by mentions of all tracked brands. One post can contribute a mention to each brand it names. The dashboard reports the collected sample and shows available history and incomplete collections. Use date and platform filters, click a tracked brand to inspect its posts, or download daily counts as a CSV.
 
 ### The program editor
 
@@ -631,7 +639,7 @@ Quick scans show as their own **Quick Scans** count and never change a research 
 
 ## Sheets
 
-Sheets shows each research run as a workbook laid out like the team's Golden Thread Google Sheet, plus the **Trend tracker** across runs, and lets you import spreadsheets to review alongside. Open it from the Workbench (under **Data**), **Open in Sheets** on a run, or **Open the Trend tracker** on Home's What changed card.
+Sheets shows each research run as a workbook laid out like the team's Golden Thread Google Sheet, plus the **Trend tracker** across runs, and lets you import spreadsheets to review alongside. Open it with **Open in Sheets** on a research run or **Trend tracker** on Trends or Home.
 
 ### Trend tracker (across runs)
 
@@ -676,7 +684,7 @@ Theme columns and totals fill in only after themes are approved and tagging runs
 
 ## Create content
 
-Create content turns a source into drafts in three steps. It's in the Workbench, under **Create**. **New → Content from a report** opens it on **Use a report**, and **Create content** in the report reader opens it with that report attached.
+Create content turns a source into drafts in three steps. **New → Create content** and **Assets → Create content** open it, and **Create content** in the report reader opens it with that report attached.
 
 1. **Source brief** ("What is the story?"): **Paste a brief** (a **Source title** and **Source brief** of up to 250,000 characters), **Import document** (.txt, .md, .docx), **Use a report** (a finished report from this workspace), or **Google Doc** (needs a Google Docs token).
 
@@ -690,7 +698,7 @@ Drafts use the workspace's brand knowledge and approved products as they were at
 
 ## Brand knowledge
 
-**Brand knowledge** is a section of **Studio setup**. It has two tabs: **Workspace knowledge** and **Research brand profiles** (profiles used by the Workbench's data tools).
+**Brand knowledge** is a section of **Studio setup**. It has two tabs: **Workspace knowledge** and **Research brand profiles** (profiles used by the Research data tools).
 
 **Workspace knowledge**:
 
@@ -707,14 +715,14 @@ Drafts use the workspace's brand knowledge and approved products as they were at
 
 ## Data tools
 
-The sidebar's **Workbench** holds the tools for collecting and analyzing datasets outside research programs (the group used to be called Data tools, and a role needs **Use data tools** to see them).
+Open **Home → Research data** to work with saved collections outside research programs. A role needs **Use data tools** to see it.
 
-- **Collect**
+- **Collect data**
   - **Search platforms**: a quick topic or account search across Reddit, X and LinkedIn in three tabs: **Search brief**, **Sources & filters** and **Review & run**. **Results per source** defaults to 10 (maximum 50; Reddit needs at least 10). **Apify budget per source (USD)** defaults to $0.25. Click **Search selected sources**.
   - **Scrapers**: save and run your own Apify Actor or saved-task recipes. Each run has an Apify budget and timeout (by default $5 and 15 minutes, shown on the scraper); a run stopped at its limit keeps its rows, marked as stopped early. **Test a small sample** is capped at $1 and 3 minutes, shows as "<name> (test)" under **N running**, and can be stopped there.
   - **Import research**: bring in CSV, JSON or JSONL with column mapping.
 - **Create**
-  - **Brief starters** (formerly Playbooks): eight guided research briefs over a dataset or public pages, such as Competitor positioning brief and Voice of customer brief. (**Create content** is here too; see [Create content](#create-content).)
+  - **Report presets** are available in a dataset’s **Reports** tab, including **Competitor positioning** and **Voice of customer**. Previously generated briefs stay with their datasets.
 - **Data** (with **Sheets**; see [Sheets](#sheets))
   - **Datasets**: browse collections with the **Explorer**, **Signals**, **Conversations**, **Topics** and **Coverage** tabs. Export CSV or JSONL.
   - **Dataset reports** (formerly AI reports): reports the AI writes from one dataset, with a review and approval panel and exports. These are not the trends reports from research.
@@ -722,19 +730,17 @@ The sidebar's **Workbench** holds the tools for collecting and analyzing dataset
   - **Ask your datasets** (formerly Chat with findings): ask questions across up to eight datasets, with checked citations. Posts collected by research programs aren't datasets yet, so the page points you to Ask AI, which can search them.
 - **Activity**: a timeline of collections, research (quick scans included), content and AI work. It shows **Running now**, **Waiting on you**, **Needs attention** and **AI spend this week**. Select an entry for details, actions and **Technical details**.
 
-In the General workspace, **Overview**, first under **Data**, is the collection overview: shortcuts to collections, brief starters, scrapers and recent activity. The Semrush sidebar leaves it out.
-
 
 ## Workflows and playbooks
 
-**Workflows** (Workbench › Automate) are saved automations. Triggers: a schedule (daily, weekly, monthly, or every few hours until a last day, for quick scans), **Whenever “<program>” runs**, or by hand. Steps, in order: **Find trends** (a research program) or **Quick scan**; **Approve trends** (by rules, by waiting for someone’s OK, or every trend); **Write reports**; **Make channel assets**; **Update Monday.com**; **Tell the team** (an Inbox row, with **Copy summary for Slack**). After a quick scan, only Tell the team.
+**Home → Automations** are saved automations. Triggers: a schedule (daily, weekly, monthly, or every few hours until a last day, for quick scans), **Whenever “<program>” runs**, or by hand. Steps, in order: **Find trends** (a research program) or **Quick scan**; **Approve trends** (by rules, by waiting for someone’s OK, or every trend); **Write reports**; **Make channel assets**; **Update Monday.com**; **Tell the team** (an Inbox row, with **Copy summary for Slack**). After a quick scan, only Tell the team.
 
 - Rules use **momentum when found** (compared with the program’s last run), priority and speed. A person’s Yes or Skip always wins; trends nobody decided are skipped when the wait ends (or the run stops, if you chose that).
 - Nothing runs on its own until an admin approves a budget: **Each run** and **Each month**, never more. A run that would go over waits (**Needs a bigger budget**, in the Inbox). Changing what it may spend (program caps, channels, pictures, how many trends, how often) needs a new approval. **Run now…** always shows the cost first; a workflow without a budget asks for a cap for that run. On Codex the caps are guides.
 - A workflow runs with its owner’s access. If the owner loses a step, it pauses and an admin can **Take over**. Three failed runs in a row pause it too. **Try again** picks up where a run stopped and never pays twice.
 - On the Mac, schedules run while the studio is open. A program’s own schedule and a scheduled workflow can’t both run it.
 
-**Playbooks** (Workbench › Automate, **New › Playbook**, or Home’s **Automations** card) are ready-made setups: Weekly SEO trend watch, Competitor launch watch, Product launch pulse, Newsletter prep, PR angle finder, or Start from scratch. **Set up** walks through six steps (Basics, Research, Approval, Reports and assets, Schedule and sharing, Review and cost). It makes a research program (accounts copied from yours, or entered) or uses one as it is, then the workflow. **Notes for the research**, **for the writers** and **for channel assets** are added to the prompts for that workflow only. **Save and turn on** approves the budget; people who can’t approve choose **Save for an admin to approve**.
+**Workflow templates** (**Home → Automations → New workflow → Start from a template**) are ready-made setups: Weekly SEO trend watch, Competitor launch watch, Product launch pulse, Newsletter prep, PR angle finder, or Start from scratch. **Set up** walks through six steps (Basics, Research, Approval, Reports and assets, Schedule and sharing, Review and cost). It makes a research program (accounts copied from yours, or entered) or uses one as it is, then the workflow. **Notes for the research**, **for the writers** and **for channel assets** are added to the prompts for that workflow only. **Save and turn on** approves the budget; people who can’t approve choose **Save for an admin to approve**.
 
 ## Settings
 
@@ -995,7 +1001,7 @@ Ask AI first. Then send the team: what you did and expected; a screenshot of the
 - **Theme repository / tracked themes**: themes this workspace has seen across runs, used for matching and velocity.
 - **Trends report**: the comprehensive evidence report per trend (the evidence-report deliverable).
 - **Velocity**: how many runs detected a theme: NEW, EMERGING (Seen twice), ACCELERATING (3+).
-- **Workbench**: the sidebar group with the specialist tools: the program editor, collection, Create content, Sheets, datasets, workflows and Activity (formerly Data tools).
+- **Research data**: the Home entry for dataset collection and analysis.
 - **Workspace**: a separate set of knowledge, programs, runs and assets.
 - **Zone**: a taxonomy category's saturation (OPEN, MODERATE, SATURATED).
 
@@ -1005,7 +1011,7 @@ Ask AI first. Then send the team: what you did and expected; a screenshot of the
 - **Google delivery needs a connection.** New reports go to Drive once an admin sets up Settings → Google Drive. Create Google Sheet, Pull from a Google Sheets link, Publish to Google Drive and Save to Google Drive need the Sheets bridge (Settings → Google Sheets). Docs shared by link import without Google; private docs need a pasted token that expires.
 - **A Mac build that isn't notarized** makes macOS ask you to confirm it once (System Settings → Privacy & Security → **Open Anyway**) the first time you open it. There are no automatic updates: quit the app (not during a run), open the new DMG and replace the app; your data stays.
 - **Schedules run only while the app is open** and the computer is awake (on Windows, closing the window quits; in the browser studio, while the server runs).
-- **Ask AI acts only through buttons you click**, and paid work always asks first. From chat it can change a research program (settings, schedule, accounts followed), a channel's knowledge, the brand knowledge, an AI task's model, and prompts (edit, or restore a version), each on a card you check and can edit before it saves. It can't save keys, change people or roles, delete for good, switch workspace or send messages; a drafted program or invite opens for you to save. It reads collected posts only through its post search (the top 12 matches), and its Show me tours cover the places listed under Ask AI; other Workbench pages get Open buttons.
+- **Ask AI acts only through buttons you click**, and paid work always asks first. From chat it can change a research program (settings, schedule, accounts followed), a channel's knowledge, the brand knowledge, an AI task's model, and prompts (edit, or restore a version), each on a card you check and can edit before it saves. It can't save keys, change people or roles, delete for good, switch workspace or send messages; a drafted program or invite opens for you to save. It reads collected posts only through its post search (the top 12 matches), and its Show me tours cover the places listed under Ask AI; other specialist tools get Open buttons.
 - **Prompts change only their editable parts.** The structure, the data sections and the answer format stay fixed, and the studio's checks on every answer apply whatever a prompt says. Prompt changes aren't part of setup files yet.
 - **Quick scans** stop after finding trends: they never go through review, tagging or reports, and one runs at a time per workspace.
 - **Collection is a sample**, not the whole platform. Spending caps, time limits, private accounts and the per-author cap all reduce coverage. Counts and momentum describe your sample, not market prevalence.

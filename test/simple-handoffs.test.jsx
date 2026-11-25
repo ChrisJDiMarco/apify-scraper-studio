@@ -257,13 +257,14 @@ describe('Ask AI page links use Ask AI’s page names', () => {
   it('opens Dataset reports from an in-answer link in Simple, not Simple’s Reports', async () => {
     const answer = await askInSimple();
     fireEvent.click(within(answer).getByRole('button', { name: /^Dataset reports/ }));
-    await expectPeek('Dataset reports');
+    await expectPeek('Research data');
   });
 
   it('opens the Collection overview from a page button in Simple, not Simple’s Home', async () => {
     const answer = await askInSimple();
     fireEvent.click(within(answer).getByRole('button', { name: /Open Collection overview/ }));
     await expectPeek('Collection overview');
+    expect(screen.getByRole('heading', { name: 'Research your market. Make your next move.' })).toBeInTheDocument();
   });
 
   it('sends page links and Open page buttons through openPage in every layout', async () => {

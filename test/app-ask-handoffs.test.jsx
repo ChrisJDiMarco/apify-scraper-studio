@@ -8,7 +8,7 @@ import { ContentStudioView } from '../src/renderer/src/content-studio-view.jsx';
 
 // Ask AI's hand-offs, as App wires them in both layouts: a research program card, its Open button and a [[Program]]
 // link land on Research programs with that program selected, not on whichever program was picked last or is newest.
-afterEach(() => { cleanup(); delete window.apifyStudio; vi.restoreAllMocks(); try { window.localStorage.clear(); } catch { /* no storage */ } });
+afterEach(() => { cleanup(); delete window.apifyStudio; window.history.replaceState(null, '', '/'); vi.restoreAllMocks(); try { window.localStorage.clear(); } catch { /* no storage */ } });
 
 const workspaces = [{ id: 'semrush', name: 'Semrush workspace', editionId: 'semrush', knowledge: {}, products: [] }];
 const programs = [
@@ -42,8 +42,8 @@ async function openStudio(uiMode) {
   await screen.findByRole('heading', { level: 1, name: /^This week in/ });
   // From an Advanced page (Create content, in the Workbench), Ask AI is the drawer beside it.
   if (uiMode === 'classic') {
-    if (document.querySelector('[data-spot="nav.data-tools"]')?.getAttribute('aria-expanded') !== 'true') fireEvent.click(document.querySelector('[data-spot="nav.data-tools"]'));
-    fireEvent.click(document.querySelector('[data-spot="nav.create"]'));
+    window.location.hash = '#/workbench/create';
+
     await waitFor(() => expect(document.querySelector('.app-shell')).toHaveAttribute('data-mode', 'classic'));
   }
   return api;

@@ -70,7 +70,7 @@ the No access screen.
    `costsOptional` (Ask AI). A channel base never needs costs.
 
 The methods are the union of the capabilities' methods (a channel base: intersected with `channelSafeMethods`). With
-no policy edits this is exactly the old fixed matrix plus Ask AI for channel owners: admin 203 methods, editor 128, channel owner 44
+no policy edits this is exactly the old fixed matrix plus Ask AI for channel owners: admin 206 methods, editor 129, channel owner 45
 (`test/roles.test.js` and `test/docs-consistency.test.js` check these numbers).
 
 Channels are the ten asset-kit folders in `src/shared/kit-folders.json` `folders` (main reads them through
@@ -92,6 +92,9 @@ menu). The server enforces it in `src/main/program-scope.js`:
   by those ids. Work that belongs to no program (a draft from a pasted brief, a set from a Google Doc) stays.
 - **Calls.** `access.check` traces a payload's program, run, file, trend or workbook to its program and refuses another
   program's with `outOfScope`, for every method.
+- **Saved collections.** A program can reuse its own collections and standalone workspace datasets. The picker, research
+  runs and Share of Voice use the collection's source program. Standalone imports remain available to workspace roles
+  with the relevant access.
 - **Answers.** Lists that span programs (workbooks, trend history, search) leave other programs' rows out.
 - **Ask AI** reads the studio through the same scope (`helpStudio` in `index.js`).
 - **Preview.** "Preview as" a member shows exactly their programs.

@@ -8,7 +8,7 @@ import roles from '../src/main/roles.js';
 import fixture from './fixtures/roles-state.js';
 
 // Leftovers from the logic sweep, through the real App: Create content shows a handed-over report as an attached report
-// (and sends what the person edited), New › Content from a report opens on the report picker in either layout, and
+// (and sends what the person edited), New › Create content opens on the report picker in either layout, and
 // Advanced Home's Yes and Skip show at once with Undo, as Simple's do.
 const stored = new Map();
 Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, String(value)), removeItem: (key) => stored.delete(key), clear: () => stored.clear() } });
@@ -88,12 +88,12 @@ describe('Create content keeps a handed-over report as an attached report', () =
   });
 });
 
-describe('New › Content from a report', () => {
+describe('New › Create content', () => {
   it('opens Create content on the report picker in the Advanced layout, not the paste form', async () => {
     openStudio();
     await h1(GREETING);
     fireEvent.click(document.querySelector('[data-spot="nav.new"]'));
-    fireEvent.click(await screen.findByRole('menuitem', { name: /Content from a report/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Create content/ }));
     await h1('Create content');
     expect(screen.getByRole('button', { name: /Use a report/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /Paste a brief/ })).toHaveAttribute('aria-pressed', 'false');
@@ -104,7 +104,7 @@ describe('New › Content from a report', () => {
     openStudio({ uiMode: 'simple' });
     await h1(GREETING);
     fireEvent.click(document.querySelector('[data-spot="nav.new"]'));
-    fireEvent.click(await screen.findByRole('menuitem', { name: /Content from a report/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Create content/ }));
     await h1('Create content');
     expect(screen.getByRole('button', { name: /Use a report/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByLabelText('Source title')).not.toBeInTheDocument();
